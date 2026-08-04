@@ -50,7 +50,7 @@ public sealed class ContextCollectViewModel : ObservableObject
         Files = new ObservableCollection<ContextFileNodeViewModel>();
         ExtraExcludes = new ObservableCollection<string>(project.Overrides.Excludes);
 
-        RefreshCommand = new AsyncRelayCommand(RefreshAsync);
+        RefreshCommand = new AsyncRelayCommand(() => RefreshAsync());
         PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => !_isScanning);
         CopyCommand = new AsyncRelayCommand(CopyAsync, () => !_isScanning);
         ToggleSelectedCommand = new RelayCommand(ToggleSelected, () => _selectedFile is { IsDirectory: false, IsExcluded: false });
