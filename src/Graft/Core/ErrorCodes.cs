@@ -24,6 +24,8 @@ public enum ErrorCode
     E102,
     /// <summary>終了アンカーが見つからない。</summary>
     E103,
+    /// <summary>アンカー省略記法の範囲が閾値を超過（仕様書4.4の警告。16章の表には無いため追加）。</summary>
+    E104,
 
     /// <summary>パスがルート外。</summary>
     E201,

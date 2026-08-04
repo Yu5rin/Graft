@@ -1,0 +1,35 @@
+<!--
+  8.6 シンタックスハイライトの共通リソース。
+
+  構成上の注意（完了報告にも記載）:
+  8トークン（SyntaxKeyword / SyntaxString / SyntaxNumber / SyntaxComment /
+  SyntaxFunction / SyntaxType / SyntaxOperator / SyntaxPlain）の実体（実際の色）は
+  ダーク/ライトで値が異なるため、Dark.xaml と Light.xaml の中に同じキー名で
+  定義してある（8.3のカラートークンと同じ置き場所・同じ差し替え方式にするため）。
+  SyntaxDark.xaml / SyntaxLight.xaml という別ファイルに分ける案も仕様書は許容して
+  いるが、今回の担当ファイル一覧が Themes/Syntax.xaml 一本のみに固定されているため
+  ファイルを増やさずこの構成を採った。
+
+  このファイル自身が持つのは、色を含まない共通リソースのみ。
+  - SyntaxCommentStyle: コメントのみに適用するイタリック指定（8.6終盤の規則）。
+    Foreground は Dark.xaml / Light.xaml 側の SyntaxComment を DynamicResource で
+    参照するため、テーマ切り替えに自動追従する。
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- コメントトークンにのみ使うイタリック装飾。それ以外のトークン種別は
+         ウェイト・スタイルを変更しない（8.6: 「キーワードの太字表示は…採用しない」）。 -->
+    <Style x:Key="SyntaxCommentStyle" TargetType="Run">
+        <Setter Property="FontStyle" Value="Italic" />
+        <Setter Property="Foreground" Value="{DynamicResource SyntaxComment}" />
+    </Style>
+
+    <!-- Span（複数Runをまとめる場合）向けの同等スタイル。トークン種別ごとに
+         RunでもSpanでも同じイタリック規則を適用できるようにする。 -->
+    <Style x:Key="SyntaxCommentSpanStyle" TargetType="Span">
+        <Setter Property="FontStyle" Value="Italic" />
+        <Setter Property="Foreground" Value="{DynamicResource SyntaxComment}" />
+    </Style>
+
+</ResourceDictionary>
