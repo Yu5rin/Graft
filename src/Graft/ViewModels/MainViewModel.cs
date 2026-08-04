@@ -23,7 +23,7 @@ public enum CenterPaneState
 /// 貼り付け（Ctrl+V）から適用完了までの一連の操作（仕様書8.10）を提供する。
 /// 依存はすべてコンストラクタ引数で受け取り、生成は起動処理担当が行う（附録A.3）。
 /// </summary>
-public sealed class MainViewModel : ObservableObject
+public sealed partial class MainViewModel : ObservableObject
 {
     private readonly ApplyEngine _applyEngine;
     private readonly RevisionStore _revisionStore;
@@ -36,6 +36,7 @@ public sealed class MainViewModel : ObservableObject
     private Patch? _currentPatch;
     private DryRunResult? _dryRun;
     private ApplyContext? _lastContext;
+    private bool _dryRunFromQueue;
 
     private CenterPaneState _state = CenterPaneState.Empty;
     private GraftIssue? _centerError;
@@ -51,6 +52,7 @@ public sealed class MainViewModel : ObservableObject
         SettingsStore settingsStore,
         WindowLayoutStore layoutStore,
         DialogService dialogService,
+        Features.PatchQueue patchQueue,
         Action openSettingsRequested)
     {
         _applyEngine = applyEngine ?? throw new ArgumentNullException(nameof(applyEngine));
@@ -59,6 +61,7 @@ public sealed class MainViewModel : ObservableObject
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         LayoutStore = layoutStore ?? throw new ArgumentNullException(nameof(layoutStore));
         _dialogs = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        ArgumentNullException.ThrowIfNull(patchQueue);
         _openSettingsRequested = openSettingsRequested ?? throw new ArgumentNullException(nameof(openSettingsRequested));
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
@@ -67,6 +70,10 @@ public sealed class MainViewModel : ObservableObject
         // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
         Diff = new DiffViewModel(new Settings());
         Diff.PropertyChanged += OnDiffPropertyChanged;
+
+        PatchQueue = patchQueue;
+        Queue = new QueueViewModel(patchQueue, dialogService);
+        Queue.MergeRequested += async (_, _) => await MergeQueueAndLoadAsync().ConfigureAwait(true);
 
         ProjectPane.ProjectSelected += OnProjectSelected;
         History.RevisionSelected += OnRevisionSelected;
@@ -80,12 +87,18 @@ public sealed class MainViewModel : ObservableObject
         DiscardCommand = new RelayCommand(DiscardCurrentPatch);
         FocusSearchCommand = new RelayCommand(() => RequestFocusSearch?.Invoke(this, EventArgs.Empty));
         ShowHistoryCommand = new RelayCommand(() => RequestFocusHistory?.Invoke(this, EventArgs.Empty));
+        AddCurrentPatchToQueueCommand = new AsyncRelayCommand(AddCurrentPatchToQueueAsync, () => _currentPatch is not null);
+        OpenQueueCommand = new RelayCommand(() => RequestOpenQueue?.Invoke(this, EventArgs.Empty));
+        CopyRecoveryPromptCommand = new AsyncRelayCommand(CopyRecoveryPromptAsync, () => Blocks.Any(b => !b.Plan.CanApply));
     }
 
     public ProjectPaneViewModel ProjectPane { get; }
     public HistoryPaneViewModel History { get; }
     public DiffViewModel Diff { get; }
     public WindowLayoutStore LayoutStore { get; }
+
+    // PatchQueue/Queue/AddCurrentPatchToQueueCommand/OpenQueueCommand/CopyRecoveryPromptCommand/
+    // RequestOpenQueueはMainViewModel.Queue.csで宣言する（400行上限のための分割）。
 
     /// <summary>読み込み・保存済みのウィンドウ・ペインレイアウト。Viewが直接読み書きする。</summary>
     public WindowLayoutState Layout { get; private set; } = new();
@@ -110,14 +123,8 @@ public sealed class MainViewModel : ObservableObject
         set
         {
             var previous = _selectedBlock;
-            if (!SetProperty(ref _selectedBlock, value))
-            {
-                return;
-            }
-            if (previous is not null)
-            {
-                previous.PropertyChanged -= OnSelectedBlockPropertyChanged;
-            }
+            if (!SetProperty(ref _selectedBlock, value)) return;
+            if (previous is not null) previous.PropertyChanged -= OnSelectedBlockPropertyChanged;
             if (value is null)
             {
                 Diff.Clear();
@@ -191,10 +198,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CurrentProjectName));
     }
 
-    /// <summary>
-    /// 仕様書6.3: 前回の適用が in_progress のまま残っていないかを確認し、検出時は通知する。
-    /// 実ファイルの巻き戻しにはApplyEngine側の再開APIが必要なため、自動ロールバックは行わない。
-    /// </summary>
+    /// <summary>6.3: in_progressのまま残るリビジョンを検出し通知する（自動ロールバックは非対応）。</summary>
     private async Task CheckInProgressAsync(Project project)
     {
         var result = await _revisionStore.FindInProgressAsync(project.Id).ConfigureAwait(true);
@@ -207,11 +211,7 @@ public sealed class MainViewModel : ObservableObject
 
     private async void OnRevisionSelected(object? sender, RevisionRowViewModel? row)
     {
-        if (row is null)
-        {
-            Diff.Clear();
-            return;
-        }
+        if (row is null) { Diff.Clear(); return; }
 
         State = CenterPaneState.Loading;
         var plans = await History.BuildDiffPlansAsync(row, _settings.Diff.ContextLines).ConfigureAwait(true);
@@ -221,10 +221,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusSummaryText));
     }
 
-    /// <summary>
-    /// diff側の変更をブロック一覧・レイアウトへ反映する。IsIncludedは選択中ブロックの
-    /// IsSelectedへ（連携契約）、CodeFontSizeはプロジェクト別ペイン幅設定へ保存する（8.4）。
-    /// </summary>
+    /// <summary>diff側の変更を反映する。IsIncludedは選択ブロックへ、CodeFontSizeは8.4のペイン記憶へ。</summary>
     private void OnDiffPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(DiffViewModel.CodeFontSize))
@@ -276,7 +273,15 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
 
+        // 4.10: パッチが途中で切れている場合は直接適用フローへ乗せず、キューへ積んで続きを依頼する。
+        if (parsed.Value.IsTruncated)
+        {
+            await HandleTruncatedPatchAsync(parsed.Value).ConfigureAwait(true);
+            return;
+        }
+
         _currentPatch = parsed.Value;
+        _dryRunFromQueue = false;
         await RunDryRunAsync().ConfigureAwait(true);
     }
 
@@ -324,10 +329,7 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task ApplyAsync()
     {
-        if (_dryRun is null || _lastContext is null)
-        {
-            return;
-        }
+        if (_dryRun is null || _lastContext is null) return;
 
         var updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
         var updatedDryRun = _dryRun with { Plans = updatedPlans };
@@ -335,10 +337,7 @@ public sealed class MainViewModel : ObservableObject
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
             var input = await _dialogs.PromptAsync("要約を入力", "このリビジョンの概要を入力してください。", null).ConfigureAwait(true);
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(input)) return;
             var patchWithSummary = updatedDryRun.Patch with { Meta = updatedDryRun.Patch.Meta with { Summary = input } };
             updatedDryRun = updatedDryRun with { Patch = patchWithSummary };
         }
@@ -346,10 +345,7 @@ public sealed class MainViewModel : ObservableObject
         var confirmed = await _dialogs
             .ConfirmAsync("適用の確認", $"{updatedDryRun.ApplicableCount}件を適用します。よろしいですか？")
             .ConfigureAwait(true);
-        if (!confirmed)
-        {
-            return;
-        }
+        if (!confirmed) return;
 
         State = CenterPaneState.Loading;
         var result = await _applyEngine.ApplyAsync(updatedDryRun, _lastContext).ConfigureAwait(true);
@@ -361,13 +357,11 @@ public sealed class MainViewModel : ObservableObject
         }
 
         await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
+        FinalizeApplyFromQueueIfNeeded(); // 4.10: キュー結合適用時はキューを空にする（MainViewModel.Queue.cs）。
         DiscardCurrentPatch();
         await ProjectPane.LoadAsync().ConfigureAwait(true);
         var project = ProjectPane.SelectedItem?.Project;
-        if (project is not null)
-        {
-            await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
-        }
+        if (project is not null) await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
     }
 
     private async Task UndoLastAsync()
