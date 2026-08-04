@@ -18,6 +18,8 @@
         <!-- InverseBooleanConverter / InverseBooleanToVisibilityConverter は
              Views/ContextCollectWindow.xaml.cs（Graft.Views名前空間）で既に定義済みのため、
              ここでは再定義せず再利用する。 -->
+        <views:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+        <views:InverseBooleanConverter x:Key="InverseBool" />
         <views:BoolToStarGridLengthConverter x:Key="BoolToStarWidth" />
         <views:BoolToTextWrappingConverter x:Key="BoolToWrap" />
 

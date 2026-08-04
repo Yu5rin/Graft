@@ -31,25 +31,10 @@ public partial class ContextCollectWindow : Window
     }
 }
 
-/// <summary>boolがtrueのとき<see cref="Visibility.Collapsed"/>、falseのとき<see cref="Visibility.Visible"/>を返す。</summary>
-public sealed class InverseBooleanToVisibilityConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is true ? Visibility.Collapsed : Visibility.Visible;
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is Visibility.Visible;
-}
-
-/// <summary>boolを反転する。</summary>
-public sealed class InverseBooleanConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is bool b && !b;
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value is bool b && !b;
-}
+// InverseBooleanToVisibilityConverter・InverseBooleanConverter は
+// Views/HistoryPane.xaml.cs・Views/EmptyStateView.xaml.cs（他担当）に同名・同機能のものが
+// 既に定義されているため、ここでは重複定義せずそちらを再利用する（同一名前空間のため
+// using 追加は不要）。
 
 /// <summary>値がnullでなければ<see cref="Visibility.Visible"/>、nullなら<see cref="Visibility.Collapsed"/>を返す。</summary>
 public sealed class NullToVisibilityConverter : IValueConverter

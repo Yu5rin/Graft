@@ -73,7 +73,7 @@
             <ComboBox x:Name="TypeCombo"
                       Grid.Column="0"
                       ItemsSource="{Binding AvailableTypes}"
-                      SelectedItem="{Binding TypeFilter}"
+                      SelectedItem="{Binding TypeFilter, Mode=TwoWay}"
                       AutomationProperties.Name="種別で絞り込み" />
             <Button Grid.Column="1"
                     Content="×"
@@ -83,12 +83,12 @@
                     ToolTip="種別絞り込みを解除"
                     AutomationProperties.Name="種別絞り込みを解除" />
             <DatePicker Grid.Column="2"
-                        SelectedDate="{Binding DateFrom, Converter={StaticResource DateConverter}}"
+                        SelectedDate="{Binding DateFrom, Converter={StaticResource DateConverter}, Mode=TwoWay}"
                         Width="96"
                         Margin="4,0,0,0"
                         AutomationProperties.Name="開始日" />
             <DatePicker Grid.Column="3"
-                        SelectedDate="{Binding DateTo, Converter={StaticResource DateConverter}}"
+                        SelectedDate="{Binding DateTo, Converter={StaticResource DateConverter}, Mode=TwoWay}"
                         Width="96"
                         Margin="4,0,0,0"
                         AutomationProperties.Name="終了日" />

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using Graft.Core;
@@ -40,6 +41,7 @@ public sealed class MainViewModel : ObservableObject
     private GraftIssue? _centerError;
     private BlockItemViewModel? _selectedBlock;
     private string _filterText = string.Empty;
+    private bool _syncingSelection;
 
     public MainViewModel(
         ApplyEngine applyEngine,
@@ -61,7 +63,11 @@ public sealed class MainViewModel : ObservableObject
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, dialogService);
-        Diff = new DiffViewModel();
+        // DiffViewModel は Settings を要求するため、設定読み込み前は既定値で仮に構築する。
+        // InitializeAsync で実際の設定を読み込んだ後、WordWrap/ShowWhitespace のみ反映し直す
+        // （ShowLineNumbers 等は構築時の Settings に固定されるDiffViewModel側の設計のため）。
+        Diff = new DiffViewModel(new Settings());
+        Diff.PropertyChanged += OnDiffPropertyChanged;
 
         ProjectPane.ProjectSelected += OnProjectSelected;
         History.RevisionSelected += OnRevisionSelected;
@@ -107,8 +113,14 @@ public sealed class MainViewModel : ObservableObject
         get => _selectedBlock;
         set
         {
+            var previous = _selectedBlock;
             if (SetProperty(ref _selectedBlock, value))
             {
+                if (previous is not null)
+                {
+                    previous.PropertyChanged -= OnSelectedBlockPropertyChanged;
+                }
+
                 if (value is null)
                 {
                     Diff.Clear();
@@ -116,6 +128,7 @@ public sealed class MainViewModel : ObservableObject
                 else
                 {
                     Diff.Load(value.Plan);
+                    value.PropertyChanged += OnSelectedBlockPropertyChanged;
                 }
             }
         }
@@ -158,6 +171,9 @@ public sealed class MainViewModel : ObservableObject
     {
         var settingsResult = await _settingsStore.LoadAsync(ct).ConfigureAwait(true);
         _settings = settingsResult.Value;
+        // DiffViewModelはSettingsを構築時に固定するため、書き換え可能な項目のみ読み込み後に反映する。
+        Diff.WordWrap = _settings.Diff.WordWrap;
+        Diff.ShowWhitespace = _settings.Diff.ShowWhitespace;
 
         Layout = await LayoutStore.LoadAsync(ct).ConfigureAwait(true);
 
