@@ -286,6 +286,20 @@
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
                     <Grid>
+                        <!--
+                            幅の確保: カスタムテンプレートではドロップダウン内の項目が
+                            閉じた状態で計測されず、幅が選択中の項目だけで決まってしまう。
+                            高さ0の非表示ItemsControlに全項目を並べて計測にだけ参加させ、
+                            「一番長い項目＋矢印」の幅を常に確保する。
+                        -->
+                        <ItemsControl ItemsSource="{TemplateBinding ItemsSource}"
+                                      DisplayMemberPath="{TemplateBinding DisplayMemberPath}"
+                                      Height="0"
+                                      Margin="9,0,37,0"
+                                      Visibility="Hidden"
+                                      IsHitTestVisible="False"
+                                      Focusable="False"
+                                      KeyboardNavigation.TabNavigation="None" />
                         <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Template>
@@ -323,8 +337,9 @@
                             反映されず選択中オブジェクトの既定ToString()が出ることがあるため、
                             DisplayMemberPathを自前で解決するコンバータを使う。
                         -->
+                        <!-- 右37pxは矢印の占有領域。本文が矢印の下へ潜り込まないよう常に空ける。 -->
                         <ContentPresenter x:Name="ContentSite"
-                                           Margin="{TemplateBinding Padding}"
+                                           Margin="9,6,37,6"
                                            HorizontalAlignment="Left"
                                            VerticalAlignment="Center"
                                            IsHitTestVisible="False">
