@@ -234,6 +234,37 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusSummaryText));
     }
 
+    /// <summary>
+    /// diffペイン側（DiffViewModel.IsIncluded）でのチェック切り替えを、選択中ブロックの
+    /// IsSelectedへ反映する。DiffViewModel側のドキュメントコメントにある連携契約。
+    /// </summary>
+    private void OnDiffPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_syncingSelection || e.PropertyName != nameof(DiffViewModel.IsIncluded) || SelectedBlock is null)
+        {
+            return;
+        }
+        _syncingSelection = true;
+        SelectedBlock.IsSelected = Diff.IsIncluded;
+        _syncingSelection = false;
+    }
+
+    /// <summary>ブロック一覧側（Space・チェックボックス）での切り替えをdiffペインへ反映する。</summary>
+    private void OnSelectedBlockPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (_syncingSelection || e.PropertyName != nameof(BlockItemViewModel.IsSelected))
+        {
+            return;
+        }
+        if (sender is not BlockItemViewModel block || !ReferenceEquals(block, _selectedBlock))
+        {
+            return;
+        }
+        _syncingSelection = true;
+        Diff.IsIncluded = block.IsSelected;
+        _syncingSelection = false;
+    }
+
     private async void OnRevisionRestored(object? sender, EventArgs e)
     {
         var project = ProjectPane.SelectedItem?.Project;
