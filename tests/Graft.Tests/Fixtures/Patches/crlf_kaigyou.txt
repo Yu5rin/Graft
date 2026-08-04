@@ -1,0 +1,6 @@
+<<<< FILE: src/crlf_test.py
+<<<<<<< SEARCH  # CRLFでの解析確認
+old_line = 1
+=======
+new_line = 2
+>>>>>>> REPLACE

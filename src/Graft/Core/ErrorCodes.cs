@@ -17,6 +17,8 @@ public enum ErrorCode
     E005,
     /// <summary>エスケープ規則の不整合。</summary>
     E006,
+    /// <summary>パッチキュー内で同一ファイルのブロックが重複（16章の表には無いため追加）。</summary>
+    E007,
 
     /// <summary>SEARCH部が見つからない。</summary>
     E101,
@@ -84,6 +86,7 @@ public static class ErrorCatalog
         [ErrorCode.E004] = ("summaryが未指定", "要約を入力してください"),
         [ErrorCode.E005] = ("パッチが途中で切れている", "継続依頼プロンプトを生成します"),
         [ErrorCode.E006] = ("エスケープ規則の不整合", "該当行のエスケープを確認してください"),
+        [ErrorCode.E007] = ("キュー内でブロックが重複", "同一ファイルに対する重複を確認し、不要な方を削除してください"),
 
         [ErrorCode.E101] = ("SEARCH部が見つからない", "インライン編集またはリカバリ支援を使用してください"),
         [ErrorCode.E102] = ("複数箇所にマッチ", "OCCURRENCE を指定してください"),
