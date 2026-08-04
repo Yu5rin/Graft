@@ -244,20 +244,26 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
+                    <!--
+                        フォーカスリングは箱の外周に描くが、負のMarginで外側へはみ出させると
+                        コンテナ左端に置かれたとき枠が欠ける。リングの太さぶんを含めた22x22を
+                        レイアウト上の占有領域とし、リングが常に境界内に収まるようにする。
+                    -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Grid Width="16" Height="16" VerticalAlignment="Center">
+                        <Grid Width="22" Height="22" VerticalAlignment="Center">
                             <Border x:Name="Box"
+                                    Margin="3"
                                     BorderBrush="{DynamicResource BorderSubtle}"
                                     BorderThickness="1"
                                     Background="{DynamicResource BgSurface}" />
                             <Path x:Name="CheckMark"
                                   Data="{DynamicResource IconCheckGeometry}"
                                   Stretch="Uniform"
-                                  Margin="2"
+                                  Margin="5"
                                   Stroke="{DynamicResource Accent}"
                                   StrokeThickness="1.5"
                                   StrokeStartLineCap="Round"
@@ -267,11 +273,10 @@
                             <Border x:Name="FocusRing"
                                     BorderBrush="{DynamicResource Accent}"
                                     BorderThickness="{DynamicResource FocusRingBorderThickness}"
-                                    Margin="-3"
                                     IsHitTestVisible="False"
                                     Opacity="0" />
                         </Grid>
-                        <ContentPresenter Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        <ContentPresenter Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
