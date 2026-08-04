@@ -58,9 +58,22 @@
     <sys:Double x:Key="SpacingLg">16</sys:Double>
     <sys:Double x:Key="SpacingXl">24</sys:Double>
 
+    <!-- Margin / Padding / BorderThickness は Thickness 型のため、上の Double を
+         そのまま割り当てると実行時に例外になる。四辺同値の Thickness 版を用意する。 -->
+    <Thickness x:Key="SpacingXsThickness">4</Thickness>
+    <Thickness x:Key="SpacingSmThickness">8</Thickness>
+    <Thickness x:Key="SpacingMdThickness">12</Thickness>
+    <Thickness x:Key="SpacingLgThickness">16</Thickness>
+    <Thickness x:Key="SpacingXlThickness">24</Thickness>
+
     <!-- ========== 8.2 / 8.11 レイアウト寸法 ========== -->
     <sys:Double x:Key="CommandBarHeight">40</sys:Double>
     <sys:Double x:Key="StatusBarHeight">48</sys:Double>
+
+    <!-- RowDefinition.Height は GridLength 型のため、Double を割り当てると
+         実行時に例外になる。同じ値の GridLength 版を用意する。 -->
+    <GridLength x:Key="CommandBarRowHeight">40</GridLength>
+    <GridLength x:Key="StatusBarRowHeight">48</GridLength>
     <sys:Double x:Key="MinWindowWidth">960</sys:Double>
     <sys:Double x:Key="MinWindowHeight">600</sys:Double>
 
