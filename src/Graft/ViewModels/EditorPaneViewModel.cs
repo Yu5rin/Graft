@@ -12,26 +12,30 @@ namespace Graft.ViewModels;
 /// <summary>
 /// エディタ領域全体（4章）のViewModel。実際のタブ管理は<see cref="EditorTabManager"/>へ委譲し、
 /// 本クラスはアクティブタブ・フォントサイズ・ステータスバー表示（9.2）の窓口を担う。
-///
-/// <c>Infra/Settings.cs</c>には本フェーズ時点でまだ<c>editor</c>セクション（15章）が
-/// 追加されていない（Infra/はE1の担当外で変更できない）。設定と1:1対応させたい既定値は
-/// 散在させず<see cref="EditorDefaults"/>にまとめてあるので、Settingsへ正式追加された後は
-/// このクラス内の参照箇所を差し替えるだけで済む。
+/// 15章 editor設定は<see cref="Settings.Editor"/>（<see cref="EditorSettings"/>）から読み取る。
 /// </summary>
 public sealed class EditorPaneViewModel : ObservableObject
 {
+    // SettingsStoreの検証範囲（editor.fontSize: 6〜72）と合わせる。Ctrl+マウスホイールでの
+    // 変更時にもこの範囲を超えないようにする。
+    private const double MinFontSize = 6;
+    private const double MaxFontSize = 72;
+
     private readonly EditorTabManager _manager;
     private readonly Settings _settings;
     private EditorTabViewModel? _activeTab;
-    private double _fontSize = EditorDefaults.FontSize;
-    private bool _wordWrap = EditorDefaults.WordWrap;
-    private bool _showWhitespace = EditorDefaults.ShowWhitespace;
+    private double _fontSize;
+    private bool _wordWrap;
+    private bool _showWhitespace;
 
     public EditorPaneViewModel(Settings settings, DialogService dialogs)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        ArgumentNullException.ThrowIfNull(dialogs);
-        _manager = new EditorTabManager(); // DialogServiceはEditorTabManager内で持たない（下記参照）
+        _manager = new EditorTabManager(dialogs);
+
+        _fontSize = Math.Clamp(_settings.Editor.FontSize, MinFontSize, MaxFontSize);
+        _wordWrap = _settings.Editor.WordWrap;
+        _showWhitespace = _settings.Editor.ShowWhitespace;
 
         ToggleWordWrapCommand = new RelayCommand(() => WordWrap = !WordWrap);
         ToggleShowWhitespaceCommand = new RelayCommand(() => ShowWhitespace = !ShowWhitespace);
@@ -63,7 +67,7 @@ public sealed class EditorPaneViewModel : ObservableObject
     public double FontSize
     {
         get => _fontSize;
-        set => SetProperty(ref _fontSize, Math.Clamp(value, EditorDefaults.MinFontSize, EditorDefaults.MaxFontSize));
+        set => SetProperty(ref _fontSize, Math.Clamp(value, MinFontSize, MaxFontSize));
     }
 
     /// <summary>折り返し表示。</summary>
@@ -72,12 +76,12 @@ public sealed class EditorPaneViewModel : ObservableObject
     /// <summary>空白文字の可視化。</summary>
     public bool ShowWhitespace { get => _showWhitespace; set => SetProperty(ref _showWhitespace, value); }
 
-    /// <summary>15章 editor設定の値。Settingsに未追加のため既定値を固定で返す（上記クラスコメント参照）。</summary>
-    public bool ShowLineNumbers => EditorDefaults.ShowLineNumbers;
-    public bool HighlightCurrentLine => EditorDefaults.HighlightCurrentLine;
-    public int TabSize => EditorDefaults.TabSize;
-    public bool InsertSpaces => EditorDefaults.InsertSpaces;
-    public bool DetectIndentEnabled => EditorDefaults.DetectIndent;
+    /// <summary>15章 editor設定の値。設定変更はアプリ再起動または設定画面側の反映に委ねる。</summary>
+    public bool ShowLineNumbers => _settings.Editor.ShowLineNumbers;
+    public bool HighlightCurrentLine => _settings.Editor.HighlightCurrentLine;
+    public int TabSize => _settings.Editor.TabSize;
+    public bool InsertSpaces => _settings.Editor.InsertSpaces;
+    public bool DetectIndentEnabled => _settings.Editor.DetectIndent;
 
     /// <summary>シンタックスハイライトが有効か（8.6/9.2章、settings.jsonの既存キー）。</summary>
     public bool SyntaxEnabled => _settings.Syntax.Enabled;
@@ -217,22 +221,4 @@ public sealed class EditorPaneViewModel : ObservableObject
 
     private static string LanguageLabel(string fileName)
         => SyntaxLexer.RuleForExtension(Path.GetExtension(fileName))?.Name ?? "プレーンテキスト";
-
-    /// <summary>
-    /// 15章 editor設定の既定値。Settingsに正式な<c>editor</c>セクションが追加されるまでの
-    /// 暫定値であることを明示するため、クラス名にDefaultsを付けここへ集約する。
-    /// </summary>
-    private static class EditorDefaults
-    {
-        public const double FontSize = 13;
-        public const bool WordWrap = false;
-        public const bool ShowWhitespace = false;
-        public const bool ShowLineNumbers = true;
-        public const bool HighlightCurrentLine = true;
-        public const int TabSize = 4;
-        public const bool InsertSpaces = true;
-        public const bool DetectIndent = true;
-        public const double MinFontSize = 8;
-        public const double MaxFontSize = 40;
-    }
 }

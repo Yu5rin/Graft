@@ -1,8 +1,10 @@
 <!--
   4.1: AvalonEditのテーマ適用。既定配色を一切残さず、9.3のカラートークンへ完全に
-  追従させる。UserControl（Views/EditorPane.xaml）は親Windowのリソースを
-  StaticResourceで参照できない（附録ブリーフの既知の落とし穴2）ため、このファイルは
-  App.xamlではなくEditorPane.xaml自身のMergedDictionariesから読み込む。
+  追従させる。App.xamlのMergedDictionariesから読み込まれ、アプリ全体で1つだけロードされる
+  （Views/EditorPane.xamlは自分自身では二重にマージしない。UserControlは親Windowの
+  リソースをStaticResourceで参照できない問題＝附録ブリーフの既知の落とし穴2は、
+  App.Resourcesに積まれたリソースには影響しない。StaticResource/DynamicResourceは
+  いずれも論理ツリーをApplication.Resourcesまで遡って解決するため）。
 
   TextArea.SelectionBrush・TextView.CurrentLineBackground等はTextEditorの
   スタイルSetterからは設定できないDP（TextEditor自身ではなく子要素が持つプロパティ）
@@ -68,8 +70,7 @@
         </Setter>
     </Style>
 
-    <!-- タブを閉じるボタン。9.4にx（閉じる）専用アイコンが無いためIconXCircleGeometryで代用する
-         （完了報告で正式なxアイコンの追加を依頼する）。 -->
+    <!-- タブを閉じるボタン（9.4のxアイコンを使用）。 -->
     <Style x:Key="EditorTabCloseButtonStyle" TargetType="Button">
         <Setter Property="Width" Value="18" />
         <Setter Property="Height" Value="18" />
@@ -82,7 +83,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="3">
-                        <Path Data="{StaticResource IconXCircleGeometry}"
+                        <Path Data="{StaticResource IconXGeometry}"
                               Width="12" Height="12" Stretch="Uniform"
                               Fill="{x:Null}"
                               Stroke="{DynamicResource TextSecondary}"

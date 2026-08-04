@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Indentation;
@@ -39,6 +40,10 @@ public partial class EditorPane : UserControl
 {
     private readonly SyntaxHighlightBridge _bridge;
     private EditorPaneViewModel? _viewModel;
+
+    // 現在Editorに読み込まれている（＝Documentを共有している）タブ。切替前にこのタブへ
+    // スクロール位置等を退避してから、次のタブへ切り替える。
+    private EditorTabViewModel? _loadedTab;
 
     public EditorPane()
     {
@@ -82,9 +87,16 @@ public partial class EditorPane : UserControl
     }
 
     /// <summary>アクティブタブの切替。Documentの差し替え・言語別ハイライトの再接続・
-    /// インデント設定の反映・カーソル位置の復元をまとめて行う。</summary>
+    /// インデント設定の反映・スクロール位置/カーソル/選択範囲の退避・復元をまとめて行う。
+    /// 単一の<see cref="Editor"/>を全タブで共有する方式（クラスコメント参照）のため、
+    /// スクロール位置・選択範囲はAvalonEditの<see cref="TextDocument"/>ではなく
+    /// エディタ側（ビュー）の状態であり、Document切替では自動的に保持されない。
+    /// そのため切替のたびに<see cref="EditorTabViewModel"/>へ明示的に退避・復元する。</summary>
     private void ApplyActiveTab(EditorTabViewModel? tab)
     {
+        SaveViewStateInto(_loadedTab);
+        _loadedTab = tab;
+
         if (tab is null)
         {
             Editor.Document = new TextDocument();
@@ -101,8 +113,55 @@ public partial class EditorPane : UserControl
         var extension = System.IO.Path.GetExtension(tab.Session.FileName);
         _bridge.Attach(tab.Session.Document, extension, _viewModel?.SyntaxEnabled ?? true);
 
-        MoveCaretTo(tab.CaretLine, tab.CaretColumn);
+        RestoreViewStateFrom(tab);
         Editor.Focus();
+    }
+
+    /// <summary>非表示側へ回るタブのカーソル・選択範囲・スクロール位置を退避する。</summary>
+    private void SaveViewStateInto(EditorTabViewModel? tab)
+    {
+        if (tab is null || !Editor.IsEnabled) return;
+
+        tab.CaretLine = Editor.TextArea.Caret.Line;
+        tab.CaretColumn = Editor.TextArea.Caret.Column;
+        tab.SelectionStart = Editor.SelectionStart;
+        tab.SelectionLength = Editor.SelectionLength;
+        tab.ScrollOffsetX = Editor.HorizontalOffset;
+        tab.ScrollOffsetY = Editor.VerticalOffset;
+        tab.HasViewState = true;
+    }
+
+    /// <summary>
+    /// タブ表示時にカーソル・選択範囲・スクロール位置を復元する。<see cref="MoveCaretTo"/>による
+    /// おおまかな可視化（<c>ScrollToLine</c>）はカーソル位置を確実に画面内へ入れるために常に行う。
+    /// 一方、正確なスクロールオフセットの復元は<see cref="EditorTabViewModel.HasViewState"/>が
+    /// trueの場合（＝一度でもこのタブを離れ、退避済みの位置がある場合）のみ行う。falseのまま
+    /// （＝開いてから一度も他タブへ切り替えていない、diffジャンプ等でCaretLineだけが指定された
+    /// 初回表示）でオフセット0を復元してしまうと、意図した行が画面外に流れてしまうため。
+    /// Document切替直後はレイアウトが未確定のため、正確なオフセット設定はDispatcherで
+    /// レイアウト確定後（Background優先度）まで遅延させる。
+    /// </summary>
+    private void RestoreViewStateFrom(EditorTabViewModel tab)
+    {
+        MoveCaretTo(tab.CaretLine, tab.CaretColumn);
+        if (tab.SelectionLength > 0)
+        {
+            var maxOffset = Editor.Document.TextLength;
+            var start = Math.Clamp(tab.SelectionStart, 0, maxOffset);
+            var length = Math.Clamp(tab.SelectionLength, 0, maxOffset - start);
+            if (length > 0) Editor.Select(start, length);
+        }
+
+        if (!tab.HasViewState) return;
+
+        var x = tab.ScrollOffsetX;
+        var y = tab.ScrollOffsetY;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (!ReferenceEquals(_loadedTab, tab)) return; // 遅延実行中に別タブへ切り替わっていたら何もしない
+            Editor.ScrollToVerticalOffset(y);
+            Editor.ScrollToHorizontalOffset(x);
+        }));
     }
 
     private void ApplyWhitespaceOption()
