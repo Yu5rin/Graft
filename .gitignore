@@ -4,3 +4,4 @@ obj/
 *.user
 publish/
 artifacts/
+*_wpftmp.csproj

@@ -117,7 +117,7 @@ public sealed class StartupCoordinator : IAsyncDisposable
             projectStore, revisionStore, dialogService, revisionRestorer, startupIssues, window.Dispatcher);
     }
 
-    private static ApplyEngine BuildApplyEngine(AppPaths appPaths, Settings settings)
+    private static ApplyEngine BuildApplyEngine(AppPaths appPaths, AppSettings settings)
     {
         var matchEngine = new MatchEngine(new MatchOptions
         {
