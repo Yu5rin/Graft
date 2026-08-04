@@ -2,12 +2,19 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              AutomationProperties.Name="一般設定">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SettingsPanelResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
     <!--
         14章「一般」区分。テーマ・適用モード・ホットキー・ログレベルに加え、バックアップ・
         世代管理・Git連携・適用後フック・エクスポート/インポートをまとめる。
-        FieldLabel/FieldRow/SectionHeading/ComboBoxの各スタイルは親のSettingsWindow.xamlの
-        Window.Resourcesに定義済みのものを、論理ツリーを遡ってStaticResourceで参照する
-        （WPFの標準的な解決順序であり、ここで再定義しない）。
+        FieldLabel/FieldRow/SectionHeadingは共通のSettingsPanelResources.xamlを参照する
+        （UserControlはSettingsWindow.Resourcesを実行時に遡って参照できないため）。
         DataContextはTabItem経由でSettingsViewModelを継承する。
     -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">

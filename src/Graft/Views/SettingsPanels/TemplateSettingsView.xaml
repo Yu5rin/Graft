@@ -3,6 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Graft.ViewModels"
              AutomationProperties.Name="プロンプトテンプレート設定">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SettingsPanelResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
     <!--
         4.8章 AI向けプロンプトテンプレート管理。テンプレートの追加・編集・削除、名前の右への
         推定トークン数表示、プロジェクトごとの既定紐づけ、初回用/継続用トグルでのコピーを行う。
