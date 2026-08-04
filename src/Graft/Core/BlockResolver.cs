@@ -33,6 +33,15 @@ public sealed record ChangeUnitResult
     public string? AfterText { get; init; }
 }
 
+/// <summary>
+/// 最終行配列の1行。<see cref="OriginalIndex"/> が非nullの場合、元ファイルの該当行（0始まり）を
+/// そのまま引き継いだ未変更行であることを表す。null の場合はブロックの適用によって新たに
+/// 生成された行（置換後・追記・先頭挿入・FULL全文）であることを表す。
+/// 書き込み時（<see cref="ApplyEngine"/>）に、未変更行の元の改行コードを維持するために使う
+/// （仕様書6.4「混在は可能な限り維持」）。
+/// </summary>
+public readonly record struct ResolvedLine(string Text, int? OriginalIndex);
+
 /// <summary>1ファイル分の解決結果。</summary>
 public sealed record FileResolution
 {
@@ -40,7 +49,7 @@ public sealed record FileResolution
     public required IReadOnlyList<ChangeUnitResult> Units { get; init; }
 
     /// <summary>選択されたブロックすべてを適用し終えた最終行配列。</summary>
-    public required IReadOnlyList<string> FinalLines { get; init; }
+    public required IReadOnlyList<ResolvedLine> FinalLines { get; init; }
 }
 
 /// <summary>
@@ -57,19 +66,21 @@ public static class BlockResolver
         IReadOnlyList<string> originalLines, IReadOnlyList<PatchBlock> fileBlocks, MatchEngine matcher)
     {
         var units = new List<ChangeUnitResult>();
-        var baseLines = originalLines;
+        var baseLines = originalLines.Select((l, i) => new ResolvedLine(l, i)).ToList();
 
         foreach (var full in fileBlocks.OfType<FullContentBlock>())
         {
-            var newLines = TextNormalizer.SplitLines(full.Content);
+            // FULL は全文を新規コンテンツで置き換えるため、以降の行は元ファイル由来ではなくなる
+            // （OriginalIndex = null）。
+            var newLines = TextNormalizer.SplitLines(full.Content).Select(l => new ResolvedLine(l, null)).ToList();
             units.Add(new ChangeUnitResult
             {
                 SourceBlock = full,
                 Description = full.Description,
                 Stage = MatchStage.None,
                 CanApply = true,
-                BeforeText = string.Join("\n", baseLines),
-                AfterText = string.Join("\n", newLines),
+                BeforeText = JoinText(baseLines),
+                AfterText = JoinText(newLines),
             });
             baseLines = newLines;
         }
@@ -84,14 +95,16 @@ public static class BlockResolver
         return new FileResolution { Units = units, FinalLines = finalLines };
     }
 
+    private static string JoinText(IReadOnlyList<ResolvedLine> lines) => string.Join("\n", lines.Select(l => l.Text));
+
     // ------------------------------------------------------------------
     // SR / APPEND / PREPEND のまとめ解決
     // ------------------------------------------------------------------
 
-    private static IReadOnlyList<string> ResolveTextBlocks(
-        IReadOnlyList<string> baseLines, IReadOnlyList<PatchBlock> others, MatchEngine matcher, List<ChangeUnitResult> units)
+    private static IReadOnlyList<ResolvedLine> ResolveTextBlocks(
+        List<ResolvedLine> baseLines, IReadOnlyList<PatchBlock> others, MatchEngine matcher, List<ChangeUnitResult> units)
     {
-        var baseText = string.Join("\n", baseLines);
+        var baseText = JoinText(baseLines);
         var resolved = others.Select(b => ResolveBlockEdits(baseText, baseLines.Count, b, matcher)).ToList();
 
         foreach (var failed in resolved.Where(r => !r.Success))
@@ -107,7 +120,7 @@ public static class BlockResolver
         }
 
         var successful = resolved.Where(r => r.Success).ToList();
-        var working = new List<string>(baseLines);
+        var working = new List<ResolvedLine>(baseLines);
         ApplyBlockEditsInOrder(working, successful, units);
         return working;
     }
@@ -149,7 +162,7 @@ public static class BlockResolver
                 {
                     StartLine = m.StartLine,
                     LineCount = m.LineCount,
-                    NewLines = TextNormalizer.SplitLines(m.AppliedReplacement),
+                    NewLines = TextNormalizer.SplitLines(m.AppliedReplacement).Select(l => new ResolvedLine(l, null)).ToList(),
                     SubSeq = subSeq++,
                 });
                 if (m.Stage > worstStage) worstStage = m.Stage;
@@ -174,7 +187,8 @@ public static class BlockResolver
 
     private static ResolvedBlock MakeSimpleEdit(PatchBlock block, string content, int startLine)
     {
-        var edit = new LineEdit { StartLine = startLine, LineCount = 0, NewLines = TextNormalizer.SplitLines(content) };
+        var newLines = TextNormalizer.SplitLines(content).Select(l => new ResolvedLine(l, null)).ToList();
+        var edit = new LineEdit { StartLine = startLine, LineCount = 0, NewLines = newLines };
         return new ResolvedBlock { Block = block, Success = true, Edits = new[] { edit } };
     }
 
@@ -183,7 +197,7 @@ public static class BlockResolver
     /// 同一開始位置は文書内で後方のブロックを先に適用することで、複数APPEND/PREPENDの
     /// 相対順序が文書順のまま結果に反映されるようにする。
     /// </summary>
-    private static void ApplyBlockEditsInOrder(List<string> working, List<ResolvedBlock> blocks, List<ChangeUnitResult> units)
+    private static void ApplyBlockEditsInOrder(List<ResolvedLine> working, List<ResolvedBlock> blocks, List<ChangeUnitResult> units)
     {
         var flattened = new List<(ResolvedBlock Owner, LineEdit Edit, int BlockSeq)>();
         for (var i = 0; i < blocks.Count; i++)
@@ -204,7 +218,7 @@ public static class BlockResolver
         for (var i = 0; i < ordered.Count; i++)
         {
             var (owner, edit, _) = ordered[i];
-            if (!beforeByOwner.ContainsKey(owner)) beforeByOwner[owner] = string.Join("\n", working);
+            if (!beforeByOwner.ContainsKey(owner)) beforeByOwner[owner] = JoinText(working);
 
             working.RemoveRange(edit.StartLine, edit.LineCount);
             working.InsertRange(edit.StartLine, edit.NewLines);
@@ -219,7 +233,7 @@ public static class BlockResolver
                     CanApply = true,
                     NeedsConfirmation = owner.NeedsConfirmation,
                     BeforeText = beforeByOwner[owner],
-                    AfterText = string.Join("\n", working),
+                    AfterText = JoinText(working),
                 });
             }
         }
@@ -233,7 +247,7 @@ public static class BlockResolver
     {
         public required int StartLine { get; init; }
         public required int LineCount { get; init; }
-        public required IReadOnlyList<string> NewLines { get; init; }
+        public required IReadOnlyList<ResolvedLine> NewLines { get; init; }
         public int SubSeq { get; init; }
     }
 
