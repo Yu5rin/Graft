@@ -1,0 +1,5 @@
+<<<< FILE: src/empty.py
+<<<<<<< SEARCH  # 空のSEARCH
+=======
+new content
+>>>>>>> REPLACE

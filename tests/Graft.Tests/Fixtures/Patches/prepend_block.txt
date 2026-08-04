@@ -1,0 +1,3 @@
+<<<< PREPEND: src/main.py   # importを追加
+import logging
+>>>> END

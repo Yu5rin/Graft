@@ -1,0 +1,6 @@
+<<<< FILE: src/../../etc/passwd
+<<<<<<< SEARCH  # 不正パス
+old
+=======
+new
+>>>>>>> REPLACE

@@ -1,0 +1,10 @@
+<<<< PATCH
+type: fix
+>>>>
+
+<<<< FILE: src/a.py
+<<<<<<< SEARCH  # 修正
+old
+=======
+new
+>>>>>>> REPLACE

@@ -1,0 +1,4 @@
+<<<< FILE: src/new_module.py MODE=FULL
+def new_function():
+    return 42
+>>>> END

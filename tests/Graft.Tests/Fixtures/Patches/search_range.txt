@@ -1,0 +1,9 @@
+<<<< FILE: src/batch.py
+<<<<<<< SEARCH-RANGE  # バッチ処理を並列化
+def process_batch(items):
+...
+    return results
+=======
+def process_batch(items):
+    return parallel_process(items)
+>>>>>>> REPLACE

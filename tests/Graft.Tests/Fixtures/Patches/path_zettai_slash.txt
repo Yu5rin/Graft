@@ -1,0 +1,3 @@
+<<<< FILE: /etc/passwd MODE=FULL
+malicious content
+>>>> END

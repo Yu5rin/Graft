@@ -251,31 +251,35 @@ public sealed class SyntaxLexer
                 continue;
             }
 
-            if (IsIdentifierStart(c) && TryScanIdentifier(text, i, tokens, ref i))
-            {
-                continue;
-            }
-
-            if (char.IsDigit(c))
-            {
-                var numberMatch = _rule.NumberPattern.Match(text, i);
-                if (numberMatch.Success)
-                {
-                    AddToken(tokens, i, numberMatch.Length, TokenKind.Number);
-                    i += numberMatch.Length;
-                    continue;
-                }
-            }
-
-            if (_rule.OperatorChars.Contains(c))
-            {
-                AddToken(tokens, i, 1, TokenKind.Operator);
-                i++;
-                continue;
-            }
-
-            i++; // 未分類文字（記号以外の非ASCII等）は着色せず読み飛ばす。
+            i = ScanWordOrSymbol(text, i, c, tokens);
         }
+    }
+
+    // 識別子・数値・演算子のいずれにも当てはまらない文字は1つ読み飛ばして次へ進む。
+    private int ScanWordOrSymbol(string text, int i, char c, List<SyntaxToken>? tokens)
+    {
+        if (IsIdentifierStart(c) && TryScanIdentifier(text, i, tokens, ref i))
+        {
+            return i;
+        }
+
+        if (char.IsDigit(c))
+        {
+            var numberMatch = _rule.NumberPattern.Match(text, i);
+            if (numberMatch.Success)
+            {
+                AddToken(tokens, i, numberMatch.Length, TokenKind.Number);
+                return i + numberMatch.Length;
+            }
+        }
+
+        if (_rule.OperatorChars.Contains(c))
+        {
+            AddToken(tokens, i, 1, TokenKind.Operator);
+            return i + 1;
+        }
+
+        return i + 1; // 未分類文字（記号以外の非ASCII等）は着色せず読み飛ばす。
     }
 
     private bool TryStartHeredoc(

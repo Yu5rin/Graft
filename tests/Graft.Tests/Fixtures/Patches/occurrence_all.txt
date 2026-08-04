@@ -1,0 +1,6 @@
+<<<< FILE: src/util.py
+<<<<<<< SEARCH OCCURRENCE=ALL  # 全出現を対象
+TODO
+=======
+DONE
+>>>>>>> REPLACE

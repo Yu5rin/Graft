@@ -1,0 +1,15 @@
+<<<< FILE: src/service.py
+<<<<<<< SEARCH  # 1つ目の修正
+def a():
+    pass
+=======
+def a():
+    return 1
+>>>>>>> REPLACE
+<<<<<<< SEARCH  # 2つ目の修正
+def b():
+    pass
+=======
+def b():
+    return 2
+>>>>>>> REPLACE

@@ -1,0 +1,13 @@
+<<<< FILE: src/a.py
+<<<<<<< SEARCH  # aの修正
+value_a = 1
+=======
+value_a = 2
+>>>>>>> REPLACE
+
+<<<< FILE: src/b.py
+<<<<<<< SEARCH  # bの修正
+value_b = 1
+=======
+value_b = 2
+>>>>>>> REPLACE

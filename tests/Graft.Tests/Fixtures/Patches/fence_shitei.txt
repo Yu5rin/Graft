@@ -1,0 +1,4 @@
+<<<< FILE: src/generated.py MODE=FULL FENCE=abc123
+def hello():
+    print("hello")
+>>>> END:abc123
