@@ -8,80 +8,103 @@ namespace Graft.Core;
 
 /// <summary>
 /// リビジョン履歴（back/&lt;プロジェクトID&gt;/ 配下）の読み取り・検索・世代管理を担う。
-/// 仕様書7.1〜7.4。manifest.json とバックアップ実体が唯一の記録であり、追加のデータ保持は
-/// 行わない（7.2）。
+/// 仕様書7.1〜7.4。manifest.json とバックアップ実体が正本であり、<see cref="RevisionIndex"/>
+/// （history.jsonl）はリビジョンフォルダが外部から削除・移動された場合にも履歴の記録自体を
+/// 残すための補助索引である（仕様書13.1）。7.2と13.1は仕様書内で要求が競合するため、
+/// ユーザーへの実害が大きい13.1（データを無言で失わない）を優先する。
 /// </summary>
 public sealed class RevisionStore
 {
     private readonly AppPaths _paths;
     private readonly JsonFileStore _jsonStore = new();
+    private readonly RevisionIndex _revisionIndex;
 
     public RevisionStore(AppPaths paths)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
+        _revisionIndex = new RevisionIndex(paths);
     }
 
-    /// <summary>プロジェクトのリビジョン一覧を降順（新しい順）で返す。</summary>
+    /// <summary>
+    /// プロジェクトのリビジョン一覧を降順（新しい順）で返す。実体フォルダが存在するリビジョンと
+    /// history.jsonl のみに残るリビジョン（フォルダが外部から削除・移動された）をマージする。
+    /// 両方に存在する場合は実体フォルダ側の情報を優先する。
+    /// </summary>
     public async Task<GraftResult<IReadOnlyList<RevisionSummary>>> ListAsync(string projectId, CancellationToken ct = default)
     {
-        var projectDir = _paths.GetProjectBackupDirectory(projectId);
-        if (!Directory.Exists(projectDir))
-        {
-            return GraftResult<IReadOnlyList<RevisionSummary>>.Ok(Array.Empty<RevisionSummary>());
-        }
-
-        var summaries = new List<RevisionSummary>();
+        var byRevision = new Dictionary<int, RevisionSummary>();
         var issues = new List<GraftIssue>();
 
-        foreach (var folder in Directory.EnumerateDirectories(projectDir))
-        {
-            var parsed = BackupPathUtil.TryParseFolderName(Path.GetFileName(folder));
-            if (parsed is null) continue; // 命名規則に合わないフォルダは無視する
+        await CollectFromFoldersAsync(projectId, byRevision, issues, ct).ConfigureAwait(false);
+        await CollectFromIndexAsync(projectId, byRevision, issues, ct).ConfigureAwait(false);
 
-            var result = await ReadFolderAsync(projectId, folder, parsed.Value.Revision, parsed.Value.AppliedAt, ct)
-                .ConfigureAwait(false);
-            summaries.Add(result.Value);
-            issues.AddRange(result.Issues);
-        }
-
-        var sorted = summaries.OrderByDescending(s => s.Manifest.Revision).ToList();
+        var sorted = byRevision.Values.OrderByDescending(s => s.Manifest.Revision).ToList();
         return GraftResult<IReadOnlyList<RevisionSummary>>.Ok(sorted, issues);
     }
 
-    /// <summary>指定リビジョンを1件読み取る。実体フォルダが無ければ E405。</summary>
+    /// <summary>
+    /// 指定リビジョンを1件読み取る。実体フォルダがあればそちらを、無ければhistory.jsonlの
+    /// 記録から復元不可（IsRestorable=false）のRevisionSummaryを返す。どちらにも無ければ E405。
+    /// </summary>
     public async Task<GraftResult<RevisionSummary>> ReadAsync(string projectId, int revision, CancellationToken ct = default)
     {
         var projectDir = _paths.GetProjectBackupDirectory(projectId);
         var folder = FindRevisionFolder(projectDir, revision);
-        if (folder is null)
-        {
-            return GraftResult<RevisionSummary>.Fail(ErrorCode.E405, $"リビジョン {revision} の実体が見つかりません", path: projectDir);
-        }
-
-        var parsed = BackupPathUtil.TryParseFolderName(Path.GetFileName(folder));
-        var revisionInfo = parsed ?? (Revision: revision, AppliedAt: DateTimeOffset.Now);
-        return await ReadFolderAsync(projectId, folder, revisionInfo.Revision, revisionInfo.AppliedAt, ct).ConfigureAwait(false);
-    }
-
-    /// <summary>back/配下の実体から最大リビジョン番号を検出する。projects.json のnextRevision補正に使う。</summary>
-    public Task<GraftResult<int>> DetectMaxRevisionAsync(string projectId, CancellationToken ct = default)
-    {
-        var projectDir = _paths.GetProjectBackupDirectory(projectId);
-        if (!Directory.Exists(projectDir))
-        {
-            return Task.FromResult(GraftResult<int>.Ok(0));
-        }
-
-        var max = 0;
-        foreach (var folder in Directory.EnumerateDirectories(projectDir))
+        if (folder is not null)
         {
             var parsed = BackupPathUtil.TryParseFolderName(Path.GetFileName(folder));
-            if (parsed is not null && parsed.Value.Revision > max)
+            var revisionInfo = parsed ?? (Revision: revision, AppliedAt: DateTimeOffset.Now);
+            return await ReadFolderAsync(projectId, folder, revisionInfo.Revision, revisionInfo.AppliedAt, ct).ConfigureAwait(false);
+        }
+
+        var indexResult = await _revisionIndex.ReadAllAsync(projectId, ct).ConfigureAwait(false);
+        var indexEntry = indexResult.Value.FirstOrDefault(e => e.Revision == revision);
+        if (indexEntry is not null)
+        {
+            var summary = BuildMissingSummary(projectId, indexEntry);
+            var issues = new List<GraftIssue>(indexResult.Issues)
             {
-                max = parsed.Value.Revision;
+                GraftIssue.Of(ErrorCode.E405, "バックアップフォルダが見つかりません（外部から削除・移動された可能性があります）",
+                    path: summary.FolderPath, severity: Severity.Warning),
+            };
+            return GraftResult<RevisionSummary>.Ok(summary, issues);
+        }
+
+        return GraftResult<RevisionSummary>.Fail(ErrorCode.E405, $"リビジョン {revision} の実体が見つかりません", path: projectDir);
+    }
+
+    /// <summary>
+    /// back/配下の実体とhistory.jsonlの双方から最大リビジョン番号を検出する。
+    /// projects.json のnextRevision補正に使う（フォルダが後で削除されても番号の再利用を防ぐため
+    /// history.jsonl側も参照する）。
+    /// </summary>
+    public async Task<GraftResult<int>> DetectMaxRevisionAsync(string projectId, CancellationToken ct = default)
+    {
+        var projectDir = _paths.GetProjectBackupDirectory(projectId);
+        var max = 0;
+
+        if (Directory.Exists(projectDir))
+        {
+            foreach (var folder in Directory.EnumerateDirectories(projectDir))
+            {
+                var parsed = BackupPathUtil.TryParseFolderName(Path.GetFileName(folder));
+                if (parsed is not null && parsed.Value.Revision > max)
+                {
+                    max = parsed.Value.Revision;
+                }
             }
         }
-        return Task.FromResult(GraftResult<int>.Ok(max));
+
+        var indexResult = await _revisionIndex.ReadAllAsync(projectId, ct).ConfigureAwait(false);
+        foreach (var entry in indexResult.Value)
+        {
+            if (entry.Revision > max)
+            {
+                max = entry.Revision;
+            }
+        }
+
+        return GraftResult<int>.Ok(max, indexResult.Issues);
     }
 
     /// <summary>status が in_progress のまま残るリビジョンを探す（仕様書6.3）。</summary>
@@ -107,6 +130,11 @@ public sealed class RevisionStore
         }
 
         var oldestFirst = listResult.Value.OrderBy(s => s.Manifest.Revision).ToList();
+
+        // 仕様書14章「設定で無制限にできる」の実装規約: MaxRevisions/MaxTotalMBが0以下の場合は
+        // 上限なし（無制限）として扱う。設定画面側もこの規約に合わせて0以下を「無制限」として
+        // 提示・保存すること（Infra.BackupSettingsは非nullableのintのため、null等の別表現は
+        // 使わずこの規約に統一する）。
         var maxCount = settings.MaxRevisions > 0 ? settings.MaxRevisions : int.MaxValue;
         var maxBytes = settings.MaxTotalMB > 0 ? (long)settings.MaxTotalMB * 1024 * 1024 : long.MaxValue;
 
@@ -171,6 +199,73 @@ public sealed class RevisionStore
             lines[i] = lines[i].TrimEnd(' ', '\t');
         }
         return string.Join('\n', lines);
+    }
+
+    /// <summary>back/配下の実体フォルダをすべて読み取り、リビジョン番号をキーに集約する。</summary>
+    private async Task CollectFromFoldersAsync(
+        string projectId, Dictionary<int, RevisionSummary> byRevision, List<GraftIssue> issues, CancellationToken ct)
+    {
+        var projectDir = _paths.GetProjectBackupDirectory(projectId);
+        if (!Directory.Exists(projectDir)) return;
+
+        foreach (var folder in Directory.EnumerateDirectories(projectDir))
+        {
+            var parsed = BackupPathUtil.TryParseFolderName(Path.GetFileName(folder));
+            if (parsed is null) continue; // 命名規則に合わないフォルダは無視する
+
+            var result = await ReadFolderAsync(projectId, folder, parsed.Value.Revision, parsed.Value.AppliedAt, ct)
+                .ConfigureAwait(false);
+            byRevision[result.Value.Manifest.Revision] = result.Value;
+            issues.AddRange(result.Issues);
+        }
+    }
+
+    /// <summary>
+    /// history.jsonl を読み取り、実体フォルダに存在しないリビジョンだけを補って集約する
+    /// （仕様書13.1）。実体フォルダ側が既に登録済みのリビジョンは上書きしない。
+    /// </summary>
+    private async Task CollectFromIndexAsync(
+        string projectId, Dictionary<int, RevisionSummary> byRevision, List<GraftIssue> issues, CancellationToken ct)
+    {
+        var indexResult = await _revisionIndex.ReadAllAsync(projectId, ct).ConfigureAwait(false);
+        issues.AddRange(indexResult.Issues);
+
+        foreach (var entry in indexResult.Value)
+        {
+            if (byRevision.ContainsKey(entry.Revision)) continue; // 実体フォルダ側を優先する
+
+            var summary = BuildMissingSummary(projectId, entry);
+            byRevision[entry.Revision] = summary;
+            issues.Add(GraftIssue.Of(ErrorCode.E405, "バックアップフォルダが見つかりません（外部から削除・移動された可能性があります）",
+                path: summary.FolderPath, severity: Severity.Warning));
+        }
+    }
+
+    /// <summary>
+    /// history.jsonl のみに残るリビジョンから、復元不可（IsRestorable=false）の
+    /// RevisionSummary を組み立てる。Entries/Hooksは記録していないため空のままとなる。
+    /// </summary>
+    private RevisionSummary BuildMissingSummary(string projectId, RevisionIndexEntry entry)
+    {
+        var manifest = new RevisionManifest
+        {
+            Revision = entry.Revision,
+            ProjectId = projectId,
+            Summary = entry.Summary,
+            Type = entry.Type,
+            AppliedAt = entry.AppliedAt,
+            PatchHash = entry.PatchHash,
+            Status = entry.Status,
+            Stats = entry.Stats,
+        };
+
+        return new RevisionSummary
+        {
+            Manifest = manifest,
+            FolderPath = _paths.GetRevisionDirectory(projectId, entry.FolderName),
+            IsRestorable = false,
+            SizeBytes = 0,
+        };
     }
 
     private async Task<GraftResult<RevisionSummary>> ReadFolderAsync(
@@ -284,6 +379,13 @@ public sealed class RevisionStore
         {
             try
             {
+                if (!Directory.Exists(LongPath.Extended(folderPath)))
+                {
+                    // 仕様書13.1: history.jsonlのみに残るリビジョン（フォルダが既に外部から
+                    // 削除・移動済み）は削除対象が無いため、削除済み扱いとして扱う。
+                    return true;
+                }
+
                 if (useRecycleBin && OperatingSystem.IsWindows())
                 {
                     return RecycleBin.Send(folderPath);

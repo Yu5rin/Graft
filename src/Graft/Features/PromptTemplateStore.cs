@@ -46,11 +46,8 @@ public sealed class PromptTemplateStore
     /// <summary>既定テンプレートの一覧（4.8「初回用（完全版）」、4.8.1の短縮版、4.8.3の3種類）。</summary>
     public static IReadOnlyList<PromptTemplate> BuiltIns { get; } = BuildBuiltIns();
 
-    /// <summary>
-    /// templates.json のパス。AppPaths に専用プロパティが無いため、BaseDirectory 配下に
-    /// 直接組み立てる（settings.json 等と同じ階層）。
-    /// </summary>
-    public string TemplatesFilePath => Path.Combine(_paths.BaseDirectory, "templates.json");
+    /// <summary>templates.json のパス。settings.json 等と同じ階層に置く。</summary>
+    public string TemplatesFilePath => _paths.TemplatesFilePath;
 
     /// <summary>既定テンプレートとユーザー定義テンプレートを合わせて返す。</summary>
     public async Task<GraftResult<IReadOnlyList<PromptTemplate>>> LoadAsync(CancellationToken ct = default)
