@@ -61,7 +61,7 @@ public static class AnchorRangeResolver
         if (lineCount <= rangeWarningLines) return Array.Empty<GraftIssue>();
 
         var detail = $"アンカー範囲が{lineCount}行あり、警告閾値（{rangeWarningLines}行）を超えています";
-        return new[] { GraftIssue.Of(ErrorCode.E103, detail, severity: Severity.Warning) };
+        return new[] { GraftIssue.Of(ErrorCode.E104, detail, severity: Severity.Warning) };
     }
 
     private static (IReadOnlyList<string> Start, IReadOnlyList<string> End)? SplitAnchors(string searchText)
