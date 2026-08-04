@@ -13,6 +13,9 @@ public sealed class ProjectPaneLayout
 {
     public double ProjectColumnWidth { get; set; } = 260;
     public double BlockColumnWidth { get; set; } = 380;
+
+    /// <summary>diffのコード表示フォントサイズ（仕様書8.4「プロジェクトごとに記憶する」）。</summary>
+    public double CodeFontSize { get; set; } = 13;
 }
 
 /// <summary>

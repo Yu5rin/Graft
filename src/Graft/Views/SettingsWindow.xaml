@@ -537,7 +537,7 @@
                        Foreground="{DynamicResource TextSecondary}" />
             <Button Grid.Column="1" Content="保存" Command="{Binding SaveCommand}" Margin="0,0,8,0" IsDefault="True"
                     AutomationProperties.Name="設定を保存" />
-            <Button Grid.Column="2" Content="閉じる" Click="OnCloseClicked" IsCancel="True"
+            <Button Grid.Column="2" Content="閉じる" Click="OnCloseClicked"
                     AutomationProperties.Name="設定を閉じる" />
         </Grid>
     </Grid>
