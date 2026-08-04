@@ -90,7 +90,6 @@ public partial class MainWindow : Window
     /// <summary>分割比率を 0.1〜0.9 へ正規化する。NaN は既定値へ倒す。</summary>
     private static double SafeRatio(double value, double fallback)
         => double.IsFinite(value) ? Math.Clamp(value, 0.1, 0.9) : fallback;
-    }
 
     /// <summary>
     /// 仕様書8.11: 終了時に現在のウィンドウ位置・サイズ・最大化状態・ペイン比率を保存する。
