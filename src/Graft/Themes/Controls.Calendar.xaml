@@ -30,17 +30,11 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="DatePickerTextBox">
+                    <!-- 標準のDatePickerTextBoxにはプレースホルダ表示機能（Watermark）が
+                         存在しないため、TextBox同様のPART_ContentHostのみを持つ最小構成とする。 -->
                     <Grid>
                         <ScrollViewer x:Name="PART_ContentHost" Margin="8,6" VerticalAlignment="Center" />
-                        <ContentPresenter Margin="8,6" IsHitTestVisible="False"
-                                          Content="{TemplateBinding Watermark}"
-                                          Opacity="0" x:Name="WatermarkPresenter" />
                     </Grid>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="Text" Value="">
-                            <Setter TargetName="WatermarkPresenter" Property="Opacity" Value="1" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
