@@ -21,6 +21,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="DiffPlex" Version="1.7.2" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
   </ItemGroup>
@@ -31,6 +32,7 @@
       単一exeで配布するため、外部ファイルではなく埋め込みリソースとして持つ。
     -->
     <EmbeddedResource Include="Assets\DiffPlex-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\AvalonEdit-LICENSE.txt" />
   </ItemGroup>
 
 </Project>

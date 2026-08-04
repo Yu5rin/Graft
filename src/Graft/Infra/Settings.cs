@@ -52,8 +52,51 @@ public sealed record Settings
     /// <summary>Git連携設定（7.5章）。</summary>
     public GitSettings Git { get; init; } = new();
 
+    /// <summary>コードエディタ設定（v2.0 仕様書15章）。</summary>
+    public EditorSettings Editor { get; init; } = new();
+
     /// <summary>ログ出力レベル。trace/debug/info/warn/error のいずれか（15章）。</summary>
     public string LogLevel { get; init; } = "info";
+}
+
+/// <summary>コードエディタ設定（v2.0 仕様書15章・4章）。</summary>
+public sealed record EditorSettings
+{
+    /// <summary>コード表示のフォントサイズ。Ctrl+マウスホイールで変更できる。</summary>
+    public double FontSize { get; init; } = 13;
+
+    /// <summary>長い行を折り返すかどうか。</summary>
+    public bool WordWrap { get; init; } = false;
+
+    /// <summary>タブ・行末空白を可視化するかどうか。</summary>
+    public bool ShowWhitespace { get; init; } = false;
+
+    /// <summary>行番号を表示するかどうか。</summary>
+    public bool ShowLineNumbers { get; init; } = true;
+
+    /// <summary>現在行をハイライトするかどうか。</summary>
+    public bool HighlightCurrentLine { get; init; } = true;
+
+    /// <summary>タブ幅。<see cref="DetectIndent"/> が false のとき、または検出不能時に使う。</summary>
+    public int TabSize { get; init; } = 4;
+
+    /// <summary>タブの代わりにスペースを挿入するかどうか。</summary>
+    public bool InsertSpaces { get; init; } = true;
+
+    /// <summary>開いた時点でファイルの優勢なインデントを検出して適用するかどうか。</summary>
+    public bool DetectIndent { get; init; } = true;
+
+    /// <summary>括弧の自動閉じと対応括弧の強調を行うかどうか。</summary>
+    public bool AutoClosingBrackets { get; init; } = true;
+
+    /// <summary>コードの折りたたみを有効にするかどうか。</summary>
+    public bool Folding { get; init; } = true;
+
+    /// <summary>単語ベースの簡易補完を有効にするかどうか。</summary>
+    public bool Completion { get; init; } = true;
+
+    /// <summary>行番号ガターにGitの変更状態を表示するかどうか。</summary>
+    public bool GitGutter { get; init; } = true;
 }
 
 /// <summary>クリップボード監視設定（9章）。</summary>
