@@ -107,6 +107,28 @@ public sealed class EditorTabManager
         }
     }
 
+    /// <summary>エクスプローラでのリネーム・移動に追従し、該当タブのパス表示を更新する（4.2/4.8）。</summary>
+    public void NotifyRenamed(string oldFullPath, string newFullPath)
+    {
+        var tab = Tabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, oldFullPath));
+        if (tab is null) return;
+
+        tab.Session.UpdatePath(newFullPath, _projectRoot ?? string.Empty);
+        tab.NotifyPathChanged();
+    }
+
+    /// <summary>
+    /// エクスプローラでの削除に追従し、該当タブを保存確認なしで閉じる（4.2/4.8）。
+    /// 実体が既に無いファイルへの保存確認は意味を持たないため、<see cref="CloseAsync"/>とは
+    /// 別に確認なしのタブ除去を行う。
+    /// </summary>
+    public Task NotifyDeletedAsync(string fullPath)
+    {
+        var tab = Tabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, fullPath));
+        if (tab is not null) RemoveTab(tab);
+        return Task.CompletedTask;
+    }
+
     /// <summary>タブがアクティブ化されたことを記録し、MRU順の先頭へ移動する（Ctrl+Tab用）。</summary>
     public void Touch(EditorTabViewModel tab)
     {

@@ -169,12 +169,8 @@
                 <Border Visibility="{Binding SelectedSideView, Converter={StaticResource SideViewVisibility}, ConverterParameter=History}">
                     <views:HistoryPane x:Name="HistoryPaneControl" DataContext="{Binding Graft.History}" />
                 </Border>
-                <Border Background="{DynamicResource BgSurface}"
-                        Visibility="{Binding SelectedSideView, Converter={StaticResource SideViewVisibility}, ConverterParameter=Search}">
-                    <views:EmptyStateView State="Empty"
-                                          IconGeometry="{StaticResource IconSearchGeometry}"
-                                          Message="プロジェクトを選択してください"
-                                          AutomationProperties.Name="検索ビュー" />
+                <Border Visibility="{Binding SelectedSideView, Converter={StaticResource SideViewVisibility}, ConverterParameter=Search}">
+                    <views:SearchView DataContext="{Binding Search}" />
                 </Border>
             </Grid>
 

@@ -34,14 +34,14 @@ public sealed class DocumentSession : IDisposable
         Document.UndoStack.PropertyChanged += OnUndoStackPropertyChanged;
     }
 
-    /// <summary>ファイルの絶対パス。</summary>
-    public string FullPath { get; }
+    /// <summary>ファイルの絶対パス。エクスプローラでのリネームに追従して<see cref="UpdatePath"/>で更新されうる。</summary>
+    public string FullPath { get; private set; }
 
     /// <summary>プロジェクトルートからの相対パス（表示用、区切りは常に '/')。</summary>
-    public string RelativePath { get; }
+    public string RelativePath { get; private set; }
 
     /// <summary>ファイル名のみ。</summary>
-    public string FileName { get; }
+    public string FileName { get; private set; }
 
     /// <summary>AvalonEditの編集対象文書。アンドゥスタックもこれが保持する。</summary>
     public TextDocument Document { get; }
@@ -154,6 +154,16 @@ public sealed class DocumentSession : IDisposable
         }
 
         return (false, counts.Count == 0 ? fallbackWidth : counts.Keys.Min());
+    }
+
+    /// <summary>
+    /// エクスプローラでのリネーム・移動に追従してパス表示を更新する（4.2/4.8）。中身は変更しない。
+    /// </summary>
+    public void UpdatePath(string newFullPath, string projectRoot)
+    {
+        FullPath = newFullPath;
+        FileName = Path.GetFileName(newFullPath);
+        RelativePath = ComputeRelativePath(newFullPath, projectRoot);
     }
 
     public void Dispose()

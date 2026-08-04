@@ -15,6 +15,7 @@ public sealed class EditorTabViewModel : ObservableObject
     private bool _isModified;
     private bool _indentUseTabs;
     private int _indentWidth = 4;
+    private bool _hasExternalConflict;
 
     public EditorTabViewModel(Graft.Editor.DocumentSession session, Func<EditorTabViewModel, Task> closeRequested)
     {
@@ -24,6 +25,8 @@ public sealed class EditorTabViewModel : ObservableObject
         session.ModifiedChanged += OnSessionModifiedChanged;
 
         CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
+        ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync);
+        DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
     }
 
     /// <summary>このタブが編集しているファイルのセッション。</summary>
@@ -78,11 +81,41 @@ public sealed class EditorTabViewModel : ObservableObject
     /// </summary>
     public bool HasViewState { get; set; }
 
+    /// <summary>
+    /// 4.6: ディスク上の変更と未保存編集が競合している（E702）かどうか。trueの間、
+    /// エディタ側に非モーダルの通知バーを表示する。外部からの通知は
+    /// <see cref="Graft.ViewModels.EditorPaneViewModel.NotifyExternalChangeAsync"/>を経由する。
+    /// </summary>
+    public bool HasExternalConflict { get => _hasExternalConflict; set => SetProperty(ref _hasExternalConflict, value); }
+
     /// <summary>タブを閉じる（未保存なら保存確認を挟む）。</summary>
     public ICommand CloseCommand { get; }
 
+    /// <summary>通知バーの「再読込」。未保存の編集を破棄してディスクの内容へ戻す。</summary>
+    public ICommand ReloadDiscardingChangesCommand { get; }
+
+    /// <summary>通知バーの「無視」。バーを閉じ、現在の編集内容をそのまま保持する。</summary>
+    public ICommand DismissExternalConflictCommand { get; }
+
     /// <summary>タブが一覧から取り除かれる際に呼び出し側から呼ぶ。イベント購読を解除する。</summary>
     public void DetachEvents() => Session.ModifiedChanged -= OnSessionModifiedChanged;
+
+    /// <summary>
+    /// エクスプローラでのリネームに追従してSessionのパスを更新した後、呼び出し側が呼ぶ。
+    /// <see cref="Title"/>/<see cref="ToolTipText"/>はSessionからの計算プロパティのため、
+    /// 明示的に変更通知を発火しないとタブ見出しの表示が古いままになる。
+    /// </summary>
+    public void NotifyPathChanged()
+    {
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(ToolTipText));
+    }
+
+    private async Task ReloadDiscardingChangesAsync()
+    {
+        await Session.ReloadAsync().ConfigureAwait(true);
+        HasExternalConflict = false;
+    }
 
     private void OnSessionModifiedChanged(object? sender, EventArgs e) => IsModified = Session.IsModified;
 }

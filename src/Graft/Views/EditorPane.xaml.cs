@@ -10,6 +10,7 @@ using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Editing;
 using ICSharpCode.AvalonEdit.Indentation;
 using ICSharpCode.AvalonEdit.Rendering;
+using Graft.Core;
 using Graft.Editor;
 using Graft.ViewModels;
 
@@ -39,6 +40,10 @@ public sealed class EmptyCollectionToVisibilityConverter : IValueConverter
 public partial class EditorPane : UserControl
 {
     private readonly SyntaxHighlightBridge _bridge;
+    private readonly BracketSupport _brackets;
+    private readonly FoldingSupport _folding;
+    private readonly CompletionProvider _completion;
+    private readonly DialogService _dialogs = new();
     private EditorPaneViewModel? _viewModel;
 
     // 現在Editorに読み込まれている（＝Documentを共有している）タブ。切替前にこのタブへ
@@ -60,6 +65,12 @@ public partial class EditorPane : UserControl
         _bridge = new SyntaxHighlightBridge(Editor);
         Editor.TextArea.TextView.LineTransformers.Add(_bridge);
         _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
+
+        // E3担当実装（括弧対応・折りたたみ・単語補完）への接続。いずれもEditorインスタンス
+        // 1つにつき1回構築し、タブ切替のたびにAttach(document, extension)を呼び直す。
+        _brackets = new BracketSupport(Editor);
+        _folding = new FoldingSupport(Editor);
+        _completion = new CompletionProvider(Editor);
 
         DataContextChanged += OnDataContextChanged;
         Unloaded += OnUnloaded;
@@ -102,6 +113,9 @@ public partial class EditorPane : UserControl
             Editor.Document = new TextDocument();
             Editor.IsEnabled = false;
             _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
+            _brackets.Attach(Editor.Document, string.Empty);
+            _folding.Attach(Editor.Document, string.Empty);
+            Search.Attach(Editor);
             return;
         }
 
@@ -112,6 +126,11 @@ public partial class EditorPane : UserControl
 
         var extension = System.IO.Path.GetExtension(tab.Session.FileName);
         _bridge.Attach(tab.Session.Document, extension, _viewModel?.SyntaxEnabled ?? true);
+        _brackets.Attach(tab.Session.Document, extension);
+        _brackets.SetAutoCloseEnabled(_viewModel?.AutoClosingBrackets ?? true);
+        _folding.Attach(tab.Session.Document, extension);
+        _folding.SetEnabled(_viewModel?.Folding ?? true);
+        Search.Attach(Editor);
 
         RestoreViewStateFrom(tab);
         Editor.Focus();
@@ -208,22 +227,93 @@ public partial class EditorPane : UserControl
         e.Handled = true;
     }
 
-    /// <summary>4.3: Ctrl+Tab（直近使用順のタブ切替）とCtrl+W（タブを閉じる）。</summary>
+    /// <summary>4.3/4.4のキー割り当てをまとめて処理する。Ctrl+Tab/Ctrl+W/検索/行操作/
+    /// コメント切替/補完は同期、Ctrl+W（保存確認）とCtrl+G（行番号入力）は非同期のため
+    /// 種類ごとに分けて小さく保つ。</summary>
     private async void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (_viewModel is null) return;
+        var mods = Keyboard.Modifiers;
 
-        if (e.Key == Key.Tab && Keyboard.Modifiers == ModifierKeys.Control)
+        if (TryHandleTabNavigation(e, mods)) return;
+        if (TryHandleSearchShortcuts(e, mods)) return;
+        if (TryHandleLineEditShortcuts(e, mods)) return;
+        await HandleAsyncShortcutsAsync(e, mods).ConfigureAwait(true);
+    }
+
+    /// <summary>Ctrl+Tab: 直近使用順のタブ切替。</summary>
+    private bool TryHandleTabNavigation(KeyEventArgs e, ModifierKeys mods)
+    {
+        if (mods != ModifierKeys.Control || e.Key != Key.Tab) return false;
+        if (_viewModel!.PeekMruNeighbor() is { } next) _viewModel.ActiveTab = next;
+        return e.Handled = true;
+    }
+
+    /// <summary>Ctrl+F/Ctrl+H: 検索・置換オーバーレイを開く。</summary>
+    private bool TryHandleSearchShortcuts(KeyEventArgs e, ModifierKeys mods)
+    {
+        if (mods != ModifierKeys.Control) return false;
+        if (e.Key == Key.F) { Search.OpenFind(); return e.Handled = true; }
+        if (e.Key == Key.H) { Search.OpenReplace(); return e.Handled = true; }
+        return false;
+    }
+
+    /// <summary>Ctrl+/、行複製・移動・削除、Ctrl+Spaceの単語補完。対象タブが無ければ何もしない。</summary>
+    private bool TryHandleLineEditShortcuts(KeyEventArgs e, ModifierKeys mods)
+    {
+        if (_viewModel!.ActiveTab is null) return false;
+
+        if (mods == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.K)
         {
-            if (_viewModel.PeekMruNeighbor() is { } next) _viewModel.ActiveTab = next;
+            EditorCommands.DeleteLines(Editor);
+            return e.Handled = true;
+        }
+        if (mods == (ModifierKeys.Shift | ModifierKeys.Alt) && e.Key == Key.Down)
+        {
+            EditorCommands.DuplicateLines(Editor);
+            return e.Handled = true;
+        }
+        if (mods == ModifierKeys.Alt && e.Key == Key.Up)
+        {
+            EditorCommands.MoveLinesUp(Editor);
+            return e.Handled = true;
+        }
+        if (mods == ModifierKeys.Alt && e.Key == Key.Down)
+        {
+            EditorCommands.MoveLinesDown(Editor);
+            return e.Handled = true;
+        }
+        if (mods == ModifierKeys.Control && e.Key is Key.OemQuestion or Key.Divide)
+        {
+            var extension = System.IO.Path.GetExtension(_viewModel.ActiveTab.Session.FileName);
+            EditorCommands.ToggleLineComment(Editor, SyntaxLexer.RuleForExtension(extension));
+            return e.Handled = true;
+        }
+        if (mods == ModifierKeys.Control && e.Key == Key.Space)
+        {
+            if (_viewModel.CompletionEnabled) _completion.RequestCompletion();
+            return e.Handled = true;
+        }
+        return false;
+    }
+
+    /// <summary>Ctrl+W（タブを閉じる、保存確認あり）とCtrl+G（指定行へ移動）。</summary>
+    private async Task HandleAsyncShortcutsAsync(KeyEventArgs e, ModifierKeys mods)
+    {
+        if (mods != ModifierKeys.Control) return;
+
+        if (e.Key == Key.W)
+        {
+            if (_viewModel!.ActiveTab is { } tab) await _viewModel.CloseTabAsync(tab).ConfigureAwait(true);
             e.Handled = true;
             return;
         }
 
-        if (e.Key == Key.W && Keyboard.Modifiers == ModifierKeys.Control)
+        if (e.Key == Key.G && _viewModel!.ActiveTab is not null)
         {
-            if (_viewModel.ActiveTab is { } tab) await _viewModel.CloseTabAsync(tab).ConfigureAwait(true);
             e.Handled = true;
+            var input = await _dialogs.PromptAsync("指定行へ移動", "移動先の行番号を入力してください。").ConfigureAwait(true);
+            if (int.TryParse(input, out var line)) EditorCommands.GoToLine(Editor, line);
         }
     }
 
@@ -260,5 +350,7 @@ public partial class EditorPane : UserControl
         Editor.TextArea.Caret.PositionChanged -= OnCaretPositionChanged;
         if (_viewModel is not null) _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _bridge.Dispose();
+        _brackets.Dispose();
+        _folding.Dispose();
     }
 }
