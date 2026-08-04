@@ -62,6 +62,7 @@ public sealed record Project
     public IReadOnlyList<PostApplyHook> PostApplyHooks { get; init; } = Array.Empty<PostApplyHook>();
 
     /// <summary>ルートが存在せず未接続かどうか。永続化はせず起動時の検証で設定する。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool IsDisconnected { get; init; }
 }
 
