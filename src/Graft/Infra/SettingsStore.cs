@@ -132,6 +132,7 @@ public sealed class SettingsStore
             Context = raw.Context ?? new ContextSettings(),
             Hooks = raw.Hooks ?? new HookSettings(),
             Git = raw.Git ?? new GitSettings(),
+            Editor = raw.Editor ?? new EditorSettings(),
         };
 
         return safe with
@@ -147,8 +148,16 @@ public sealed class SettingsStore
             Safety = ValidateSafety(safe.Safety, issues),
             Context = ValidateContext(safe.Context, issues),
             Hooks = ValidateHooks(safe.Hooks, issues),
+            Editor = ValidateEditor(safe.Editor, issues),
         };
     }
+
+    private static EditorSettings ValidateEditor(EditorSettings s, List<GraftIssue> issues)
+        => s with
+        {
+            FontSize = NormalizeRange(s.FontSize, 6.0, 72.0, 13.0, "editor.fontSize", issues),
+            TabSize = NormalizeMin(s.TabSize, 1, 4, "editor.tabSize", issues),
+        };
 
     private static ClipboardWatchSettings ValidateClipboardWatch(ClipboardWatchSettings s, List<GraftIssue> issues)
         => s with
