@@ -72,13 +72,24 @@ public partial class MainWindow : Window
         Height = bounds.Height;
         WindowState = layout.IsMaximized ? WindowState.Maximized : WindowState.Normal;
 
+        // layout.json が壊れていたり手で編集されていた場合、NaN・無限大・負値が
+        // 入りうる。GridLength はこれらを受け付けず例外になるため、必ず正規化する。
         var paneLayout = ViewModel.GetCurrentPaneLayout();
-        LeftColumn.Width = new GridLength(paneLayout.ProjectColumnWidth);
-        CenterColumn.Width = new GridLength(paneLayout.BlockColumnWidth);
+        LeftColumn.Width = new GridLength(SafeLength(paneLayout.ProjectColumnWidth, 260));
+        CenterColumn.Width = new GridLength(SafeLength(paneLayout.BlockColumnWidth, 380));
 
-        var ratio = Math.Clamp(layout.LeftPaneSplitRatio, 0.1, 0.9);
+        var ratio = SafeRatio(layout.LeftPaneSplitRatio, 0.55);
         ProjectRow.Height = new GridLength(ratio, GridUnitType.Star);
         HistoryRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
+    }
+
+    /// <summary>ピクセル幅を GridLength が受け付ける範囲へ正規化する。</summary>
+    private static double SafeLength(double value, double fallback)
+        => double.IsFinite(value) && value > 0 ? value : fallback;
+
+    /// <summary>分割比率を 0.1〜0.9 へ正規化する。NaN は既定値へ倒す。</summary>
+    private static double SafeRatio(double value, double fallback)
+        => double.IsFinite(value) ? Math.Clamp(value, 0.1, 0.9) : fallback;
     }
 
     /// <summary>
