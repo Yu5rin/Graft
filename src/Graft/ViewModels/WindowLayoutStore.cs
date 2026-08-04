@@ -5,17 +5,29 @@ using Graft.Infra;
 namespace Graft.ViewModels;
 
 /// <summary>
-/// プロジェクトごとに記憶するペイン幅（仕様書8.2）。
-/// 左ペイン内の「プロジェクト一覧」列と中央「ブロック一覧」列の幅を保持する。
-/// 右ペイン（diff）は残り幅を使う可変列のため保存対象にしない。
+/// プロジェクトごとに記憶するレイアウト（v2.0 仕様書3.2）。
+/// サイドビュー幅・接ぎ木パネル高さ・エディタのフォントサイズを保持する。
+/// エディタ領域は残りを使う可変領域のため保存対象にしない。
 /// </summary>
 public sealed class ProjectPaneLayout
 {
-    public double ProjectColumnWidth { get; set; } = 260;
-    public double BlockColumnWidth { get; set; } = 380;
+    /// <summary>サイドビュー（エクスプローラ・プロジェクト・履歴・検索）の幅。</summary>
+    public double SideViewWidth { get; set; } = 260;
 
-    /// <summary>diffのコード表示フォントサイズ（仕様書8.4「プロジェクトごとに記憶する」）。</summary>
+    /// <summary>下部の接ぎ木パネルの高さ。</summary>
+    public double GraftPanelHeight { get; set; } = 260;
+
+    /// <summary>コード表示のフォントサイズ（v2.0 仕様書3.2・4.4）。</summary>
     public double CodeFontSize { get; set; } = 13;
+
+    /// <summary>
+    /// v1.5 の3ペインレイアウトで使っていた列幅。既存の layout.json を読んでも
+    /// 情報を失わないよう残すが、v2.0 のシェルでは参照しない。
+    /// </summary>
+    public double ProjectColumnWidth { get; set; } = 260;
+
+    /// <summary>v1.5 の中央「ブロック一覧」列の幅。v2.0 のシェルでは参照しない。</summary>
+    public double BlockColumnWidth { get; set; } = 380;
 }
 
 /// <summary>

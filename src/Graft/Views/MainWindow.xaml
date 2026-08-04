@@ -1,3 +1,4 @@
+<!-- E1以降、起動時には使われない（ShellWindowへ移行済み）。フェーズE5で撤去予定。 -->
 <Window x:Class="Graft.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"

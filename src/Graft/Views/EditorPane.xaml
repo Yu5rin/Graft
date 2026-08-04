@@ -1,0 +1,105 @@
+<UserControl x:Class="Graft.Views.EditorPane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:ae="http://icsharpcode.net/sharpdevelop/avalonedit"
+             xmlns:local="clr-namespace:Graft.Views"
+             mc:Ignorable="d"
+             Background="{DynamicResource BgBase}"
+             PreviewKeyDown="OnPreviewKeyDown"
+             d:DesignHeight="480" d:DesignWidth="800">
+
+    <!--
+        4.1: UserControlは親Windowのリソースを見られない（既知の落とし穴2）ため、
+        AvalonEditのテーマ（Themes/Editor.xaml）はここで自前にMergedDictionariesへ
+        取り込む。App.xamlは他担当のファイルのため変更していない
+        （完了報告でApp.xamlへの追加を推奨として報告する）。
+    -->
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Graft;component/Themes/Editor.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <local:EmptyCollectionToVisibilityConverter x:Key="EmptyToVisibility" />
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ========== タブ見出し（4.3） ========== -->
+        <ListBox x:Name="TabStrip"
+                 Grid.Row="0"
+                 Style="{StaticResource EditorTabStripStyle}"
+                 ItemContainerStyle="{StaticResource EditorTabItemStyle}"
+                 ItemsSource="{Binding Tabs}"
+                 SelectedItem="{Binding ActiveTab, Mode=TwoWay}"
+                 PreviewMouseDown="OnTabStripPreviewMouseDown"
+                 Visibility="{Binding Tabs.Count, Converter={StaticResource EmptyToVisibility}}"
+                 AutomationProperties.Name="開いているファイルのタブ一覧">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Border x:Name="ItemRoot" Background="Transparent">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="TitleText"
+                                       Text="{Binding Title}"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       FontSize="{DynamicResource BodyFontSize}" />
+                            <TextBlock x:Name="ModifiedDot"
+                                       Text="●"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="8"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       Visibility="Collapsed"
+                                       AutomationProperties.Name="未保存の変更があります" />
+                            <Button x:Name="CloseButton"
+                                    Command="{Binding CloseCommand}"
+                                    Style="{StaticResource EditorTabCloseButtonStyle}"
+                                    Margin="6,0,0,0"
+                                    Visibility="Collapsed"
+                                    AutomationProperties.Name="タブを閉じる" />
+                        </StackPanel>
+                    </Border>
+                    <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsPreview}" Value="True">
+                            <Setter TargetName="TitleText" Property="FontStyle" Value="Italic" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsModified}" Value="True">
+                            <Setter TargetName="ModifiedDot" Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                        <Trigger SourceName="ItemRoot" Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ModifiedDot" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="CloseButton" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                    </DataTemplate.Triggers>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- ========== エディタ本体 ========== -->
+        <Grid Grid.Row="1">
+            <ae:TextEditor x:Name="Editor"
+                           FontSize="{Binding FontSize}"
+                           ShowLineNumbers="{Binding ShowLineNumbers}"
+                           WordWrap="{Binding WordWrap}"
+                           HorizontalScrollBarVisibility="Auto"
+                           VerticalScrollBarVisibility="Auto"
+                           PreviewMouseWheel="OnEditorPreviewMouseWheel"
+                           AutomationProperties.Name="コードエディタ" />
+
+            <TextBlock Text="開いているファイルはありません"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource BodyFontSize}"
+                       Visibility="{Binding Tabs.Count, Converter={StaticResource EmptyToVisibility}, ConverterParameter=Invert}"
+                       IsHitTestVisible="False" />
+        </Grid>
+    </Grid>
+</UserControl>

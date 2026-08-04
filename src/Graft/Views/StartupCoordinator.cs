@@ -33,8 +33,8 @@ public sealed class StartupCoordinator : IAsyncDisposable
     private TrayIconHost? _trayIcon;
     private AppSettings _settings = new();
 
-    /// <summary>生成されたメインウィンドウ。<see cref="StartAsync"/> 完了後に設定される。</summary>
-    public MainWindow? MainWindow { get; private set; }
+    /// <summary>生成されたメインウィンドウ（仕様書9.2の新シェルレイアウト）。<see cref="StartAsync"/> 完了後に設定される。</summary>
+    public ShellWindow? MainWindow { get; private set; }
 
     /// <summary>想定外の例外を記録するためのロガー。<see cref="StartAsync"/> 完了前は null。</summary>
     public Logger? Logger => _logger;
@@ -82,8 +82,10 @@ public sealed class StartupCoordinator : IAsyncDisposable
         var mainViewModel = new MainViewModel(
             applyEngine, projectStore, revisionStore, revisionRestorer,
             _settingsStore, new WindowLayoutStore(_appPaths), dialogService, patchQueue, OpenSettings);
+        var editorViewModel = new EditorPaneViewModel(_settings, dialogService);
+        var shellViewModel = new ShellViewModel(mainViewModel, editorViewModel, dialogService);
 
-        var window = new MainWindow(mainViewModel);
+        var window = new ShellWindow(shellViewModel);
         MainWindow = window;
         var hwnd = new WindowInteropHelper(window).EnsureHandle();
 
