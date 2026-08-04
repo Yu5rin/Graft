@@ -42,6 +42,14 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
         Closing += OnClosing;
         PreviewKeyDown += OnPreviewKeyDown;
+        viewModel.RequestOpenQueue += OnRequestOpenQueue;
+    }
+
+    /// <summary>4.10: キュー管理ウィンドウを開く（コマンドバー「キュー」ボタン）。</summary>
+    private void OnRequestOpenQueue(object? sender, EventArgs e)
+    {
+        var window = new QueueWindow(ViewModel.Queue) { Owner = this };
+        window.ShowDialog();
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;

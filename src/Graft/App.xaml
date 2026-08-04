@@ -10,8 +10,9 @@
         ウィンドウが表示されるのはOnStartup完了より後になるため、
         色トークン未適用の状態が画面に見える瞬間は生じない。
 
-        起動処理の本体（多重起動防止、StartupUri、初回起動ガイド等）は
-        他担当が追記する。
+        コントロールの暗黙スタイルは分量が多いため、基本コントロール
+        （Controls.xaml）、入力系（Controls.Input.xaml）、カレンダー系
+        （Controls.Calendar.xaml）の3つに分割している。
     -->
     <Application.Resources>
         <ResourceDictionary>
@@ -21,6 +22,8 @@
                 <ResourceDictionary Source="Themes/Icons.xaml" />
                 <ResourceDictionary Source="Themes/Logo.xaml" />
                 <ResourceDictionary Source="Themes/Controls.xaml" />
+                <ResourceDictionary Source="Themes/Controls.Input.xaml" />
+                <ResourceDictionary Source="Themes/Controls.Calendar.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
