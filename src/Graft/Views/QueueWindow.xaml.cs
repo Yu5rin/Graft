@@ -29,17 +29,15 @@ public partial class QueueWindow : Window
         ArgumentNullException.ThrowIfNull(viewModel);
         InitializeComponent();
         DataContext = viewModel;
+        // 「結合して適用」の実処理（結合・ドライラン）はMainViewModel側が
+        // MergeRequestedを購読して行う。ここでは完了合図を受けて自分自身を閉じるだけでよい。
+        viewModel.MergeRequested += OnMergeRequested;
         PreviewKeyDown += OnPreviewKeyDown;
     }
 
     private void OnCloseClicked(object sender, RoutedEventArgs e) => Close();
 
-    /// <summary>「結合して適用」はメインウィンドウ側の解析・適用フローへ委譲するため、ここでは閉じるのみ。</summary>
-    private void OnMergeClicked(object sender, RoutedEventArgs e)
-    {
-        ((QueueViewModel)DataContext).MergeCommand.Execute(null);
-        Close();
-    }
+    private void OnMergeRequested(object? sender, EventArgs e) => Close();
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
