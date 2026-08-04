@@ -130,6 +130,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 4.8.4: Ctrl+Shift+C はテキスト入力中でも有効にする（標準の編集操作と衝突しないため）。
+        if (e.Key == Key.C && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+        {
+            ViewModel.CopyPromptCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         var focused = Keyboard.FocusedElement as DependencyObject;
         var inTextInput = IsTextInput(focused);
 
