@@ -41,11 +41,7 @@ public sealed class PatchQueue
     // Block と、その元パッチ内での出現順インデックス（永続化からの復元に使う）を対にして保持する。
     private readonly List<(QueuedBlock Block, int SourceIndex)> _slots = new();
 
-    /// <param name="paths">
-    /// queue.json の保存先を決める基準ディレクトリ。<see cref="AppPaths"/> には queue.json 専用の
-    /// プロパティが無いため、ここでは <see cref="AppPaths.BaseDirectory"/> から直接組み立てる
-    /// （AppPaths 自体は担当外のため変更していない。要確認事項として報告する）。
-    /// </param>
+    /// <param name="paths">queue.json の保存先（<see cref="AppPaths.QueueFilePath"/>）を提供する。</param>
     public PatchQueue(AppPaths paths)
     {
         _queueFilePath = paths.QueueFilePath;
@@ -71,10 +67,7 @@ public sealed class PatchQueue
             var block = patch.Blocks[i];
             if (!seenPaths.Add(NormalizedPath(block)))
             {
-                // 仕様書16章に「パッチキュー内の重複ブロック」専用のコードが無いため、
-                // 意味的に近い E102（複数箇所にマッチ＝多重性の警告）を暫定的に用いる。
-                // 要確認: 専用コード（例: E007）の追加を提案する。
-                issues.Add(GraftIssue.Of(ErrorCode.E102,
+                issues.Add(GraftIssue.Of(ErrorCode.E007,
                     detail: $"同一ファイル（{block.Path}）に対する重複ブロックがキュー内に既にあります。",
                     path: block.Path, severity: Severity.Warning));
             }
