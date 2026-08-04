@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Graft.Tests</RootNamespace>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <!--
+    本体は WPF (net8.0-windows) のため、そのまま参照すると Windows 以外で
+    テストを実行できない。Core / Features / Infra は仕様 A.4 により WPF へ
+    依存しないため、ソースを直接取り込んで net8.0 としてテストする。
+    これにより「UI から独立して単体テスト可能」であることを機械的に保証する。
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Graft\Core\**\*.cs" LinkBase="Linked\Core" />
+    <Compile Include="..\..\src\Graft\Features\**\*.cs" LinkBase="Linked\Features" />
+    <Compile Include="..\..\src\Graft\Infra\**\*.cs" LinkBase="Linked\Infra" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiffPlex" Version="1.7.2" />
+    <PackageReference Include="FluentAssertions" Version="6.12.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="xunit" Version="2.7.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Graft.ico</ApplicationIcon>
+    <RootNamespace>Graft</RootNamespace>
+    <AssemblyName>Graft</AssemblyName>
+    <Version>1.0.0</Version>
+    <Product>Graft</Product>
+    <!-- Windows 以外のホストでもビルド検証できるようにする -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+    <SatelliteResourceLanguages>ja</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiffPlex" Version="1.7.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Assets\Graft.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Assets\DiffPlex-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

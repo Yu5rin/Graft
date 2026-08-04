@@ -1,0 +1,66 @@
+<!--
+  アプリのロゴ。ラスタ画像ではなくベクター（Geometry）として保持し、
+  ウィンドウアイコン・トレイアイコン・バージョン情報画面から共通で参照する。
+  ロゴの配色はブランド固有でテーマに追従しないため、ここに専用トークンとして定義する。
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ロゴのブランド配色 -->
+    <Color x:Key="LogoBackgroundColor">#FBFAF2</Color>
+    <Color x:Key="LogoTrunkColor">#3E4F43</Color>
+    <Color x:Key="LogoLeafColor">#7CAA4E</Color>
+
+    <SolidColorBrush x:Key="LogoBackgroundBrush" Color="{StaticResource LogoBackgroundColor}" />
+    <SolidColorBrush x:Key="LogoTrunkBrush" Color="{StaticResource LogoTrunkColor}" />
+    <SolidColorBrush x:Key="LogoLeafBrush" Color="{StaticResource LogoLeafColor}" />
+
+    <!-- 256x256 のビューボックスで定義する -->
+    <RectangleGeometry x:Key="LogoBackgroundGeometry" Rect="0,0,256,256" RadiusX="44" RadiusY="44" />
+
+    <!-- 幹（接ぎ木される台木） -->
+    <PathGeometry x:Key="LogoTrunkGeometry"
+                  Figures="M78.5,229.5 L78.5,149 C78.5,145 80,141.5 83,139 L100,125 C103.5,122 109.5,124.5 109.5,129 L109.5,161 L117,161 C121,161 124,164 124,168 L124,175 C124,179 121,182 117,182 L109.5,182 L109.5,229.5 Z" />
+
+    <!-- 接ぎ穂の茎 -->
+    <PathGeometry x:Key="LogoStalkGeometry"
+                  Figures="M109.5,127 C126,127 138,118 144,104 C148,96 149.5,90 150,83 L163.5,86 C162,96 159,112 150,126 C140,141 126,152 109.5,158 Z" />
+
+    <!-- 上の葉 -->
+    <PathGeometry x:Key="LogoLeafUpperGeometry"
+                  Figures="M150,88 C145,62 164,37 196,26 C207,50 197,77 170,89 C163,92 154,93 150,88 Z" />
+
+    <!-- 下の葉 -->
+    <PathGeometry x:Key="LogoLeafLowerGeometry"
+                  Figures="M152,122 C163,100 189,90 210,98 C203,120 180,132 158,128 C154,127 151,125 152,122 Z" />
+
+    <!-- 葉脈（背景色で抜く） -->
+    <PathGeometry x:Key="LogoVeinUpperGeometry"
+                  Figures="M196,26 C176,44 163,63 157,85 C161,62 178,42 196,26 Z" />
+
+    <PathGeometry x:Key="LogoVeinLowerGeometry"
+                  Figures="M210,98 C191,100 173,108 158,122 C174,112 191,103 210,98 Z" />
+
+    <!-- ロゴ全体。Image.Source や Rectangle.Fill から参照する -->
+    <DrawingImage x:Key="LogoImage">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Geometry="{StaticResource LogoBackgroundGeometry}"
+                                 Brush="{StaticResource LogoBackgroundBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoTrunkGeometry}"
+                                 Brush="{StaticResource LogoTrunkBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoStalkGeometry}"
+                                 Brush="{StaticResource LogoLeafBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoLeafUpperGeometry}"
+                                 Brush="{StaticResource LogoLeafBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoLeafLowerGeometry}"
+                                 Brush="{StaticResource LogoLeafBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoVeinUpperGeometry}"
+                                 Brush="{StaticResource LogoBackgroundBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoVeinLowerGeometry}"
+                                 Brush="{StaticResource LogoBackgroundBrush}" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+</ResourceDictionary>
