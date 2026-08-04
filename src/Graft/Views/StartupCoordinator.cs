@@ -7,6 +7,7 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.ViewModels;
+using AppSettings = Graft.Infra.Settings;
 
 namespace Graft.Views;
 
@@ -31,7 +32,7 @@ public sealed class StartupCoordinator : IAsyncDisposable
     private ClipboardWatcher? _clipboardWatcher;
     private HotkeyManager? _hotkeyManager;
     private TrayIconHost? _trayIcon;
-    private Settings _settings = new();
+    private AppSettings _settings = new();
 
     /// <summary>生成されたメインウィンドウ。<see cref="StartAsync"/> 完了後に設定される。</summary>
     public MainWindow? MainWindow { get; private set; }
@@ -186,10 +187,14 @@ public sealed class StartupCoordinator : IAsyncDisposable
     }
 
     /// <summary>
-    /// Ctrl+Shift+C（4.8.4）。command bar側のテンプレート選択・ファイル選択状態には
-    /// 依存せず、4.8.1の「直近1時間以内にコピー済みか」の判定のみで初回用/継続用を
-    /// 自動選択する簡易版。変数展開（{{tree}}/{{files}}等）を伴うテンプレート選択は
-    /// コマンドバーの「プロンプト」ボタン側（担当外）で提供される想定。
+    /// Ctrl+Shift+C（4.8.4）。<see cref="MainViewModel"/>（MainViewModel.cs・MainViewModel.Queue.cs）
+    /// を確認したが、コマンドバー「プロンプト」ボタンに対応する公開コマンドは現時点で存在しない
+    /// （存在するのは4.10のキュー関連コマンドと、11章向けの <c>CopyRecoveryPromptCommand</c> のみ。
+    /// 4.8の変数展開・テンプレート選択UIは <c>SettingsViewModel.Templates</c>
+    /// （<see cref="PromptTemplateViewModel"/>）側にあり、MainWindowのコマンドバーには未接続）。
+    /// そのため本メソッドは暫定的に、4.8.1の「直近1時間以内にコピー済みか」の判定のみで
+    /// 初回用/継続用の定型文を選んでコピーする。該当コマンドが追加され次第、
+    /// <c>mainViewModel.???Command.Execute(null)</c> を呼ぶだけの実装に置き換えること。
     /// </summary>
     private void OnCopyPromptHotkey(MainViewModel mainViewModel)
     {

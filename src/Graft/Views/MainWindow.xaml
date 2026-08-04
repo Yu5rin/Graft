@@ -56,6 +56,15 @@
                             Command="{Binding PasteAndParseCommand}"
                             Margin="4,0"
                             AutomationProperties.Name="クリップボードのパッチを解析" />
+                    <!-- 4.10: 分割パッチの受け取り。キューへ追加／キュー一覧を開く。 -->
+                    <Button Content="キューへ追加"
+                            Command="{Binding AddCurrentPatchToQueueCommand}"
+                            Margin="4,0"
+                            AutomationProperties.Name="現在の解析結果をパッチキューへ追加" />
+                    <Button Content="{Binding Queue.Items.Count, StringFormat=キュー（{0}）}"
+                            Command="{Binding OpenQueueCommand}"
+                            Margin="4,0"
+                            AutomationProperties.Name="パッチキューを開く" />
                     <Button Content="適用"
                             Command="{Binding ApplyCommand}"
                             Margin="4,0"
@@ -121,6 +130,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0"
                                Text="ブロック"
@@ -129,9 +139,14 @@
                                FontWeight="{DynamicResource PaneHeadingFontWeight}"
                                Foreground="{DynamicResource TextSecondary}" />
                     <TextBox Grid.Column="1"
-                             Margin="8,0,0,0"
+                             Margin="8,0,4,0"
                              Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
                              AutomationProperties.Name="ブロック一覧を検索" />
+                    <!-- 11章 失敗時リカバリ支援: 失敗ブロックがある場合のみ有効になる。 -->
+                    <Button Grid.Column="2"
+                            Content="失敗を再依頼"
+                            Command="{Binding CopyRecoveryPromptCommand}"
+                            AutomationProperties.Name="失敗ブロックの再依頼プロンプトをコピー" />
                 </Grid>
 
                 <Grid Grid.Row="1">

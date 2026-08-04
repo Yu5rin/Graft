@@ -1,0 +1,27 @@
+<UserControl x:Class="Graft.Views.SettingsTabs.RawJsonSettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="設定JSON直接編集">
+    <!-- 14章「jsonの直接編集も可能」に対応する。スタイルは親SettingsWindow.xamlのものを継承する。 -->
+    <Grid Margin="16,8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="settings.json を直接編集できます。保存時に検証し、不正な値は既定値へフォールバックします。"
+                   TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,8" />
+        <TextBox Grid.Row="1" Text="{Binding JsonText, UpdateSourceTrigger=PropertyChanged}"
+                 AcceptsReturn="True" AcceptsTab="True" TextWrapping="NoWrap"
+                 FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="settings.jsonの内容" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button Content="検証して保存" Command="{Binding SaveJsonCommand}"
+                    AutomationProperties.Name="JSONを検証して保存" />
+            <TextBlock Text="{Binding JsonParseError}" Foreground="{DynamicResource StateError}"
+                       VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
+                       Visibility="{Binding JsonParseError, Converter={StaticResource NullToVis}}" />
+        </StackPanel>
+    </Grid>
+</UserControl>
