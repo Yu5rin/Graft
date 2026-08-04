@@ -60,7 +60,7 @@ public sealed class DocumentSession : IDisposable
     public event EventHandler? ModifiedChanged;
 
     /// <summary>
-    /// ファイルを読み込みセッションを開く。バイナリ判定に外れた場合はE703相当（下記コメント参照）、
+    /// ファイルを読み込みセッションを開く。バイナリ判定に外れた場合はE703、
     /// 読み込み失敗はCoreがそのまま返すコード（E204等）で失敗を返す。
     /// </summary>
     public static async Task<GraftResult<DocumentSession>> OpenAsync(
@@ -73,12 +73,7 @@ public sealed class DocumentSession : IDisposable
 
         if (await LooksBinaryAsync(fullPath, ct).ConfigureAwait(false))
         {
-            // 仕様書17章のE703（バイナリまたは未対応形式のため開けない）に相当する。
-            // Core/ErrorCodes.cs にはE701〜E704がまだ追加されていない（本フェーズでは
-            // Core/ を変更できないため）ので、暫定的に近い既存コード（E202）へ乗せたうえで
-            // 表示用のDetailに正しいコード表記を含めている。Core側の追加後は置き換えること。
-            return GraftResult<DocumentSession>.Fail(ErrorCode.E202,
-                "E703 バイナリまたは未対応形式のため開けません", path: fullPath);
+            return GraftResult<DocumentSession>.Fail(ErrorCode.E703, "バイナリまたは未対応形式のため開けません", path: fullPath);
         }
 
         var read = await FileTextIO.ReadAsync(fullPath, ct).ConfigureAwait(false);
@@ -101,16 +96,17 @@ public sealed class DocumentSession : IDisposable
     /// </summary>
     public async Task<GraftResult<bool>> SaveAsync(CancellationToken ct = default)
     {
-        // 仕様書17章のE701（保存に失敗）に相当する。FileTextIO.WriteAsyncは既存のCoreの
-        // 仕組みで既にE402（書き込み失敗）を返すため、意味的に重複するE701をここで
-        // 新設せず、既存コードをそのまま透過させている。Core/ErrorCodes.csにE701が
-        // 正式追加された場合はそちらへ差し替えること。
         var result = await FileTextIO.WriteAsync(FullPath, Document.Text, Shape, ct).ConfigureAwait(false);
-        if (result.IsSuccess)
+        if (!result.IsSuccess)
         {
-            Document.UndoStack.MarkAsOriginalFile();
+            // FileTextIO.WriteAsyncはCore内部の書き込み失敗としてE402を返すが、エディタからの
+            // 保存失敗は仕様書17章のE701として表示する必要があるため、コードのみE701へ包み直す
+            // （元のDetail・行番号・パス・深刻度はそのまま保持する）。
+            return GraftResult<bool>.Fail(result.Issues.Select(
+                i => GraftIssue.Of(ErrorCode.E701, i.Detail, i.LineNumber, i.Path, i.Severity)));
         }
 
+        Document.UndoStack.MarkAsOriginalFile();
         return result;
     }
 

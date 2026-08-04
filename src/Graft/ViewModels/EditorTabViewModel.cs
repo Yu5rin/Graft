@@ -53,6 +53,31 @@ public sealed class EditorTabViewModel : ObservableObject
     /// <summary>15章 detectIndent により検出された、このファイルのインデント幅。</summary>
     public int IndentWidth { get => _indentWidth; set => SetProperty(ref _indentWidth, Math.Max(1, value)); }
 
+    /// <summary>
+    /// タブ非表示中の垂直スクロール位置（ピクセル）。水平位置と合わせ、View側
+    /// （<see cref="Graft.Views.EditorPane"/>）がタブ切替のたびに退避・復元する。
+    /// UIバインディング対象ではないため通知プロパティにはしない。
+    /// </summary>
+    public double ScrollOffsetY { get; set; }
+
+    /// <summary>タブ非表示中の水平スクロール位置（ピクセル）。</summary>
+    public double ScrollOffsetX { get; set; }
+
+    /// <summary>選択範囲の開始オフセット（文字単位）。</summary>
+    public int SelectionStart { get; set; }
+
+    /// <summary>選択範囲の長さ（文字単位）。0は選択なし。</summary>
+    public int SelectionLength { get; set; }
+
+    /// <summary>
+    /// 一度でもこのタブが非表示側へ回り、スクロール位置が退避されたかどうか。falseのままなら
+    /// （＝開いてから一度も他タブへ切り替えていない）、<see cref="ScrollOffsetX"/>/
+    /// <see cref="ScrollOffsetY"/>は「まだ記録されていない」ことを意味するため、View側は
+    /// 正確な位置復元を行わずCaretLineへのおおまかなスクロールのみで済ませる
+    /// （4.8のdiffジャンプ等でCaretLineだけが指定された初回表示を正しく機能させるため）。
+    /// </summary>
+    public bool HasViewState { get; set; }
+
     /// <summary>タブを閉じる（未保存なら保存確認を挟む）。</summary>
     public ICommand CloseCommand { get; }
 

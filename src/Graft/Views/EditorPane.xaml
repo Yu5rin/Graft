@@ -11,18 +11,13 @@
              d:DesignHeight="480" d:DesignWidth="800">
 
     <!--
-        4.1: UserControlは親Windowのリソースを見られない（既知の落とし穴2）ため、
-        AvalonEditのテーマ（Themes/Editor.xaml）はここで自前にMergedDictionariesへ
-        取り込む。App.xamlは他担当のファイルのため変更していない
-        （完了報告でApp.xamlへの追加を推奨として報告する）。
+        Themes/Editor.xamlはApp.xamlのMergedDictionariesで既にアプリ全体へ読み込まれている
+        （Application.Resourcesは既知の落とし穴2＝UserControlから親Windowの個別リソースを
+        参照できない問題の対象外のため、ここで二重にマージする必要はない）。
+        ここではEditorPane固有のコンバータのみを持つ。
     -->
     <UserControl.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="/Graft;component/Themes/Editor.xaml" />
-            </ResourceDictionary.MergedDictionaries>
-            <local:EmptyCollectionToVisibilityConverter x:Key="EmptyToVisibility" />
-        </ResourceDictionary>
+        <local:EmptyCollectionToVisibilityConverter x:Key="EmptyToVisibility" />
     </UserControl.Resources>
 
     <Grid>
