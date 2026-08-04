@@ -30,6 +30,12 @@ public sealed class AppPaths
     /// <summary>バックアップの起点ディレクトリ（back/）。</summary>
     public string BackupRootDirectory => Path.Combine(BaseDirectory, "back");
 
+    /// <summary>プロンプトテンプレート定義（仕様書4.8）の保存先。</summary>
+    public string TemplatesFilePath => Path.Combine(BaseDirectory, "templates.json");
+
+    /// <summary>パッチキュー（仕様書4.10）の保存先。終了時に保持し次回起動時に復元する。</summary>
+    public string QueueFilePath => Path.Combine(BaseDirectory, "queue.json");
+
     /// <summary>ログの起点ディレクトリ（logs/）。</summary>
     public string LogsDirectory => Path.Combine(BaseDirectory, "logs");
 
