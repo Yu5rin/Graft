@@ -63,9 +63,8 @@ public sealed class MainViewModel : ObservableObject
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, dialogService);
-        // DiffViewModel は Settings を要求するため、設定読み込み前は既定値で仮に構築する。
-        // InitializeAsync で実際の設定を読み込んだ後、WordWrap/ShowWhitespace のみ反映し直す
-        // （ShowLineNumbers 等は構築時の Settings に固定されるDiffViewModel側の設計のため）。
+        // DiffViewModelは構築時にSettingsを固定するため、設定読み込み前は既定値で仮に構築し、
+        // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
         Diff = new DiffViewModel(new Settings());
         Diff.PropertyChanged += OnDiffPropertyChanged;
 
@@ -84,11 +83,8 @@ public sealed class MainViewModel : ObservableObject
     }
 
     public ProjectPaneViewModel ProjectPane { get; }
-
     public HistoryPaneViewModel History { get; }
-
     public DiffViewModel Diff { get; }
-
     public WindowLayoutStore LayoutStore { get; }
 
     /// <summary>読み込み・保存済みのウィンドウ・ペインレイアウト。Viewが直接読み書きする。</summary>
@@ -114,30 +110,27 @@ public sealed class MainViewModel : ObservableObject
         set
         {
             var previous = _selectedBlock;
-            if (SetProperty(ref _selectedBlock, value))
+            if (!SetProperty(ref _selectedBlock, value))
             {
-                if (previous is not null)
-                {
-                    previous.PropertyChanged -= OnSelectedBlockPropertyChanged;
-                }
-
-                if (value is null)
-                {
-                    Diff.Clear();
-                }
-                else
-                {
-                    Diff.Load(value.Plan);
-                    value.PropertyChanged += OnSelectedBlockPropertyChanged;
-                }
+                return;
+            }
+            if (previous is not null)
+            {
+                previous.PropertyChanged -= OnSelectedBlockPropertyChanged;
+            }
+            if (value is null)
+            {
+                Diff.Clear();
+            }
+            else
+            {
+                Diff.Load(value.Plan);
+                value.PropertyChanged += OnSelectedBlockPropertyChanged;
             }
         }
     }
 
-    /// <summary>
-    /// ブロック一覧の絞り込み文字列（Ctrl+F）。パスまたは変更説明の部分一致。
-    /// 実際の絞り込みはView側でCollectionViewSourceのFilterに委譲し、ここでは値の保持のみ行う。
-    /// </summary>
+    /// <summary>ブロック一覧の絞り込み文字列（Ctrl+F）。実際の絞り込みはView側で行う。</summary>
     public string FilterText
     {
         get => _filterText;
@@ -171,12 +164,10 @@ public sealed class MainViewModel : ObservableObject
     {
         var settingsResult = await _settingsStore.LoadAsync(ct).ConfigureAwait(true);
         _settings = settingsResult.Value;
-        // DiffViewModelはSettingsを構築時に固定するため、書き換え可能な項目のみ読み込み後に反映する。
         Diff.WordWrap = _settings.Diff.WordWrap;
         Diff.ShowWhitespace = _settings.Diff.ShowWhitespace;
 
         Layout = await LayoutStore.LoadAsync(ct).ConfigureAwait(true);
-
         await ProjectPane.LoadAsync(ct).ConfigureAwait(true);
     }
 
@@ -193,29 +184,25 @@ public sealed class MainViewModel : ObservableObject
     private async void OnProjectSelected(object? sender, Project project)
     {
         DiscardCurrentPatch();
+        // 8.4: コード表示のフォントサイズはプロジェクトごとに記憶する。
+        Diff.CodeFontSize = GetCurrentPaneLayout().CodeFontSize;
         await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
         await CheckInProgressAsync(project).ConfigureAwait(true);
         OnPropertyChanged(nameof(CurrentProjectName));
     }
 
     /// <summary>
-    /// 仕様書6.3: 前回の適用が in_progress のまま残っていないかを確認する。
-    /// 検出時は通知のみ行う（実ファイルの巻き戻しにはApplyEngine側の再開APIが必要なため、
-    /// 現時点ではUI側からの自動ロールバックは行わない。E403として警告する）。
+    /// 仕様書6.3: 前回の適用が in_progress のまま残っていないかを確認し、検出時は通知する。
+    /// 実ファイルの巻き戻しにはApplyEngine側の再開APIが必要なため、自動ロールバックは行わない。
     /// </summary>
     private async Task CheckInProgressAsync(Project project)
     {
         var result = await _revisionStore.FindInProgressAsync(project.Id).ConfigureAwait(true);
-        if (!result.IsSuccess || result.Value.Count == 0)
-        {
-            return;
-        }
+        if (!result.IsSuccess || result.Value.Count == 0) return;
 
         var revisions = string.Join("、", result.Value.Select(r => $"r{r.Manifest.Revision}"));
-        await _dialogs.ConfirmAsync(
-            "前回の適用が未完了です",
-            $"{revisions} が完了しないまま終了した可能性があります。バックアップフォルダを確認してください。")
-            .ConfigureAwait(true);
+        await _dialogs.ConfirmAsync("前回の適用が未完了です",
+            $"{revisions} が完了しないまま終了した可能性があります。バックアップフォルダを確認してください。").ConfigureAwait(true);
     }
 
     private async void OnRevisionSelected(object? sender, RevisionRowViewModel? row)
@@ -235,31 +222,27 @@ public sealed class MainViewModel : ObservableObject
     }
 
     /// <summary>
-    /// diffペイン側（DiffViewModel.IsIncluded）でのチェック切り替えを、選択中ブロックの
-    /// IsSelectedへ反映する。DiffViewModel側のドキュメントコメントにある連携契約。
+    /// diff側の変更をブロック一覧・レイアウトへ反映する。IsIncludedは選択中ブロックの
+    /// IsSelectedへ（連携契約）、CodeFontSizeはプロジェクト別ペイン幅設定へ保存する（8.4）。
     /// </summary>
     private void OnDiffPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_syncingSelection || e.PropertyName != nameof(DiffViewModel.IsIncluded) || SelectedBlock is null)
+        if (e.PropertyName == nameof(DiffViewModel.CodeFontSize))
         {
+            GetCurrentPaneLayout().CodeFontSize = Diff.CodeFontSize;
             return;
         }
+        if (_syncingSelection || e.PropertyName != nameof(DiffViewModel.IsIncluded) || SelectedBlock is null) return;
         _syncingSelection = true;
         SelectedBlock.IsSelected = Diff.IsIncluded;
         _syncingSelection = false;
     }
 
-    /// <summary>ブロック一覧側（Space・チェックボックス）での切り替えをdiffペインへ反映する。</summary>
+    /// <summary>ブロック一覧側（Space・チェックボックス）での切り替えをdiff側へ反映する。</summary>
     private void OnSelectedBlockPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_syncingSelection || e.PropertyName != nameof(BlockItemViewModel.IsSelected))
-        {
-            return;
-        }
-        if (sender is not BlockItemViewModel block || !ReferenceEquals(block, _selectedBlock))
-        {
-            return;
-        }
+        if (_syncingSelection || e.PropertyName != nameof(BlockItemViewModel.IsSelected)) return;
+        if (sender is not BlockItemViewModel block || !ReferenceEquals(block, _selectedBlock)) return;
         _syncingSelection = true;
         Diff.IsIncluded = block.IsSelected;
         _syncingSelection = false;
@@ -267,11 +250,7 @@ public sealed class MainViewModel : ObservableObject
 
     private async void OnRevisionRestored(object? sender, EventArgs e)
     {
-        var project = ProjectPane.SelectedItem?.Project;
-        if (project is null)
-        {
-            return;
-        }
+        if (ProjectPane.SelectedItem is null) return;
         await ProjectPane.LoadAsync().ConfigureAwait(true);
         DiscardCurrentPatch();
     }
@@ -285,14 +264,9 @@ public sealed class MainViewModel : ObservableObject
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException)
         {
-            // クリップボードが他プロセスに占有されている場合は静かに諦める。
-            return;
+            return; // クリップボードが他プロセスに占有されている場合は静かに諦める。
         }
-
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(text)) return;
 
         var parsed = _parser.Parse(text);
         if (!parsed.IsSuccess)
@@ -308,10 +282,7 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task RunDryRunAsync()
     {
-        if (_currentPatch is null)
-        {
-            return;
-        }
+        if (_currentPatch is null) return;
 
         var project = ProjectPane.SelectedItem?.Project;
         if (project is null)
@@ -402,10 +373,7 @@ public sealed class MainViewModel : ObservableObject
     private async Task UndoLastAsync()
     {
         var undone = await History.UndoLatestAsync().ConfigureAwait(true);
-        if (!undone)
-        {
-            await _dialogs.ShowMessageAsync("取り消せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
-        }
+        if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
     }
 
     private void DiscardCurrentPatch()
