@@ -64,6 +64,11 @@ public enum ErrorCode
     E501,
     /// <summary>フックのタイムアウト。</summary>
     E502,
+
+    /// <summary>グローバルホットキーの登録に失敗（16章の表には無いため追加）。</summary>
+    E601,
+    /// <summary>クリップボード監視が利用できない（16章の表には無いため追加）。</summary>
+    E602,
 }
 
 /// <summary>
@@ -83,6 +88,7 @@ public static class ErrorCatalog
         [ErrorCode.E101] = ("SEARCH部が見つからない", "インライン編集またはリカバリ支援を使用してください"),
         [ErrorCode.E102] = ("複数箇所にマッチ", "OCCURRENCE を指定してください"),
         [ErrorCode.E103] = ("終了アンカーが見つからない", "AIへ再依頼してください"),
+        [ErrorCode.E104] = ("アンカー範囲が閾値を超過", "置換対象の範囲が広すぎないか確認してください"),
 
         [ErrorCode.E201] = ("パスがルート外", "適用を拒否しました"),
         [ErrorCode.E202] = ("拡張子が未許可", "設定で許可できます"),
@@ -104,6 +110,9 @@ public static class ErrorCatalog
 
         [ErrorCode.E501] = ("フック実行失敗", "onFailure の設定に従います"),
         [ErrorCode.E502] = ("フックのタイムアウト", "警告を表示しました"),
+
+        [ErrorCode.E601] = ("ホットキーの登録に失敗", "他のアプリが使用している可能性があります。設定で別のキーを指定してください"),
+        [ErrorCode.E602] = ("クリップボード監視が利用できない", "この環境では監視を開始できません"),
     };
 
     /// <summary>エラーコードの内容（短い説明）を返す。</summary>
