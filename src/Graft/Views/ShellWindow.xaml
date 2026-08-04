@@ -158,14 +158,10 @@
             <views:SideBar Grid.Column="0" />
 
             <!-- サイドビュー: エクスプローラ／プロジェクト／履歴／検索。
-                 エクスプローラ・検索はフェーズE2/E3の担当のため、E1では空状態を置く。 -->
+                 検索はフェーズE3の担当のため、E2では空状態を置く。 -->
             <Grid Grid.Column="1">
-                <Border Background="{DynamicResource BgSurface}"
-                        Visibility="{Binding SelectedSideView, Converter={StaticResource SideViewVisibility}, ConverterParameter=Explorer}">
-                    <views:EmptyStateView State="Empty"
-                                          IconGeometry="{StaticResource IconFolderGeometry}"
-                                          Message="プロジェクトを選択してください"
-                                          AutomationProperties.Name="エクスプローラビュー" />
+                <Border Visibility="{Binding SelectedSideView, Converter={StaticResource SideViewVisibility}, ConverterParameter=Explorer}">
+                    <views:ExplorerView x:Name="ExplorerViewControl" DataContext="{Binding Explorer}" />
                 </Border>
                 <Border Visibility="{Binding SelectedSideView, Converter={StaticResource SideViewVisibility}, ConverterParameter=Project}">
                     <views:ProjectPane x:Name="ProjectPaneControl" DataContext="{Binding Graft.ProjectPane}" />

@@ -4,10 +4,24 @@ using Graft.Infra;
 
 namespace Graft.ViewModels;
 
+/// <summary>1枚のエディタタブの復元情報（v2.0 仕様書3.2）。プロジェクト相対パスとカーソル位置のみを保持する。</summary>
+public sealed class OpenTabState
+{
+    /// <summary>プロジェクトルートからの相対パス（区切りは "/"）。</summary>
+    public string RelativePath { get; set; } = string.Empty;
+
+    /// <summary>カーソル行（1始まり）。</summary>
+    public int CaretLine { get; set; } = 1;
+
+    /// <summary>カーソル列（1始まり）。</summary>
+    public int CaretColumn { get; set; } = 1;
+}
+
 /// <summary>
 /// プロジェクトごとに記憶するレイアウト（v2.0 仕様書3.2）。
-/// サイドビュー幅・接ぎ木パネル高さ・エディタのフォントサイズを保持する。
-/// エディタ領域は残りを使う可変領域のため保存対象にしない。
+/// サイドビュー幅・接ぎ木パネル高さ・エディタのフォントサイズに加え、
+/// 開いていたエディタタブの構成とエクスプローラの展開状態を保持する（フェーズE2）。
+/// エディタ領域は残りを使う可変領域のため、ペイン寸法そのものは保存対象にしない。
 /// </summary>
 public sealed class ProjectPaneLayout
 {
@@ -28,6 +42,18 @@ public sealed class ProjectPaneLayout
 
     /// <summary>v1.5 の中央「ブロック一覧」列の幅。v2.0 のシェルでは参照しない。</summary>
     public double BlockColumnWidth { get; set; } = 380;
+
+    /// <summary>
+    /// 開いていたエディタタブ（プロジェクト相対パスの一覧・各タブのカーソル位置）。
+    /// 順序はタブの並び順を表す（仕様書3.2）。
+    /// </summary>
+    public List<OpenTabState> OpenTabs { get; set; } = new();
+
+    /// <summary>アクティブだったタブのプロジェクト相対パス。該当タブが無ければ復元しない。</summary>
+    public string? ActiveTabPath { get; set; }
+
+    /// <summary>エクスプローラで展開されていたフォルダのプロジェクト相対パスの一覧（仕様書3.2・4.2）。</summary>
+    public List<string> ExpandedFolders { get; set; } = new();
 }
 
 /// <summary>
