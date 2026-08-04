@@ -1,0 +1,27 @@
+<Application x:Class="Graft.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        テーマ辞書の読み込みを行う。色トークン（Dark.xaml / Light.xaml）は
+        ここでは静的に積まない。Graft.Themes.ThemeManager.Initialize が
+        OnStartupの中で、ダーク/ライト/ハイコントラストのいずれかを
+        MergedDictionariesへ追加し、以降はその1枠を差し替えることで
+        テーマを即時反映する（再起動不要、8.3）。
+        ウィンドウが表示されるのはOnStartup完了より後になるため、
+        色トークン未適用の状態が画面に見える瞬間は生じない。
+
+        起動処理の本体（多重起動防止、StartupUri、初回起動ガイド等）は
+        他担当が追記する。
+    -->
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/Tokens.xaml" />
+                <ResourceDictionary Source="Themes/Syntax.xaml" />
+                <ResourceDictionary Source="Themes/Icons.xaml" />
+                <ResourceDictionary Source="Themes/Logo.xaml" />
+                <ResourceDictionary Source="Themes/Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

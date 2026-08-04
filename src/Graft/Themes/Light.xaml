@@ -1,0 +1,92 @@
+<!--
+  ライトテーマの色トークン（8.3 / 8.6）。
+
+  Dark.xaml と全く同じキー名を持つ。構成・注意事項はDark.xaml冒頭のコメントを参照。
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ========== 8.3 背景（面の明度差3階層） ========== -->
+    <Color x:Key="BgBaseColor">#FAFAF8</Color>
+    <SolidColorBrush x:Key="BgBase" Color="{StaticResource BgBaseColor}" />
+
+    <Color x:Key="BgSurfaceColor">#F1F1EE</Color>
+    <SolidColorBrush x:Key="BgSurface" Color="{StaticResource BgSurfaceColor}" />
+
+    <Color x:Key="BgElevatedColor">#FFFFFF</Color>
+    <SolidColorBrush x:Key="BgElevated" Color="{StaticResource BgElevatedColor}" />
+
+    <Color x:Key="BgHoverColor">#E8E8E3</Color>
+    <SolidColorBrush x:Key="BgHover" Color="{StaticResource BgHoverColor}" />
+
+    <Color x:Key="BgSelectedColor">#E4EDFB</Color>
+    <SolidColorBrush x:Key="BgSelected" Color="{StaticResource BgSelectedColor}" />
+
+    <!-- ========== 8.3 文字 ========== -->
+    <Color x:Key="TextPrimaryColor">#22252A</Color>
+    <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}" />
+
+    <Color x:Key="TextSecondaryColor">#5C6269</Color>
+    <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
+
+    <Color x:Key="TextDisabledColor">#A0A5AC</Color>
+    <SolidColorBrush x:Key="TextDisabled" Color="{StaticResource TextDisabledColor}" />
+
+    <!-- ========== 8.3 アクセント（1色のみ） ========== -->
+    <Color x:Key="AccentColor">#2563EB</Color>
+    <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
+
+    <!-- ========== 8.3 境界線（必要最小限） ========== -->
+    <Color x:Key="BorderSubtleColor">#E3E2DC</Color>
+    <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
+
+    <!-- ========== 8.3 diff ========== -->
+    <Color x:Key="DiffAddBgColor">#E6F6EC</Color>
+    <SolidColorBrush x:Key="DiffAddBg" Color="{StaticResource DiffAddBgColor}" />
+
+    <Color x:Key="DiffAddBarColor">#2E9E68</Color>
+    <SolidColorBrush x:Key="DiffAddBar" Color="{StaticResource DiffAddBarColor}" />
+
+    <Color x:Key="DiffDelBgColor">#FCEBEC</Color>
+    <SolidColorBrush x:Key="DiffDelBg" Color="{StaticResource DiffDelBgColor}" />
+
+    <Color x:Key="DiffDelBarColor">#D14350</Color>
+    <SolidColorBrush x:Key="DiffDelBar" Color="{StaticResource DiffDelBarColor}" />
+
+    <!-- ========== 8.3 状態 ========== -->
+    <Color x:Key="StateWarnColor">#B77E14</Color>
+    <SolidColorBrush x:Key="StateWarn" Color="{StaticResource StateWarnColor}" />
+
+    <Color x:Key="StateErrorColor">#D14350</Color>
+    <SolidColorBrush x:Key="StateError" Color="{StaticResource StateErrorColor}" />
+
+    <!-- 8.5のサンプルXAMLがStateOkを参照するため、diff.add.barと同値で定義する。 -->
+    <Color x:Key="StateOkColor">#2E9E68</Color>
+    <SolidColorBrush x:Key="StateOk" Color="{StaticResource StateOkColor}" />
+
+    <!-- ========== 8.6 シンタックスハイライト配色（ライト） ========== -->
+    <Color x:Key="SyntaxKeywordColor">#7B4FA8</Color>
+    <SolidColorBrush x:Key="SyntaxKeyword" Color="{StaticResource SyntaxKeywordColor}" />
+
+    <Color x:Key="SyntaxStringColor">#4F7A3A</Color>
+    <SolidColorBrush x:Key="SyntaxString" Color="{StaticResource SyntaxStringColor}" />
+
+    <Color x:Key="SyntaxNumberColor">#A5642A</Color>
+    <SolidColorBrush x:Key="SyntaxNumber" Color="{StaticResource SyntaxNumberColor}" />
+
+    <Color x:Key="SyntaxCommentColor">#8A9099</Color>
+    <SolidColorBrush x:Key="SyntaxComment" Color="{StaticResource SyntaxCommentColor}" />
+
+    <Color x:Key="SyntaxFunctionColor">#2F6FA8</Color>
+    <SolidColorBrush x:Key="SyntaxFunction" Color="{StaticResource SyntaxFunctionColor}" />
+
+    <Color x:Key="SyntaxTypeColor">#8A6A1F</Color>
+    <SolidColorBrush x:Key="SyntaxType" Color="{StaticResource SyntaxTypeColor}" />
+
+    <Color x:Key="SyntaxOperatorColor">#5C6269</Color>
+    <SolidColorBrush x:Key="SyntaxOperator" Color="{StaticResource SyntaxOperatorColor}" />
+
+    <!-- plainはtext.primaryと同値（8.6の表のとおり）。 -->
+    <SolidColorBrush x:Key="SyntaxPlain" Color="{StaticResource TextPrimaryColor}" />
+
+</ResourceDictionary>
