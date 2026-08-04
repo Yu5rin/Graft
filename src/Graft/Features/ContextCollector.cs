@@ -69,10 +69,19 @@ public sealed record ContextResult
 /// </summary>
 public sealed class ContextCollector
 {
-    private static readonly string[] DefaultExcludePatterns =
+    /// <summary>
+    /// 既定の除外パターン（仕様書10.2）。エクスプローラ（4.2）・横断検索（4.4）と
+    /// 同一の規則を使うため、唯一の定義としてここに置き公開する。
+    /// </summary>
+    public static IReadOnlyList<string> DefaultExcludePatterns { get; } = new[]
     {
         "node_modules/", "bin/", "obj/", ".venv/", "dist/", ".git/", "*.min.js",
     };
+
+    /// <summary>
+    /// バイナリとみなす拡張子（仕様書10.2）。エクスプローラ・横断検索と共有する。
+    /// </summary>
+    public static IReadOnlySet<string> BinaryFileExtensions => BinaryExtensions;
 
     private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)
     {

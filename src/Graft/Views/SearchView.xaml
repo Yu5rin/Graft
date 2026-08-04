@@ -1,0 +1,228 @@
+<UserControl x:Class="Graft.Views.SearchView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:local="clr-namespace:Graft.Views"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             mc:Ignorable="d"
+             Background="{DynamicResource BgSurface}"
+             d:DesignHeight="480" d:DesignWidth="260">
+    <!--
+        4.4 ファイル横断検索（Ctrl+Shift+F）のサイドビュー。結果はファイル→行のツリーで表示し、
+        クリックで該当行へジャンプする（JumpCommand経由でSearchViewModel.JumpRequestedを発火）。
+        置換は事前に対象件数を確認ダイアログで提示してから実行する（SearchViewModel側）。
+    -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <local:EmptyStringToVisibilityConverter x:Key="EmptyToVisibility" />
+
+        <Style x:Key="SearchTreeToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource BgHover}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource BgSelected}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ツリー項目本体。既定OSの三角ではなくchevronアイコンで開閉を表す（9.1）。
+             ExplorerView.xamlと同方針だが、本ビューは2階層（ファイル→行）のみで
+             遅延読み込み・右クリックメニューを持たないため簡易版として独自に定義する。 -->
+        <Style x:Key="SearchTreeItemStyle" TargetType="TreeViewItem">
+            <Setter Property="Padding" Value="2,3" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TreeViewItem">
+                        <StackPanel>
+                            <Border x:Name="Bg" Background="Transparent">
+                                <Grid Margin="{TemplateBinding Padding}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="16" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ToggleButton Grid.Column="0"
+                                                  IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                                  Visibility="{Binding HasItems, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BoolToVis}}"
+                                                  Background="Transparent" BorderThickness="0"
+                                                  Width="16" Height="16" Focusable="False"
+                                                  AutomationProperties.Name="展開切り替え">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Path x:Name="Arrow" Width="9" Height="9" Stretch="Uniform"
+                                                      Data="{StaticResource IconChevronRightGeometry}"
+                                                      Style="{StaticResource IconPathStyle}" />
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="Arrow" Property="Data" Value="{StaticResource IconChevronDownGeometry}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                    <ContentPresenter Grid.Column="1" ContentSource="Header" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <ItemsPresenter x:Name="ItemsHost" Margin="16,0,0,0" Visibility="Collapsed" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter TargetName="ItemsHost" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource BgHover}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource BgSelected}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="検索" Margin="12,10,8,4"
+                   FontSize="{DynamicResource PaneHeadingFontSize}"
+                   FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                   Foreground="{DynamicResource TextSecondary}" />
+
+        <!-- ========== 検索行 ========== -->
+        <Grid Grid.Row="1" Margin="8,0,8,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="QueryBox"
+                     Grid.Column="0"
+                     Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                     KeyDown="OnQueryBoxKeyDown"
+                     AutomationProperties.Name="検索文字列（ファイル横断）" />
+
+            <ToggleButton Grid.Column="1" IsChecked="{Binding UseRegex, Mode=OneWay}"
+                          Command="{Binding ToggleRegexCommand}" Content=".*"
+                          Style="{StaticResource SearchTreeToggleStyle}"
+                          ToolTip="正規表現を使用" AutomationProperties.Name="正規表現を使用" />
+            <ToggleButton Grid.Column="2" IsChecked="{Binding CaseSensitive, Mode=OneWay}"
+                          Command="{Binding ToggleCaseCommand}" Content="Aa"
+                          Style="{StaticResource SearchTreeToggleStyle}"
+                          ToolTip="大文字と小文字を区別" AutomationProperties.Name="大文字と小文字を区別" />
+            <ToggleButton Grid.Column="3" IsChecked="{Binding WholeWord, Mode=OneWay}"
+                          Command="{Binding ToggleWholeWordCommand}" Content="ab"
+                          Style="{StaticResource SearchTreeToggleStyle}"
+                          ToolTip="単語単位で検索" AutomationProperties.Name="単語単位で検索" />
+
+            <Button Grid.Column="4" Command="{Binding SearchCommand}"
+                    Style="{StaticResource SearchTreeToggleStyle}" Padding="0"
+                    ToolTip="検索" AutomationProperties.Name="ファイル横断検索を実行">
+                <Path Data="{StaticResource IconSearchGeometry}" Style="{StaticResource IconPathStyle}" Width="14" Height="14" />
+            </Button>
+        </Grid>
+
+        <!-- ========== 置換行 ========== -->
+        <Grid Grid.Row="2" Margin="8,0,8,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox Grid.Column="0"
+                     Text="{Binding ReplaceText, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="置換文字列（ファイル横断）" />
+            <Button Grid.Column="1" Content="すべて置換" Command="{Binding ReplaceAllCommand}"
+                    Margin="4,0,0,0" AutomationProperties.Name="ファイル横断ですべて置換" />
+        </Grid>
+
+        <!-- ========== 状態表示 ========== -->
+        <StackPanel Grid.Row="3" Margin="12,0,8,4">
+            <TextBlock Text="{Binding StatusText}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       AutomationProperties.Name="検索結果件数"
+                       AutomationProperties.LiveSetting="Polite"
+                       Visibility="{Binding StatusText, Converter={StaticResource EmptyToVisibility}}" />
+            <!-- 18章: ヒット上限で打ち切った場合は黙って切り詰めず必ず表示する。 -->
+            <TextBlock Text="{Binding TruncatedMessage}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource StateWarn}"
+                       AutomationProperties.LiveSetting="Assertive"
+                       Visibility="{Binding TruncatedMessage, Converter={StaticResource EmptyToVisibility}}" />
+            <Button Content="検索を中止" Command="{Binding CancelCommand}"
+                    HorizontalAlignment="Left" Margin="0,4,0,0"
+                    Visibility="{Binding IsSearching, Converter={StaticResource BoolToVis}}"
+                    AutomationProperties.Name="ファイル横断検索を中止" />
+        </StackPanel>
+
+        <!-- ========== 結果ツリー（ファイル→行） ========== -->
+        <TreeView x:Name="ResultTree"
+                  Grid.Row="4"
+                  ItemsSource="{Binding Groups}"
+                  Background="{x:Null}" BorderThickness="0"
+                  MouseDoubleClick="OnResultDoubleClick"
+                  KeyDown="OnResultKeyDown"
+                  AutomationProperties.Name="検索結果（ファイルと行のツリー）">
+            <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem" BasedOn="{StaticResource SearchTreeItemStyle}">
+                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                </Style>
+            </TreeView.ItemContainerStyle>
+            <TreeView.Resources>
+                <HierarchicalDataTemplate DataType="{x:Type vm:SearchFileGroupViewModel}" ItemsSource="{Binding Hits}">
+                    <StackPanel Orientation="Horizontal" Margin="2" AutomationProperties.Name="{Binding AutomationName}">
+                        <Path Data="{StaticResource IconFileCodeGeometry}" Style="{StaticResource IconPathStyle}"
+                              Width="14" Height="14" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding HeaderText}" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </HierarchicalDataTemplate>
+                <DataTemplate DataType="{x:Type vm:SearchHitViewModel}">
+                    <StackPanel Orientation="Horizontal" Margin="2" AutomationProperties.Name="{Binding AutomationName}">
+                        <TextBlock Text="{Binding LineNumber}" Width="34"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   FontSize="{DynamicResource CaptionFontSize}" />
+                        <TextBlock Text="{Binding Before}" Foreground="{DynamicResource TextSecondary}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Match}" Foreground="{DynamicResource TextPrimary}"
+                                   Background="{DynamicResource BgSelected}" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding After}" Foreground="{DynamicResource TextSecondary}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </DataTemplate>
+            </TreeView.Resources>
+        </TreeView>
+    </Grid>
+</UserControl>

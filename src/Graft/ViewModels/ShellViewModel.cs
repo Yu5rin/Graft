@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows.Input;
 using Graft.Features;
 using Graft.Views;
@@ -41,12 +42,14 @@ public sealed class ShellViewModel : ObservableObject
     private SideViewKind _selectedSideView = SideViewKind.Project;
     private bool _isSideViewCollapsed;
     private bool _isGraftPanelOpen;
+    private string? _currentProjectId;
 
-    public ShellViewModel(MainViewModel graft, EditorPaneViewModel editor, DialogService dialogs)
+    public ShellViewModel(MainViewModel graft, EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings)
     {
         Graft = graft ?? throw new ArgumentNullException(nameof(graft));
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        Explorer = new ExplorerViewModel(Editor, _dialogs, settings);
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
@@ -60,6 +63,9 @@ public sealed class ShellViewModel : ObservableObject
 
     /// <summary>エディタタブ領域（他担当実装、仕様書4章）。</summary>
     public EditorPaneViewModel Editor { get; }
+
+    /// <summary>エクスプローラビュー（仕様書4.2。ツリー表示・操作・監視反映を担う）。</summary>
+    public ExplorerViewModel Explorer { get; }
 
     /// <summary>現在表示中のサイドビュー。</summary>
     public SideViewKind SelectedSideView
@@ -113,13 +119,60 @@ public sealed class ShellViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 3.1: プロジェクトが切り替わったら、開いていたエディタタブを閉じてから
-    /// エディタ側の対象プロジェクトを切り替える。保存確認等はEditorPaneViewModel側の責務。
+    /// 3.1/3.2: プロジェクトが切り替わったら、まず切替前のプロジェクトのタブ構成・
+    /// エクスプローラの展開状態をlayout.jsonへ記憶させたうえで、開いていたエディタタブを
+    /// 閉じてエディタ・エクスプローラの対象プロジェクトを切り替え、新しいプロジェクトの
+    /// タブ構成・展開状態を復元する。保存確認等はEditorPaneViewModel側の責務。
     /// </summary>
     private async void OnProjectSelected(object? sender, Project project)
     {
+        if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
+
         await Editor.CloseAllAsync().ConfigureAwait(true);
         Editor.SetProject(project.Root);
+        await Explorer.SetProjectAsync(project).ConfigureAwait(true);
+        await RestoreProjectStateAsync(project).ConfigureAwait(true);
+
+        _currentProjectId = project.Id;
+    }
+
+    /// <summary>
+    /// 3.2: 切替前プロジェクトの開いていたタブ（相対パス・アクティブタブ・カーソル位置）と
+    /// エクスプローラの展開状態を、そのプロジェクトのProjectPaneLayoutへ書き戻す。
+    /// 実際のlayout.jsonへの永続化はShellWindow側の既存の終了時保存処理が担う。
+    /// </summary>
+    private void CaptureProjectState(string projectId)
+    {
+        var layout = WindowLayoutStore.GetOrCreatePaneLayout(Graft.Layout, projectId);
+        layout.OpenTabs = Editor.Tabs
+            .Select(t => new OpenTabState { RelativePath = t.Session.RelativePath, CaretLine = t.CaretLine, CaretColumn = t.CaretColumn })
+            .ToList();
+        layout.ActiveTabPath = Editor.ActiveTab?.Session.RelativePath;
+        layout.ExpandedFolders = Explorer.GetExpandedFolderPaths().ToList();
+    }
+
+    /// <summary>
+    /// 3.2: 新しく選択されたプロジェクトのProjectPaneLayoutから、タブ構成・アクティブタブ・
+    /// エクスプローラの展開状態を復元する。復元時に存在しなくなったファイルは黙って読み飛ばす。
+    /// </summary>
+    private async Task RestoreProjectStateAsync(Project project)
+    {
+        var layout = WindowLayoutStore.GetOrCreatePaneLayout(Graft.Layout, project.Id);
+        foreach (var tab in layout.OpenTabs)
+        {
+            var fullPath = Path.Combine(project.Root, tab.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(fullPath)) continue;
+            var opened = await Editor.OpenFileAsync(fullPath, preview: false, line: tab.CaretLine).ConfigureAwait(true);
+            if (opened.IsSuccess) opened.Value.CaretColumn = tab.CaretColumn;
+        }
+
+        if (layout.ActiveTabPath is { } activePath)
+        {
+            var activeTab = Editor.Tabs.FirstOrDefault(t => t.Session.RelativePath == activePath);
+            if (activeTab is not null) Editor.ActiveTab = activeTab;
+        }
+
+        foreach (var folder in layout.ExpandedFolders) await Explorer.ExpandPathAsync(folder).ConfigureAwait(true);
     }
 
     /// <summary>

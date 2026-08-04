@@ -83,7 +83,7 @@ public sealed class StartupCoordinator : IAsyncDisposable
             applyEngine, projectStore, revisionStore, revisionRestorer,
             _settingsStore, new WindowLayoutStore(_appPaths), dialogService, patchQueue, OpenSettings);
         var editorViewModel = new EditorPaneViewModel(_settings, dialogService);
-        var shellViewModel = new ShellViewModel(mainViewModel, editorViewModel, dialogService);
+        var shellViewModel = new ShellViewModel(mainViewModel, editorViewModel, dialogService, _settings);
 
         var window = new ShellWindow(shellViewModel);
         MainWindow = window;
