@@ -62,10 +62,9 @@ public sealed record ContextResult
 }
 
 /// <summary>
-/// 仕様書10章のコンテキスト収集を担う。<see cref="ScanAsync"/> で除外規則を反映したツリーを、
-/// <see cref="CollectAsync"/> で10.3の出力形式のテキストを生成する。
-/// <see cref="PromptTemplateRenderer"/> の <c>{{tree}}</c>・<c>{{files}}</c> 展開は
-/// <see cref="BuildTreeTextAsync"/>・<see cref="BuildFilesTextAsync"/> を共有して行い、
+/// 仕様書10章のコンテキスト収集を担う。ScanAsyncで除外規則を反映したツリーを、CollectAsyncで
+/// 10.3の出力形式のテキストを生成する。BuildTreeTextAsync・BuildFilesTextAsyncは
+/// <see cref="PromptTemplateRenderer"/> の {{tree}}・{{files}} 展開と処理を共有し、
 /// 4.8.4「コンテキスト収集とは同一の出力パイプラインを共有する」を満たす。
 /// </summary>
 public sealed class ContextCollector
@@ -112,27 +111,18 @@ public sealed class ContextCollector
     public async Task<GraftResult<ContextResult>> CollectAsync(ContextRequest request, CancellationToken ct = default)
     {
         var scan = await ScanAsync(request.Project, request.Settings, ct).ConfigureAwait(false);
-        if (!scan.IsSuccess)
-        {
-            return GraftResult<ContextResult>.Fail(scan.Issues);
-        }
+        if (!scan.IsSuccess) return GraftResult<ContextResult>.Fail(scan.Issues);
         var files = scan.Value;
 
         var sb = new StringBuilder();
         AppendStandingContext(sb, request.Project.StandingContext);
-        if (IncludesTree(request.Mode))
-        {
-            AppendTree(sb, files);
-        }
+        if (IncludesTree(request.Mode)) AppendTree(sb, files);
 
         var issues = new List<GraftIssue>();
         if (IncludesFiles(request.Mode))
         {
             var filesText = await CollectFilesTextAsync(request, files, ct).ConfigureAwait(false);
-            if (!filesText.IsSuccess)
-            {
-                return GraftResult<ContextResult>.Fail(filesText.Issues);
-            }
+            if (!filesText.IsSuccess) return GraftResult<ContextResult>.Fail(filesText.Issues);
             sb.Append(filesText.Value);
             issues.AddRange(filesText.Issues);
         }
@@ -148,10 +138,7 @@ public sealed class ContextCollector
     public async Task<GraftResult<string>> BuildTreeTextAsync(Project project, Settings settings, CancellationToken ct = default)
     {
         var scan = await ScanAsync(project, settings, ct).ConfigureAwait(false);
-        if (!scan.IsSuccess)
-        {
-            return GraftResult<string>.Fail(scan.Issues);
-        }
+        if (!scan.IsSuccess) return GraftResult<string>.Fail(scan.Issues);
         return GraftResult<string>.Ok(BuildTreeText(scan.Value));
     }
 
@@ -159,10 +146,7 @@ public sealed class ContextCollector
     public async Task<GraftResult<string>> BuildFilesTextAsync(ContextRequest request, CancellationToken ct = default)
     {
         var scan = await ScanAsync(request.Project, request.Settings, ct).ConfigureAwait(false);
-        if (!scan.IsSuccess)
-        {
-            return GraftResult<string>.Fail(scan.Issues);
-        }
+        if (!scan.IsSuccess) return GraftResult<string>.Fail(scan.Issues);
         return await CollectFilesTextAsync(request, scan.Value, ct).ConfigureAwait(false);
     }
 
@@ -170,20 +154,14 @@ public sealed class ContextCollector
     private async Task<GraftResult<string>> CollectFilesTextAsync(ContextRequest request, IReadOnlyList<ContextFileNode> files, CancellationToken ct)
     {
         var targets = await ResolveTargetsAsync(request, files, ct).ConfigureAwait(false);
-        if (!targets.IsSuccess)
-        {
-            return GraftResult<string>.Fail(targets.Issues);
-        }
+        if (!targets.IsSuccess) return GraftResult<string>.Fail(targets.Issues);
 
         var sb = new StringBuilder();
         var issues = new List<GraftIssue>(targets.Issues);
         foreach (var node in targets.Value)
         {
             var issue = await AppendFileSectionAsync(sb, request.Project.Root, node, ct).ConfigureAwait(false);
-            if (issue is not null)
-            {
-                issues.Add(issue);
-            }
+            if (issue is not null) issues.Add(issue);
         }
         return GraftResult<string>.Ok(sb.ToString(), issues);
     }
@@ -195,10 +173,7 @@ public sealed class ContextCollector
 
     private static void AppendStandingContext(StringBuilder sb, string? standingContext)
     {
-        if (string.IsNullOrWhiteSpace(standingContext))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(standingContext)) return;
         sb.AppendLine("# 前提");
         sb.AppendLine(standingContext.Trim());
         sb.AppendLine();
@@ -216,18 +191,12 @@ public sealed class ContextCollector
         var sb = new StringBuilder();
         foreach (var node in files)
         {
-            if (node.IsExcluded)
-            {
-                continue;
-            }
+            if (node.IsExcluded) continue;
             var depth = node.RelativePath.Count(c => c == '/');
             var nameStart = node.RelativePath.LastIndexOf('/') + 1;
             var name = node.RelativePath[nameStart..];
             sb.Append(' ', depth * 2).Append(name);
-            if (node.IsDirectory)
-            {
-                sb.Append('/');
-            }
+            if (node.IsDirectory) sb.Append('/');
             sb.AppendLine();
         }
         return sb.ToString();
@@ -259,15 +228,9 @@ public sealed class ContextCollector
 
         if (request.Mode == ContextMode.ChangedSince)
         {
-            if (request.SinceRevision is null)
-            {
-                return GraftResult<IReadOnlyList<ContextFileNode>>.Ok(Array.Empty<ContextFileNode>());
-            }
+            if (request.SinceRevision is null) return GraftResult<IReadOnlyList<ContextFileNode>>.Ok(Array.Empty<ContextFileNode>());
             var changed = await LoadChangedPathsAsync(request.Project, request.SinceRevision.Value, ct).ConfigureAwait(false);
-            if (!changed.IsSuccess)
-            {
-                return GraftResult<IReadOnlyList<ContextFileNode>>.Fail(changed.Issues);
-            }
+            if (!changed.IsSuccess) return GraftResult<IReadOnlyList<ContextFileNode>>.Fail(changed.Issues);
             return GraftResult<IReadOnlyList<ContextFileNode>>.Ok(ResolvePaths(files, changed.Value));
         }
 
@@ -281,46 +244,31 @@ public sealed class ContextCollector
         var result = new List<ContextFileNode>();
         foreach (var raw in paths)
         {
-            if (byPath.TryGetValue(Normalize(raw), out var node))
-            {
-                result.Add(node);
-            }
+            if (byPath.TryGetValue(Normalize(raw), out var node)) result.Add(node);
         }
         return result;
     }
 
     /// <summary>
-    /// 指定リビジョン番号より新しいリビジョンの manifest.json を <see cref="AppPaths"/> から直接読み、
-    /// 変更されたファイルのパス一覧を集める。RevisionStore への依存を避けるための実装。
+    /// 指定リビジョン番号より新しいリビジョンのmanifest.jsonをAppPathsから直接読み、変更された
+    /// ファイルのパス一覧を集める。RevisionStoreへの依存を避けるための実装（10.1差分モード）。
     /// </summary>
     private async Task<GraftResult<IReadOnlyList<string>>> LoadChangedPathsAsync(Project project, int sinceRevision, CancellationToken ct)
     {
         var backupDir = _paths.GetProjectBackupDirectory(project.Id);
-        if (!Directory.Exists(backupDir))
-        {
-            return GraftResult<IReadOnlyList<string>>.Ok(Array.Empty<string>());
-        }
+        if (!Directory.Exists(backupDir)) return GraftResult<IReadOnlyList<string>>.Ok(Array.Empty<string>());
 
         var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var dir in Directory.EnumerateDirectories(backupDir))
         {
             ct.ThrowIfCancellationRequested();
             var name = Path.GetFileName(dir);
-            if (!TryParseRevisionNumber(name, out var revision) || revision <= sinceRevision)
-            {
-                continue;
-            }
+            if (!TryParseRevisionNumber(name, out var revision) || revision <= sinceRevision) continue;
 
             var manifestPath = Path.Combine(dir, "manifest.json");
             var result = await _jsonStore.ValidateJsonAsync<RevisionManifest>(manifestPath, ct: ct).ConfigureAwait(false);
-            if (!result.IsSuccess)
-            {
-                continue;
-            }
-            foreach (var entry in result.Value.Entries)
-            {
-                changed.Add(entry.Path);
-            }
+            if (!result.IsSuccess) continue;
+            foreach (var entry in result.Value.Entries) changed.Add(entry.Path);
         }
         return GraftResult<IReadOnlyList<string>>.Ok(changed.ToArray());
     }
@@ -328,10 +276,7 @@ public sealed class ContextCollector
     private static bool TryParseRevisionNumber(string folderName, out int revision)
     {
         revision = 0;
-        if (!folderName.StartsWith('r'))
-        {
-            return false;
-        }
+        if (!folderName.StartsWith('r')) return false;
         var underscoreIndex = folderName.IndexOf('_');
         var numPart = underscoreIndex > 0 ? folderName[1..underscoreIndex] : folderName[1..];
         return int.TryParse(numPart, out revision);
@@ -374,16 +319,10 @@ public sealed class ContextCollector
                 IsExcluded = ignored,
                 ExcludeReason = ignored ? ReasonOf(label) : null,
             });
-            if (!ignored)
-            {
-                WalkDirectory(root, dir, filter, nodes, ct);
-            }
+            if (!ignored) WalkDirectory(root, dir, filter, nodes, ct);
         }
 
-        foreach (var file in fileEntries)
-        {
-            nodes.Add(BuildFileNode(root, file, filter));
-        }
+        foreach (var file in fileEntries) nodes.Add(BuildFileNode(root, file, filter));
     }
 
     private static ContextFileNode BuildFileNode(string root, string fullPath, GitignoreFilter filter)
@@ -400,10 +339,7 @@ public sealed class ContextCollector
             // サイズ取得に失敗しても走査自体は続行する
         }
 
-        if (ignored)
-        {
-            return new ContextFileNode { RelativePath = rel, SizeBytes = size, IsExcluded = true, ExcludeReason = ReasonOf(label) };
-        }
+        if (ignored) return new ContextFileNode { RelativePath = rel, SizeBytes = size, IsExcluded = true, ExcludeReason = ReasonOf(label) };
         if (BinaryExtensions.Contains(Path.GetExtension(fullPath)))
         {
             return new ContextFileNode { RelativePath = rel, SizeBytes = size, IsExcluded = true, ExcludeReason = "バイナリファイルのため除外" };
@@ -423,8 +359,7 @@ public sealed class ContextCollector
         _ => "除外パターンに一致",
     };
 
-    private static string ToRelative(string root, string fullPath)
-        => Path.GetRelativePath(root, fullPath).Replace('\\', '/');
+    private static string ToRelative(string root, string fullPath) => Path.GetRelativePath(root, fullPath).Replace('\\', '/');
 
     private static string Normalize(string path) => path.Replace('\\', '/').Trim('/');
 }
