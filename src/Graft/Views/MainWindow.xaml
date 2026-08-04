@@ -22,6 +22,7 @@
     <Window.Resources>
         <views:CenterPaneStateConverter x:Key="CenterStateConverter" />
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <views:EmptyStringToVisibilityConverter x:Key="EmptyToVisibility" />
     </Window.Resources>
 
     <Grid>
@@ -69,6 +70,12 @@
                             Command="{Binding ApplyCommand}"
                             Margin="4,0"
                             AutomationProperties.Name="適用を実行" />
+                    <!-- 4.8.4 コピー操作: テンプレート選択ドロップダウン。Ctrl+Shift+Cでも同じ操作が行える。 -->
+                    <Button x:Name="PromptButton"
+                            Content="プロンプト"
+                            Command="{Binding OpenPromptDropdownCommand}"
+                            Margin="4,0"
+                            AutomationProperties.Name="プロンプトテンプレートを選んでコピー" />
                     <Button Content="履歴"
                             Command="{Binding ShowHistoryCommand}"
                             Margin="4,0"
@@ -78,6 +85,56 @@
                             Margin="4,0"
                             AutomationProperties.Name="設定を開く" />
                 </StackPanel>
+
+                <!-- 4.8.4: テンプレート選択ドロップダウン。名称の右に展開後の推定トークン数を表示する。 -->
+                <Popup x:Name="PromptPopup"
+                       Grid.Column="2"
+                       PlacementTarget="{Binding ElementName=PromptButton}"
+                       Placement="Bottom"
+                       StaysOpen="False"
+                       AllowsTransparency="True"
+                       IsOpen="{Binding PromptCopy.IsOpen, Mode=TwoWay}"
+                       AutomationProperties.Name="プロンプトテンプレートの選択">
+                    <Border Background="{DynamicResource BgElevated}"
+                            BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="1"
+                            Padding="12"
+                            MinWidth="280" MaxWidth="360">
+                        <StackPanel DataContext="{Binding PromptCopy}">
+                            <TextBlock Text="プロンプトテンプレート"
+                                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                                       Foreground="{DynamicResource TextSecondary}" />
+                            <ListBox ItemsSource="{Binding Templates}"
+                                     SelectedItem="{Binding SelectedTemplate, Mode=TwoWay}"
+                                     MaxHeight="220"
+                                     Margin="0,8,0,0"
+                                     AutomationProperties.Name="テンプレート一覧（推定トークン数付き）">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock Text="{Binding StatusMessage}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Visibility="{Binding StatusMessage, Converter={StaticResource EmptyToVisibility}}" />
+                            <Button Content="コピー"
+                                    Command="{Binding CopyCommand}"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,8,0,0"
+                                    AutomationProperties.Name="選択したテンプレートをコピー" />
+                        </StackPanel>
+                    </Border>
+                </Popup>
             </Grid>
         </Border>
 
