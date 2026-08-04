@@ -82,6 +82,9 @@ public sealed class EditorPaneViewModel : ObservableObject
     public int TabSize => _settings.Editor.TabSize;
     public bool InsertSpaces => _settings.Editor.InsertSpaces;
     public bool DetectIndentEnabled => _settings.Editor.DetectIndent;
+    public bool AutoClosingBrackets => _settings.Editor.AutoClosingBrackets;
+    public bool Folding => _settings.Editor.Folding;
+    public bool CompletionEnabled => _settings.Editor.Completion;
 
     /// <summary>シンタックスハイライトが有効か（8.6/9.2章、settings.jsonの既存キー）。</summary>
     public bool SyntaxEnabled => _settings.Syntax.Enabled;
@@ -153,6 +156,46 @@ public sealed class EditorPaneViewModel : ObservableObject
     /// <summary>Ctrl+Tabで切り替える先のタブ（View側から呼ばれる）。</summary>
     public EditorTabViewModel? PeekMruNeighbor() => _manager.NextByMru();
 
+    /// <summary>
+    /// 外部変更検知（4.6）。エクスプローラ側の<c>FileWatchService</c>がディスク上の変更を
+    /// 検知した際にこのメソッドを呼ぶ。未保存の変更が無ければ黙って再読込し、あれば
+    /// <see cref="EditorTabViewModel.HasExternalConflict"/>を立てて非モーダルの通知バーを出す
+    /// （E702）。該当タブが開いていなければ何もしない。
+    /// </summary>
+    public async Task NotifyExternalChangeAsync(string fullPath)
+    {
+        var tab = Tabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, fullPath));
+        if (tab is null) return;
+
+        if (!tab.Session.IsModified)
+        {
+            await tab.Session.ReloadAsync().ConfigureAwait(true);
+            return;
+        }
+
+        tab.HasExternalConflict = true;
+    }
+
+    /// <summary>エクスプローラでのリネーム・移動に追従し、開いているタブのパス表示を更新する。</summary>
+    public void NotifyRenamed(string oldFullPath, string newFullPath)
+    {
+        var wasActive = ActiveTab is { } active && PathsEqual(active.Session.FullPath, oldFullPath);
+        _manager.NotifyRenamed(oldFullPath, newFullPath);
+        if (wasActive) RaiseStatusChanged(); // 拡張子変更でLanguageText等が変わりうるため
+    }
+
+    /// <summary>エクスプローラでの削除に追従し、開いているタブがあれば確認なしで閉じる。</summary>
+    public async Task NotifyDeletedAsync(string fullPath)
+    {
+        var tab = Tabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, fullPath));
+        if (tab is null) return;
+
+        var wasActive = ReferenceEquals(tab, ActiveTab);
+        await _manager.NotifyDeletedAsync(fullPath).ConfigureAwait(true);
+        tab.PropertyChanged -= OnTabPropertyChanged;
+        if (wasActive) ActiveTab = Tabs.Count > 0 ? Tabs[0] : null;
+    }
+
     // ---- ステータスバー表示（9.2） ----
 
     public string CaretText => ActiveTab is { } t ? $"行 {t.CaretLine}, 列 {t.CaretColumn}" : string.Empty;
@@ -221,4 +264,9 @@ public sealed class EditorPaneViewModel : ObservableObject
 
     private static string LanguageLabel(string fileName)
         => SyntaxLexer.RuleForExtension(Path.GetExtension(fileName))?.Name ?? "プレーンテキスト";
+
+    // Windowsではファイルパスの大文字小文字を区別しない（Editor/EditorTabManagerの判定と揃える）。
+    private static bool PathsEqual(string a, string b) => OperatingSystem.IsWindows()
+        ? string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
+        : string.Equals(a, b, StringComparison.Ordinal);
 }

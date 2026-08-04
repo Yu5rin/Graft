@@ -217,29 +217,13 @@ public sealed class ExplorerViewModel : ObservableObject
         }
     }
 
-    /// <summary>外部変更検知（仕様書4.6）。未保存編集が無ければ黙って再読込、あれば確認する（E702）。</summary>
+    /// <summary>
+    /// 外部変更検知（仕様書4.6）。判断はエディタ側へ委ねる。
+    /// 未保存編集が無ければ黙って再読込され、あればエディタ上に非モーダルの
+    /// 「ディスク上で変更されています」バーが表示される（E702）。
+    /// </summary>
     private async void OnFileContentChanged(object? sender, string fullPath)
-    {
-        if (!_editor.Tabs.Any(t => PathsEqual(t.Session.FullPath, fullPath))) return;
-
-        var unsaved = _editor.FindUnsaved(new[] { fullPath });
-        if (unsaved.Count == 0)
-        {
-            await _editor.ReloadIfOpenAsync(new[] { fullPath }).ConfigureAwait(true);
-            return;
-        }
-
-        // 注記: EditorPaneViewModel/EditorTabViewModel/EditorPane.xaml は担当外のため、
-        // 4.6が求める非モーダルな「ディスク上で変更されています」バーは実装できない。
-        // ここではExplorerViewModel側だけで完結する代替として確認ダイアログで代用する
-        // （再読込／無視の2択という要件自体は満たす。完了報告で共有する）。
-        var name = Path.GetFileName(fullPath);
-        var reload = await _dialogs.ConfirmAsync(
-            "ディスク上で変更されています",
-            $"「{name}」はディスク上で変更されていますが、未保存の編集があります。編集を破棄して再読込しますか？")
-            .ConfigureAwait(true);
-        if (reload) await _editor.ReloadIfOpenAsync(new[] { fullPath }).ConfigureAwait(true);
-    }
+        => await _editor.NotifyExternalChangeAsync(fullPath).ConfigureAwait(true);
 
     private static FileNodeViewModel? FindLoadedNode(IEnumerable<FileNodeViewModel> nodes, string relativePath)
     {
@@ -316,7 +300,11 @@ public sealed class ExplorerViewModel : ObservableObject
         if (!renamed.IsSuccess) { await ShowFailureAsync("名前を変更できませんでした", renamed.Issues).ConfigureAwait(true); return; }
 
         _fileWatch.SuppressPath(node.FullPath);
-        _fileWatch.SuppressPath(ToFullPath(renamed.Value));
+        var newFullPath = ToFullPath(renamed.Value);
+        _fileWatch.SuppressPath(newFullPath);
+
+        // 開いているタブを新しいパスへ追従させる（4.2・4.3）。
+        if (!node.IsDirectory) _editor.NotifyRenamed(node.FullPath, newFullPath);
         await ReconcileDirectoryAsync(node.Parent, CancellationToken.None).ConfigureAwait(true);
     }
 
@@ -333,6 +321,8 @@ public sealed class ExplorerViewModel : ObservableObject
         var deleted = await _treeService.DeleteAsync(_project, node.RelativePath, node.IsDirectory, _guardOptions).ConfigureAwait(true);
         if (!deleted.IsSuccess) { await ShowFailureAsync("削除できませんでした", deleted.Issues).ConfigureAwait(true); return; }
 
+        // 削除されたファイルのタブは開いたままにできないため閉じる（4.2・4.3）。
+        if (!node.IsDirectory) await _editor.NotifyDeletedAsync(node.FullPath).ConfigureAwait(true);
         await ReconcileDirectoryAsync(node.Parent, CancellationToken.None).ConfigureAwait(true);
         if (ReferenceEquals(SelectedNode, node)) SelectedNode = null;
     }

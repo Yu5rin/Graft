@@ -18,6 +18,7 @@
     -->
     <UserControl.Resources>
         <local:EmptyCollectionToVisibilityConverter x:Key="EmptyToVisibility" />
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </UserControl.Resources>
 
     <Grid>
@@ -79,22 +80,68 @@
 
         <!-- ========== エディタ本体 ========== -->
         <Grid Grid.Row="1">
-            <ae:TextEditor x:Name="Editor"
-                           FontSize="{Binding FontSize}"
-                           ShowLineNumbers="{Binding ShowLineNumbers}"
-                           WordWrap="{Binding WordWrap}"
-                           HorizontalScrollBarVisibility="Auto"
-                           VerticalScrollBarVisibility="Auto"
-                           PreviewMouseWheel="OnEditorPreviewMouseWheel"
-                           AutomationProperties.Name="コードエディタ" />
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-            <TextBlock Text="開いているファイルはありません"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       Foreground="{DynamicResource TextSecondary}"
-                       FontSize="{DynamicResource BodyFontSize}"
-                       Visibility="{Binding Tabs.Count, Converter={StaticResource EmptyToVisibility}, ConverterParameter=Invert}"
-                       IsHitTestVisible="False" />
+            <!-- 4.6: 外部変更検知（E702）の非モーダル通知バー。ActiveTab.HasExternalConflictが
+                 立つと表示する。エクスプローラ側がEditorPaneViewModel.NotifyExternalChangeAsyncを
+                 呼ぶことで発火する（配線は統合担当）。 -->
+            <Border x:Name="ConflictBar"
+                    Grid.Row="0"
+                    Background="{DynamicResource BgElevated}"
+                    BorderBrush="{DynamicResource StateWarn}"
+                    BorderThickness="0,0,0,2"
+                    Padding="12,8"
+                    Visibility="{Binding ActiveTab.HasExternalConflict, Converter={StaticResource BoolToVisibility}}"
+                    AutomationProperties.Name="ディスク上の変更通知">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Text="ディスク上で変更されています。未保存の編集と競合しています。"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextPrimary}"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="再読込"
+                            Command="{Binding ActiveTab.ReloadDiscardingChangesCommand}"
+                            Margin="8,0,0,0"
+                            AutomationProperties.Name="編集を破棄してディスクの内容を再読込" />
+                    <Button Grid.Column="2"
+                            Content="無視"
+                            Command="{Binding ActiveTab.DismissExternalConflictCommand}"
+                            Margin="8,0,0,0"
+                            AutomationProperties.Name="この通知を無視して編集を続ける" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1">
+                <ae:TextEditor x:Name="Editor"
+                               FontSize="{Binding FontSize}"
+                               ShowLineNumbers="{Binding ShowLineNumbers}"
+                               WordWrap="{Binding WordWrap}"
+                               HorizontalScrollBarVisibility="Auto"
+                               VerticalScrollBarVisibility="Auto"
+                               PreviewMouseWheel="OnEditorPreviewMouseWheel"
+                               AutomationProperties.Name="コードエディタ" />
+
+                <TextBlock Text="開いているファイルはありません"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextSecondary}"
+                           FontSize="{DynamicResource BodyFontSize}"
+                           Visibility="{Binding Tabs.Count, Converter={StaticResource EmptyToVisibility}, ConverterParameter=Invert}"
+                           IsHitTestVisible="False" />
+
+                <!-- 4.4: 検索・置換オーバーレイ。右上に重ねて配置し、タブ切替のたびにAttach(Editor)する
+                     （EditorPane.xaml.cs側）。開閉・Escでの終了はSearchOverlay自身が持つ。 -->
+                <local:SearchOverlay x:Name="Search" />
+            </Grid>
         </Grid>
     </Grid>
 </UserControl>

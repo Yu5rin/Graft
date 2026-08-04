@@ -37,6 +37,7 @@ public enum LegacyKey
 public sealed class ShellViewModel : ObservableObject
 {
     private readonly DialogService _dialogs;
+    private readonly Graft.Infra.Settings _settings;
     private readonly HashSet<LegacyKey> _notifiedLegacyKeys = new();
 
     private SideViewKind _selectedSideView = SideViewKind.Project;
@@ -50,6 +51,9 @@ public sealed class ShellViewModel : ObservableObject
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         Explorer = new ExplorerViewModel(Editor, _dialogs, settings);
+        Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs);
+        Search.JumpRequested += OnSearchJumpRequested;
+        _settings = settings;
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
@@ -66,6 +70,9 @@ public sealed class ShellViewModel : ObservableObject
 
     /// <summary>エクスプローラビュー（仕様書4.2。ツリー表示・操作・監視反映を担う）。</summary>
     public ExplorerViewModel Explorer { get; }
+
+    /// <summary>ファイル横断検索ビュー（仕様書4.4）。</summary>
+    public SearchViewModel Search { get; }
 
     /// <summary>現在表示中のサイドビュー。</summary>
     public SideViewKind SelectedSideView
@@ -124,6 +131,10 @@ public sealed class ShellViewModel : ObservableObject
     /// 閉じてエディタ・エクスプローラの対象プロジェクトを切り替え、新しいプロジェクトの
     /// タブ構成・展開状態を復元する。保存確認等はEditorPaneViewModel側の責務。
     /// </summary>
+    /// <summary>横断検索の結果クリックで、該当ファイルの該当行をエディタで開く（仕様書4.4）。</summary>
+    private async void OnSearchJumpRequested(object? sender, (string FullPath, int Line) target)
+        => await Editor.OpenFileAsync(target.FullPath, preview: true, line: target.Line).ConfigureAwait(true);
+
     private async void OnProjectSelected(object? sender, Project project)
     {
         if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
@@ -131,6 +142,7 @@ public sealed class ShellViewModel : ObservableObject
         await Editor.CloseAllAsync().ConfigureAwait(true);
         Editor.SetProject(project.Root);
         await Explorer.SetProjectAsync(project).ConfigureAwait(true);
+        Search.SetContext(project, _settings);
         await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
         _currentProjectId = project.Id;
