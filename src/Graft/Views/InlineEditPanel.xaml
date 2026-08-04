@@ -20,7 +20,7 @@
     </UserControl.Resources>
 
     <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0"
-            Background="{DynamicResource BgElevated}" Padding="{DynamicResource SpacingMd}">
+            Background="{DynamicResource BgElevated}" Padding="{DynamicResource SpacingMdThickness}">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />

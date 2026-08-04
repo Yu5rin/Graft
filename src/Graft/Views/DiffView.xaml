@@ -106,7 +106,7 @@
         </Grid.RowDefinitions>
 
         <!-- ツールバー -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="{DynamicResource SpacingSm}">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="{DynamicResource SpacingSmThickness}">
             <RadioButton GroupName="DiffMode" Content="並列" Margin="0,0,8,0" VerticalAlignment="Center"
                          IsChecked="{Binding IsSideBySide}" AutomationProperties.Name="並列表示に切り替え" />
             <RadioButton GroupName="DiffMode" Content="統合" Margin="0,0,16,0" VerticalAlignment="Center"
@@ -125,7 +125,7 @@
 
         <!-- 8.7: 段階5（要確認）の強調バナー -->
         <Border Grid.Row="1" Background="{DynamicResource BgElevated}" BorderBrush="{DynamicResource StateWarn}"
-                BorderThickness="0,0,0,1" Padding="{DynamicResource SpacingSm}"
+                BorderThickness="0,0,0,1" Padding="{DynamicResource SpacingSmThickness}"
                 Visibility="{Binding NeedsConfirmation, Converter={StaticResource BoolToVis}}">
             <StackPanel Orientation="Horizontal">
                 <Path Style="{StaticResource IconPathStyle}" Data="{StaticResource IconAlertTriangleGeometry}"
