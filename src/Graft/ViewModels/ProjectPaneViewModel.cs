@@ -56,14 +56,20 @@ public sealed class ProjectListItemViewModel
 public sealed class ProjectPaneViewModel : ObservableObject
 {
     private readonly ProjectStore _store;
+    private readonly DialogService _dialogs;
     private ProjectPaneState _state = ProjectPaneState.Loading;
     private GraftIssue? _error;
     private ProjectListItemViewModel? _selectedItem;
 
-    public ProjectPaneViewModel(ProjectStore store)
+    public ProjectPaneViewModel(ProjectStore store, DialogService dialogs)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        AddProjectCommand = new AsyncRelayCommand(AddProjectViaDialogAsync);
     }
+
+    /// <summary>コマンドバー・空状態から呼ぶ「フォルダ選択で登録」（仕様書3.2）。</summary>
+    public ICommand AddProjectCommand { get; }
 
     public ObservableCollection<ProjectListItemViewModel> Items { get; } = new();
 
@@ -122,6 +128,16 @@ public sealed class ProjectPaneViewModel : ObservableObject
             SelectedItem = Items.FirstOrDefault(i => i.Project.Id == result.Value.Id);
         }
         return result;
+    }
+
+    private async Task AddProjectViaDialogAsync()
+    {
+        var folder = _dialogs.PickFolder("プロジェクトフォルダを選択");
+        if (string.IsNullOrEmpty(folder))
+        {
+            return;
+        }
+        await RegisterFolderAsync(folder).ConfigureAwait(true);
     }
 
     /// <summary>数字キー（1〜9）によるプロジェクト選択（仕様書3.2・8.10）。</summary>
