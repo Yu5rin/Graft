@@ -28,7 +28,7 @@ public partial class AboutView : UserControl
         var version = assembly.GetName().Version?.ToString() ?? "不明";
         VersionText.Text = $"バージョン {version}";
 
-        var buildDate = TryGetBuildDate(assembly);
+        var buildDate = TryGetBuildDate();
         BuildDateText.Text = buildDate is null
             ? "ビルド日時: 不明"
             : $"ビルド日時: {buildDate.Value:yyyy-MM-dd HH:mm}";
@@ -42,10 +42,21 @@ public partial class AboutView : UserControl
         }
 
         _licenseLoaded = true;
-        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "DiffPlex-LICENSE.txt");
+
+        // 単一exeで配布するため、ライセンス全文は埋め込みリソースとして持つ。
+        // 外部ファイルに置くと発行物がexe1つに収まらない。
+        const string resourceName = "Graft.Assets.DiffPlex-LICENSE.txt";
         try
         {
-            LicenseText.Text = await File.ReadAllTextAsync(path).ConfigureAwait(true);
+            await using var stream = typeof(AboutView).Assembly.GetManifestResourceStream(resourceName);
+            if (stream is null)
+            {
+                LicenseText.Text = "ライセンスファイルを読み込めませんでした。";
+                return;
+            }
+
+            using var reader = new StreamReader(stream);
+            LicenseText.Text = await reader.ReadToEndAsync().ConfigureAwait(true);
         }
         catch (IOException)
         {
@@ -53,10 +64,13 @@ public partial class AboutView : UserControl
         }
     }
 
-    /// <summary>実行アセンブリの最終更新日時をビルド日時の近似として返す。取得できない場合はnull。</summary>
-    private static DateTime? TryGetBuildDate(Assembly assembly)
+    /// <summary>
+    /// ビルド日時を返す。単一exeでは <c>Assembly.Location</c> が空になるため、
+    /// 実行中のプロセスイメージ（exe本体）の最終更新日時を近似として使う。
+    /// </summary>
+    private static DateTime? TryGetBuildDate()
     {
-        var location = assembly.Location;
+        var location = Environment.ProcessPath;
         if (string.IsNullOrEmpty(location) || !File.Exists(location))
         {
             return null;

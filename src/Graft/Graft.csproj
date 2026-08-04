@@ -26,8 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Assets\Graft.ico" CopyToOutputDirectory="PreserveNewest" />
-    <None Update="Assets\DiffPlex-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!--
+      ライセンス全文はバージョン情報画面から参照する（仕様書8.15）。
+      単一exeで配布するため、外部ファイルではなく埋め込みリソースとして持つ。
+    -->
+    <EmbeddedResource Include="Assets\DiffPlex-LICENSE.txt" />
   </ItemGroup>
 
 </Project>
