@@ -160,7 +160,7 @@ public sealed class ApplyEngine
     {
         foreach (var p in eligible.Where(p => p.Operation == EntryOperation.Mkdir))
         {
-            var resolved = DryRunPlanner.ResolveDirectoryPath(ctx.Guard, p.Path);
+            var resolved = ctx.Guard.ResolveDirectory(p.Path);
             if (!resolved.IsSuccess) return GraftResult<bool>.Fail(resolved.Issues);
 
             try
@@ -251,21 +251,29 @@ public sealed class ApplyEngine
         var existed = File.Exists(LongPath.Extended(fullPath));
         var shape = plansForFile[0].Shape ?? new TextShape { Encoding = new UTF8Encoding(false), NewLine = "\r\n", EndsWithNewLine = true };
         IReadOnlyList<string> originalLines = Array.Empty<string>();
+        IReadOnlyList<(string Text, string Terminator)>? originalWithTerminators = null;
         string? hashBefore = null;
 
         if (existed)
         {
             var read = await FileTextIO.ReadAsync(fullPath, ct).ConfigureAwait(false);
             if (!read.IsSuccess) return GraftResult<(bool, string?, string)>.Fail(read.Issues);
-            originalLines = TextNormalizer.SplitLines(read.Value.Text);
+            originalWithTerminators = SplitLinesWithTerminators(read.Value.Text);
+            originalLines = originalWithTerminators.Select(l => l.Text).ToList();
             shape = read.Value.Shape;
             hashBefore = FileTextIO.ComputeHash(read.Value.Text);
+        }
+        else
+        {
+            // 4.5: FULL形式でファイルが存在しない場合は親フォルダごと作成する。
+            var parentDir = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(LongPath.Extended(parentDir));
         }
 
         var seen = new HashSet<PatchBlock>(ReferenceEqualityComparer.Instance);
         var blocks = plansForFile.Select(p => p.Block).Where(seen.Add).ToList();
         var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher);
-        var finalText = ComposeFinalText(resolution.FinalLines, shape);
+        var finalText = ComposeFinalText(resolution.FinalLines, originalWithTerminators, shape);
 
         var clearedReadOnly = ClearReadOnlyIfNeeded(fullPath, ctx);
         var written = await FileTextIO.WriteAsync(fullPath, finalText, shape, ct).ConfigureAwait(false);
@@ -275,11 +283,66 @@ public sealed class ApplyEngine
         return GraftResult<(bool, string?, string)>.Ok((existed, hashBefore, FileTextIO.ComputeHash(finalText)));
     }
 
-    private static string ComposeFinalText(IReadOnlyList<string> lines, TextShape shape)
+    /// <summary>
+    /// 6.4「改行コードの混在は可能な限り維持する」への対応。未変更行（OriginalIndexが非null）は
+    /// 元ファイルの改行文字をそのまま使い、新規生成行（置換後・追記・先頭挿入・FULL全文）は
+    /// TextShape.NewLineを使う。末尾改行の有無は行の由来によらずTextShape.EndsWithNewLineに従う。
+    /// </summary>
+    private static string ComposeFinalText(
+        IReadOnlyList<ResolvedLine> lines, IReadOnlyList<(string Text, string Terminator)>? original, TextShape shape)
     {
         if (lines.Count == 0) return string.Empty;
-        var body = string.Join(shape.NewLine, lines);
-        return shape.EndsWithNewLine ? body + shape.NewLine : body;
+
+        var sb = new StringBuilder();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            sb.Append(lines[i].Text);
+            if (i < lines.Count - 1)
+            {
+                sb.Append(OriginalTerminatorOrDefault(lines[i], original, shape.NewLine));
+            }
+            else if (shape.EndsWithNewLine)
+            {
+                sb.Append(shape.NewLine);
+            }
+        }
+        return sb.ToString();
+    }
+
+    private static string OriginalTerminatorOrDefault(
+        ResolvedLine line, IReadOnlyList<(string Text, string Terminator)>? original, string fallback)
+    {
+        if (original is null || line.OriginalIndex is not int idx || idx >= original.Count) return fallback;
+        var terminator = original[idx].Terminator;
+        return terminator.Length > 0 ? terminator : fallback;
+    }
+
+    /// <summary>
+    /// <see cref="TextNormalizer.SplitLines"/> と同じ行区切り規則（CRLF/LF/CRいずれも境界として扱う）
+    /// で分割しつつ、各行の元の改行文字列も保持する。未変更行の改行コードを書き込み時に維持するために
+    /// のみ使う（比較・マッチングには関与しない）。
+    /// </summary>
+    private static List<(string Text, string Terminator)> SplitLinesWithTerminators(string text)
+    {
+        var result = new List<(string, string)>();
+        var start = 0;
+        var i = 0;
+        while (i < text.Length)
+        {
+            var c = text[i];
+            if (c != '\r' && c != '\n') { i++; continue; }
+
+            var content = text.Substring(start, i - start);
+            string terminator;
+            if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') { terminator = "\r\n"; i++; }
+            else terminator = c.ToString();
+            i++;
+            result.Add((content, terminator));
+            start = i;
+        }
+
+        if (start < text.Length) result.Add((text.Substring(start), string.Empty));
+        return result;
     }
 
     private static bool ClearReadOnlyIfNeeded(string fullPath, ApplyContext ctx)
@@ -322,11 +385,7 @@ public sealed class ApplyEngine
 
             try
             {
-                if (ctx.AllowReadOnlyOverride)
-                {
-                    var info = new FileInfo(ioPath);
-                    if (info.IsReadOnly) info.IsReadOnly = false;
-                }
+                ClearReadOnlyIfNeeded(resolved.Value, ctx);
                 File.Delete(ioPath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

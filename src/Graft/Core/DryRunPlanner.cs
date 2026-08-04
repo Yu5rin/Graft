@@ -1,4 +1,3 @@
-using System.IO;
 using System.Text;
 
 namespace Graft.Core;
@@ -58,7 +57,7 @@ public sealed class DryRunPlanner
 
     private static BlockPlan PlanMkdir(MkdirBlock block, ApplyContext ctx)
     {
-        var resolved = ResolveDirectoryPath(ctx.Guard, block.Path);
+        var resolved = ctx.Guard.ResolveDirectory(block.Path);
         return new BlockPlan
         {
             Block = block, Path = block.Path, Operation = EntryOperation.Mkdir, Stage = MatchStage.None,
@@ -118,6 +117,12 @@ public sealed class DryRunPlanner
 
         var check = inspect.Value;
         var fileIssues = UpgradeReadOnlyIfBlocking(inspect.Issues, check, ctx).ToList();
+        if (blocksForFile.Any(b => b is FullContentBlock) && blocksForFile.Any(b => b is SearchReplaceBlock))
+        {
+            // 6.6・13章: 同一ファイルにFULL形式とSR形式が混在する場合は警告する
+            // （実際の適用順序はBlockResolver.ResolveFileがFULLを先に解決する）。
+            fileIssues.Add(GraftIssue.Of(ErrorCode.E208, path: path, severity: Severity.Warning));
+        }
 
         var loaded = await LoadCurrentLinesAsync(check, ctx, ct).ConfigureAwait(false);
         if (!loaded.IsSuccess) return FailPlansForFile(blocksForFile, path, loaded.Issues);
@@ -220,23 +225,6 @@ public sealed class DryRunPlanner
 
     private static IReadOnlyList<GraftIssue> MergeIssues(IReadOnlyList<GraftIssue> a, IReadOnlyList<GraftIssue> b)
         => a.Count == 0 ? b : b.Count == 0 ? a : a.Concat(b).ToArray();
-
-    /// <summary>
-    /// MKDIR用のパス検証。PathGuard.Resolveはファイル向けに拡張子ホワイトリストを適用するため、
-    /// フォルダ名をそのまま渡すと常にE202になってしまう。許可済み拡張子を持つダミーファイル名を
-    /// 末尾に付けて検証することで、ルート内判定・traversal・長パスの検証だけを再利用する。
-    /// </summary>
-    internal static GraftResult<string> ResolveDirectoryPath(PathGuard guard, string relativePath)
-    {
-        var trimmed = relativePath.TrimEnd('/', '\\');
-        var probe = (trimmed.Length == 0 ? string.Empty : trimmed + "/") + ".graft-mkdir-probe.txt";
-        var resolved = guard.Resolve(probe);
-        if (!resolved.IsSuccess)
-            return GraftResult<string>.Fail(resolved.Issues.Select(i => i with { Path = relativePath }));
-
-        var dir = Path.GetDirectoryName(resolved.Value) ?? resolved.Value;
-        return GraftResult<string>.Ok(dir);
-    }
 
     /// <summary>読み取り専用は既定でPathGuardからは警告として返るが、上書き許可がなければ書き込みを阻む致命的問題へ格上げする（13章）。</summary>
     private static IEnumerable<GraftIssue> UpgradeReadOnlyIfBlocking(IReadOnlyList<GraftIssue> issues, FileCheck check, ApplyContext ctx)
