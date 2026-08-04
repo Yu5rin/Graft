@@ -53,6 +53,11 @@
                           AutomationProperties.Name="プロジェクトを選択" />
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 10章: プロジェクトのフォルダ構成・ファイル内容を確認するコンテキスト収集画面。 -->
+                    <Button Content="ファイル"
+                            Command="{Binding OpenContextCollectCommand}"
+                            Margin="4,0"
+                            AutomationProperties.Name="プロジェクトのファイル一覧とコンテキスト収集を開く" />
                     <Button Content="解析"
                             Command="{Binding PasteAndParseCommand}"
                             Margin="4,0"

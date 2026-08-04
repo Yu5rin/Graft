@@ -43,12 +43,28 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         PreviewKeyDown += OnPreviewKeyDown;
         viewModel.RequestOpenQueue += OnRequestOpenQueue;
+        viewModel.RequestOpenContextCollect += OnRequestOpenContextCollect;
     }
 
     /// <summary>4.10: キュー管理ウィンドウを開く（コマンドバー「キュー」ボタン）。</summary>
     private void OnRequestOpenQueue(object? sender, EventArgs e)
     {
         var window = new QueueWindow(ViewModel.Queue) { Owner = this };
+        window.ShowDialog();
+    }
+
+    /// <summary>
+    /// 10章: コンテキスト収集ウィンドウを開く（コマンドバー「ファイル」ボタン）。
+    /// プロジェクトのフォルダ構成・ファイル内容を確認できる唯一の画面。
+    /// </summary>
+    private void OnRequestOpenContextCollect(object? sender, EventArgs e)
+    {
+        if (ViewModel.ContextCollect is null)
+        {
+            return;
+        }
+
+        var window = new ContextCollectWindow(ViewModel.ContextCollect) { Owner = this };
         window.ShowDialog();
     }
 

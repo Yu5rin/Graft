@@ -27,6 +27,16 @@ public sealed partial class MainViewModel
     public ICommand OpenPromptDropdownCommand { get; private set; } = null!;
 
     /// <summary>
+    /// 10章コンテキスト収集ウィンドウを開く。プロジェクトのフォルダ構成・ファイル一覧を
+    /// 確認できる唯一の画面（Graftは汎用のファイルブラウザを持たない設計のため）。
+    /// 実際にウィンドウを生成して表示する処理はUI層（MainWindow側）に委譲する。
+    /// </summary>
+    public ICommand OpenContextCollectCommand { get; private set; } = null!;
+
+    /// <summary>MainWindow側でContextCollectWindowを開くための通知。</summary>
+    public event EventHandler? RequestOpenContextCollect;
+
+    /// <summary>
     /// 4.8.4: Ctrl+Shift+C（ウィンドウ内ショートカット・起動処理担当が配線するグローバルホットキー
     /// の両方から呼ばれる）。ドロップダウンを開かず、推奨テンプレートを即座にコピーする。
     /// </summary>
@@ -46,6 +56,10 @@ public sealed partial class MainViewModel
         CopyPromptCommand = new AsyncRelayCommand(
             async () => { if (PromptCopy is not null) await PromptCopy.QuickCopyAsync().ConfigureAwait(true); },
             () => PromptCopy is not null);
+
+        OpenContextCollectCommand = new RelayCommand(
+            () => RequestOpenContextCollect?.Invoke(this, EventArgs.Empty),
+            () => ContextCollect is not null);
     }
 
     /// <summary>プロジェクトが切り替わるたびに、コンテキスト収集・プロンプトコピーの両ViewModelを作り直す。</summary>
