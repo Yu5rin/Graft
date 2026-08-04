@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using Graft.Core;
 using Graft.Features;
@@ -7,12 +9,14 @@ using Graft.Infra;
 namespace Graft.ViewModels;
 
 /// <summary>
-/// 仕様書10章のコンテキスト収集UIを担う。収集モードの選択、ファイルのチェック選択、
-/// 除外規則の確認、出力前の概算トークン数表示（10.4）と上限超過時の警告、
-/// クリップボードへのコピーまでを行う。
+/// 仕様書10章のコンテキスト収集UIを担う。収集モードの選択、ファイルのチェック選択、除外規則の
+/// 確認、出力前の概算トークン数表示（10.4）と上限超過時の警告、クリップボードへのコピーを行う。
 /// </summary>
 public sealed class ContextCollectViewModel : ObservableObject
 {
+    // 10.3出力形式のファイル見出し「# 相対パス  (ハッシュ)」を検出する正規表現（前提・ツリー見出しは末尾の(ハッシュ)が無く誤検出しない）。
+    private static readonly Regex FileHeaderPattern = new(@"^# (?<path>.+?)  \((?<hash>[0-9a-fA-F]+)\)$", RegexOptions.Compiled);
+
     private readonly ContextCollector _collector;
     private readonly RevisionStore _revisionStore;
     private readonly ProjectStore _projectStore;
@@ -41,14 +45,13 @@ public sealed class ContextCollectViewModel : ObservableObject
 
         Modes = new ObservableCollection<ModeOption>
         {
-            new("ツリーのみ", ContextMode.TreeOnly),
-            new("選択ファイル", ContextMode.SelectedFiles),
-            new("ツリー＋選択", ContextMode.TreeAndSelected),
-            new("差分のみ", ContextMode.ChangedSince),
+            new("ツリーのみ", ContextMode.TreeOnly), new("選択ファイル", ContextMode.SelectedFiles),
+            new("ツリー＋選択", ContextMode.TreeAndSelected), new("差分のみ", ContextMode.ChangedSince),
         };
         Revisions = new ObservableCollection<RevisionOption>();
         Files = new ObservableCollection<ContextFileNodeViewModel>();
         ExtraExcludes = new ObservableCollection<string>(project.Overrides.Excludes);
+        PreviewLines = new ObservableCollection<PreviewLine>();
 
         RefreshCommand = new AsyncRelayCommand(() => RefreshAsync());
         PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => !_isScanning);
@@ -63,6 +66,9 @@ public sealed class ContextCollectViewModel : ObservableObject
     public ObservableCollection<ModeOption> Modes { get; }
     public ObservableCollection<RevisionOption> Revisions { get; }
     public ObservableCollection<ContextFileNodeViewModel> Files { get; }
+
+    /// <summary>8.6: 出力プレビューの行（シンタックストークン付き）。プレビュー・コピー実行時に更新する。</summary>
+    public ObservableCollection<PreviewLine> PreviewLines { get; }
 
     /// <summary>10.2: 既定除外・.gitignore に加え、プロジェクト単位で追加した除外パターン。</summary>
     public ObservableCollection<string> ExtraExcludes { get; }
@@ -246,7 +252,65 @@ public sealed class ContextCollectViewModel : ObservableObject
         ErrorIssue = null;
         EstimatedTokens = result.Value.EstimatedTokens;
         ExceedsWarnThreshold = result.Value.ExceedsWarnThreshold;
+        UpdatePreviewLines(result.Value.Text);
         return result.Value;
+    }
+
+    /// <summary>
+    /// 8.6: 実際の出力テキストをファイル見出しで区切り、区間ごとに拡張子別の<see cref="SyntaxLexer"/>で
+    /// 走査する。syntax.enabled=false・言語ルール無し・差分のみモード（対象解決が煩雑なため）は
+    /// プレーン表示へフォールバックする（コピー結果自体には一切影響しない）。
+    /// </summary>
+    private void UpdatePreviewLines(string text)
+    {
+        PreviewLines.Clear();
+        var rawLines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        if (!_settings.Syntax.Enabled || _selectedMode == ContextMode.ChangedSince)
+        {
+            foreach (var line in rawLines) PreviewLines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
+            return;
+        }
+
+        string? extension = null;
+        var buffer = new List<string>();
+        foreach (var line in rawLines)
+        {
+            var match = FileHeaderPattern.Match(line);
+            if (match.Success)
+            {
+                FlushPreviewSection(extension, buffer);
+                extension = Path.GetExtension(match.Groups["path"].Value);
+                PreviewLines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
+            }
+            else
+            {
+                buffer.Add(line);
+            }
+        }
+        FlushPreviewSection(extension, buffer);
+    }
+
+    /// <summary>直前のファイル見出しから現在行までの区間（1ファイル分の本文）をトークン化して積む。</summary>
+    private void FlushPreviewSection(string? extension, List<string> buffer)
+    {
+        if (buffer.Count == 0) return;
+
+        var rule = extension is null ? null : SyntaxLexer.RuleForExtension(extension);
+        if (rule is null)
+        {
+            foreach (var line in buffer) PreviewLines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
+            buffer.Clear();
+            return;
+        }
+
+        var lexer = new SyntaxLexer(rule);
+        var scanned = lexer.Scan(buffer);
+        for (var i = 0; i < buffer.Count; i++)
+        {
+            var tokens = scanned && !lexer.IsDisabled ? lexer.TokenizeLine(i, buffer[i]) : Array.Empty<SyntaxToken>();
+            PreviewLines.Add(new PreviewLine(buffer[i], tokens));
+        }
+        buffer.Clear();
     }
 
     private void ToggleSelected()
@@ -295,6 +359,9 @@ public sealed class ContextCollectViewModel : ObservableObject
     {
         public string DisplayText => $"r{Revision} — {Summary}";
     }
+
+    /// <summary>8.6: 出力プレビューの1行。<see cref="Graft.Views.CodeLineControl"/> にそのまま束縛する。</summary>
+    public sealed record PreviewLine(string Text, IReadOnlyList<SyntaxToken> Tokens);
 }
 
 /// <summary>ファイルツリー1行分の選択状態を保持する。</summary>
@@ -327,13 +394,7 @@ public sealed class ContextFileNodeViewModel : ObservableObject
     }
 
     /// <summary>8.14: スクリーンリーダー向けの読み上げ文言。種別・除外理由を含める。</summary>
-    public string AutomationLabel
-    {
-        get
-        {
-            if (IsDirectory) return $"フォルダ {DisplayName}";
-            if (IsExcluded) return $"除外 {DisplayName}（{ExcludeReason}）";
-            return $"ファイル {DisplayName}";
-        }
-    }
+    public string AutomationLabel => IsDirectory ? $"フォルダ {DisplayName}"
+        : IsExcluded ? $"除外 {DisplayName}（{ExcludeReason}）"
+        : $"ファイル {DisplayName}";
 }

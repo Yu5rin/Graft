@@ -1,0 +1,103 @@
+<Window x:Class="Graft.Views.QueueWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:views="clr-namespace:Graft.Views"
+        mc:Ignorable="d"
+        Title="パッチキュー"
+        Width="480" Height="440"
+        MinWidth="360" MinHeight="300"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource TextPrimary}"
+        AutomationProperties.Name="パッチキュー"
+        d:DesignWidth="480" d:DesignHeight="440">
+    <!--
+        仕様書4.10: 複数回に分けて受け取ったパッチを1つのリビジョンとして結合できるよう、
+        キュー内のブロックを確認・個別削除・全削除・結合適用できるようにする。
+    -->
+    <Window.Resources>
+        <views:QueueEmptyStateConverter x:Key="EmptyStateConverter" />
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="キュー内のブロック"
+                   Margin="0,0,0,8"
+                   FontSize="{DynamicResource PaneHeadingFontSize}"
+                   FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                   Foreground="{DynamicResource TextSecondary}" />
+
+        <Grid Grid.Row="1">
+            <ListBox x:Name="QueueListBox"
+                     ItemsSource="{Binding Items}"
+                     Background="{DynamicResource BgSurface}"
+                     AutomationProperties.Name="キュー内のブロック一覧">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{Binding PathText}"
+                                           FontSize="{DynamicResource BodyFontSize}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding DescriptionText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding AddedAtText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="削除"
+                                    VerticalAlignment="Top"
+                                    Command="{Binding DataContext.RemoveCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                                    CommandParameter="{Binding}"
+                                    AutomationProperties.Name="このブロックをキューから削除" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <views:EmptyStateView State="{Binding IsEmpty, Converter={StaticResource EmptyStateConverter}}"
+                                   IconGeometry="{StaticResource IconCopyGeometry}"
+                                   Message="キューは空です。パッチが途中で切れて受信されると自動的に追加されます" />
+        </Grid>
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,12,0,0">
+            <Button Content="すべて削除"
+                    Command="{Binding ClearCommand}"
+                    Margin="0,0,8,0"
+                    AutomationProperties.Name="キューをすべて削除" />
+            <Button Content="結合して適用へ進む"
+                    Command="{Binding MergeCommand}"
+                    Margin="0,0,8,0"
+                    AutomationProperties.Name="キューを結合して解析結果へ渡す" />
+            <Button Content="閉じる"
+                    Click="OnCloseClicked"
+                    IsCancel="True"
+                    AutomationProperties.Name="閉じる" />
+        </StackPanel>
+    </Grid>
+</Window>

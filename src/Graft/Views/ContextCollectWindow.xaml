@@ -19,6 +19,8 @@
         <local:IndentToMarginConverter x:Key="IndentToMargin" />
         <local:IssueToDisplayTextConverter x:Key="IssueToText" />
         <local:FileCheckEnabledConverter x:Key="FileCheckEnabled" />
+        <local:CollectionCountToVisibilityConverter x:Key="CollectionCountToVisibility" />
+        <local:InverseCollectionCountToVisibilityConverter x:Key="InverseCollectionCountToVisibility" />
 
         <!-- ComboBox: Controls.xaml に定義が無いため、この画面用に最小限のテンプレートを持つ。 -->
         <Style x:Key="GraftComboBoxToggleStyle" TargetType="ToggleButton">
@@ -95,6 +97,39 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Foreground" Value="{DynamicResource Accent}" />
         </Style>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Grid>
+                            <Border x:Name="Bg" Background="{DynamicResource BgSurface}" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
+                            </Border>
+                            <Border x:Name="FocusRing" BorderBrush="{DynamicResource Accent}"
+                                    BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                                    IsHitTestVisible="False" Opacity="0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource BgSelected}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="FocusRing" Property="Opacity" Value="1" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -137,7 +172,9 @@
             </Border>
         </StackPanel>
 
-        <Grid Grid.Row="2" Margin="16,0,16,8">
+        <TabControl Grid.Row="2" Margin="16,0,16,8">
+        <TabItem Header="ファイル選択" AutomationProperties.Name="ファイル選択タブ">
+        <Grid Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" />
                 <ColumnDefinition Width="Auto" />
@@ -227,6 +264,53 @@
                 </ListBox>
             </DockPanel>
         </Grid>
+        </TabItem>
+
+        <TabItem Header="プレビュー" AutomationProperties.Name="出力プレビュータブ">
+            <Grid Margin="0,8,0,0">
+                <ListBox ItemsSource="{Binding PreviewLines}" Background="Transparent" BorderThickness="0"
+                         FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.CanContentScroll="True"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                         AutomationProperties.Name="出力プレビュー"
+                         Visibility="{Binding PreviewLines, Converter={StaticResource CollectionCountToVisibility}}">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Focusable" Value="False" />
+                            <Setter Property="IsTabStop" Value="False" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter />
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <local:CodeLineControl LineText="{Binding Text}" Tokens="{Binding Tokens}"
+                                                    AutomationProperties.Name="{Binding Text}" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding PreviewLines, Converter={StaticResource InverseCollectionCountToVisibility}}">
+                    <Path Data="{StaticResource IconEyeGeometry}" Style="{StaticResource IconPathStyle}"
+                          Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
+                    <TextBlock Text="「プレビュー」または「コピー」を押すと出力内容を表示します"
+                               Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" />
+                </StackPanel>
+            </Grid>
+        </TabItem>
+        </TabControl>
 
         <Grid Grid.Row="3" Margin="16,0,16,16">
             <Grid.ColumnDefinitions>

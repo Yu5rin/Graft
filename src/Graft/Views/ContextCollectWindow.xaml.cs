@@ -83,6 +83,16 @@ public sealed class CollectionCountToVisibilityConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+/// <summary>コレクションの件数が0件なら<see cref="Visibility.Visible"/>、1件以上なら<see cref="Visibility.Collapsed"/>を返す（空状態表示用）。</summary>
+public sealed class InverseCollectionCountToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is System.Collections.ICollection { Count: > 0 } ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>ファイルツリーの階層深さ（int）を左インデント用の<see cref="Thickness"/>へ変換する。</summary>
 public sealed class IndentToMarginConverter : IValueConverter
 {
