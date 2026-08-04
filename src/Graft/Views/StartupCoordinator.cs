@@ -28,7 +28,6 @@ public sealed class StartupCoordinator : IAsyncDisposable
     private Logger? _logger;
     private SettingsStore? _settingsStore;
     private PatchQueue? _patchQueue;
-    private PromptTemplateStore? _promptTemplates;
     private ClipboardWatcher? _clipboardWatcher;
     private HotkeyManager? _hotkeyManager;
     private TrayIconHost? _trayIcon;
@@ -62,7 +61,6 @@ public sealed class StartupCoordinator : IAsyncDisposable
         _appPaths.EnsureCoreDirectoriesExist();
         _logger = new Logger(_appPaths);
         _settingsStore = new SettingsStore(_appPaths);
-        _promptTemplates = new PromptTemplateStore(_appPaths);
         var patchQueue = new PatchQueue(_appPaths);
         _patchQueue = patchQueue;
 
@@ -187,26 +185,15 @@ public sealed class StartupCoordinator : IAsyncDisposable
     }
 
     /// <summary>
-    /// Ctrl+Shift+C（4.8.4）。<see cref="MainViewModel"/>（MainViewModel.cs・MainViewModel.Queue.cs）
-    /// を確認したが、コマンドバー「プロンプト」ボタンに対応する公開コマンドは現時点で存在しない
-    /// （存在するのは4.10のキュー関連コマンドと、11章向けの <c>CopyRecoveryPromptCommand</c> のみ。
-    /// 4.8の変数展開・テンプレート選択UIは <c>SettingsViewModel.Templates</c>
-    /// （<see cref="PromptTemplateViewModel"/>）側にあり、MainWindowのコマンドバーには未接続）。
-    /// そのため本メソッドは暫定的に、4.8.1の「直近1時間以内にコピー済みか」の判定のみで
-    /// 初回用/継続用の定型文を選んでコピーする。該当コマンドが追加され次第、
-    /// <c>mainViewModel.???Command.Execute(null)</c> を呼ぶだけの実装に置き換えること。
+    /// Ctrl+Shift+C（4.8.4）。コマンドバーの「プロンプト」ボタンと同一の
+    /// <see cref="MainViewModel.CopyPromptCommand"/> を実行し、コンテキスト収集（10章）と
+    /// 同じ出力パイプラインで形式指示・前提・コードを展開してコピーする。
     /// </summary>
-    private void OnCopyPromptHotkey(MainViewModel mainViewModel)
+    private static void OnCopyPromptHotkey(MainViewModel mainViewModel)
     {
-        var project = mainViewModel.ProjectPane.SelectedItem?.Project;
-        var now = DateTimeOffset.Now;
-        var useContinuation = project is not null && _promptTemplates!.ShouldUseContinuation(project.Id, now);
-        var templateId = useContinuation ? "builtin-continuation" : "builtin-full";
-        var template = PromptTemplateStore.BuiltIns.First(t => t.Id == templateId);
-        Clipboard.SetText(template.Body);
-        if (project is not null)
+        if (mainViewModel.CopyPromptCommand.CanExecute(null))
         {
-            _promptTemplates!.RecordCopy(project.Id, now);
+            mainViewModel.CopyPromptCommand.Execute(null);
         }
     }
 
