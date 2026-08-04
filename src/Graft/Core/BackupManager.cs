@@ -15,10 +15,12 @@ public sealed class BackupManager
 {
     private readonly AppPaths _paths;
     private readonly JsonFileStore _jsonStore = new();
+    private readonly RevisionIndex _revisionIndex;
 
     public BackupManager(AppPaths paths)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
+        _revisionIndex = new RevisionIndex(paths);
     }
 
     /// <summary>
@@ -64,7 +66,7 @@ public sealed class BackupManager
                 ErrorCode.E401, $"manifest.json の書き込みに失敗しました: {ex.Message}", path: manifestPath);
         }
 
-        var session = new BackupSession(_jsonStore, projectRoot, folderPath, manifestPath, initial.Revision);
+        var session = new BackupSession(_jsonStore, _revisionIndex, projectId, projectRoot, folderPath, manifestPath, initial.Revision);
         return GraftResult<BackupSession>.Ok(session);
     }
 }

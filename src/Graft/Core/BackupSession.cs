@@ -11,14 +11,20 @@ namespace Graft.Core;
 public sealed class BackupSession
 {
     private readonly JsonFileStore _jsonStore;
+    private readonly RevisionIndex _revisionIndex;
+    private readonly string _projectId;
     private readonly string _projectRoot;
     private readonly string _manifestPath;
     private readonly List<string> _storedPaths = new();
     private readonly List<string> _createdPaths = new();
 
-    internal BackupSession(JsonFileStore jsonStore, string projectRoot, string folderPath, string manifestPath, int revision)
+    internal BackupSession(
+        JsonFileStore jsonStore, RevisionIndex revisionIndex, string projectId,
+        string projectRoot, string folderPath, string manifestPath, int revision)
     {
         _jsonStore = jsonStore;
+        _revisionIndex = revisionIndex;
+        _projectId = projectId;
         _projectRoot = projectRoot;
         FolderPath = folderPath;
         _manifestPath = manifestPath;
