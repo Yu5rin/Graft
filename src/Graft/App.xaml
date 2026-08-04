@@ -24,6 +24,8 @@
                 <ResourceDictionary Source="Themes/Controls.xaml" />
                 <ResourceDictionary Source="Themes/Controls.Input.xaml" />
                 <ResourceDictionary Source="Themes/Controls.Calendar.xaml" />
+                <!-- E1: エディタ層（AvalonEdit）用スタイル。Editor/担当が作成する（仕様書19章）。 -->
+                <ResourceDictionary Source="Themes/Editor.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

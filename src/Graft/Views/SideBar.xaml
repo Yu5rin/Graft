@@ -1,0 +1,117 @@
+<UserControl x:Class="Graft.Views.SideBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:ShellViewModel}"
+             Focusable="False"
+             d:DesignHeight="600" d:DesignWidth="48">
+    <!--
+        9.2 サイドバー（48px固定）。エクスプローラ／プロジェクト／履歴／検索の4ビューを
+        アイコンで切り替える。同じアイコンの再クリックでサイドビューを折りたたむ
+        （ShellViewModel.SelectSideView）。DataContextはShellWindowから継承する
+        （ShellViewModel、上書きしない）。
+    -->
+    <Border Background="{DynamicResource BgSurface}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="0,0,1,0"
+            AutomationProperties.Name="サイドバー">
+        <StackPanel Orientation="Vertical" Margin="0,8">
+
+            <Button Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.Explorer}"
+                    AutomationProperties.Name="エクスプローラビューを切り替え">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                        <Setter Property="Width" Value="48" />
+                        <Setter Property="Height" Value="40" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding SelectedSideView}" Value="Explorer" />
+                                    <Condition Binding="{Binding IsSideViewCollapsed}" Value="False" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <Path Data="{StaticResource IconFolderGeometry}" Style="{StaticResource IconPathStyle}" />
+            </Button>
+
+            <Button Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.Project}"
+                    AutomationProperties.Name="プロジェクトビューを切り替え">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                        <Setter Property="Width" Value="48" />
+                        <Setter Property="Height" Value="40" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding SelectedSideView}" Value="Project" />
+                                    <Condition Binding="{Binding IsSideViewCollapsed}" Value="False" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <Path Data="{StaticResource IconLayersGeometry}" Style="{StaticResource IconPathStyle}" />
+            </Button>
+
+            <Button Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.History}"
+                    AutomationProperties.Name="履歴ビューを切り替え">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                        <Setter Property="Width" Value="48" />
+                        <Setter Property="Height" Value="40" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding SelectedSideView}" Value="History" />
+                                    <Condition Binding="{Binding IsSideViewCollapsed}" Value="False" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <Path Data="{StaticResource IconHistoryGeometry}" Style="{StaticResource IconPathStyle}" />
+            </Button>
+
+            <Button Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.Search}"
+                    AutomationProperties.Name="検索ビューを切り替え">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                        <Setter Property="Width" Value="48" />
+                        <Setter Property="Height" Value="40" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding SelectedSideView}" Value="Search" />
+                                    <Condition Binding="{Binding IsSideViewCollapsed}" Value="False" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <Path Data="{StaticResource IconSearchGeometry}" Style="{StaticResource IconPathStyle}" />
+            </Button>
+
+        </StackPanel>
+    </Border>
+</UserControl>

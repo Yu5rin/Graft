@@ -35,6 +35,33 @@ public sealed class DialogService
         return Task.FromResult(result);
     }
 
+    /// <summary>
+    /// 3択の確認ダイアログを表示する。未保存ファイルを閉じるとき（v2.0 仕様書4.3）のように
+    /// 「実行する／実行せず続ける／やめる」を選ばせる用途に使う。
+    /// </summary>
+    /// <returns>肯定ならtrue、否定ならfalse、キャンセルならnull。</returns>
+    public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
+    {
+        bool? result = null;
+        var window = BuildShell(title, out var body);
+        AddMessage(body, message);
+
+        var buttons = AddButtonRow(body);
+        var yes = CreateButton(yesLabel, isDefault: true, isCancel: false);
+        var no = CreateButton(noLabel, isDefault: false, isCancel: false);
+        var cancel = CreateButton("キャンセル", isDefault: false, isCancel: true);
+        yes.Click += (_, _) => { result = true; window.DialogResult = true; };
+        no.Click += (_, _) => { result = false; window.DialogResult = true; };
+        cancel.Click += (_, _) => window.DialogResult = false;
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(no);
+        buttons.Children.Add(yes);
+
+        window.Loaded += (_, _) => yes.Focus();
+        window.ShowDialog();
+        return Task.FromResult(result);
+    }
+
     /// <summary>1行のテキスト入力ダイアログを表示する。キャンセル時はnullを返す。</summary>
     public Task<string?> PromptAsync(string title, string message, string? initial = null)
     {
