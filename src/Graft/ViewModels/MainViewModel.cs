@@ -90,6 +90,8 @@ public sealed partial class MainViewModel : ObservableObject
         AddCurrentPatchToQueueCommand = new AsyncRelayCommand(AddCurrentPatchToQueueAsync, () => _currentPatch is not null);
         OpenQueueCommand = new RelayCommand(() => RequestOpenQueue?.Invoke(this, EventArgs.Empty));
         CopyRecoveryPromptCommand = new AsyncRelayCommand(CopyRecoveryPromptAsync, () => Blocks.Any(b => !b.Plan.CanApply));
+
+        InitializePrompt(projectStore); // 4.8.4（MainViewModel.Prompt.cs）。
     }
 
     public ProjectPaneViewModel ProjectPane { get; }
@@ -193,6 +195,7 @@ public sealed partial class MainViewModel : ObservableObject
         DiscardCurrentPatch();
         // 8.4: コード表示のフォントサイズはプロジェクトごとに記憶する。
         Diff.CodeFontSize = GetCurrentPaneLayout().CodeFontSize;
+        RebuildPromptContext(project); // 4.8.4（MainViewModel.Prompt.cs）。
         await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
         await CheckInProgressAsync(project).ConfigureAwait(true);
         OnPropertyChanged(nameof(CurrentProjectName));
