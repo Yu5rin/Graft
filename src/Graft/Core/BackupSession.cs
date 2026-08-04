@@ -84,17 +84,50 @@ public sealed class BackupSession
         return GraftResult<bool>.Ok(true);
     }
 
-    /// <summary>manifest.json を最終状態（success または rolled_back）で確定させる。</summary>
+    /// <summary>
+    /// manifest.json を最終状態（success または rolled_back）で確定させ、あわせて
+    /// history.jsonl（仕様書13.1）へも1行追記する。history.jsonl はフォルダが後で外部から
+    /// 削除・移動されても履歴一覧（summaryとstats）を参照できるようにするための補助索引であり、
+    /// manifest.json が正本である。追記に失敗しても確定自体は成功として扱い、Warningで通知する。
+    /// </summary>
     public async Task<GraftResult<bool>> CompleteAsync(RevisionManifest manifest, CancellationToken ct = default)
     {
         try
         {
             await _jsonStore.WriteAsync(_manifestPath, manifest, JsonFileStore.DefaultOptions, ct).ConfigureAwait(false);
-            return GraftResult<bool>.Ok(true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の確定に失敗しました: {ex.Message}", path: _manifestPath);
+        }
+
+        return await AppendToIndexAsync(manifest, ct).ConfigureAwait(false);
+    }
+
+    private async Task<GraftResult<bool>> AppendToIndexAsync(RevisionManifest manifest, CancellationToken ct)
+    {
+        var indexEntry = new RevisionIndexEntry
+        {
+            Revision = manifest.Revision,
+            Summary = manifest.Summary,
+            Type = manifest.Type,
+            AppliedAt = manifest.AppliedAt,
+            Status = manifest.Status,
+            PatchHash = manifest.PatchHash,
+            Stats = manifest.Stats,
+            FolderName = Path.GetFileName(FolderPath),
+        };
+
+        try
+        {
+            await _revisionIndex.AppendAsync(_projectId, indexEntry, ct).ConfigureAwait(false);
+            return GraftResult<bool>.Ok(true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            var warning = GraftIssue.Of(
+                ErrorCode.E404, $"history.jsonl への追記に失敗しました: {ex.Message}", path: _projectId, severity: Severity.Warning);
+            return GraftResult<bool>.Ok(true, new[] { warning });
         }
     }
 
