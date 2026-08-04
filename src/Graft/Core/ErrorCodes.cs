@@ -43,6 +43,8 @@ public enum ErrorCode
     E206,
     /// <summary>同一パッチ内で旧パスを参照。</summary>
     E207,
+    /// <summary>同一ファイルにFULL形式とSR形式が混在（16章の表には無いため追加）。</summary>
+    E208,
 
     /// <summary>ベースハッシュ不一致。</summary>
     E301,
@@ -100,6 +102,7 @@ public static class ErrorCatalog
         [ErrorCode.E205] = ("読み取り専用", "確認のうえ属性を解除できます"),
         [ErrorCode.E206] = ("パス長が上限を超過", "長パス対応で再試行してください"),
         [ErrorCode.E207] = ("同一パッチ内で旧パスを参照", "適用を拒否しました"),
+        [ErrorCode.E208] = ("FULL形式とSR形式が混在", "FULL形式を先に適用し、その結果にSR形式を解決します"),
 
         [ErrorCode.E301] = ("ベースハッシュ不一致", "警告のうえ続行できます"),
         [ErrorCode.E302] = ("適用済みパッチの再投入", "中止しました。強制続行も可能です"),

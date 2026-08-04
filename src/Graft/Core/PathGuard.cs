@@ -66,7 +66,15 @@ public sealed class PathGuard
     }
 
     /// <summary>相対パスを検証し、ルート内の絶対パスへ解決する。E201/E202/E206を返しうる。</summary>
-    public GraftResult<string> Resolve(string relativePath)
+    public GraftResult<string> Resolve(string relativePath) => Resolve(relativePath, checkExtension: true);
+
+    /// <summary>
+    /// フォルダの相対パスを検証し、ルート内の絶対パスへ解決する。
+    /// 拡張子ホワイトリスト（13章）はファイルに対する規則のため、フォルダには適用しない。
+    /// </summary>
+    public GraftResult<string> ResolveDirectory(string relativePath) => Resolve(relativePath, checkExtension: false);
+
+    private GraftResult<string> Resolve(string relativePath, bool checkExtension)
     {
         if (string.IsNullOrWhiteSpace(relativePath))
         {
@@ -105,10 +113,13 @@ public sealed class PathGuard
             return GraftResult<string>.Fail(ErrorCode.E201, "シンボリックリンク経由でルート外を参照しています", path: relativePath);
         }
 
-        var extension = Path.GetExtension(combined);
-        if (!_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
+        if (checkExtension)
         {
-            return GraftResult<string>.Fail(ErrorCode.E202, $"拡張子 '{extension}' は許可されていません", path: relativePath);
+            var extension = Path.GetExtension(combined);
+            if (!_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
+            {
+                return GraftResult<string>.Fail(ErrorCode.E202, $"拡張子 '{extension}' は許可されていません", path: relativePath);
+            }
         }
 
         if (LongPath.ExceedsExtendedLimit(combined))
