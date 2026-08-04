@@ -13,88 +13,28 @@
         AutomationProperties.Name="設定">
 
     <Window.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolToVis" />
-        <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
-        <local:InverseBooleanConverter x:Key="InverseBool" />
-        <local:NullToVisibilityConverter x:Key="NullToVis" />
-        <local:IssueToDisplayTextConverter x:Key="IssueToText" />
-        <local:CollectionCountToVisibilityConverter x:Key="CountToVis" />
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!--
+                    FieldLabel/FieldRow/SectionHeading/InverseBool/NullToVisは各タブ
+                    （SettingsPanels配下のUserControl）とここで共有するため、専用辞書へ
+                    まとめて双方からMergedDictionariesで取り込む（UserControlはWindow.Resources
+                    を実行時に遡って参照できないため、Window側だけに定義しても解決できない）。
+                -->
+                <ResourceDictionary Source="SettingsPanels/SettingsPanelResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BoolToVis" />
+            <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+            <local:IssueToDisplayTextConverter x:Key="IssueToText" />
+            <local:CollectionCountToVisibilityConverter x:Key="CountToVis" />
 
-        <Style x:Key="FieldLabel" TargetType="TextBlock">
-            <Setter Property="Width" Value="200" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="FieldRow" TargetType="StackPanel">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Margin" Value="0,0,0,10" />
-        </Style>
-        <Style x:Key="SectionHeading" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="{DynamicResource PaneHeadingFontSize}" />
-            <Setter Property="FontWeight" Value="{DynamicResource PaneHeadingFontWeight}" />
-            <Setter Property="Margin" Value="0,16,0,8" />
-        </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Width" Value="220" />
-            <Setter Property="HorizontalAlignment" Value="Left" />
-            <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <ToggleButton x:Name="Toggle"
-                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
-                                          Content="{TemplateBinding SelectionBoxItem}" Focusable="False">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Border Background="{DynamicResource BgSurface}"
-                                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1">
-                                            <Grid Margin="8,6">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <ContentPresenter Grid.Column="0" />
-                                                <Path Grid.Column="1" Data="M0,0 L8,0 L4,6 Z"
-                                                      Fill="{DynamicResource TextSecondary}"
-                                                      VerticalAlignment="Center" Margin="8,0,0,0" />
-                                            </Grid>
-                                        </Border>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-                            <Border x:Name="FocusRing" BorderBrush="{DynamicResource Accent}"
-                                    BorderThickness="{DynamicResource FocusRingBorderThickness}"
-                                    IsHitTestVisible="False" Opacity="0" />
-                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
-                                   AllowsTransparency="True" PopupAnimation="None">
-                                <Border Background="{DynamicResource BgElevated}"
-                                        BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
-                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
-                                    <ItemsPresenter />
-                                </Border>
-                            </Popup>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter TargetName="FocusRing" Property="Opacity" Value="1" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Padding" Value="8,6" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-            <Style.Triggers>
-                <Trigger Property="IsHighlighted" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource BgHover}" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+            <!--
+                ComboBox / ComboBoxItem の暗黙スタイルは Themes/Controls.Input.xaml
+                （App.xamlでApplication.Resourcesへマージ済み）のものをそのまま使う。
+                以前はここに重複定義があり、DisplayMemberPathが閉じた状態のボックスへ
+                反映されず選択中オブジェクトのToString()が表示される不具合を抱えていた。
+            -->
+
         <Style x:Key="GraftBusyBarStyle" TargetType="ProgressBar">
             <Setter Property="Height" Value="2" />
             <Setter Property="IsIndeterminate" Value="True" />
@@ -160,6 +100,7 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Grid>
