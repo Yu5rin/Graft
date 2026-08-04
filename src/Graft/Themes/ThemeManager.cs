@@ -143,13 +143,57 @@ public static class ThemeManager
         {
             AppTheme.Dark => ResolvedThemeKind.Dark,
             AppTheme.Light => ResolvedThemeKind.Light,
-            // AppTheme.System: WPFの SystemParameters にはWindows 10/11の
-            // 「アプリのモード」（ライト/ダーク）を判定するAPIが存在しない。
-            // 値はレジストリ（HKCU\...\Personalize\AppsUseLightTheme）にしか
-            // 存在せず、附録A.5によりレジストリ読み取りは避ける方針のため、
-            // 判定不能として既定のダークへフォールバックする。
-            _ => ResolvedThemeKind.Dark,
+            _ => ResolveSystemKind(),
         };
+    }
+
+    /// <summary>
+    /// AppTheme.System の解決。附録A.5で禁止されているのはレジストリへの
+    /// 「書き込み」のみであり、読み取りは禁止されていない（附録A.5 / 2章）ため、
+    /// Windowsの「アプリのモード」設定（HKCU\...\Personalize\AppsUseLightTheme）を
+    /// 読み取り専用で参照する。書き込みは一切行わない。
+    /// </summary>
+    private static ResolvedThemeKind ResolveSystemKind()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Windows以外（本リポジトリのビルド検証環境であるLinux等）では
+            // 当該レジストリキー自体が存在しないため、既定のダークで固定する。
+            return ResolvedThemeKind.Dark;
+        }
+
+        var isLight = TryReadAppsUseLightTheme();
+        return isLight == true ? ResolvedThemeKind.Light : ResolvedThemeKind.Dark;
+    }
+
+    /// <summary>
+    /// HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize の
+    /// AppsUseLightTheme（DWORD、0=ダーク / 1=ライト）を読み取る。取得できない場合はnullを
+    /// 返し、呼び出し側で既定のダークへフォールバックさせる。
+    /// </summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static bool? TryReadAppsUseLightTheme()
+    {
+        const string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+        const string valueName = "AppsUseLightTheme";
+
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(keyPath);
+            if (key?.GetValue(valueName) is int value)
+            {
+                return value != 0;
+            }
+        }
+        catch (Exception)
+        {
+            // レジストリキーが存在しない、アクセス権がない等、読み取りに失敗する
+            // ケースは環境依存で網羅できないため、ここでは判定不能として扱い
+            // 呼び出し側の既定（ダーク）へフォールバックさせる。書き込みは行わない
+            // 読み取り専用の最善努力の参照であるため、例外種別を問わずここで吸収する。
+        }
+
+        return null;
     }
 
     private static ResourceDictionary BuildDictionary(ResolvedThemeKind kind)
