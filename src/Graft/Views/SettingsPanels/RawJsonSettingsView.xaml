@@ -1,4 +1,4 @@
-<UserControl x:Class="Graft.Views.SettingsTabs.RawJsonSettingsView"
+<UserControl x:Class="Graft.Views.SettingsPanels.RawJsonSettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              AutomationProperties.Name="設定JSON直接編集">
