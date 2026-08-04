@@ -1,5 +1,4 @@
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using Graft.Infra;
@@ -7,11 +6,10 @@ using Graft.Infra;
 namespace Graft.Core;
 
 /// <summary>
-/// リビジョン履歴（back/&lt;プロジェクトID&gt;/ 配下）の読み取り・検索・世代管理を担う。
-/// 仕様書7.1〜7.4。manifest.json とバックアップ実体が正本であり、<see cref="RevisionIndex"/>
-/// （history.jsonl）はリビジョンフォルダが外部から削除・移動された場合にも履歴の記録自体を
-/// 残すための補助索引である（仕様書13.1）。7.2と13.1は仕様書内で要求が競合するため、
-/// ユーザーへの実害が大きい13.1（データを無言で失わない）を優先する。
+/// リビジョン履歴（back/&lt;プロジェクトID&gt;/ 配下）の読み取り・検索・世代管理を担う（仕様書7.1〜7.4）。
+/// manifest.json とバックアップ実体が正本であり、<see cref="RevisionIndex"/>（history.jsonl）は
+/// フォルダが外部から削除・移動された場合にも履歴の記録自体を残すための補助索引（仕様書13.1）。
+/// 7.2「追加のデータ保持は不要」と13.1は仕様書内で競合するため、実害の大きい13.1を優先する。
 /// </summary>
 public sealed class RevisionStore
 {
@@ -43,8 +41,8 @@ public sealed class RevisionStore
     }
 
     /// <summary>
-    /// 指定リビジョンを1件読み取る。実体フォルダがあればそちらを、無ければhistory.jsonlの
-    /// 記録から復元不可（IsRestorable=false）のRevisionSummaryを返す。どちらにも無ければ E405。
+    /// 指定リビジョンを1件読み取る。実体フォルダがあればそちらを、無ければhistory.jsonlの記録から
+    /// 復元不可（IsRestorable=false）のRevisionSummaryを返す。どちらにも無ければ E405。
     /// </summary>
     public async Task<GraftResult<RevisionSummary>> ReadAsync(string projectId, int revision, CancellationToken ct = default)
     {
@@ -131,10 +129,8 @@ public sealed class RevisionStore
 
         var oldestFirst = listResult.Value.OrderBy(s => s.Manifest.Revision).ToList();
 
-        // 仕様書14章「設定で無制限にできる」の実装規約: MaxRevisions/MaxTotalMBが0以下の場合は
-        // 上限なし（無制限）として扱う。設定画面側もこの規約に合わせて0以下を「無制限」として
-        // 提示・保存すること（Infra.BackupSettingsは非nullableのintのため、null等の別表現は
-        // 使わずこの規約に統一する）。
+        // 仕様書14章「設定で無制限にできる」の規約: 0以下は無制限（BackupSettingsは非nullableの
+        // intのため、null等の別表現は使わない）。設定UI側もこの規約に合わせること。
         var maxCount = settings.MaxRevisions > 0 ? settings.MaxRevisions : int.MaxValue;
         var maxBytes = settings.MaxTotalMB > 0 ? (long)settings.MaxTotalMB * 1024 * 1024 : long.MaxValue;
 
@@ -401,48 +397,4 @@ public sealed class RevisionStore
                 return false;
             }
         }, ct);
-}
-
-/// <summary>
-/// Windowsのごみ箱へファイル・フォルダを送るための最小限のP/Invokeラッパー。
-/// <c>Microsoft.VisualBasic</c> への参照を追加しないため、shell32.dll の
-/// <c>SHFileOperationW</c> を直接呼び出す（A.3の依存関係制約に準拠）。
-/// </summary>
-internal static class RecycleBin
-{
-    private const uint FoDelete = 0x0003;
-    private const ushort FofAllowUndo = 0x0040;
-    private const ushort FofNoConfirmation = 0x0010;
-    private const ushort FofSilent = 0x0004;
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct ShFileOpStruct
-    {
-        public IntPtr hwnd;
-        public uint wFunc;
-        [MarshalAs(UnmanagedType.LPWStr)] public string pFrom;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? pTo;
-        public ushort fFlags;
-        [MarshalAs(UnmanagedType.Bool)] public bool fAnyOperationsAborted;
-        public IntPtr hNameMappings;
-        [MarshalAs(UnmanagedType.LPWStr)] public string? lpszProgressTitle;
-    }
-
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern int SHFileOperationW(ref ShFileOpStruct fileOp);
-
-    /// <summary>指定パス（ファイルまたはフォルダ）をごみ箱へ送る。成功時 true。</summary>
-    public static bool Send(string path)
-    {
-        // pFrom はNULL文字2つで終端された複数文字列形式が必要。マーシャラが末尾にもう1つ
-        // NULLを付与するため、ここで明示的に付けておくことで確実に二重終端となる。
-        var op = new ShFileOpStruct
-        {
-            wFunc = FoDelete,
-            pFrom = path + '\0' + '\0',
-            fFlags = (ushort)(FofAllowUndo | FofNoConfirmation | FofSilent),
-        };
-        var result = SHFileOperationW(ref op);
-        return result == 0 && !op.fAnyOperationsAborted;
-    }
 }
