@@ -1,0 +1,82 @@
+<UserControl x:Class="Graft.Views.EmptyStateView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             mc:Ignorable="d"
+             x:Name="Root"
+             Focusable="False"
+             d:DesignHeight="240" d:DesignWidth="320">
+    <!--
+        8.8 状態表現: 空・読み込み中・エラーの3状態を1つの再利用可能な部品で表現する。
+        一覧・ペイン側は Content にリスト本体を置いたまま、このコントロールを最前面に
+        重ねる（Grid で同じセルに重ねる）想定。State=None のときは全体を非表示にし、
+        リスト本体をそのまま見せる。
+    -->
+    <Grid>
+        <!-- 読み込み中: ペイン上端の細い不確定プログレスバー（8.8）。200ms未満は表示しない。 -->
+        <ProgressBar x:Name="LoadingBar"
+                     IsIndeterminate="True"
+                     Height="2"
+                     VerticalAlignment="Top"
+                     BorderThickness="0"
+                     Background="Transparent"
+                     Foreground="{DynamicResource Accent}"
+                     Visibility="Collapsed"
+                     AutomationProperties.Name="読み込み中" />
+
+        <!-- 空状態: 中央に薄いアイコンと1行の説明、主要アクション1つ（8.8）。 -->
+        <StackPanel x:Name="EmptyPanel"
+                    Visibility="Collapsed"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MaxWidth="280">
+            <Path Data="{Binding IconGeometry, ElementName=Root}"
+                  Style="{StaticResource IconPathStyle}"
+                  Width="32" Height="32"
+                  Opacity="0.45"
+                  Stroke="{DynamicResource TextSecondary}"
+                  HorizontalAlignment="Center" />
+            <TextBlock Text="{Binding Message, ElementName=Root}"
+                       Margin="0,12,0,0"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource BodyFontSize}" />
+            <Button x:Name="ActionButton"
+                    Content="{Binding ActionText, ElementName=Root}"
+                    Command="{Binding ActionCommand, ElementName=Root}"
+                    Margin="0,16,0,0"
+                    HorizontalAlignment="Center"
+                    Visibility="Collapsed" />
+        </StackPanel>
+
+        <!--
+            エラー状態: 赤い帯ではなく、アイコン＋エラーコード＋対処方法のインライン表示（8.8）。
+            色だけに依存しないよう x-circle アイコン（形状）とテキストを併用する（8.14）。
+        -->
+        <StackPanel x:Name="ErrorPanel"
+                    Visibility="Collapsed"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MaxWidth="360">
+            <Path Data="{StaticResource IconXCircleGeometry}"
+                  Style="{StaticResource IconPathStyle}"
+                  Width="28" Height="28"
+                  Stroke="{DynamicResource StateError}"
+                  HorizontalAlignment="Center" />
+            <TextBlock x:Name="ErrorSummaryText"
+                       Margin="0,12,0,0"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextPrimary}"
+                       FontSize="{DynamicResource BodyFontSize}" />
+            <TextBlock x:Name="ErrorRemedyText"
+                       Margin="0,4,0,0"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

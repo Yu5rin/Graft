@@ -45,7 +45,17 @@ public sealed class ProjectListItemViewModel
     public string ShortcutText => ShortcutNumber is int n ? n.ToString() : string.Empty;
 
     /// <summary>色のみに依存しないための読み上げ用テキスト（8.14）。</summary>
-    public string AutomationName => IsDisconnected ? $"{Name}、未接続" : Name;
+    public string AutomationName
+    {
+        get
+        {
+            var parts = new List<string> { Name };
+            if (IsPinned) parts.Add("ピン留め");
+            if (IsDisconnected) parts.Add("未接続");
+            if (ShortcutNumber is int n) parts.Add($"ショートカット{n}");
+            return string.Join("、", parts);
+        }
+    }
 }
 
 /// <summary>

@@ -325,4 +325,15 @@ public sealed class ContextFileNodeViewModel : ObservableObject
         get => _isChecked;
         set => SetProperty(ref _isChecked, value);
     }
+
+    /// <summary>8.14: スクリーンリーダー向けの読み上げ文言。種別・除外理由を含める。</summary>
+    public string AutomationLabel
+    {
+        get
+        {
+            if (IsDirectory) return $"フォルダ {DisplayName}";
+            if (IsExcluded) return $"除外 {DisplayName}（{ExcludeReason}）";
+            return $"ファイル {DisplayName}";
+        }
+    }
 }
