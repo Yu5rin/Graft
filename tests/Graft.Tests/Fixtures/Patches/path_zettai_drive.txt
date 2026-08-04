@@ -1,0 +1,3 @@
+<<<< FILE: C:/Windows/System32/config.py MODE=FULL
+malicious content
+>>>> END

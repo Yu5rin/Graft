@@ -1,0 +1,6 @@
+<<<< FILE: src/util.py
+<<<<<<< SEARCH OCCURRENCE=2  # 2番目の出現を対象
+value = compute()
+=======
+value = compute_v2()
+>>>>>>> REPLACE

@@ -1,0 +1,12 @@
+<<<< FILE: src/complete.py
+<<<<<<< SEARCH  # 完了しているブロック
+old_value = 1
+=======
+new_value = 2
+>>>>>>> REPLACE
+
+<<<< FILE: src/incomplete.py
+<<<<<<< SEARCH  # 途中で切れるブロック
+old_incomplete = 1
+=======
+new_incomplete = 2

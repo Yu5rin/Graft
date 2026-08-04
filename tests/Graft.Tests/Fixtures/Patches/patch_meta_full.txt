@@ -1,0 +1,14 @@
+<<<< PATCH
+summary: ユーザー取得APIの型安全化
+type: refactor
+base: src/services/user.py@a3f9c1, src/models.py@7b2e04
+>>>>
+
+<<<< FILE: src/services/user.py
+<<<<<<< SEARCH  # 型安全化
+def get_user(id):
+    return db.query(id)
+=======
+def get_user(id: int) -> User | None:
+    return db.query(User).filter(User.id == id).first()
+>>>>>>> REPLACE

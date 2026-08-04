@@ -1,0 +1,8 @@
+<<<< FILE: src/services/user.py
+<<<<<<< SEARCH  # 戻り値をOptional型に変更し、N+1クエリを解消
+def get_user(id):
+    return db.query(id)
+=======
+def get_user(id: int) -> User | None:
+    return db.query(User).filter(User.id == id).first()
+>>>>>>> REPLACE

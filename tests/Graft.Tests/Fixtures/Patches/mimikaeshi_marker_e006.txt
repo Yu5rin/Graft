@@ -1,0 +1,5 @@
+<<<< FILE: src/broken.py MODE=FULL
+def foo():
+    pass
+<<<< THIS LOOKS LIKE A HEADER
+>>>> END

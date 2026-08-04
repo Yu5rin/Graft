@@ -1,0 +1,15 @@
+AIの前置き文章です。
+
+<<<< FILE: src/a.py
+<<<<<<< SEARCH  # 説明1
+old1
+=======
+new1
+>>>>>>> REPLACE
+
+<<<< FILE: src/b.py
+<<<<<<< SEARCH  # 説明2
+old2
+=======
+new2
+>>>>>>> REPLACE

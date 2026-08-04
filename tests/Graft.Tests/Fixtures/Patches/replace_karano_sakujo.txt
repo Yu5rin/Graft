@@ -1,0 +1,6 @@
+<<<< FILE: src/deprecated.py
+<<<<<<< SEARCH  # 廃止コードを削除
+def old_function():
+    pass
+=======
+>>>>>>> REPLACE

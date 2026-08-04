@@ -1,0 +1,3 @@
+<<<< APPEND: src/routes.py   # ルート定義を追加
+router.add_route("/health", health_check)
+>>>> END

@@ -1,0 +1,10 @@
+<<<< FILE: docs/format.md MODE=FULL
+# パッチ形式の説明
+
+\<<<< FILE: 相対パス
+\<<<<<<< SEARCH
+（検索対象の例）
+\=======
+（置換後の例）
+\>>>>>>> REPLACE
+>>>> END
