@@ -1,6 +1,6 @@
 using System.Windows.Controls;
 
-namespace Graft.Views.SettingsTabs;
+namespace Graft.Views.SettingsPanels;
 
 /// <summary>
 /// 14章「syntax」「diff」「context」「encoding」「clipboardWatch」区分の設定タブ。
