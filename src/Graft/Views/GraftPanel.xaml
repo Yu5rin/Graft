@@ -10,15 +10,18 @@
              d:DataContext="{d:DesignInstance vm:ShellViewModel}"
              d:DesignHeight="260" d:DesignWidth="760">
     <!--
-        9.2 接ぎ木パネル（下部）。旧MainWindowの中央ブロック一覧・右ペインdiffを移設した。
+        9.2 接ぎ木パネル（下部）。全面改訂によりdiffはエディタ領域の専用タブへ移設した（E4）ため、
+        本パネルはブロック一覧・適用サマリ（ヘッダーのStatusSummaryText）・操作ボタンに絞る。
         通常時は折りたたまれ、パッチ解析時に自動展開する（ShellViewModel.IsGraftPanelOpen）。
         Root（このUserControl自体）のDataContextはShellWindowから継承したまま（ShellViewModel）
         にしておき、ヘッダー・本体の内側だけGraft（MainViewModel）へ差し替える。開閉状態と
         トグルコマンドはShellViewModel側のため、ElementName=Rootで参照する。
+        ブロック選択時のdiff表示は、ShellViewModelがMainViewModel.SelectedBlockの変化を購読し、
+        EditorPaneViewModel.ShowDiffTabへ結ぶことでエディタ領域のタブとして開く（配線のみ、
+        このView自体はブロック一覧の選択・チェックのみを担当する）。
     -->
     <UserControl.Resources>
         <views:CenterPaneStateConverter x:Key="CenterStateConverter" />
-        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </UserControl.Resources>
 
     <Grid Background="{DynamicResource BgSurface}">
@@ -85,7 +88,10 @@
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="5" Command="{Binding ApplyCommand}" AutomationProperties.Name="適用を実行">
+                <!-- F6ペイン巡回の最後の停留先（GraftPanel.xaml.cs: DiffHost）。diffがエディタ領域の
+                     タブへ移設されたため、代わりにこのパネル内で最後の操作要素を指す。 -->
+                <Button x:Name="ApplyButtonElement" Grid.Column="5" Command="{Binding ApplyCommand}"
+                        AutomationProperties.Name="適用を実行">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="{StaticResource IconPlayGeometry}" Style="{StaticResource IconPathStyle}"
                               Width="14" Height="14" Margin="0,0,4,0" />
@@ -95,110 +101,105 @@
             </Grid>
         </Border>
 
-        <!-- 本体: ブロック一覧 + diff（展開時のみ表示） -->
+        <!-- 本体: ブロック一覧（展開時のみ表示）。diffはエディタ領域の専用タブへ移設した（E4）。 -->
         <Grid Grid.Row="1" DataContext="{Binding Graft}"
               Visibility="{Binding DataContext.IsGraftPanelOpen, ElementName=Root, Converter={StaticResource BoolToVisibility}}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="BlockListColumn" Width="320" MinWidth="220" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" MinWidth="280" />
-            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-            <!-- 左: ブロック一覧（1行目パス・2行目変更説明、状態アイコン、チェックボックス） -->
-            <Grid Grid.Column="0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
+            <TextBox Grid.Row="0" Margin="8,6"
+                     Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="ブロック一覧を検索" />
 
-                <TextBox Grid.Row="0" Margin="8,6"
-                         Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.Name="ブロック一覧を検索" />
+            <Grid Grid.Row="1">
+                <!-- ブロック一覧（1行目パス・2行目変更説明、状態アイコン、チェックボックス）。
+                     選択すると差分がエディタ領域のタブへ開く（ShellViewModel側の配線）。 -->
+                <ListBox x:Name="BlockListBox"
+                         ItemsSource="{Binding Blocks}"
+                         SelectedItem="{Binding SelectedBlock, Mode=TwoWay}"
+                         Background="{x:Null}"
+                         AutomationProperties.Name="ブロック一覧">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
 
-                <Grid Grid.Row="1">
-                    <ListBox x:Name="BlockListBox"
-                             ItemsSource="{Binding Blocks}"
-                             SelectedItem="{Binding SelectedBlock, Mode=TwoWay}"
-                             Background="{x:Null}"
-                             AutomationProperties.Name="ブロック一覧">
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                                <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
-                            </Style>
-                        </ListBox.ItemContainerStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0" VerticalAlignment="Top" Margin="0,2,4,0"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          IsEnabled="{Binding CanToggle}"
+                                          AutomationProperties.Name="適用可否を切り替え" />
 
-                                    <CheckBox Grid.Column="0" VerticalAlignment="Top" Margin="0,2,4,0"
-                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                              IsEnabled="{Binding CanToggle}"
-                                              AutomationProperties.Name="適用可否を切り替え" />
+                                <Path x:Name="StatusIcon" Grid.Column="1" Style="{StaticResource IconPathStyle}"
+                                      Width="16" Height="16" VerticalAlignment="Top" Margin="0,2,6,0" />
 
-                                    <Path x:Name="StatusIcon" Grid.Column="1" Style="{StaticResource IconPathStyle}"
-                                          Width="16" Height="16" VerticalAlignment="Top" Margin="0,2,6,0" />
-
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Text="{Binding PathText}" FontSize="{DynamicResource BodyFontSize}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding DescriptionText}"
-                                                   FontSize="{DynamicResource CaptionFontSize}"
-                                                   Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" />
-                                        <!-- 8.8: エラーは赤い帯ではなく該当行のインライン表示。エラーコード＋対処方法併記。 -->
-                                        <TextBlock Text="{Binding IssueText}" FontSize="{DynamicResource CaptionFontSize}"
-                                                   Foreground="{DynamicResource StateError}" TextWrapping="Wrap"
-                                                   Visibility="{Binding HasIssue, Converter={StaticResource BoolToVisibility}}" />
-                                    </StackPanel>
-
-                                    <TextBlock Grid.Column="3" Text="{Binding AddedRemovedText}" VerticalAlignment="Top"
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{Binding PathText}" FontSize="{DynamicResource BodyFontSize}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding DescriptionText}"
                                                FontSize="{DynamicResource CaptionFontSize}"
-                                               Foreground="{DynamicResource TextSecondary}" />
-                                </Grid>
+                                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" />
+                                    <!-- 8.8: エラーは赤い帯ではなく該当行のインライン表示。エラーコード＋対処方法併記。 -->
+                                    <TextBlock Text="{Binding IssueText}" FontSize="{DynamicResource CaptionFontSize}"
+                                               Foreground="{DynamicResource StateError}" TextWrapping="Wrap"
+                                               Visibility="{Binding HasIssue, Converter={StaticResource BoolToVisibility}}" />
+                                </StackPanel>
 
-                                <!-- 8.5: 状態は色と形状の両方で区別する（check / alert-triangle / x-circle）。 -->
-                                <DataTemplate.Triggers>
-                                    <DataTrigger Binding="{Binding Status}" Value="Ok">
-                                        <Setter TargetName="StatusIcon" Property="Data" Value="{StaticResource IconCheckGeometry}" />
-                                        <Setter TargetName="StatusIcon" Property="Stroke" Value="{DynamicResource StateOk}" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Status}" Value="Warn">
-                                        <Setter TargetName="StatusIcon" Property="Data" Value="{StaticResource IconAlertTriangleGeometry}" />
-                                        <Setter TargetName="StatusIcon" Property="Stroke" Value="{DynamicResource StateWarn}" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Status}" Value="Error">
-                                        <Setter TargetName="StatusIcon" Property="Data" Value="{StaticResource IconXCircleGeometry}" />
-                                        <Setter TargetName="StatusIcon" Property="Stroke" Value="{DynamicResource StateError}" />
-                                    </DataTrigger>
-                                </DataTemplate.Triggers>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                                <TextBlock Grid.Column="3" Text="{Binding AddedRemovedText}" VerticalAlignment="Top"
+                                           Margin="4,0"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
 
-                    <views:EmptyStateView State="{Binding State, Converter={StaticResource CenterStateConverter}}"
-                                           IconGeometry="{StaticResource IconCopyGeometry}"
-                                           Message="AIの出力をコピーして Ctrl+Shift+V"
-                                           ActionText="解析"
-                                           ActionCommand="{Binding PasteAndParseCommand}"
-                                           Issue="{Binding CenterError}" />
-                </Grid>
+                                <!-- 4.8: ブロック一覧からのジャンプ。マッチ位置をエディタで開く。 -->
+                                <Button Grid.Column="4" VerticalAlignment="Top" Padding="2"
+                                        Background="Transparent" BorderThickness="0"
+                                        Command="{Binding DataContext.OpenBlockInEditorCommand, ElementName=Root}"
+                                        CommandParameter="{Binding}"
+                                        AutomationProperties.Name="エディタで開く">
+                                    <Path Style="{StaticResource IconPathStyle}" Width="14" Height="14"
+                                          Data="{StaticResource IconFileCodeGeometry}"
+                                          Stroke="{DynamicResource TextSecondary}" />
+                                </Button>
+                            </Grid>
+
+                            <!-- 8.5: 状態は色と形状の両方で区別する（check / alert-triangle / x-circle）。 -->
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Status}" Value="Ok">
+                                    <Setter TargetName="StatusIcon" Property="Data" Value="{StaticResource IconCheckGeometry}" />
+                                    <Setter TargetName="StatusIcon" Property="Stroke" Value="{DynamicResource StateOk}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Warn">
+                                    <Setter TargetName="StatusIcon" Property="Data" Value="{StaticResource IconAlertTriangleGeometry}" />
+                                    <Setter TargetName="StatusIcon" Property="Stroke" Value="{DynamicResource StateWarn}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="Error">
+                                    <Setter TargetName="StatusIcon" Property="Data" Value="{StaticResource IconXCircleGeometry}" />
+                                    <Setter TargetName="StatusIcon" Property="Stroke" Value="{DynamicResource StateError}" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <views:EmptyStateView State="{Binding State, Converter={StaticResource CenterStateConverter}}"
+                                       IconGeometry="{StaticResource IconCopyGeometry}"
+                                       Message="AIの出力をコピーして Ctrl+Shift+V"
+                                       ActionText="解析"
+                                       ActionCommand="{Binding PasteAndParseCommand}"
+                                       Issue="{Binding CenterError}" />
             </Grid>
-
-            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"
-                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
-                          Background="{DynamicResource BorderSubtle}"
-                          AutomationProperties.Name="ブロック一覧とdiffの境界" />
-
-            <!-- 右: diff（DiffView/DiffViewModelは他担当実装。diffのエディタタブ化はE4） -->
-            <Border Grid.Column="2" x:Name="DiffPaneHost" Focusable="True"
-                    AutomationProperties.Name="差分表示ペイン">
-                <views:DiffView DataContext="{Binding Diff}" />
-            </Border>
         </Grid>
     </Grid>
 </UserControl>

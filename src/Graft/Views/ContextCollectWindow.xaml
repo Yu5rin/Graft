@@ -13,82 +13,19 @@
         AutomationProperties.Name="コンテキスト収集">
 
     <Window.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolToVis" />
-        <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
-        <local:NullToVisibilityConverter x:Key="NullToVis" />
         <local:IndentToMarginConverter x:Key="IndentToMargin" />
-        <local:IssueToDisplayTextConverter x:Key="IssueToText" />
         <local:FileCheckEnabledConverter x:Key="FileCheckEnabled" />
         <local:CollectionCountToVisibilityConverter x:Key="CollectionCountToVisibility" />
         <local:InverseCollectionCountToVisibilityConverter x:Key="InverseCollectionCountToVisibility" />
 
         <!-- ComboBox: Controls.xaml に定義が無いため、この画面用に最小限のテンプレートを持つ。 -->
-        <Style x:Key="GraftComboBoxToggleStyle" TargetType="ToggleButton">
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ToggleButton">
-                        <Border Background="{DynamicResource BgSurface}"
-                                BorderBrush="{DynamicResource BorderSubtle}"
-                                BorderThickness="1">
-                            <Grid Margin="8,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <ContentPresenter Grid.Column="0" />
-                                <Path Grid.Column="1" Data="M0,0 L8,0 L4,6 Z"
-                                      Fill="{DynamicResource TextSecondary}"
-                                      VerticalAlignment="Center" Margin="8,0,0,0" />
-                            </Grid>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
-            <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <ToggleButton x:Name="Toggle" Style="{StaticResource GraftComboBoxToggleStyle}"
-                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
-                                          Content="{TemplateBinding SelectionBoxItem}" />
-                            <Border x:Name="FocusRing"
-                                    BorderBrush="{DynamicResource Accent}"
-                                    BorderThickness="{DynamicResource FocusRingBorderThickness}"
-                                    IsHitTestVisible="False" Opacity="0" />
-                            <Popup x:Name="Popup" IsOpen="{TemplateBinding IsDropDownOpen}"
-                                   Placement="Bottom" AllowsTransparency="True" PopupAnimation="None">
-                                <Border Background="{DynamicResource BgElevated}"
-                                        BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1"
-                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
-                                    <ItemsPresenter />
-                                </Border>
-                            </Popup>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter TargetName="FocusRing" Property="Opacity" Value="1" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Padding" Value="8,6" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
-            <Style.Triggers>
-                <Trigger Property="IsHighlighted" Value="True">
-                    <Setter Property="Background" Value="{DynamicResource BgHover}" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+        <!--
+            ComboBox / ComboBoxItem の暗黙スタイルは Themes/Controls.Input.xaml
+            （App.xamlでApplication.Resourcesへマージ済み）のものを使う。
+            以前ここに重複定義があり、カスタムテンプレートでは DisplayMemberPath が
+            閉じた状態のボックスへ反映されず、選択中オブジェクトの ToString() が
+            表示される不具合を抱えていた。
+        -->
         <!-- 8.8: アクセント色の細い不確定プログレスバー。 -->
         <Style x:Key="GraftBusyBarStyle" TargetType="ProgressBar">
             <Setter Property="Height" Value="2" />

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Windows.Input;
+using Graft.Core;
 using Graft.Features;
 using Graft.Views;
 
@@ -57,9 +58,13 @@ public sealed class ShellViewModel : ObservableObject
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
+        Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
+        Graft.BeforeApplyAsync = EnsureTargetsSavedAsync; // 4.8: ドライラン開始前の未保存確認。
+        Graft.AfterApplyAsync = files => Editor.ReloadIfOpenAsync(files); // 4.8: 適用後の自動再読込。
 
         SelectSideViewCommand = new RelayCommand<SideViewKind>(SelectSideView);
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
+        OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
     }
 
     /// <summary>既存機能一式（プロジェクト・履歴・接ぎ木・キュー・プロンプト等）。</summary>
@@ -101,6 +106,9 @@ public sealed class ShellViewModel : ObservableObject
     /// <summary>Ctrl+J・接ぎ木パネルのヘッダーボタン。</summary>
     public ICommand ToggleGraftPanelCommand { get; }
 
+    /// <summary>4.8: ブロック一覧の「エディタで開く」。マッチ位置をエディタで開く。</summary>
+    public ICommand OpenBlockInEditorCommand { get; }
+
     /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
     /// 再クリックした場合はサイドビューを折りたたむ。それ以外は該当ビューへ切り替えて展開する。
@@ -116,13 +124,81 @@ public sealed class ShellViewModel : ObservableObject
         IsSideViewCollapsed = false;
     }
 
-    /// <summary>9.2: パッチ解析・履歴diffの表示が始まったら接ぎ木パネルを自動展開する。</summary>
+    /// <summary>
+    /// 9.2: パッチ解析・履歴diffの表示が始まったら接ぎ木パネルを自動展開する。
+    /// 9.2/4.8: ブロック選択の変化に連動して、選択ブロックの差分をエディタ領域のタブとして
+    /// 開閉する（MainViewModelはDiffのLoad/Clearのみを行い、タブ化自体はここで配線する）。
+    /// </summary>
     private void OnGraftPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(MainViewModel.State) && Graft.State != CenterPaneState.Empty)
         {
             IsGraftPanelOpen = true;
         }
+        else if (e.PropertyName == nameof(MainViewModel.SelectedBlock))
+        {
+            if (Graft.SelectedBlock is not null) Editor.ShowDiffTab(Graft.Diff);
+            else Editor.CloseDiffTabIfOpen();
+        }
+    }
+
+    /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
+    private async void OnDiffJumpRequested(object? sender, (string RelativePath, int Line) target)
+    {
+        var root = Graft.ProjectPane.SelectedItem?.Project.Root;
+        if (root is null) return;
+        var fullPath = Path.Combine(root, target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+        await Editor.OpenFileAsync(fullPath, preview: true, line: target.Line).ConfigureAwait(true);
+    }
+
+    /// <summary>4.8: ブロック一覧の「エディタで開く」。マッチ位置（無ければ先頭）をエディタで開く。</summary>
+    private async void OpenBlockInEditor(BlockItemViewModel? block)
+    {
+        var root = Graft.ProjectPane.SelectedItem?.Project.Root;
+        if (block is null || root is null) return;
+
+        var fullPath = Path.Combine(root, block.Plan.Path.Replace('/', Path.DirectorySeparatorChar));
+        var line = FirstChangedLine(block.Plan.Diff);
+        await Editor.OpenFileAsync(fullPath, preview: true, line: line).ConfigureAwait(true);
+    }
+
+    // 変更後の行番号を優先し、無ければ変更前を使う（4.8のdiffジャンプと同じ考え方）。
+    private static int? FirstChangedLine(DiffModel? diff)
+    {
+        if (diff is null) return null;
+        foreach (var line in diff.Hunks.SelectMany(h => h.Lines))
+        {
+            if (line.Kind == DiffLineKind.Omitted) continue;
+            if (line.NewLine is int n) return n;
+            if (line.OldLine is int o) return o;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 4.8 適用前チェック: ドライラン開始時に対象ファイルの未保存編集を確認し、保存してから
+    /// 続行する（破棄しての続行は不可）。ユーザーが保存を拒んだ場合はfalseを返し中止させる。
+    /// MainViewModel.BeforeApplyAsyncへ結ぶ。
+    /// </summary>
+    private async Task<bool> EnsureTargetsSavedAsync(IReadOnlyList<string> fullPaths)
+    {
+        var unsaved = Editor.FindUnsaved(fullPaths);
+        if (unsaved.Count == 0) return true;
+
+        var names = string.Join("、", unsaved.Select(Path.GetFileName));
+        var proceed = await _dialogs.ConfirmAsync(
+            "未保存の変更を保存します",
+            $"適用対象のファイル（{names}）に未保存の変更があります。保存してから適用を続行します。よろしいですか？")
+            .ConfigureAwait(true);
+        if (!proceed) return false;
+
+        var saved = await Editor.SaveFilesAsync(unsaved).ConfigureAwait(true);
+        if (!saved.IsSuccess)
+        {
+            await _dialogs.ShowMessageAsync("保存に失敗しました", "ファイルの保存に失敗したため、適用を中止します。").ConfigureAwait(true);
+            return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -156,10 +232,12 @@ public sealed class ShellViewModel : ObservableObject
     private void CaptureProjectState(string projectId)
     {
         var layout = WindowLayoutStore.GetOrCreatePaneLayout(Graft.Layout, projectId);
+        // 差分タブ（9.2/4.8）はSessionを持たないため記憶対象から除く。
         layout.OpenTabs = Editor.Tabs
+            .Where(t => t.Kind == EditorTabKind.Document)
             .Select(t => new OpenTabState { RelativePath = t.Session.RelativePath, CaretLine = t.CaretLine, CaretColumn = t.CaretColumn })
             .ToList();
-        layout.ActiveTabPath = Editor.ActiveTab?.Session.RelativePath;
+        layout.ActiveTabPath = Editor.ActiveTab is { Kind: EditorTabKind.Document } active ? active.Session.RelativePath : null;
         layout.ExpandedFolders = Explorer.GetExpandedFolderPaths().ToList();
     }
 
@@ -180,7 +258,7 @@ public sealed class ShellViewModel : ObservableObject
 
         if (layout.ActiveTabPath is { } activePath)
         {
-            var activeTab = Editor.Tabs.FirstOrDefault(t => t.Session.RelativePath == activePath);
+            var activeTab = Editor.Tabs.FirstOrDefault(t => t.Kind == EditorTabKind.Document && t.Session.RelativePath == activePath);
             if (activeTab is not null) Editor.ActiveTab = activeTab;
         }
 

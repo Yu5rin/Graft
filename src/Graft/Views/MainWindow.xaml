@@ -22,8 +22,6 @@
     -->
     <Window.Resources>
         <views:CenterPaneStateConverter x:Key="CenterStateConverter" />
-        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
-        <views:EmptyStringToVisibilityConverter x:Key="EmptyToVisibility" />
     </Window.Resources>
 
     <Grid>

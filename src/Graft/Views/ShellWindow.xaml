@@ -24,7 +24,6 @@
     -->
     <Window.Resources>
         <views:SideViewVisibilityConverter x:Key="SideViewVisibility" />
-        <views:EmptyStringToVisibilityConverter x:Key="EmptyToVisibility" />
     </Window.Resources>
 
     <Grid>

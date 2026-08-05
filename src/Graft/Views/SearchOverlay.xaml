@@ -19,7 +19,6 @@
         （EditorPane側のGridへの重ね置き）は統合担当が行う。
     -->
     <UserControl.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
         <!-- 正規表現・大文字小文字区別・単語単位のトグル。専用アイコンは無いため短い文字で表す。 -->
         <Style x:Key="SearchToggleButtonStyle" TargetType="ToggleButton">
