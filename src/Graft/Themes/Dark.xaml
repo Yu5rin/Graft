@@ -99,4 +99,20 @@
     <!-- plainはtext.primaryと同値（8.6の表のとおり）。 -->
     <SolidColorBrush x:Key="SyntaxPlain" Color="{StaticResource TextPrimaryColor}" />
 
+    <!-- ========== 9.3 Gitガター・エディタ（v2.0追加） ========== -->
+    <Color x:Key="GutterAddColor">#3FB27F</Color>
+    <SolidColorBrush x:Key="GutterAdd" Color="{StaticResource GutterAddColor}" />
+
+    <Color x:Key="GutterModColor">#4C8DFF</Color>
+    <SolidColorBrush x:Key="GutterMod" Color="{StaticResource GutterModColor}" />
+
+    <Color x:Key="GutterDelColor">#E5646E</Color>
+    <SolidColorBrush x:Key="GutterDel" Color="{StaticResource GutterDelColor}" />
+
+    <Color x:Key="EditorCurrentLineColor">#1C1E22</Color>
+    <SolidColorBrush x:Key="EditorCurrentLine" Color="{StaticResource EditorCurrentLineColor}" />
+
+    <Color x:Key="EditorSelectionColor">#2E3A4D</Color>
+    <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
+
 </ResourceDictionary>

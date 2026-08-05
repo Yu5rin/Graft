@@ -15,6 +15,7 @@ namespace Graft.Views;
 public partial class AboutView : UserControl
 {
     private bool _licenseLoaded;
+    private bool _avalonEditLicenseLoaded;
 
     public AboutView()
     {
@@ -42,25 +43,39 @@ public partial class AboutView : UserControl
         }
 
         _licenseLoaded = true;
+        LicenseText.Text = await LoadLicenseTextAsync("Graft.Assets.DiffPlex-LICENSE.txt").ConfigureAwait(true);
+    }
 
-        // 単一exeで配布するため、ライセンス全文は埋め込みリソースとして持つ。
-        // 外部ファイルに置くと発行物がexe1つに収まらない。
-        const string resourceName = "Graft.Assets.DiffPlex-LICENSE.txt";
+    /// <summary>9.6 バージョン情報。AvalonEditのライセンス全文（MIT）を展開時に読み込む。</summary>
+    private async void OnAvalonEditLicenseExpanded(object sender, RoutedEventArgs e)
+    {
+        if (_avalonEditLicenseLoaded)
+        {
+            return;
+        }
+
+        _avalonEditLicenseLoaded = true;
+        AvalonEditLicenseText.Text = await LoadLicenseTextAsync("Graft.Assets.AvalonEdit-LICENSE.txt").ConfigureAwait(true);
+    }
+
+    // 単一exeで配布するため、ライセンス全文は埋め込みリソースとして持つ（外部ファイルに置くと
+    // 発行物がexe1つに収まらない）。DiffPlex・AvalonEditの双方で同じ方式を使う。
+    private static async Task<string> LoadLicenseTextAsync(string resourceName)
+    {
         try
         {
             await using var stream = typeof(AboutView).Assembly.GetManifestResourceStream(resourceName);
             if (stream is null)
             {
-                LicenseText.Text = "ライセンスファイルを読み込めませんでした。";
-                return;
+                return "ライセンスファイルを読み込めませんでした。";
             }
 
             using var reader = new StreamReader(stream);
-            LicenseText.Text = await reader.ReadToEndAsync().ConfigureAwait(true);
+            return await reader.ReadToEndAsync().ConfigureAwait(true);
         }
         catch (IOException)
         {
-            LicenseText.Text = "ライセンスファイルを読み込めませんでした。";
+            return "ライセンスファイルを読み込めませんでした。";
         }
     }
 

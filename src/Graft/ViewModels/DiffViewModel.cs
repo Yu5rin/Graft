@@ -9,8 +9,10 @@ namespace Graft.ViewModels;
 /// diff表示・シンタックスハイライト・インライン編集を統括するViewModel（仕様書5章・8.3・8.6・8.7・8.13・8.14）。
 /// 1回の <see cref="Load"/> はブロック1件分の差分を表示する。他担当（ブロック一覧側）は
 /// このクラスの <see cref="Load"/> / <see cref="Clear"/> / <see cref="IsIncluded"/> を通じて連携する。
+/// 4.8のdiffジャンプ（<see cref="JumpRequested"/> / <see cref="RequestJump"/>）は
+/// 1ファイル400行上限のため <c>DiffViewModel.Jump.cs</c> に分割する。
 /// </summary>
-public sealed class DiffViewModel : ObservableObject
+public sealed partial class DiffViewModel : ObservableObject
 {
     // 8.13: 省略行を1クリックでどれだけ展開するか（一括全展開は IsFullyExpanded を使う）。
     private const int ExpandBatchSize = 50;

@@ -22,6 +22,22 @@ public sealed record GitStatus
 }
 
 /// <summary>
+/// 仕様書4.7 Gitガター用。<see cref="GitIntegration.GetHeadFileContentAsync"/> の結果。
+/// git管理外・git未検出の場合は<see cref="IsRepository"/>をfalseとして返す（エラーとしない）。
+/// </summary>
+public sealed record GitHeadContent
+{
+    /// <summary>プロジェクトルートが git 管理下かどうか。</summary>
+    public bool IsRepository { get; init; }
+
+    /// <summary>
+    /// HEAD時点のファイル内容。ファイルがHEADに存在しない場合（新規追加ファイル、または
+    /// 直近コミットが無いリポジトリ）は null とし、呼び出し側はファイル全体を追加行として扱う。
+    /// </summary>
+    public string? Content { get; init; }
+}
+
+/// <summary>
 /// 仕様書7.5 Git連携。git コマンドを子プロセスとして呼び出す（外部ライブラリは追加しない）。
 /// git が見つからない、またはリポジトリでない場合はエラーとせず <see cref="GitStatus.IsRepository"/>
 /// を false として返す。
@@ -51,6 +67,31 @@ public sealed class GitIntegration
             BranchName = branch.ExitCode == 0 ? branch.Output.Trim() : null,
             ChangedPaths = changedPaths,
         });
+    }
+
+    /// <summary>
+    /// 4.7 Gitガター用。指定パス（プロジェクト相対、区切りは <c>/</c> または <c>\</c> のどちらでもよい）の
+    /// HEAD時点の内容を <c>git show HEAD:&lt;path&gt;</c> で取得する。git管理外・git未検出の場合は
+    /// 速やかに諦め、<see cref="GitHeadContent.IsRepository"/>をfalseとして返す（エラーとしない）。
+    /// </summary>
+    public async Task<GitHeadContent> GetHeadFileContentAsync(
+        string projectRoot, string relativePath, CancellationToken ct = default)
+    {
+        var inside = await RunGitAsync(projectRoot, new[] { "rev-parse", "--is-inside-work-tree" }, ct)
+            .ConfigureAwait(false);
+        if (!inside.Started || inside.ExitCode != 0)
+        {
+            return new GitHeadContent { IsRepository = false };
+        }
+
+        var normalizedPath = relativePath.Replace('\\', '/');
+        var show = await RunGitAsync(projectRoot, new[] { "show", $"HEAD:{normalizedPath}" }, ct)
+            .ConfigureAwait(false);
+        return new GitHeadContent
+        {
+            IsRepository = true,
+            Content = show.Started && show.ExitCode == 0 ? show.Output : null,
+        };
     }
 
     /// <summary>7.5 適用後に "type: summary" の形式でコミットする（type が null なら summary のみ）。</summary>

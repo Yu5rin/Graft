@@ -51,13 +51,35 @@
                 </StackPanel>
             </Border>
 
-            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12">
+            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12" Margin="0,0,0,8">
                 <StackPanel>
                     <TextBlock Text="System.Text.Encoding.CodePages" FontWeight="SemiBold" />
                     <TextBlock Text="発行元: Microsoft　ライセンス: MIT License" Foreground="{DynamicResource TextSecondary}"
                                Margin="0,2,0,0" />
                     <TextBlock Text="Shift_JIS等、.NET既定に含まれないコードページのエンコーディング判定に使用する。"
                                Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                </StackPanel>
+            </Border>
+
+            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12">
+                <StackPanel>
+                    <TextBlock Text="AvalonEdit" FontWeight="SemiBold" />
+                    <TextBlock Text="ライセンス: MIT License" Foreground="{DynamicResource TextSecondary}"
+                               Margin="0,2,0,0" />
+                    <TextBlock Text="コードエディタ本体（4章）に使用するテキスト編集コンポーネント。"
+                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,8" />
+                    <Expander Header="ライセンス全文を表示" Expanded="OnAvalonEditLicenseExpanded"
+                              AutomationProperties.Name="AvalonEditのライセンス全文を表示">
+                        <Border Background="{DynamicResource BgSurface}" BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1" Margin="0,8,0,0" MaxHeight="260">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBlock x:Name="AvalonEditLicenseText" Margin="8" TextWrapping="Wrap"
+                                           FontFamily="{DynamicResource CodeFontFamily}"
+                                           FontSize="{DynamicResource CodeFontSize}"
+                                           AutomationProperties.Name="AvalonEditのライセンス全文" />
+                            </ScrollViewer>
+                        </Border>
+                    </Expander>
                 </StackPanel>
             </Border>
 

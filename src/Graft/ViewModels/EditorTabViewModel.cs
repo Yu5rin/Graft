@@ -1,14 +1,29 @@
+using System.ComponentModel;
 using System.Windows.Input;
 
 namespace Graft.ViewModels;
 
 /// <summary>
-/// エディタ領域の1タブ（4.3節）。<see cref="Graft.Editor.DocumentSession"/>を1件保持し、
-/// タブ見出し表示（ファイル名・未保存マーカー・プレビュー表示）とカーソル位置を公開する。
+/// エディタ領域のタブ種別（仕様書9.2）。<see cref="Document"/>は通常の編集対象ファイル、
+/// <see cref="Diff"/>は接ぎ木ブロックの差分プレビュー（読み取り専用・保存確認の対象外）を表す。
+/// </summary>
+public enum EditorTabKind
+{
+    Document,
+    Diff,
+}
+
+/// <summary>
+/// エディタ領域の1タブ（4.3節・9.2節）。<see cref="Kind"/>が<see cref="EditorTabKind.Document"/>の
+/// 場合は<see cref="Graft.Editor.DocumentSession"/>を1件保持し、タブ見出し表示
+/// （ファイル名・未保存マーカー・プレビュー表示）とカーソル位置を公開する。
+/// <see cref="EditorTabKind.Diff"/>の場合は<see cref="Graft.Editor.DocumentSession"/>を持たず、
+/// 代わりに<see cref="Diff"/>（<see cref="DiffViewModel"/>）を表示する（仕様書4.8・9.2）。
 /// </summary>
 public sealed class EditorTabViewModel : ObservableObject
 {
     private readonly Func<EditorTabViewModel, Task> _closeRequested;
+    private readonly Graft.Editor.DocumentSession? _session;
     private bool _isPreview;
     private int _caretLine = 1;
     private int _caretColumn = 1;
@@ -17,9 +32,11 @@ public sealed class EditorTabViewModel : ObservableObject
     private int _indentWidth = 4;
     private bool _hasExternalConflict;
 
+    /// <summary>通常のドキュメントタブ（4.3節）。</summary>
     public EditorTabViewModel(Graft.Editor.DocumentSession session, Func<EditorTabViewModel, Task> closeRequested)
     {
-        Session = session ?? throw new ArgumentNullException(nameof(session));
+        Kind = EditorTabKind.Document;
+        _session = session ?? throw new ArgumentNullException(nameof(session));
         _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
         _isModified = session.IsModified;
         session.ModifiedChanged += OnSessionModifiedChanged;
@@ -29,16 +46,52 @@ public sealed class EditorTabViewModel : ObservableObject
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
     }
 
-    /// <summary>このタブが編集しているファイルのセッション。</summary>
-    public Graft.Editor.DocumentSession Session { get; }
+    /// <summary>
+    /// 差分タブ（4.8・9.2節）。ブロック一覧で選択したブロックの差分をエディタ領域のタブとして
+    /// 表示する。編集不可・保存確認の対象外のため<see cref="Graft.Editor.DocumentSession"/>は持たない。
+    /// </summary>
+    public EditorTabViewModel(DiffViewModel diff, Func<EditorTabViewModel, Task> closeRequested)
+    {
+        Kind = EditorTabKind.Diff;
+        Diff = diff ?? throw new ArgumentNullException(nameof(diff));
+        _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
+        Diff.PropertyChanged += OnDiffPropertyChanged;
 
-    /// <summary>タブ見出しに表示するファイル名。</summary>
-    public string Title => Session.FileName;
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
+        ReloadDiscardingChangesCommand = new RelayCommand(() => { });
+        DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+    }
 
-    /// <summary>ツールチップに表示するプロジェクト相対パス。</summary>
-    public string ToolTipText => Session.RelativePath;
+    /// <summary>タブ種別。<see cref="Views.EditorPane"/>がこれに応じて表示を切り替える。</summary>
+    public EditorTabKind Kind { get; }
 
-    /// <summary>未保存の変更があるかどうか（タブの●マーカー）。</summary>
+    /// <summary>通常のドキュメントタブかどうか。</summary>
+    public bool IsDocument => Kind == EditorTabKind.Document;
+
+    /// <summary>差分タブかどうか。</summary>
+    public bool IsDiffTab => Kind == EditorTabKind.Diff;
+
+    /// <summary>
+    /// このタブが編集しているファイルのセッション。<see cref="Kind"/>が<see cref="EditorTabKind.Diff"/>
+    /// のタブでは利用できない（呼び出し側は事前に<see cref="IsDocument"/>で判定すること）。
+    /// </summary>
+    public Graft.Editor.DocumentSession Session
+        => _session ?? throw new InvalidOperationException("差分タブにはSessionがありません。");
+
+    /// <summary>差分タブの表示内容。<see cref="Kind"/>が<see cref="EditorTabKind.Document"/>のタブでは null。</summary>
+    public DiffViewModel? Diff { get; }
+
+    /// <summary>タブ見出しに表示するファイル名（Documentタブ）または「差分: パス」（Diffタブ）。</summary>
+    public string Title => Kind == EditorTabKind.Document
+        ? Session.FileName
+        : Diff is { } d ? BuildDiffTitle(d) : "差分";
+
+    /// <summary>ツールチップ・読み上げ（AutomationProperties.Name）に表示するプロジェクト相対パス。</summary>
+    public string ToolTipText => Kind == EditorTabKind.Document
+        ? Session.RelativePath
+        : Title;
+
+    /// <summary>未保存の変更があるかどうか（タブの●マーカー）。差分タブでは常にfalse。</summary>
     public bool IsModified { get => _isModified; private set => SetProperty(ref _isModified, value); }
 
     /// <summary>プレビュータブかどうか（イタリック表示・次のプレビューで置換される）。</summary>
@@ -85,20 +138,31 @@ public sealed class EditorTabViewModel : ObservableObject
     /// 4.6: ディスク上の変更と未保存編集が競合している（E702）かどうか。trueの間、
     /// エディタ側に非モーダルの通知バーを表示する。外部からの通知は
     /// <see cref="Graft.ViewModels.EditorPaneViewModel.NotifyExternalChangeAsync"/>を経由する。
+    /// 差分タブでは発生しない。
     /// </summary>
     public bool HasExternalConflict { get => _hasExternalConflict; set => SetProperty(ref _hasExternalConflict, value); }
 
-    /// <summary>タブを閉じる（未保存なら保存確認を挟む）。</summary>
+    /// <summary>タブを閉じる（未保存なら保存確認を挟む。差分タブでは確認なしで閉じる）。</summary>
     public ICommand CloseCommand { get; }
 
-    /// <summary>通知バーの「再読込」。未保存の編集を破棄してディスクの内容へ戻す。</summary>
+    /// <summary>通知バーの「再読込」。未保存の編集を破棄してディスクの内容へ戻す。差分タブでは何もしない。</summary>
     public ICommand ReloadDiscardingChangesCommand { get; }
 
     /// <summary>通知バーの「無視」。バーを閉じ、現在の編集内容をそのまま保持する。</summary>
     public ICommand DismissExternalConflictCommand { get; }
 
     /// <summary>タブが一覧から取り除かれる際に呼び出し側から呼ぶ。イベント購読を解除する。</summary>
-    public void DetachEvents() => Session.ModifiedChanged -= OnSessionModifiedChanged;
+    public void DetachEvents()
+    {
+        if (Kind == EditorTabKind.Document)
+        {
+            Session.ModifiedChanged -= OnSessionModifiedChanged;
+        }
+        else if (Diff is not null)
+        {
+            Diff.PropertyChanged -= OnDiffPropertyChanged;
+        }
+    }
 
     /// <summary>
     /// エクスプローラでのリネームに追従してSessionのパスを更新した後、呼び出し側が呼ぶ。
@@ -118,4 +182,18 @@ public sealed class EditorTabViewModel : ObservableObject
     }
 
     private void OnSessionModifiedChanged(object? sender, EventArgs e) => IsModified = Session.IsModified;
+
+    /// <summary>
+    /// 差分タブの表示対象が別ブロック・別ファイルへ切り替わった際（<see cref="DiffViewModel.Load"/>の
+    /// 再実行）に、タブ見出し・ツールチップを追従させる（9.2: 既存タブの再利用）。
+    /// </summary>
+    private void OnDiffPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(DiffViewModel.FilePath)) return;
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(ToolTipText));
+    }
+
+    private static string BuildDiffTitle(DiffViewModel diff)
+        => diff.FilePath is { } path ? $"差分: {path}" : "差分";
 }
