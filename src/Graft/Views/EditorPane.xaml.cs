@@ -43,6 +43,7 @@ public partial class EditorPane : UserControl
     private readonly BracketSupport _brackets;
     private readonly FoldingSupport _folding;
     private readonly CompletionProvider _completion;
+    private readonly GitGutterProvider _gitGutter;
     private readonly DialogService _dialogs = new();
     private EditorPaneViewModel? _viewModel;
 
@@ -72,15 +73,27 @@ public partial class EditorPane : UserControl
         _folding = new FoldingSupport(Editor);
         _completion = new CompletionProvider(Editor);
 
+        // 4.7 Gitガター。行番号の左隣に置き、HEADとの差分を色帯で示す。
+        _gitGutter = new GitGutterProvider(Editor, new Graft.Features.GitIntegration());
+        Editor.TextArea.LeftMargins.Insert(0, _gitGutter);
+
         DataContextChanged += OnDataContextChanged;
         Unloaded += OnUnloaded;
     }
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (_viewModel is not null) _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        if (_viewModel is not null)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.TabSaved -= OnTabSaved;
+        }
         _viewModel = e.NewValue as EditorPaneViewModel;
-        if (_viewModel is not null) _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        if (_viewModel is not null)
+        {
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            _viewModel.TabSaved += OnTabSaved;
+        }
 
         ApplyActiveTab(_viewModel?.ActiveTab);
     }
@@ -136,9 +149,24 @@ public partial class EditorPane : UserControl
         _folding.Attach(tab.Session.Document, extension);
         _folding.SetEnabled(_viewModel?.Folding ?? true);
         Search.Attach(Editor);
+        ApplyGitGutter(tab);
 
         RestoreViewStateFrom(tab);
         Editor.Focus();
+    }
+
+    /// <summary>4.7: 表示中のファイルをGitガターの対象に設定し、差分を取り直す。</summary>
+    private void ApplyGitGutter(EditorTabViewModel tab)
+    {
+        _gitGutter.SetEnabled(_viewModel?.GitGutterEnabled ?? true);
+        _gitGutter.SetTarget(_viewModel?.ProjectRoot, tab.Session.RelativePath);
+        _ = _gitGutter.RefreshAsync();
+    }
+
+    /// <summary>4.7: 保存が更新契機。表示中のタブが保存されたときだけ取り直す。</summary>
+    private void OnTabSaved(object? sender, EditorTabViewModel tab)
+    {
+        if (ReferenceEquals(tab, _loadedTab)) _ = _gitGutter.RefreshAsync();
     }
 
     /// <summary>非表示側へ回るタブのカーソル・選択範囲・スクロール位置を退避する。</summary>
@@ -358,7 +386,12 @@ public partial class EditorPane : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         Editor.TextArea.Caret.PositionChanged -= OnCaretPositionChanged;
-        if (_viewModel is not null) _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        if (_viewModel is not null)
+        {
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel.TabSaved -= OnTabSaved;
+        }
+        _gitGutter.Dispose();
         _bridge.Dispose();
         _brackets.Dispose();
         _folding.Dispose();

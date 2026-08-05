@@ -95,17 +95,28 @@ public sealed class EditorPaneViewModel : ObservableObject
     public bool Folding => _settings.Editor.Folding;
     public bool CompletionEnabled => _settings.Editor.Completion;
 
+    /// <summary>行番号ガターにGitの変更状態を表示するか（4.7章）。</summary>
+    public bool GitGutterEnabled => _settings.Editor.GitGutter;
+
     /// <summary>シンタックスハイライトが有効か（8.6/9.2章、settings.jsonの既存キー）。</summary>
     public bool SyntaxEnabled => _settings.Syntax.Enabled;
 
     public ICommand ToggleWordWrapCommand { get; }
     public ICommand ToggleShowWhitespaceCommand { get; }
 
+    /// <summary>現在のプロジェクトルートの絶対パス。未選択時はnull（4.7 Gitガターの対象設定に使う）。</summary>
+    public string? ProjectRoot { get; private set; }
+
+    /// <summary>いずれかのタブが保存された（4.7 Gitガターの更新契機）。</summary>
+    public event EventHandler<EditorTabViewModel>? TabSaved;
+
     /// <summary>プロジェクト切替。開いていたタブは呼び出し側が閉じてから設定する。</summary>
     public void SetProject(string? projectRoot)
     {
+        ProjectRoot = projectRoot;
         _manager.SetProjectRoot(projectRoot);
         ActiveTab = null;
+        OnPropertyChanged(nameof(ProjectRoot));
     }
 
     public async Task<GraftResult<EditorTabViewModel>> OpenFileAsync(
@@ -172,10 +183,17 @@ public sealed class EditorPaneViewModel : ObservableObject
     }
 
     /// <summary>差分タブでは保存対象が無いため何もしない（4.8: 保存確認の対象外）。</summary>
-    public Task<GraftResult<bool>> SaveActiveAsync()
-        => ActiveTab is { Kind: EditorTabKind.Document } tab
-            ? tab.Session.SaveAsync()
-            : Task.FromResult(GraftResult<bool>.Ok(true));
+    public async Task<GraftResult<bool>> SaveActiveAsync()
+    {
+        if (ActiveTab is not { Kind: EditorTabKind.Document } tab)
+        {
+            return GraftResult<bool>.Ok(true);
+        }
+
+        var result = await tab.Session.SaveAsync().ConfigureAwait(true);
+        if (result.IsSuccess) TabSaved?.Invoke(this, tab);
+        return result;
+    }
 
     public async Task<GraftResult<bool>> SaveAllAsync()
     {
@@ -183,6 +201,7 @@ public sealed class EditorPaneViewModel : ObservableObject
         foreach (var tab in DocumentTabs.Where(t => t.IsModified).ToList())
         {
             var result = await tab.Session.SaveAsync().ConfigureAwait(true);
+            if (result.IsSuccess) TabSaved?.Invoke(this, tab);
             issues.AddRange(result.Issues);
         }
 
