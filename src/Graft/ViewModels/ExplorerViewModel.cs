@@ -17,7 +17,7 @@ namespace Graft.ViewModels;
 /// <see cref="FileWatchService"/>と連携した自動更新／外部変更検知（4.6）を担う。
 /// 除外判定・ファイルI/Oの実処理は<see cref="FileTreeService"/>（WPF非依存）へ委譲する。
 /// </summary>
-public sealed class ExplorerViewModel : ObservableObject
+public sealed class ExplorerViewModel : ObservableObject, IDisposable
 {
     private readonly EditorPaneViewModel _editor;
     private readonly DialogService _dialogs;
@@ -76,6 +76,9 @@ public sealed class ExplorerViewModel : ObservableObject
     public ICommand DeleteCommand { get; }
     public ICommand CopyPathCommand { get; }
     public ICommand RevealCommand { get; }
+
+    /// <summary>ファイル監視を停止して解放する。アプリ終了時にShellViewModelから呼ばれる。</summary>
+    public void Dispose() => _fileWatch.Dispose();
 
     /// <summary>プロジェクト切替時にShellViewModelから呼ばれる。ツリーの再構築と監視の再開始を行う。</summary>
     public async Task SetProjectAsync(Project? project, CancellationToken ct = default)
@@ -198,24 +201,26 @@ public sealed class ExplorerViewModel : ObservableObject
     }
 
     private async void OnNodeExpandRequested(object? sender, EventArgs e)
-    {
-        if (sender is FileNodeViewModel node) await ReconcileDirectoryAsync(node, CancellationToken.None).ConfigureAwait(true);
-    }
+        => await SafeHandler.RunAsync("フォルダの展開", async () =>
+        {
+            if (sender is FileNodeViewModel node) await ReconcileDirectoryAsync(node, CancellationToken.None).ConfigureAwait(true);
+        }).ConfigureAwait(true);
 
     /// <summary>FileWatchServiceからのデバウンス済み通知。変更のあったディレクトリだけを更新する（4.2）。</summary>
     private async void OnDirectoriesChanged(object? sender, IReadOnlyList<string> dirs)
-    {
-        foreach (var dir in dirs)
+        => await SafeHandler.RunAsync("ファイル一覧の更新", async () =>
         {
-            if (dir.Length == 0)
+            foreach (var dir in dirs)
             {
-                await ReconcileDirectoryAsync(null, CancellationToken.None).ConfigureAwait(true);
-                continue;
+                if (dir.Length == 0)
+                {
+                    await ReconcileDirectoryAsync(null, CancellationToken.None).ConfigureAwait(true);
+                    continue;
+                }
+                var node = FindLoadedNode(RootNodes, dir);
+                if (node is not null) await ReconcileDirectoryAsync(node, CancellationToken.None).ConfigureAwait(true);
             }
-            var node = FindLoadedNode(RootNodes, dir);
-            if (node is not null) await ReconcileDirectoryAsync(node, CancellationToken.None).ConfigureAwait(true);
-        }
-    }
+        }).ConfigureAwait(true);
 
     /// <summary>
     /// 外部変更検知（仕様書4.6）。判断はエディタ側へ委ねる。
@@ -223,7 +228,8 @@ public sealed class ExplorerViewModel : ObservableObject
     /// 「ディスク上で変更されています」バーが表示される（E702）。
     /// </summary>
     private async void OnFileContentChanged(object? sender, string fullPath)
-        => await _editor.NotifyExternalChangeAsync(fullPath).ConfigureAwait(true);
+        => await SafeHandler.RunAsync("外部変更の反映",
+            () => _editor.NotifyExternalChangeAsync(fullPath)).ConfigureAwait(true);
 
     private static FileNodeViewModel? FindLoadedNode(IEnumerable<FileNodeViewModel> nodes, string relativePath)
     {

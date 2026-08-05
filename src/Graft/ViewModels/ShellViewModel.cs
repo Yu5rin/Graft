@@ -35,7 +35,7 @@ public enum LegacyKey
 /// 追加する。依存はすべてコンストラクタ引数で受け取り、生成は起動処理担当（StartupCoordinator）
 /// が手動で行う（附録A.3・DIコンテナ禁止）。
 /// </summary>
-public sealed class ShellViewModel : ObservableObject
+public sealed class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly DialogService _dialogs;
     private readonly Graft.Infra.Settings _settings;
@@ -66,6 +66,9 @@ public sealed class ShellViewModel : ObservableObject
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
         OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
     }
+
+    /// <summary>保持している破棄が必要な資源（ファイル監視）を解放する。</summary>
+    public void Dispose() => Explorer.Dispose();
 
     /// <summary>既存機能一式（プロジェクト・履歴・接ぎ木・キュー・プロンプト等）。</summary>
     public MainViewModel Graft { get; }
@@ -144,23 +147,25 @@ public sealed class ShellViewModel : ObservableObject
 
     /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
     private async void OnDiffJumpRequested(object? sender, (string RelativePath, int Line) target)
-    {
-        var root = Graft.ProjectPane.SelectedItem?.Project.Root;
-        if (root is null) return;
-        var fullPath = Path.Combine(root, target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-        await Editor.OpenFileAsync(fullPath, preview: true, line: target.Line).ConfigureAwait(true);
-    }
+        => await SafeHandler.RunAsync("差分からのジャンプ", async () =>
+        {
+            var root = Graft.ProjectPane.SelectedItem?.Project.Root;
+            if (root is null) return;
+            var fullPath = Path.Combine(root, target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            await Editor.OpenFileAsync(fullPath, preview: true, line: target.Line).ConfigureAwait(true);
+        }).ConfigureAwait(true);
 
     /// <summary>4.8: ブロック一覧の「エディタで開く」。マッチ位置（無ければ先頭）をエディタで開く。</summary>
     private async void OpenBlockInEditor(BlockItemViewModel? block)
-    {
-        var root = Graft.ProjectPane.SelectedItem?.Project.Root;
-        if (block is null || root is null) return;
+        => await SafeHandler.RunAsync("ブロックをエディタで開く", async () =>
+        {
+            var root = Graft.ProjectPane.SelectedItem?.Project.Root;
+            if (block is null || root is null) return;
 
-        var fullPath = Path.Combine(root, block.Plan.Path.Replace('/', Path.DirectorySeparatorChar));
-        var line = FirstChangedLine(block.Plan.Diff);
-        await Editor.OpenFileAsync(fullPath, preview: true, line: line).ConfigureAwait(true);
-    }
+            var fullPath = Path.Combine(root, block.Plan.Path.Replace('/', Path.DirectorySeparatorChar));
+            var line = FirstChangedLine(block.Plan.Diff);
+            await Editor.OpenFileAsync(fullPath, preview: true, line: line).ConfigureAwait(true);
+        }).ConfigureAwait(true);
 
     // 変更後の行番号を優先し、無ければ変更前を使う（4.8のdiffジャンプと同じ考え方）。
     private static int? FirstChangedLine(DiffModel? diff)
@@ -209,20 +214,22 @@ public sealed class ShellViewModel : ObservableObject
     /// </summary>
     /// <summary>横断検索の結果クリックで、該当ファイルの該当行をエディタで開く（仕様書4.4）。</summary>
     private async void OnSearchJumpRequested(object? sender, (string FullPath, int Line) target)
-        => await Editor.OpenFileAsync(target.FullPath, preview: true, line: target.Line).ConfigureAwait(true);
+        => await SafeHandler.RunAsync("検索結果からのジャンプ", () =>
+            Editor.OpenFileAsync(target.FullPath, preview: true, line: target.Line)).ConfigureAwait(true);
 
     private async void OnProjectSelected(object? sender, Project project)
-    {
-        if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
+        => await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
+        {
+            if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
 
-        await Editor.CloseAllAsync().ConfigureAwait(true);
-        Editor.SetProject(project.Root);
-        await Explorer.SetProjectAsync(project).ConfigureAwait(true);
-        Search.SetContext(project, _settings);
-        await RestoreProjectStateAsync(project).ConfigureAwait(true);
+            await Editor.CloseAllAsync().ConfigureAwait(true);
+            Editor.SetProject(project.Root);
+            await Explorer.SetProjectAsync(project).ConfigureAwait(true);
+            Search.SetContext(project, _settings);
+            await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
-        _currentProjectId = project.Id;
-    }
+            _currentProjectId = project.Id;
+        }).ConfigureAwait(true);
 
     /// <summary>
     /// 3.2: 切替前プロジェクトの開いていたタブ（相対パス・アクティブタブ・カーソル位置）と

@@ -28,6 +28,7 @@ public sealed class StartupCoordinator : IAsyncDisposable
     private Logger? _logger;
     private SettingsStore? _settingsStore;
     private PatchQueue? _patchQueue;
+    private ShellViewModel? _shellViewModel;
     private ClipboardWatcher? _clipboardWatcher;
     private HotkeyManager? _hotkeyManager;
     private TrayIconHost? _trayIcon;
@@ -60,6 +61,16 @@ public sealed class StartupCoordinator : IAsyncDisposable
     {
         _appPaths.EnsureCoreDirectoriesExist();
         _logger = new Logger(_appPaths);
+
+        // 設計目標5（製品相当の完成度）: UIハンドラ内の想定外の例外でアプリを終わらせない。
+        // 記録したうえで日本語の通知だけ出し、操作を続けられるようにする。
+        Graft.ViewModels.SafeHandler.OnUnexpected = (context, ex) =>
+        {
+            _logger?.Error("handler", $"{context}: {ex}");
+            System.Windows.MessageBox.Show(
+                $"{context}に失敗しました。" + Environment.NewLine + ex.Message,
+                "Graft", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+        };
         _settingsStore = new SettingsStore(_appPaths);
         var patchQueue = new PatchQueue(_appPaths);
         _patchQueue = patchQueue;
@@ -84,6 +95,7 @@ public sealed class StartupCoordinator : IAsyncDisposable
             _settingsStore, new WindowLayoutStore(_appPaths), dialogService, patchQueue, OpenSettings);
         var editorViewModel = new EditorPaneViewModel(_settings, dialogService);
         var shellViewModel = new ShellViewModel(mainViewModel, editorViewModel, dialogService, _settings);
+        _shellViewModel = shellViewModel;
 
         var window = new ShellWindow(shellViewModel);
         MainWindow = window;
@@ -360,6 +372,7 @@ public sealed class StartupCoordinator : IAsyncDisposable
         {
             await _patchQueue.SaveAsync().ConfigureAwait(true);
         }
+        _shellViewModel?.Dispose();
         _hotkeyManager?.Dispose();
         _clipboardWatcher?.Dispose();
         _trayIcon?.Dispose();
