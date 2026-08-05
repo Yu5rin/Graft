@@ -9,8 +9,6 @@
              d:DesignHeight="260" d:DesignWidth="240">
     <UserControl.Resources>
         <local:ProjectPaneStateConverter x:Key="StateConverter" />
-        <local:EmptyStringToVisibilityConverter x:Key="EmptyToVisibility" />
-        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </UserControl.Resources>
 
     <Grid>

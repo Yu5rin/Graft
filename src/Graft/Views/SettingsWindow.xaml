@@ -23,9 +23,6 @@
                 -->
                 <ResourceDictionary Source="SettingsPanels/SettingsPanelResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <BooleanToVisibilityConverter x:Key="BoolToVis" />
-            <local:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
-            <local:IssueToDisplayTextConverter x:Key="IssueToText" />
             <local:CollectionCountToVisibilityConverter x:Key="CountToVis" />
 
             <!--

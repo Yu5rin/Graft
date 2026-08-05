@@ -102,22 +102,27 @@ public partial class EditorPane : UserControl
     /// 単一の<see cref="Editor"/>を全タブで共有する方式（クラスコメント参照）のため、
     /// スクロール位置・選択範囲はAvalonEditの<see cref="TextDocument"/>ではなく
     /// エディタ側（ビュー）の状態であり、Document切替では自動的に保持されない。
-    /// そのため切替のたびに<see cref="EditorTabViewModel"/>へ明示的に退避・復元する。</summary>
+    /// そのため切替のたびに<see cref="EditorTabViewModel"/>へ明示的に退避・復元する。
+    /// 差分タブ（9.2/4.8）ではAvalonEditを使わずDiffHost（DiffView）を表示するため、
+    /// 種別ごとに<see cref="ApplyEmptyTab"/>/<see cref="ApplyDiffTab"/>/<see cref="ApplyDocumentTab"/>
+    /// へ分ける（1メソッド50行上限のため）。</summary>
     private void ApplyActiveTab(EditorTabViewModel? tab)
     {
         SaveViewStateInto(_loadedTab);
         _loadedTab = tab;
 
-        if (tab is null)
-        {
-            Editor.Document = new TextDocument();
-            Editor.IsEnabled = false;
-            _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
-            _brackets.Attach(Editor.Document, string.Empty);
-            _folding.Attach(Editor.Document, string.Empty);
-            Search.Attach(Editor);
-            return;
-        }
+        if (tab is null) { ApplyEmptyTab(); return; }
+        if (tab.Kind == EditorTabKind.Diff) { ApplyDiffTab(tab); return; }
+        ApplyDocumentTab(tab);
+    }
+
+    // ApplyEmptyTab/ApplyDiffTabは EditorPane.Diff.xaml.cs（1ファイル400行上限のため分割）。
+
+    private void ApplyDocumentTab(EditorTabViewModel tab)
+    {
+        Editor.Visibility = Visibility.Visible;
+        DiffHost.Visibility = Visibility.Collapsed;
+        DiffHost.DataContext = null;
 
         Editor.IsEnabled = true;
         Editor.Document = tab.Session.Document;
@@ -249,19 +254,22 @@ public partial class EditorPane : UserControl
         return e.Handled = true;
     }
 
-    /// <summary>Ctrl+F/Ctrl+H: 検索・置換オーバーレイを開く。</summary>
+    /// <summary>Ctrl+F/Ctrl+H: 検索・置換オーバーレイを開く。差分タブ表示中はエディタ本体が
+    /// 隠れているため対象外。</summary>
     private bool TryHandleSearchShortcuts(KeyEventArgs e, ModifierKeys mods)
     {
         if (mods != ModifierKeys.Control) return false;
+        if (_viewModel?.ActiveTab is not { Kind: EditorTabKind.Document }) return false;
         if (e.Key == Key.F) { Search.OpenFind(); return e.Handled = true; }
         if (e.Key == Key.H) { Search.OpenReplace(); return e.Handled = true; }
         return false;
     }
 
-    /// <summary>Ctrl+/、行複製・移動・削除、Ctrl+Spaceの単語補完。対象タブが無ければ何もしない。</summary>
+    /// <summary>Ctrl+/、行複製・移動・削除、Ctrl+Spaceの単語補完。対象がドキュメントタブでなければ
+    /// 何もしない（差分タブは読み取り専用のため編集系ショートカットの対象外）。</summary>
     private bool TryHandleLineEditShortcuts(KeyEventArgs e, ModifierKeys mods)
     {
-        if (_viewModel!.ActiveTab is null) return false;
+        if (_viewModel?.ActiveTab is not { Kind: EditorTabKind.Document } tab) return false;
 
         if (mods == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.K)
         {
@@ -285,7 +293,7 @@ public partial class EditorPane : UserControl
         }
         if (mods == ModifierKeys.Control && e.Key is Key.OemQuestion or Key.Divide)
         {
-            var extension = System.IO.Path.GetExtension(_viewModel.ActiveTab.Session.FileName);
+            var extension = System.IO.Path.GetExtension(tab.Session.FileName);
             EditorCommands.ToggleLineComment(Editor, SyntaxLexer.RuleForExtension(extension));
             return e.Handled = true;
         }
@@ -309,13 +317,15 @@ public partial class EditorPane : UserControl
             return;
         }
 
-        if (e.Key == Key.G && _viewModel!.ActiveTab is not null)
+        if (e.Key == Key.G && _viewModel!.ActiveTab is { Kind: EditorTabKind.Document })
         {
             e.Handled = true;
             var input = await _dialogs.PromptAsync("指定行へ移動", "移動先の行番号を入力してください。").ConfigureAwait(true);
             if (int.TryParse(input, out var line)) EditorCommands.GoToLine(Editor, line);
         }
     }
+
+    // OnDiffMouseLeftButtonDown/FindDiffRowは EditorPane.Diff.xaml.cs（1ファイル400行上限のため分割）。
 
     /// <summary>4.3: 中クリックでタブを閉じ、タブ見出しのダブルクリックでプレビューを固定タブへ昇格する。</summary>
     private async void OnTabStripPreviewMouseDown(object sender, MouseButtonEventArgs e)

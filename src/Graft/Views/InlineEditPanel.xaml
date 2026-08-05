@@ -15,8 +15,6 @@
         呼び出し側（ブロック一覧・適用側）がBuildEditedPair()を通じて取得する想定。
     -->
     <UserControl.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolToVis" />
-        <views:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
     </UserControl.Resources>
 
     <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0"

@@ -99,8 +99,8 @@ public sealed partial class MainViewModel : ObservableObject
     public DiffViewModel Diff { get; }
     public WindowLayoutStore LayoutStore { get; }
 
-    // PatchQueue/Queue/AddCurrentPatchToQueueCommand/OpenQueueCommand/CopyRecoveryPromptCommand/
-    // RequestOpenQueueはMainViewModel.Queue.csで宣言する（400行上限のための分割）。
+    // PatchQueue/Queue等はMainViewModel.Queue.cs、BeforeApplyAsync/AfterApplyAsync（4.8/7章）は
+    // MainViewModel.Apply.csで宣言する（いずれも400行上限のための分割）。
 
     /// <summary>読み込み・保存済みのウィンドウ・ペインレイアウト。Viewが直接読み書きする。</summary>
     public WindowLayoutState Layout { get; private set; } = new();
@@ -300,6 +300,9 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 4.8/7章: 未保存編集があれば保存を促してから続行する（破棄不可。MainViewModel.Apply.cs）。
+        if (!await ConfirmTargetsSavedAsync(project.Root).ConfigureAwait(true)) return;
+
         State = CenterPaneState.Loading;
         var guard = new PathGuard(project.Root, new PathGuardOptions
         {
@@ -359,6 +362,7 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        await NotifyFilesRewrittenAsync(_lastContext.ProjectRoot, result.Value).ConfigureAwait(true); // 4.8/7章: 再読込フック。
         await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
         FinalizeApplyFromQueueIfNeeded(); // 4.10: キュー結合適用時はキューを空にする（MainViewModel.Queue.cs）。
         DiscardCurrentPatch();

@@ -15,7 +15,6 @@
         DataContextはShellWindowから継承する（上書きしない）。
     -->
     <UserControl.Resources>
-        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </UserControl.Resources>
 
     <Border Background="{DynamicResource BgSurface}"

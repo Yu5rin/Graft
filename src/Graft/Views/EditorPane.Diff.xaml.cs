@@ -1,0 +1,70 @@
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Media;
+using ICSharpCode.AvalonEdit.Document;
+using Graft.ViewModels;
+
+namespace Graft.Views;
+
+/// <summary>
+/// <see cref="EditorPane"/> の分割ファイル（1ファイル400行上限のため）。
+/// 仕様書9.2「diffのエディタタブ化」・4.8「diffからジャンプ」を担う。DiffHost（DiffView）の
+/// 表示切替はここで行うが、diffの折りたたみ・並列/統合表示・空白可視化・文字単位ハイライト・
+/// インライン編集そのものはDiffView/DiffViewModel（他担当実装）をそのまま再利用し、ここでは
+/// 一切作り直さない。
+/// </summary>
+public partial class EditorPane
+{
+    /// <summary>タブが無い状態（9.2）。AvalonEdit・DiffHostのいずれも空にする。</summary>
+    private void ApplyEmptyTab()
+    {
+        Editor.Document = new TextDocument();
+        Editor.IsEnabled = false;
+        Editor.Visibility = Visibility.Visible;
+        DiffHost.Visibility = Visibility.Collapsed;
+        DiffHost.DataContext = null;
+        _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
+        _brackets.Attach(Editor.Document, string.Empty);
+        _folding.Attach(Editor.Document, string.Empty);
+        Search.Attach(Editor);
+    }
+
+    /// <summary>
+    /// 9.2/4.8: 差分タブの表示。AvalonEditは隠し（読み取り専用のため編集対象にしない）、
+    /// DiffHost（DiffView）へDataContextを渡すだけに留める。
+    /// </summary>
+    private void ApplyDiffTab(EditorTabViewModel tab)
+    {
+        Editor.Visibility = Visibility.Collapsed;
+        Editor.IsEnabled = false;
+        DiffHost.Visibility = Visibility.Visible;
+        DiffHost.DataContext = tab.Diff;
+    }
+
+    /// <summary>
+    /// 4.8「diffからジャンプ」: diff表示の行をダブルクリックすると、該当ファイルの該当行を
+    /// エディタで開く。ダブルクリックされた行のDataContext（<see cref="DiffLineViewModel"/>）を
+    /// 突き止めて<see cref="DiffViewModel.RequestJump"/>へ渡すだけに留める（実際にファイルを
+    /// 開く処理はDiffViewModel.JumpRequestedを購読するShellViewModel側で行う）。省略行の
+    /// 展開ボタンは自身でクリックを処理する（Handled）ため、ここへは届かない。
+    /// </summary>
+    private void OnDiffMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount != 2) return;
+        if (sender is not DiffView { DataContext: DiffViewModel vm }) return;
+        if (FindDiffRow(e.OriginalSource as DependencyObject) is not { } row) return;
+
+        vm.RequestJump(row);
+        e.Handled = true;
+    }
+
+    private static DiffLineViewModel? FindDiffRow(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is FrameworkElement { DataContext: DiffLineViewModel row }) return row;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return null;
+    }
+}

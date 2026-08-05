@@ -45,6 +45,7 @@
                        FontSize="{DynamicResource BodyFontSize}" />
             <Button x:Name="ActionButton"
                     Content="{Binding ActionText, ElementName=Root}"
+                    AutomationProperties.Name="{Binding ActionText, ElementName=Root}"
                     Command="{Binding ActionCommand, ElementName=Root}"
                     Margin="0,16,0,0"
                     HorizontalAlignment="Center"
