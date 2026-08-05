@@ -133,6 +133,10 @@
                 <settings:GeneralSettingsView />
             </TabItem>
 
+            <TabItem Header="エディタ" AutomationProperties.Name="エディタ設定タブ">
+                <settings:EditorSettingsView />
+            </TabItem>
+
             <TabItem Header="マッチング" AutomationProperties.Name="マッチング設定タブ">
                 <settings:MatchingSettingsView />
             </TabItem>

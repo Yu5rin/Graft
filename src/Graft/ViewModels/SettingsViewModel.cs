@@ -49,6 +49,17 @@ public sealed class SettingsViewModel : ObservableObject
     private string _tokenWarnThresholdText = "0";
     private string _hooksTimeoutSecText = "0";
     private bool _autoCommit;
+    private string _editorFontSizeText = "13";
+    private bool _editorWordWrap;
+    private bool _editorShowWhitespace;
+    private bool _editorShowLineNumbers = true;
+    private bool _editorHighlightCurrentLine = true;
+    private string _editorTabSizeText = "4";
+    private bool _editorInsertSpaces = true;
+    private bool _editorDetectIndent = true;
+    private bool _editorAutoClosingBrackets = true;
+    private bool _editorFolding = true;
+    private bool _editorCompletion = true; private bool _editorGitGutter = true;
     private bool _exportSettingsOnly = true;
     private string _jsonText = string.Empty;
     private string? _jsonParseError;
@@ -141,6 +152,20 @@ public sealed class SettingsViewModel : ObservableObject
     public string TokenWarnThresholdText { get => _tokenWarnThresholdText; set => SetProperty(ref _tokenWarnThresholdText, value); }
     public string HooksTimeoutSecText { get => _hooksTimeoutSecText; set => SetProperty(ref _hooksTimeoutSecText, value); }
     public bool AutoCommit { get => _autoCommit; set => SetProperty(ref _autoCommit, value); }
+
+    /// <summary>15章・4章 エディタ設定（12項目）。設定画面の「エディタ」タブが編集する。</summary>
+    public string EditorFontSizeText { get => _editorFontSizeText; set => SetProperty(ref _editorFontSizeText, value); }
+    public bool EditorWordWrap { get => _editorWordWrap; set => SetProperty(ref _editorWordWrap, value); }
+    public bool EditorShowWhitespace { get => _editorShowWhitespace; set => SetProperty(ref _editorShowWhitespace, value); }
+    public bool EditorShowLineNumbers { get => _editorShowLineNumbers; set => SetProperty(ref _editorShowLineNumbers, value); }
+    public bool EditorHighlightCurrentLine { get => _editorHighlightCurrentLine; set => SetProperty(ref _editorHighlightCurrentLine, value); }
+    public string EditorTabSizeText { get => _editorTabSizeText; set => SetProperty(ref _editorTabSizeText, value); }
+    public bool EditorInsertSpaces { get => _editorInsertSpaces; set => SetProperty(ref _editorInsertSpaces, value); }
+    public bool EditorDetectIndent { get => _editorDetectIndent; set => SetProperty(ref _editorDetectIndent, value); }
+    public bool EditorAutoClosingBrackets { get => _editorAutoClosingBrackets; set => SetProperty(ref _editorAutoClosingBrackets, value); }
+    public bool EditorFolding { get => _editorFolding; set => SetProperty(ref _editorFolding, value); }
+    public bool EditorCompletion { get => _editorCompletion; set => SetProperty(ref _editorCompletion, value); }
+    public bool EditorGitGutter { get => _editorGitGutter; set => SetProperty(ref _editorGitGutter, value); }
 
     /// <summary>エクスポート／インポートの範囲。trueなら設定のみ（プロジェクト定義を除外）。</summary>
     public bool ExportSettingsOnly { get => _exportSettingsOnly; set => SetProperty(ref _exportSettingsOnly, value); }
@@ -283,6 +308,18 @@ public sealed class SettingsViewModel : ObservableObject
         TokenWarnThresholdText = s.Context.TokenWarnThreshold.ToString(CultureInfo.InvariantCulture);
         HooksTimeoutSecText = s.Hooks.TimeoutSec.ToString(CultureInfo.InvariantCulture);
         AutoCommit = s.Git.AutoCommit;
+        PopulateEditorFields(s.Editor);
+    }
+
+    private void PopulateEditorFields(EditorSettings e)
+    {
+        EditorFontSizeText = e.FontSize.ToString(CultureInfo.InvariantCulture);
+        EditorWordWrap = e.WordWrap; EditorShowWhitespace = e.ShowWhitespace;
+        EditorShowLineNumbers = e.ShowLineNumbers; EditorHighlightCurrentLine = e.HighlightCurrentLine;
+        EditorTabSizeText = e.TabSize.ToString(CultureInfo.InvariantCulture);
+        EditorInsertSpaces = e.InsertSpaces; EditorDetectIndent = e.DetectIndent;
+        EditorAutoClosingBrackets = e.AutoClosingBrackets; EditorFolding = e.Folding;
+        EditorCompletion = e.Completion; EditorGitGutter = e.GitGutter;
     }
 
     private Settings BuildSettingsFromFields() => new()
@@ -318,6 +355,15 @@ public sealed class SettingsViewModel : ObservableObject
         },
         Hooks = new HookSettings { TimeoutSec = ParseInt(_hooksTimeoutSecText) },
         Git = new GitSettings { AutoCommit = _autoCommit },
+        Editor = new EditorSettings
+        {
+            FontSize = ParseDouble(_editorFontSizeText), WordWrap = _editorWordWrap,
+            ShowWhitespace = _editorShowWhitespace, ShowLineNumbers = _editorShowLineNumbers,
+            HighlightCurrentLine = _editorHighlightCurrentLine, TabSize = ParseInt(_editorTabSizeText),
+            InsertSpaces = _editorInsertSpaces, DetectIndent = _editorDetectIndent,
+            AutoClosingBrackets = _editorAutoClosingBrackets, Folding = _editorFolding,
+            Completion = _editorCompletion, GitGutter = _editorGitGutter,
+        },
     };
 
     /// <summary>200ms以上かかる処理でのみ <see cref="IsBusy"/> を立てる（8.8章）。</summary>

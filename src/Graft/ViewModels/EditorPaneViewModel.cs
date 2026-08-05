@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
 using System.Windows.Input;
@@ -10,8 +11,11 @@ using Graft.Views;
 namespace Graft.ViewModels;
 
 /// <summary>
-/// エディタ領域全体（4章）のViewModel。実際のタブ管理は<see cref="EditorTabManager"/>へ委譲し、
-/// 本クラスはアクティブタブ・フォントサイズ・ステータスバー表示（9.2）の窓口を担う。
+/// エディタ領域全体（4章）のViewModel。ドキュメントタブの管理は<see cref="EditorTabManager"/>へ
+/// 委譲し、本クラスはこれに差分タブ（9.2・4.8）を合成した一覧・アクティブタブ・フォントサイズ・
+/// ステータスバー表示（9.2）の窓口を担う。差分タブは<see cref="EditorTabManager"/>が持つ
+/// 保存確認等のドキュメント前提のロジックへ一切渡さず、本クラスが直接開閉する
+/// （<see cref="EditorTabViewModel.Session"/>は差分タブでは利用できないため）。
 /// 15章 editor設定は<see cref="Settings.Editor"/>（<see cref="EditorSettings"/>）から読み取る。
 /// </summary>
 public sealed class EditorPaneViewModel : ObservableObject
@@ -23,6 +27,8 @@ public sealed class EditorPaneViewModel : ObservableObject
 
     private readonly EditorTabManager _manager;
     private readonly Settings _settings;
+    private readonly ObservableCollection<EditorTabViewModel> _tabs = new();
+    private EditorTabViewModel? _diffTab;
     private EditorTabViewModel? _activeTab;
     private double _fontSize;
     private bool _wordWrap;
@@ -32,6 +38,7 @@ public sealed class EditorPaneViewModel : ObservableObject
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _manager = new EditorTabManager(dialogs);
+        _manager.Tabs.CollectionChanged += OnManagerTabsChanged;
 
         _fontSize = Math.Clamp(_settings.Editor.FontSize, MinFontSize, MaxFontSize);
         _wordWrap = _settings.Editor.WordWrap;
@@ -41,8 +48,8 @@ public sealed class EditorPaneViewModel : ObservableObject
         ToggleShowWhitespaceCommand = new RelayCommand(() => ShowWhitespace = !ShowWhitespace);
     }
 
-    /// <summary>開いているタブの一覧。</summary>
-    public ObservableCollection<EditorTabViewModel> Tabs => _manager.Tabs;
+    /// <summary>開いているタブの一覧（ドキュメント＋差分タブ、9.2）。</summary>
+    public ObservableCollection<EditorTabViewModel> Tabs => _tabs;
 
     /// <summary>現在アクティブなタブ。</summary>
     public EditorTabViewModel? ActiveTab
@@ -56,7 +63,9 @@ public sealed class EditorPaneViewModel : ObservableObject
             if (value is not null)
             {
                 value.PropertyChanged += OnTabPropertyChanged;
-                _manager.Touch(value);
+                // 差分タブはCtrl+Tabの直近使用順管理の対象外（EditorTabManagerはドキュメント
+                // タブ専用のため、差分タブの参照を内部状態へ持ち込まない）。
+                if (value.Kind == EditorTabKind.Document) _manager.Touch(value);
             }
 
             RaiseStatusChanged();
@@ -111,9 +120,38 @@ public sealed class EditorPaneViewModel : ObservableObject
         return result;
     }
 
+    /// <summary>
+    /// 9.2/4.8: ブロック選択に連動して差分タブを開く。既に差分タブが開いていれば、その内容
+    /// （<paramref name="diff"/>は呼び出し側で使い回される単一のDiffViewModel）を再利用して
+    /// アクティブ化するだけで、新しいタブは増やさない。
+    /// </summary>
+    public void ShowDiffTab(DiffViewModel diff)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        if (_diffTab is null)
+        {
+            _diffTab = new EditorTabViewModel(diff, tab => { CloseDiffTab(tab); return Task.CompletedTask; });
+            _tabs.Add(_diffTab);
+        }
+
+        ActiveTab = _diffTab;
+    }
+
+    /// <summary>選択ブロックが無くなった場合等に、確認なしで差分タブを閉じる（9.2）。</summary>
+    public void CloseDiffTabIfOpen()
+    {
+        if (_diffTab is { } tab) CloseDiffTab(tab);
+    }
+
     /// <summary>未保存なら確認ダイアログを出す。falseはユーザーがキャンセルしたことを表す。</summary>
     public async Task<bool> CloseTabAsync(EditorTabViewModel tab)
     {
+        if (tab.Kind == EditorTabKind.Diff)
+        {
+            CloseDiffTab(tab);
+            return true;
+        }
+
         var wasActive = ReferenceEquals(tab, ActiveTab);
         var closed = await _manager.CloseAsync(tab).ConfigureAwait(true);
         if (!closed) return false;
@@ -126,17 +164,41 @@ public sealed class EditorPaneViewModel : ObservableObject
     public async Task<bool> CloseAllAsync()
     {
         var closed = await _manager.CloseAllAsync().ConfigureAwait(true);
-        if (closed) ActiveTab = null;
-        return closed;
+        if (!closed) return false;
+
+        if (_diffTab is { } tab) CloseDiffTab(tab);
+        ActiveTab = null;
+        return true;
     }
 
+    /// <summary>差分タブでは保存対象が無いため何もしない（4.8: 保存確認の対象外）。</summary>
     public Task<GraftResult<bool>> SaveActiveAsync()
-        => ActiveTab is { } tab ? tab.Session.SaveAsync() : Task.FromResult(GraftResult<bool>.Ok(true));
+        => ActiveTab is { Kind: EditorTabKind.Document } tab
+            ? tab.Session.SaveAsync()
+            : Task.FromResult(GraftResult<bool>.Ok(true));
 
     public async Task<GraftResult<bool>> SaveAllAsync()
     {
         var issues = new List<GraftIssue>();
-        foreach (var tab in Tabs.Where(t => t.IsModified).ToList())
+        foreach (var tab in DocumentTabs.Where(t => t.IsModified).ToList())
+        {
+            var result = await tab.Session.SaveAsync().ConfigureAwait(true);
+            issues.AddRange(result.Issues);
+        }
+
+        return issues.Any(i => i.Severity == Severity.Error)
+            ? GraftResult<bool>.Fail(issues)
+            : GraftResult<bool>.Ok(true, issues);
+    }
+
+    /// <summary>
+    /// 4.8 適用前チェック: 指定した絶対パスのうち、未保存の変更がある開いているタブのみを保存する。
+    /// <see cref="FindUnsaved"/>で対象を確認したうえで呼び出す想定。
+    /// </summary>
+    public async Task<GraftResult<bool>> SaveFilesAsync(IReadOnlyList<string> fullPaths)
+    {
+        var issues = new List<GraftIssue>();
+        foreach (var tab in DocumentTabs.Where(t => t.IsModified && fullPaths.Any(p => PathsEqual(p, t.Session.FullPath))).ToList())
         {
             var result = await tab.Session.SaveAsync().ConfigureAwait(true);
             issues.AddRange(result.Issues);
@@ -153,7 +215,7 @@ public sealed class EditorPaneViewModel : ObservableObject
     /// <summary>適用前チェック（4.8）。未保存の変更があるファイルの絶対パスを返す。</summary>
     public IReadOnlyList<string> FindUnsaved(IEnumerable<string> fullPaths) => _manager.FindUnsaved(fullPaths);
 
-    /// <summary>Ctrl+Tabで切り替える先のタブ（View側から呼ばれる）。</summary>
+    /// <summary>Ctrl+Tabで切り替える先のタブ（View側から呼ばれる）。差分タブは対象外。</summary>
     public EditorTabViewModel? PeekMruNeighbor() => _manager.NextByMru();
 
     /// <summary>
@@ -164,7 +226,7 @@ public sealed class EditorPaneViewModel : ObservableObject
     /// </summary>
     public async Task NotifyExternalChangeAsync(string fullPath)
     {
-        var tab = Tabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, fullPath));
+        var tab = DocumentTabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, fullPath));
         if (tab is null) return;
 
         if (!tab.Session.IsModified)
@@ -179,7 +241,7 @@ public sealed class EditorPaneViewModel : ObservableObject
     /// <summary>エクスプローラでのリネーム・移動に追従し、開いているタブのパス表示を更新する。</summary>
     public void NotifyRenamed(string oldFullPath, string newFullPath)
     {
-        var wasActive = ActiveTab is { } active && PathsEqual(active.Session.FullPath, oldFullPath);
+        var wasActive = ActiveTab is { Kind: EditorTabKind.Document } active && PathsEqual(active.Session.FullPath, oldFullPath);
         _manager.NotifyRenamed(oldFullPath, newFullPath);
         if (wasActive) RaiseStatusChanged(); // 拡張子変更でLanguageText等が変わりうるため
     }
@@ -187,7 +249,7 @@ public sealed class EditorPaneViewModel : ObservableObject
     /// <summary>エクスプローラでの削除に追従し、開いているタブがあれば確認なしで閉じる。</summary>
     public async Task NotifyDeletedAsync(string fullPath)
     {
-        var tab = Tabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, fullPath));
+        var tab = DocumentTabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, fullPath));
         if (tab is null) return;
 
         var wasActive = ReferenceEquals(tab, ActiveTab);
@@ -196,12 +258,53 @@ public sealed class EditorPaneViewModel : ObservableObject
         if (wasActive) ActiveTab = Tabs.Count > 0 ? Tabs[0] : null;
     }
 
-    // ---- ステータスバー表示（9.2） ----
+    // ---- ステータスバー表示（9.2）。差分タブがアクティブな間は対象外（E5でステータスバー本体を実装）。 ----
 
-    public string CaretText => ActiveTab is { } t ? $"行 {t.CaretLine}, 列 {t.CaretColumn}" : string.Empty;
-    public string EncodingText => ActiveTab is { } t ? EncodingLabel(t.Session.Shape) : string.Empty;
-    public string NewLineText => ActiveTab is { } t ? NewLineLabel(t.Session.Shape.NewLine) : string.Empty;
-    public string LanguageText => ActiveTab is { } t ? LanguageLabel(t.Session.FileName) : string.Empty;
+    public string CaretText => ActiveTab is { Kind: EditorTabKind.Document } t ? $"行 {t.CaretLine}, 列 {t.CaretColumn}" : string.Empty;
+    public string EncodingText => ActiveTab is { Kind: EditorTabKind.Document } t ? EncodingLabel(t.Session.Shape) : string.Empty;
+    public string NewLineText => ActiveTab is { Kind: EditorTabKind.Document } t ? NewLineLabel(t.Session.Shape.NewLine) : string.Empty;
+    public string LanguageText => ActiveTab is { Kind: EditorTabKind.Document } t ? LanguageLabel(t.Session.FileName) : string.Empty;
+
+    private IEnumerable<EditorTabViewModel> DocumentTabs => _tabs.Where(t => t.Kind == EditorTabKind.Document);
+
+    private void CloseDiffTab(EditorTabViewModel tab)
+    {
+        if (!ReferenceEquals(tab, _diffTab)) return;
+
+        var wasActive = ReferenceEquals(tab, ActiveTab);
+        _tabs.Remove(tab);
+        _diffTab = null;
+        tab.PropertyChanged -= OnTabPropertyChanged;
+        tab.DetachEvents();
+        if (wasActive) ActiveTab = Tabs.Count > 0 ? Tabs[0] : null;
+    }
+
+    /// <summary>
+    /// <see cref="EditorTabManager.Tabs"/>（ドキュメントタブのみ）の増減を、差分タブと合成した
+    /// <see cref="Tabs"/>（View束縛対象）へ反映する。ドキュメントタブは常に差分タブより前に並べる。
+    /// </summary>
+    private void OnManagerTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        switch (e.Action)
+        {
+            case NotifyCollectionChangedAction.Add when e.NewItems is not null:
+                foreach (EditorTabViewModel tab in e.NewItems) InsertDocumentTab(tab);
+                break;
+            case NotifyCollectionChangedAction.Remove when e.OldItems is not null:
+                foreach (EditorTabViewModel tab in e.OldItems) _tabs.Remove(tab);
+                break;
+            case NotifyCollectionChangedAction.Reset:
+                foreach (var tab in _tabs.Where(t => t.Kind == EditorTabKind.Document).ToList()) _tabs.Remove(tab);
+                foreach (var tab in _manager.Tabs) InsertDocumentTab(tab);
+                break;
+        }
+    }
+
+    private void InsertDocumentTab(EditorTabViewModel tab)
+    {
+        var insertIndex = _diffTab is not null ? _tabs.IndexOf(_diffTab) : _tabs.Count;
+        _tabs.Insert(Math.Max(0, insertIndex), tab);
+    }
 
     private void ApplyDetectedIndent(EditorTabViewModel tab)
     {
