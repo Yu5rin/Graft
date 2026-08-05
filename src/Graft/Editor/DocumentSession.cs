@@ -137,7 +137,10 @@ public sealed class DocumentSession : IDisposable
     /// </summary>
     public (bool UseTabs, int Width) DetectIndent(int fallbackWidth)
     {
-        var lines = TextNormalizer.SplitLines(Document.Text);
+        // 18章: 10万行のファイルでも開く操作が遅延しないよう、判定は先頭の一定行数に限る。
+        // インデントの流儀はファイル内で一貫しているのが普通で、全行を走査する必要はない。
+        const int SampleLines = 2000;
+        var lines = ReadLeadingLines(SampleLines);
         if (TextNormalizer.DominantIndentChar(lines) == '\t')
         {
             return (true, fallbackWidth);
@@ -154,6 +157,22 @@ public sealed class DocumentSession : IDisposable
         }
 
         return (false, counts.Count == 0 ? fallbackWidth : counts.Keys.Min());
+    }
+
+    /// <summary>
+    /// 文書の先頭から指定行数までを取り出す。<c>Document.Text</c> は全文を1本の文字列として
+    /// 確保するため、10万行規模のファイルでは行単位で読むほうが速く、割り当ても小さい。
+    /// </summary>
+    private IReadOnlyList<string> ReadLeadingLines(int maxLines)
+    {
+        var count = Math.Min(maxLines, Document.LineCount);
+        var lines = new List<string>(count);
+        for (var i = 1; i <= count; i++)
+        {
+            var line = Document.GetLineByNumber(i);
+            lines.Add(Document.GetText(line.Offset, line.Length));
+        }
+        return lines;
     }
 
     /// <summary>
