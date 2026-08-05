@@ -149,7 +149,7 @@
 
             <local:EmptyStateView State="{Binding State, Converter={StaticResource StateConverter}}"
                                    IconGeometry="{StaticResource IconHistoryGeometry}"
-                                   Message="このプロジェクトにはまだ適用履歴がありません"
+                                   Message="AIの出力を適用すると、ここに履歴が残ります"
                                    Issue="{Binding Error}" />
         </Grid>
     </Grid>
