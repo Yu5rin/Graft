@@ -261,7 +261,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         // IClipboardAccess.GetTextは取得できない場合にnullを返す契約のため、
         // 個別の例外保護は不要（クリップボードが他プロセスに占有されている場合もnullになる）。
-        var text = _ui.Clipboard.GetText();
+        var text = await _ui.Clipboard.GetTextAsync().ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(text)) return;
 
         var parsed = _parser.Parse(text);

@@ -48,13 +48,10 @@ public sealed class AvaloniaUiServices : IUiServices
 }
 
 /// <summary>
-/// <see cref="TopLevel.Clipboard"/>（<see cref="IClipboard"/>、非同期API）を同期シグネチャへ
-/// 橋渡しする実装。書き込みは完了を待たない（UIスレッドを塞がないことを優先し、失敗しても
-/// 呼び出し側へは伝えない契約のため待つ必要がない）。読み取りは呼び出し元がその場で結果を
-/// 必要とするため待ち合わせるが、Avalonia本体のクリップボード実装（Win32/X11/macOS）は
-/// 実質的に同期完了するTaskを返すため、通常はUIスレッドをブロックしない。
-/// 将来バックエンドが真に非同期化された場合は<see cref="IClipboardAccess"/>自体を
-/// 非同期シグネチャへ変更する必要がある（統合担当への報告事項）。
+/// <see cref="TopLevel.Clipboard"/>（<see cref="IClipboard"/>）への橋渡し。
+/// 書き込みは完了を待たない（失敗しても呼び出し側へは伝えない契約のため待つ必要がない）。
+/// 読み取りは<see cref="IClipboardAccess.GetTextAsync"/>のとおり非同期のまま扱う。
+/// 同期的に待つとX11では取得に失敗する（応答を処理するイベントループごと止まるため）。
 /// </summary>
 public sealed class AvaloniaClipboardAccess : IClipboardAccess
 {
@@ -65,16 +62,24 @@ public sealed class AvaloniaClipboardAccess : IClipboardAccess
         _ = SetTextAndSwallowAsync(clipboard, text);
     }
 
-    public string? GetText()
+    // クリップボードの所有アプリが応答しない場合、要求は完了しないまま残りうる。
+    // 待ち続けると操作が戻らなくなるため、上限を設けて「取得できなかった」に倒す。
+    private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(5);
+
+    public async Task<string?> GetTextAsync()
     {
         var clipboard = AvaloniaUiServices.ResolveTopLevel()?.Clipboard;
         if (clipboard is null) return null;
+
         try
         {
-            return clipboard.GetTextAsync().GetAwaiter().GetResult();
+            var read = clipboard.GetTextAsync();
+            var completed = await Task.WhenAny(read, Task.Delay(ReadTimeout)).ConfigureAwait(true);
+            return completed == read ? await read.ConfigureAwait(true) : null;
         }
         catch (Exception)
         {
+            // 他アプリが所有権を持ったまま応答しない等の失敗は、取得できなかった扱いにする。
             return null;
         }
     }
