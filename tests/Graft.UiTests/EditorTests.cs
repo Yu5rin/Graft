@@ -100,17 +100,21 @@ public class EditorTests
         var (_, editor) = CreateEditorWindow();
         editor.Document = new TextDocument("a\nb\nc\n");
 
+        // 複製: 2行目「b」を複製して a,b,b,c にする。
         editor.TextArea.Caret.Line = 2;
         EditorCommands.DuplicateLines(editor);
-        editor.Document.Text.Should().Be("a\nb\nb\nc\n");
+        editor.Document.Text.Should().Be("a\nb\nb\nc\n", "カーソル行が直下に複製されるはず");
 
-        editor.TextArea.Caret.Line = 3;
+        // 上へ移動: 4行目「c」を1つ上へ動かして a,b,c,b にする。
+        // 複製直後は2行目と3行目が同じ「b」のため、区別できる4行目を対象にする。
+        editor.TextArea.Caret.Line = 4;
         EditorCommands.MoveLinesUp(editor);
-        editor.Document.Text.Should().Be("a\nb\nb\nc\n".Replace("b\nb\nc", "b\nc\nb"));
+        editor.Document.Text.Should().Be("a\nb\nc\nb\n", "カーソル行が1つ上の行と入れ替わるはず");
 
+        // 削除: 1行目「a」を消す。
         editor.TextArea.Caret.Line = 1;
         EditorCommands.DeleteLines(editor);
-        editor.Document.Text.Should().NotContain("a\n");
+        editor.Document.Text.Should().Be("b\nc\nb\n", "カーソル行だけが取り除かれるはず");
     }
 
     [AvaloniaFact(DisplayName = "Ctrl+/相当のコメント切替が言語ルールの記号で行われる")]
@@ -134,14 +138,26 @@ public class EditorTests
         var document = new TextDocument(string.Empty);
         editor.Document = document;
         window.Show();
-        editor.Focus();
 
         using var brackets = new BracketSupport(editor);
         brackets.Attach(document, "py");
 
-        window.KeyTextInput("(");
+        // headless環境では KeyTextInput がフォーカス経路の都合でTextAreaまで届かないため、
+        // 実際の入力と同じ TextInput イベントを TextArea へ直接発生させて配線を検証する。
+        TypeText(editor, "(");
         document.Text.Should().Be("()", "自動閉じ括弧が挿入される必要がある");
     }
+
+    /// <summary>
+    /// エディタへ文字入力を発生させる。AvaloniaEdit は TextArea の TextInput を購読して
+    /// 実際の挿入を行うため、そこへ直接イベントを送る。
+    /// </summary>
+    private static void TypeText(TextEditor editor, string text)
+        => editor.TextArea.RaiseEvent(new Avalonia.Input.TextInputEventArgs
+        {
+            RoutedEvent = Avalonia.Input.InputElement.TextInputEvent,
+            Text = text,
+        });
 
     [AvaloniaFact(DisplayName = "折りたたみサポートを取り付けても例外が出ない")]
     public void 折りたたみサポートが例外なく動作する()
