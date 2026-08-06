@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Graft</RootNamespace>
+    <AssemblyName>Graft</AssemblyName>
+    <Version>2.1.0</Version>
+    <Product>Graft</Product>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.2.3" Condition="'$(Configuration)'=='Debug'" />
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.1.0" />
+    <PackageReference Include="DiffPlex" Version="1.7.2" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+  </ItemGroup>
+
+  <!--
+    UI非依存の層（Core / Features / Infra / Platform の抽象とNull実装）は
+    WPF版と同一のソースを共有する。移植対象はUI層のみに閉じる（仕様書v2.1 19章）。
+  -->
+  <ItemGroup>
+    <Compile Include="..\Graft\Core\**\*.cs" LinkBase="Shared\Core" />
+    <Compile Include="..\Graft\Features\**\*.cs" LinkBase="Shared\Features" />
+    <Compile Include="..\Graft\Infra\**\*.cs" LinkBase="Shared\Infra" />
+    <Compile Include="..\Graft\Platform\IPlatformServices.cs" LinkBase="Shared\Platform" />
+    <Compile Include="..\Graft\Platform\Null\**\*.cs" LinkBase="Shared\Platform\Null" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\Graft\Assets\DiffPlex-LICENSE.txt" Link="Assets\DiffPlex-LICENSE.txt" />
+    <EmbeddedResource Include="..\Graft\Assets\AvalonEdit-LICENSE.txt" Link="Assets\AvalonEdit-LICENSE.txt" />
+  </ItemGroup>
+
+</Project>

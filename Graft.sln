@@ -1,10 +1,18 @@
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Graft", "src\Graft\Graft.csproj", "{1D8E3F7A-2B4C-4E19-9C51-8A0D6F3B1E01}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Graft.Tests", "tests\Graft.Tests\Graft.Tests.csproj", "{2E9F4A8B-3C5D-4F2A-8D62-9B1E7A4C2F02}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{9FD52094-5F15-4BDF-83B3-838A25CB54A7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graft.Avalonia", "src\Graft.Avalonia\Graft.Avalonia.csproj", "{F2A28AB7-4358-4840-A1A3-7A937BC559AE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{9302E577-F8C8-4DB9-B43B-F8F9E91D49B3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Graft.UiTests", "tests\Graft.UiTests\Graft.UiTests.csproj", "{EBCDDFE6-84C8-41B5-B0B6-89820BE3B4E8}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -20,8 +28,20 @@ Global
 		{2E9F4A8B-3C5D-4F2A-8D62-9B1E7A4C2F02}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2E9F4A8B-3C5D-4F2A-8D62-9B1E7A4C2F02}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2E9F4A8B-3C5D-4F2A-8D62-9B1E7A4C2F02}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F2A28AB7-4358-4840-A1A3-7A937BC559AE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F2A28AB7-4358-4840-A1A3-7A937BC559AE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F2A28AB7-4358-4840-A1A3-7A937BC559AE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F2A28AB7-4358-4840-A1A3-7A937BC559AE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EBCDDFE6-84C8-41B5-B0B6-89820BE3B4E8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EBCDDFE6-84C8-41B5-B0B6-89820BE3B4E8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EBCDDFE6-84C8-41B5-B0B6-89820BE3B4E8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EBCDDFE6-84C8-41B5-B0B6-89820BE3B4E8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F2A28AB7-4358-4840-A1A3-7A937BC559AE} = {9FD52094-5F15-4BDF-83B3-838A25CB54A7}
+		{EBCDDFE6-84C8-41B5-B0B6-89820BE3B4E8} = {9302E577-F8C8-4DB9-B43B-F8F9E91D49B3}
 	EndGlobalSection
 EndGlobal
