@@ -377,12 +377,8 @@ public sealed class SettingsViewModel : ObservableObject
         IsBusy = false;
     }
 
-    private static AppTheme ParseTheme(string value) => value switch
-    {
-        "dark" => AppTheme.Dark,
-        "light" => AppTheme.Light,
-        _ => AppTheme.System,
-    };
+    // 対応表は ThemeManager 側に集約する（起動時の反映と同じ規則を使うため）。
+    private static AppTheme ParseTheme(string value) => ThemeManager.ParseTheme(value);
 
     // 解析に失敗した場合はあえてどの許容範囲にも収まらない値を返し、SettingsStore側の
     // 検証（NormalizeMin/NormalizeRange）による既定値フォールバックと通知に一本化する。

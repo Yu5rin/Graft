@@ -304,4 +304,53 @@ public class EditorTests
         Directory.CreateDirectory(dir);
         return dir;
     }
+
+    [AvaloniaFact(DisplayName = "内容が同じファイルの再読込では文書へ触れない")]
+    public async Task 内容が同じなら再読込しても文書を差し替えない()
+    {
+        // ファイル監視（4.6）は自分で保存した直後も変更として通知してくる。
+        // そこで無条件に文書を差し替えると、保存のたびにカーソルが末尾へ飛び、
+        // アンドゥ履歴も消える（実機で発生した不具合）。内容が同じなら何もしないこと。
+        var path = Path.Combine(Path.GetTempPath(), $"graft-reload-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "1行目\n2行目\n");
+        try
+        {
+            var opened = await DocumentSession.OpenAsync(path, projectRoot: string.Empty);
+            opened.IsSuccess.Should().BeTrue();
+            using var session = opened.Value;
+
+            var changes = 0;
+            session.Document.Changed += (_, _) => changes++;
+
+            await session.SaveAsync();
+            (await session.ReloadAsync()).IsSuccess.Should().BeTrue();
+
+            changes.Should().Be(0, "内容が変わっていないのに文書を差し替えてはならない");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [AvaloniaFact(DisplayName = "内容が変わったファイルは再読込で反映される")]
+    public async Task 内容が変わっていれば再読込で反映する()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"graft-reload2-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "変更前\n");
+        try
+        {
+            var opened = await DocumentSession.OpenAsync(path, projectRoot: string.Empty);
+            using var session = opened.Value;
+
+            await File.WriteAllTextAsync(path, "変更後\n");
+            (await session.ReloadAsync()).IsSuccess.Should().BeTrue();
+
+            session.Document.Text.Should().Contain("変更後", "外部での変更は取り込む必要がある");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

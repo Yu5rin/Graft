@@ -102,9 +102,14 @@ public sealed class JsonFileStore
 
     /// <summary>
     /// ファイルを <c>.corrupt.&lt;yyyyMMdd_HHmmss&gt;</c> へ退避する（上書きしない）。
-    /// 退避先の絶対パスを返す。
+    /// 退避先の絶対パスを返す。すでに他の処理が退避を終えていた場合は
+    /// <see langword="null"/> を返す。
+    ///
+    /// 起動時は複数の経路が同じファイルをほぼ同時に読むため、破損の検出も同時に起きうる。
+    /// 先に退避した側が移動を終えた後で File.Move を呼ぶと、対象が無く例外になる。
+    /// 退避の目的は「壊れたファイルを残しつつ退かす」ことなので、既に退いていれば成功と見なす。
     /// </summary>
-    public async Task<string> QuarantineAsync(string path, CancellationToken ct = default)
+    public async Task<string?> QuarantineAsync(string path, CancellationToken ct = default)
     {
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var candidate = $"{path}.corrupt.{stamp}";
@@ -115,7 +120,19 @@ public sealed class JsonFileStore
             suffix++;
         }
 
-        await Task.Run(() => File.Move(path, candidate), ct).ConfigureAwait(false);
+        try
+        {
+            await Task.Run(() => File.Move(path, candidate), ct).ConfigureAwait(false);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
+
         return candidate;
     }
 
@@ -167,9 +184,12 @@ public sealed class JsonFileStore
         var fallback = createDefault();
         await WriteAsync(path, fallback, options, ct).ConfigureAwait(false);
 
+        var detail = corruptPath is not null
+            ? $"{path} をJSONとして解析できなかったため {corruptPath} へ退避し、既定値で再生成しました。"
+            : $"{path} をJSONとして解析できなかったため、既定値で再生成しました。";
         var issue = GraftIssue.Of(
             ErrorCode.E404,
-            detail: $"{path} をJSONとして解析できなかったため {corruptPath} へ退避し、既定値で再生成しました。",
+            detail: detail,
             path: path,
             severity: Severity.Warning);
         return GraftResult<T>.Ok(fallback, new[] { issue });

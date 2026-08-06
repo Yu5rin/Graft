@@ -47,7 +47,13 @@
                                Foreground="{DynamicResource TextSecondary}" />
                 </StackPanel>
 
-                <TextBlock Grid.Column="2" Text="{Binding StatusSummaryText}" VerticalAlignment="Center"
+                <!--
+                    件数の要約（8.2「2件適用可 / 1件要確認」）はステータスバーの担当。
+                    この見出しはすぐ上に接しているため、同じ文字列をここにも出すと
+                    同じ内容が数十px違いで二重に見える。対象ファイル名を出す。
+                -->
+                <TextBlock Grid.Column="2" Text="{Binding TargetSummaryText}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
                            FontSize="{DynamicResource StatusBarFontSize}"
                            Foreground="{DynamicResource TextSecondary}" />
 

@@ -148,13 +148,6 @@ public sealed partial class MainViewModel : ObservableObject
         set => SetProperty(ref _filterText, value);
     }
 
-    /// <summary>ステータスバー表示。仕様書8.2「2件適用可 / 1件要確認」の書式。</summary>
-    public string StatusSummaryText => _dryRun is null
-        ? "解析結果はありません"
-        : $"{_dryRun.ApplicableCount}件適用可 / {_dryRun.ConfirmationCount}件要確認";
-
-    public string CurrentProjectName => ProjectPane.SelectedItem?.Name ?? "(プロジェクト未選択)";
-
     public ICommand PasteAndParseCommand { get; }
     public ICommand PreviewCommand { get; }
     public ICommand ApplyCommand { get; }
@@ -224,6 +217,7 @@ public sealed partial class MainViewModel : ObservableObject
         _dryRun = null;
         ReplaceBlocks(plans);
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(TargetSummaryText));
     }
 
     /// <summary>diff側の変更を反映する。IsIncludedは選択ブロックへ、CodeFontSizeは8.4のペイン記憶へ。</summary>
@@ -259,10 +253,21 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task PasteAndParseAsync()
     {
-        // IClipboardAccess.GetTextは取得できない場合にnullを返す契約のため、
+        // IClipboardAccess.GetTextAsyncは取得できない場合にnullを返す契約のため、
         // 個別の例外保護は不要（クリップボードが他プロセスに占有されている場合もnullになる）。
         var text = await _ui.Clipboard.GetTextAsync().ConfigureAwait(true);
-        if (string.IsNullOrWhiteSpace(text)) return;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // 黙って戻ると「解析を押しても何も起きない」という状態になり、
+            // 利用者は原因を知る手がかりを得られない。理由を中央ペインへ出す。
+            CenterError = GraftIssue.Of(
+                ErrorCode.E001,
+                text is null
+                    ? "クリップボードの内容を取得できませんでした。他のアプリがクリップボードを保持したままの可能性があります。AIの出力をコピーし直してから、もう一度お試しください。"
+                    : "クリップボードが空です。AIの出力をコピーしてから、もう一度お試しください。");
+            State = CenterPaneState.Error;
+            return;
+        }
 
         var parsed = _parser.Parse(text);
         if (!parsed.IsSuccess)
@@ -327,6 +332,7 @@ public sealed partial class MainViewModel : ObservableObject
         _dryRun = dryRun.Value;
         ReplaceBlocks(dryRun.Value.Plans);
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(TargetSummaryText));
     }
 
     private async Task ApplyAsync()
@@ -381,6 +387,7 @@ public sealed partial class MainViewModel : ObservableObject
         CenterError = null;
         ReplaceBlocks(Array.Empty<BlockPlan>());
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(TargetSummaryText));
     }
 
     private void ReplaceBlocks(IReadOnlyList<BlockPlan> plans)

@@ -171,4 +171,23 @@ public class ThemeTests
         Directory.CreateDirectory(dir);
         return dir;
     }
+
+    [AvaloniaFact(DisplayName = "settings.jsonのthemeは起動時の選択肢へ読み替えられる")]
+    public void 保存したテーマは起動時に反映される()
+    {
+        // 起動時に設定を読み直してテーマを当てないと、選んだテーマが再起動のたびに
+        // システム追従へ戻る（実機で発生した不具合）。読み替え規則が起動処理と
+        // 設定画面で食い違わないよう、対応表はThemeManagerに集約している。
+        ThemeManager.ParseTheme("light").Should().Be(AppTheme.Light);
+        ThemeManager.ParseTheme("dark").Should().Be(AppTheme.Dark);
+        ThemeManager.ParseTheme("system").Should().Be(AppTheme.System);
+        ThemeManager.ParseTheme(null).Should().Be(AppTheme.System, "未知の値は追従として扱う");
+        ThemeManager.ParseTheme("なにか").Should().Be(AppTheme.System);
+
+        // 読み替えた結果を当てると、実際に選択中のテーマが変わること。
+        ThemeManager.SetTheme(ThemeManager.ParseTheme("light"));
+        ThemeManager.SelectedTheme.Should().Be(AppTheme.Light);
+        ThemeManager.SetTheme(ThemeManager.ParseTheme("dark"));
+        ThemeManager.SelectedTheme.Should().Be(AppTheme.Dark);
+    }
 }

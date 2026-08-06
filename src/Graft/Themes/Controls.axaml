@@ -23,7 +23,8 @@
     StrokeLineJoinはStrokeJoinという名前になる（値は変えていない）。
 -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
-                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     xmlns:conv="clr-namespace:Avalonia.Data.Converters;assembly=Avalonia.Base">
 
     <!-- ========== Button ========== -->
     <ControlTheme x:Key="{x:Type Button}" TargetType="Button">
@@ -74,6 +75,61 @@
         </Style>
     </ControlTheme>
 
+    <!-- ========== ToggleButton ========== -->
+    <!--
+        差分ビューの「折り返し」「空白を表示」「すべて展開」などで使う。定義が無いと
+        AvaloniaのFluent既定テーマが当たり、9.1のトークン参照から外れて浮いた見た目になる
+        （ライトテーマで灰色の塗りつぶしになり、他のボタンと揃わない不具合として現れた）。
+        通常時はButtonと同じ見た目にし、オンの状態だけ選択色で塗って区別する。
+    -->
+    <ControlTheme x:Key="{x:Type ToggleButton}" TargetType="ToggleButton">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid>
+                    <Border Name="PART_Border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Name="PART_ContentPresenter"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Padding="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          RecognizesAccessKey="True" />
+                    </Border>
+                    <Border Name="PART_FocusRing"
+                            BorderBrush="{DynamicResource Accent}"
+                            BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            IsHitTestVisible="False"
+                            Opacity="0" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <!-- オン/オフは色だけに頼らず、枠の色もアクセントへ変えて区別する（8.14）。 -->
+        <Style Selector="^:checked /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:focus /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+    </ControlTheme>
+
     <!-- ========== TextBox ========== -->
     <ControlTheme x:Key="{x:Type TextBox}" TargetType="TextBox">
         <Setter Property="Background" Value="{DynamicResource BgSurface}" />
@@ -85,6 +141,8 @@
         <Setter Property="Padding" Value="8,6" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <!-- 1行入力は枠の中央に置く。複数行のときは下のスタイルで上寄せへ切り替える。 -->
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Template">
             <ControlTemplate>
                 <Grid>
@@ -92,18 +150,39 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}">
+                        <!--
+                            スクロールバーの表示可否は、利用側が ScrollViewer の添付プロパティで
+                            指定する。ここで固定値を書くと指定が届かず、複数行の入力欄で
+                            内容がはみ出してもスクロールできないまま切れて見える。
+                        -->
                         <ScrollViewer Name="PART_ScrollViewer"
                                       Margin="{TemplateBinding Padding}"
-                                      VerticalAlignment="Center"
-                                      HorizontalScrollBarVisibility="Hidden"
-                                      VerticalScrollBarVisibility="Hidden">
-                            <TextPresenter Name="PART_TextPresenter"
-                                           Text="{TemplateBinding Text, Mode=TwoWay}"
-                                           CaretBrush="{TemplateBinding CaretBrush}"
-                                           SelectionBrush="{TemplateBinding SelectionBrush}"
-                                           SelectionStart="{TemplateBinding SelectionStart}"
-                                           SelectionEnd="{TemplateBinding SelectionEnd}"
-                                           CaretIndex="{TemplateBinding CaretIndex}" />
+                                      HorizontalScrollBarVisibility="{TemplateBinding (ScrollViewer.HorizontalScrollBarVisibility)}"
+                                      VerticalScrollBarVisibility="{TemplateBinding (ScrollViewer.VerticalScrollBarVisibility)}">
+                            <Panel>
+                                <!-- 透かし文字。TextPresenterは描画しないため別に持つ。 -->
+                                <TextBlock Name="PART_Watermark"
+                                           Text="{TemplateBinding Watermark}"
+                                           Foreground="{DynamicResource TextDisabled}"
+                                           TextAlignment="{TemplateBinding TextAlignment}"
+                                           TextWrapping="{TemplateBinding TextWrapping}"
+                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                           IsVisible="{TemplateBinding Text,
+                                                       Converter={x:Static conv:StringConverters.IsNullOrEmpty}}" />
+                                <TextPresenter Name="PART_TextPresenter"
+                                               Text="{TemplateBinding Text, Mode=TwoWay}"
+                                               CaretBrush="{TemplateBinding CaretBrush}"
+                                               SelectionBrush="{TemplateBinding SelectionBrush}"
+                                               SelectionForegroundBrush="{TemplateBinding SelectionForegroundBrush}"
+                                               SelectionStart="{TemplateBinding SelectionStart}"
+                                               SelectionEnd="{TemplateBinding SelectionEnd}"
+                                               CaretIndex="{TemplateBinding CaretIndex}"
+                                               PasswordChar="{TemplateBinding PasswordChar}"
+                                               RevealPassword="{TemplateBinding RevealPassword}"
+                                               TextAlignment="{TemplateBinding TextAlignment}"
+                                               TextWrapping="{TemplateBinding TextWrapping}"
+                                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            </Panel>
                         </ScrollViewer>
                     </Border>
                     <Border Name="PART_FocusRing"
@@ -114,6 +193,13 @@
                 </Grid>
             </ControlTemplate>
         </Setter>
+        <!--
+            複数行の入力欄で中央寄せのままだと、内容が枠より高いときに上下が
+            均等に隠れ、行の途中で切れて見える。上寄せにしてスクロールへ委ねる。
+        -->
+        <Style Selector="^[AcceptsReturn=True]">
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+        </Style>
         <Style Selector="^:focus /template/ Border#PART_FocusRing">
             <Setter Property="Opacity" Value="1" />
         </Style>
