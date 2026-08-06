@@ -80,7 +80,10 @@ dotnet publish src/Graft -c Release -r linux-x64 --self-contained true \
 単一ファイルとして生成される。実行ファイルと同じ階層に
 `settings.json` / `projects.json` / `back/` / `logs/` を作るため、専用フォルダへ置くこと。
 
-起動時の JIT を減らすため ReadyToRun を有効にしている（Linux 実測で約1.85秒 → 約0.71秒）。
+起動時の JIT を減らすため ReadyToRun を有効にしている（Linux 実測で約1.85秒 → 約0.72秒）。
+
+ただし単一ファイル版は、初回起動時に限りネイティブライブラリの展開が入るため
+約2.2秒かかる。展開結果は再利用されるので、2回目以降は上記の値に落ち着く。
 
 ## 仕様書
 

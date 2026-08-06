@@ -1,0 +1,82 @@
+# v で始まるタグを push すると、Windows と Linux 向けの実行ファイルを生成し、
+# GitHub Release として公開する。
+#
+# 発行は README「発行」節と同じコマンドを使う。単一ファイルの自己完結型のため、
+# 利用者側に .NET ランタイムの導入は要らない。
+# Windows 向けもLinuxランナー上で生成する。.NET はクロスOSの発行に対応しており、
+# ReadyToRun のプリコンパイルも対象OS向けに正しく行われる。
+name: リリース
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 発行してリリースを作成
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET SDK の準備
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # 壊れたものを配らないよう、発行の前に必ずテストを通す。
+      - name: テスト
+        run: dotnet test -c Release
+
+      - name: Windows 向けに発行
+        run: |
+          dotnet publish src/Graft -c Release -r win-x64 --self-contained true \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=none -o publish/win
+
+      - name: Linux 向けに発行
+        run: |
+          dotnet publish src/Graft -c Release -r linux-x64 --self-contained true \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=none -o publish/linux
+
+      # 実行ファイルはそのままだと100MBを超えるため圧縮して添付する。
+      # Linux 版は zip では実行権限が失われるので tar.gz を使う。
+      - name: 配布物をまとめる
+        run: |
+          cd publish/win && zip -9 ../../Graft-${{ github.ref_name }}-win-x64.zip Graft.exe && cd ../..
+          tar -czf Graft-${{ github.ref_name }}-linux-x64.tar.gz -C publish/linux Graft
+
+      - name: リリースを作成
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Graft ${{ github.ref_name }}
+          draft: true
+          files: |
+            Graft-${{ github.ref_name }}-win-x64.zip
+            Graft-${{ github.ref_name }}-linux-x64.tar.gz
+          body: |
+            ## 導入
+
+            お使いのOS向けの書庫を展開し、実行ファイルを専用のフォルダへ置いてください。
+            実行ファイルと同じ階層に `settings.json` / `projects.json` / `back/` / `logs/` を作ります。
+
+            Linux では実行権限の付与が必要な場合があります。
+
+            ```
+            chmod +x Graft
+            ```
+
+            .NET ランタイムの導入は要りません（自己完結型の単一ファイル）。
+
+            ## 動作環境
+
+            - Windows 10 以降（x64）
+            - Linux（x64、X11）
+
+            変更点は下の自動生成された一覧を参照してください。
+          generate_release_notes: true
