@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Graft</RootNamespace>
     <AssemblyName>Graft</AssemblyName>
-    <Version>2.1.0</Version>
+    <Version>1.0.0</Version>
     <Product>Graft</Product>
     <WarningsAsErrors>nullable</WarningsAsErrors>
     <ApplicationManifest>app.manifest</ApplicationManifest>

@@ -112,6 +112,18 @@ public static class ThemeManager
         ApplyResolvedTheme();
     }
 
+    /// <summary>
+    /// settings.json の <c>theme</c>（"dark" / "light" / "system"）を選択肢へ読み替える。
+    /// 起動時の反映と設定画面の双方から使い、対応表が二重に存在しないようにする。
+    /// 未知の値はシステム追従として扱う。
+    /// </summary>
+    public static AppTheme ParseTheme(string? value) => value switch
+    {
+        "dark" => AppTheme.Dark,
+        "light" => AppTheme.Light,
+        _ => AppTheme.System,
+    };
+
     private static void OnSystemThemeChanged(object? sender, EventArgs e)
     {
         if (_selectedTheme != AppTheme.System)

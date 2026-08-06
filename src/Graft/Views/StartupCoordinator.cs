@@ -97,6 +97,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         var settingsResult = await _settingsStore.LoadAsync().ConfigureAwait(true);
         _settings = settingsResult.Value;
 
+        // 9.3: 保存しておいたテーマを反映する。App起動時点では設定をまだ読めていないため、
+        // ここで当て直さないと、選んだテーマが再起動のたびにシステム追従へ戻ってしまう。
+        Themes.ThemeManager.SetTheme(Themes.ThemeManager.ParseTheme(_settings.Theme));
+
         var projectStore = new ProjectStore(_appPaths);
         var revisionStore = new RevisionStore(_appPaths);
         var revisionRestorer = new RevisionRestorer(_appPaths);
@@ -145,8 +149,16 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             await new OnboardingWindow().ShowDialog(window).ConfigureAwait(true);
         }
 
+        // 起動を待たせたくないので完了を待たない。ただし投げっぱなしにすると失敗が
+        // ファイナライザ経由の未観測例外として遅れて表面化し、原因を追いにくい。
+        // 例外は必ず観測してログへ落とす（附録A.4: 握り潰さない）。
         _ = RunStartupValidationAsync(
-            projectStore, revisionStore, dialogService, revisionRestorer, startupIssues);
+                projectStore, revisionStore, dialogService, revisionRestorer, startupIssues)
+            .ContinueWith(
+                task => _logger?.Error("startup", $"起動時検証に失敗しました: {task.Exception!.GetBaseException()}"),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
     }
 
     /// <summary>
