@@ -157,9 +157,18 @@ public class BackupRevisionTests
         var removed = await harness.Revisions.EnforceRetentionAsync(harness.ProjectId, settings);
 
         removed.IsSuccess.Should().BeTrue();
-        removed.Value.Should().Be(3, "5件中、上限2件を超える古い3件が削除されるはず");
+        removed.Value.Should().Be(3, "5件中、上限2件を超える古い3件のバックアップフォルダ実体が削除されるはず");
+
+        var projectBackupDir = harness.Paths.GetProjectBackupDirectory(harness.ProjectId);
+        Directory.EnumerateDirectories(projectBackupDir).Should().HaveCount(2, "実体フォルダは新しい2件だけが残るはず");
+
+        // 8.4/13.1の設計上、削除済みのリビジョンもhistory.jsonlの記録自体は残るため一覧には
+        // 引き続き現れるが、実体が無いため復元不可（IsRestorable=false）として区別される。
         var remaining = await harness.Revisions.ListAsync(harness.ProjectId);
-        remaining.Value.Select(r => r.Manifest.Revision).Should().BeEquivalentTo(new[] { 4, 5 });
+        remaining.Value.Where(r => r.IsRestorable).Select(r => r.Manifest.Revision)
+            .Should().BeEquivalentTo(new[] { 4, 5 }, "復元可能なリビジョンは新しい2件のみのはず");
+        remaining.Value.Where(r => !r.IsRestorable).Select(r => r.Manifest.Revision)
+            .Should().BeEquivalentTo(new[] { 1, 2, 3 }, "削除済みのリビジョンも履歴記録としては復元不可のまま残るはず（仕様書13.1）");
     }
 
     // ------------------------------------------------------------------
@@ -252,13 +261,41 @@ public class BackupRevisionTests
 
         var withoutForce = await restorer.RestoreAsync(harness.ProjectId, harness.ProjectRoot, summary, force: false);
         withoutForce.IsSuccess.Should().BeFalse();
-        withoutForce.Errors.Should().Contain(i => i.Code == ErrorCode.E301);
+        // E301はSeverity.Warningとして記録されるが、force指定が無い限りRestoreAsync自体は
+        // 失敗（IsSuccess=false）として返る設計のため、Errorsではなくissues全体を確認する。
+        withoutForce.Issues.Should().Contain(i => i.Code == ErrorCode.E301);
         File.ReadAllText(Path.Combine(harness.ProjectRoot, "target.txt")).Should().Be("さらに変更された内容",
             "force指定なしでは警告が出た時点で復元を行わないはず");
 
         var withForce = await restorer.RestoreAsync(harness.ProjectId, harness.ProjectRoot, summary, force: true);
         withForce.IsSuccess.Should().BeTrue();
         File.ReadAllText(Path.Combine(harness.ProjectRoot, "target.txt")).Should().Be("変更前の内容");
+    }
+
+    [Fact(DisplayName = "根本原因の別事例: MKDIR取消時にフォルダへ後から追加された内容がある場合も例外を投げず警告として返るべき")]
+    public async Task MKDIR取消でフォルダに追加内容がある場合も例外を投げない()
+    {
+        // RevisionRestorer.UndoMkdirは「作成後にファイルが追加されたため削除できない」場合に
+        // GraftResult<string?>.Ok(null, warning) を返す設計だが、呼び出し元のRestoreAsyncは
+        // `result.IsSuccess && result.Value is not null` の判定でこの正当な成功(値=null)を
+        // 読もうとし、ApplyEngineTestsで確認したGraftResult<T>.Valueの不具合により例外が飛ぶ。
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        var entries = new[] { new RevisionEntry { Path = "newdir", Operation = EntryOperation.Mkdir } };
+        var (manifest, session) = await CreateRevisionAsync(harness, 11, "sha256:mkdirundo", entries: entries);
+        // MKDIRされたフォルダに、その後さらにファイルが追加された状態を模す。
+        Directory.CreateDirectory(Path.Combine(harness.ProjectRoot, "newdir"));
+        File.WriteAllText(Path.Combine(harness.ProjectRoot, "newdir", "extra.txt"), "後から追加された内容");
+
+        var summary = new RevisionSummary { Manifest = manifest, FolderPath = session.FolderPath, IsRestorable = true };
+        var restorer = new RevisionRestorer(harness.Paths);
+
+        Func<Task<GraftResult<IReadOnlyList<string>>>> act =
+            () => restorer.RestoreAsync(harness.ProjectId, harness.ProjectRoot, summary, force: false);
+
+        await act.Should().NotThrowAsync(
+            "GraftResult<T>.Valueが成功かつ値nullのケースを例外にしてしまう不具合（Core/GraftResult.cs 80〜83行目）" +
+            "により、RevisionRestorer.RestoreAsync内でresult.Valueへのアクセスが例外を投げるはず。");
     }
 
     [Fact(DisplayName = "実体フォルダが存在しないリビジョンは復元できずE405になる")]

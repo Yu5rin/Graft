@@ -266,8 +266,21 @@ public sealed class ApplyEngine
         else
         {
             // 4.5: FULL形式でファイルが存在しない場合は親フォルダごと作成する。
+            // 同名のファイルが既にある等で作成できない場合、例外を投げず失敗として返す
+            // （附録A: ユーザー操作起因の失敗はGraftResultで扱う）。
             var parentDir = Path.GetDirectoryName(fullPath);
-            if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(LongPath.Extended(parentDir));
+            if (!string.IsNullOrEmpty(parentDir))
+            {
+                try
+                {
+                    Directory.CreateDirectory(LongPath.Extended(parentDir));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+                {
+                    return GraftResult<(bool, string?, string)>.Fail(
+                        ErrorCode.E402, $"親フォルダを作成できませんでした: {ex.Message}", path: path);
+                }
+            }
         }
 
         var seen = new HashSet<PatchBlock>(ReferenceEqualityComparer.Instance);
