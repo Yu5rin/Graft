@@ -1,0 +1,57 @@
+using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
+using FluentAssertions;
+using Graft.Views;
+
+namespace Graft.UiTests;
+
+/// <summary>
+/// 移植した各Viewが例外なく構築・描画できることを検証する（仕様書v2.1 附録A.7、20章L3）。
+/// XAMLの構文誤り・リソースキーの解決失敗は、いずれも構築時か描画時に例外として現れるため、
+/// このテストが通ることで「画面が開いた瞬間に落ちる」種類の不具合を機械的に防げる。
+/// WPF版で実際に発生した StaticResource 解決失敗・型変換失敗と同種の不具合が対象。
+/// </summary>
+public class ViewTests
+{
+    [AvaloniaFact(DisplayName = "空状態ビューを構築して描画できる")]
+    public void 空状態ビューを描画できる()
+    {
+        var view = new EmptyStateView { Message = "テスト", ActionText = "開く" };
+        RenderInWindow(view);
+    }
+
+    [AvaloniaFact(DisplayName = "空状態ビューは状態に応じて表示するパネルを切り替える")]
+    public void 空状態ビューは状態に応じてパネルを切り替える()
+    {
+        var view = new EmptyStateView();
+        var window = RenderInWindow(view);
+
+        view.State = EmptyStateMode.Empty;
+        window.CaptureRenderedFrame().Should().NotBeNull();
+
+        view.State = EmptyStateMode.Error;
+        view.Issue = Graft.Core.GraftIssue.Of(Graft.Core.ErrorCode.E101, "テスト");
+        window.CaptureRenderedFrame().Should().NotBeNull();
+    }
+
+    [AvaloniaFact(DisplayName = "ステータスバーを構築して描画できる")]
+    public void ステータスバーを描画できる() => RenderInWindow(new StatusBarView());
+
+    [AvaloniaFact(DisplayName = "サイドバーを構築して描画できる")]
+    public void サイドバーを描画できる() => RenderInWindow(new SideBar());
+
+    /// <summary>
+    /// コントロールをウィンドウに載せて実際に描画する。UserControl単体では描画パスに
+    /// 乗らずリソース解決の失敗を検出できないため、必ずウィンドウ経由で確認する。
+    /// </summary>
+    private static Window RenderInWindow(Control view)
+    {
+        var window = new Window { Width = 800, Height = 600, Content = view };
+        window.Show();
+
+        using var frame = window.CaptureRenderedFrame();
+        frame.Should().NotBeNull("リソース解決に失敗すると描画そのものができない");
+        return window;
+    }
+}

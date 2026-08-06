@@ -1,0 +1,67 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             x:Class="Graft.Views.SideBar"
+             Focusable="False">
+    <!--
+        9.2 サイドバー（48px固定）。エクスプローラ／プロジェクト／履歴／検索の4ビューを
+        アイコンで切り替える。同じアイコンの再クリックでサイドビューを折りたたむ
+        （ShellViewModel.SelectSideView）。DataContextはShellWindowから継承する。
+
+        WPF版からの差分: AvaloniaにMultiDataTriggerが無いため、「表示中かつ折りたたみ
+        でない」という選択状態の判定はShellViewModel側（IsExplorerActive等）へ移し、
+        Avaloniaの条件付きクラス（Classes.active="{Binding ...}"）で見た目を切り替える。
+    -->
+    <UserControl.Styles>
+        <Style Selector="Button.sideBarIcon">
+            <Setter Property="Width" Value="48" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Button.sideBarIcon.active /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+        </Style>
+    </UserControl.Styles>
+
+    <Border Background="{DynamicResource BgSurface}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="0,0,1,0"
+            AutomationProperties.Name="サイドバー">
+        <StackPanel Orientation="Vertical" Margin="0,8">
+
+            <Button Classes="sideBarIcon"
+                    Classes.active="{Binding IsExplorerActive}"
+                    Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.Explorer}"
+                    AutomationProperties.Name="エクスプローラビューを切り替え">
+                <Path Data="{DynamicResource IconFolderGeometry}" Classes="icon" />
+            </Button>
+
+            <Button Classes="sideBarIcon"
+                    Classes.active="{Binding IsProjectActive}"
+                    Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.Project}"
+                    AutomationProperties.Name="プロジェクトビューを切り替え">
+                <Path Data="{DynamicResource IconLayersGeometry}" Classes="icon" />
+            </Button>
+
+            <Button Classes="sideBarIcon"
+                    Classes.active="{Binding IsHistoryActive}"
+                    Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.History}"
+                    AutomationProperties.Name="履歴ビューを切り替え">
+                <Path Data="{DynamicResource IconHistoryGeometry}" Classes="icon" />
+            </Button>
+
+            <Button Classes="sideBarIcon"
+                    Classes.active="{Binding IsSearchActive}"
+                    Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.Search}"
+                    AutomationProperties.Name="検索ビューを切り替え">
+                <Path Data="{DynamicResource IconSearchGeometry}" Classes="icon" />
+            </Button>
+
+        </StackPanel>
+    </Border>
+</UserControl>
