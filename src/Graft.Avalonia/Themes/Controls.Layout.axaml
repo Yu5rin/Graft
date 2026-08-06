@@ -26,7 +26,10 @@
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center" />
                     </Border>
+                    <!-- 選択中を示すアクセント帯。タブ位置が左のときは左端の縦帯に変わる
+                         （下のセレクタで切り替える）。 -->
                     <Border Name="PART_Underline" Height="2" VerticalAlignment="Bottom"
+                            HorizontalAlignment="Stretch"
                             Background="{DynamicResource Accent}" IsVisible="False" />
                     <Border Name="PART_FocusRing"
                             BorderBrush="{DynamicResource Accent}"
@@ -48,24 +51,134 @@
         <Style Selector="^:focus /template/ Border#PART_FocusRing">
             <Setter Property="Opacity" Value="1" />
         </Style>
+        <!-- タブ位置が左（設定画面）のとき: 見出しは左寄せ、アクセント帯は左端の縦帯にする。 -->
+        <Style Selector="^[TabStripPlacement=Left] /template/ ContentPresenter">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+        <Style Selector="^[TabStripPlacement=Left] /template/ Border#PART_Underline">
+            <Setter Property="Height" Value="NaN" />
+            <Setter Property="Width" Value="2" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+        </Style>
     </ControlTheme>
 
     <ControlTheme x:Key="{x:Type TabControl}" TargetType="TabControl">
         <Setter Property="Background" Value="{DynamicResource BgSurface}" />
         <Setter Property="BorderThickness" Value="0" />
+        <!-- 既定は上（横並び）。TabStripPlacement="Left" のときは下のセレクタで縦並びへ切り替える。 -->
+        <Setter Property="ItemsPanel">
+            <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+        </Setter>
         <Setter Property="Template">
             <ControlTemplate>
-                <Grid RowDefinitions="Auto,*">
-                    <Border Grid.Row="0" BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1">
+                <!--
+                    タブ見出しの位置（上／左）に応じて配置を変えるためDockPanelで組む。
+                    Gridの行・列を固定すると TabStripPlacement を無視してしまう
+                    （設定画面は左並びを指定しているため、無視すると見出しが上に折り返される）。
+                -->
+                <DockPanel>
+                    <Border Name="PART_Strip" DockPanel.Dock="Top"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1">
                         <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
                     </Border>
-                    <Border Grid.Row="1" Background="{TemplateBinding Background}">
+                    <Border Background="{TemplateBinding Background}">
                         <ContentPresenter Name="PART_SelectedContentHost"
                                           Content="{TemplateBinding SelectedContent}"
                                           ContentTemplate="{TemplateBinding SelectedContentTemplate}"
                                           Margin="12" />
                     </Border>
-                </Grid>
+                </DockPanel>
+            </ControlTemplate>
+        </Setter>
+        <!--
+            AvaloniaのTabControlはタブ位置に対応する疑似クラス（:left等）を立てないため、
+            プロパティセレクタで直接 TabStripPlacement を見て切り替える。
+        -->
+        <Style Selector="^[TabStripPlacement=Left]">
+            <Setter Property="ItemsPanel">
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Vertical" />
+                </ItemsPanelTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="^[TabStripPlacement=Left] /template/ Border#PART_Strip">
+            <Setter Property="DockPanel.Dock" Value="Left" />
+            <Setter Property="BorderThickness" Value="0,0,1,0" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== Expander（バージョン情報のライセンス全文） ==========
+         9.1: OSのネイティブな見た目に寄せない。Fluentの既定テーマは明るい背景の
+         見出しを持ち、ダークテーマでコントラストが崩れるため差し替える。 -->
+    <ControlTheme x:Key="{x:Type Expander}" TargetType="Expander">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <StackPanel>
+                    <ToggleButton Name="PART_toggle"
+                                  HorizontalAlignment="Stretch"
+                                  HorizontalContentAlignment="Stretch"
+                                  Padding="{TemplateBinding Padding}"
+                                  Background="{TemplateBinding Background}"
+                                  BorderBrush="{TemplateBinding BorderBrush}"
+                                  BorderThickness="{TemplateBinding BorderThickness}"
+                                  Foreground="{TemplateBinding Foreground}"
+                                  Cursor="Hand"
+                                  IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}">
+                        <ToggleButton.Template>
+                            <ControlTemplate>
+                                <Border Name="PART_Bg"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        Padding="{TemplateBinding Padding}">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <ContentPresenter Grid.Column="0"
+                                                          Content="{TemplateBinding Content}"
+                                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                          VerticalAlignment="Center" />
+                                        <Panel Grid.Column="1" Margin="8,0,0,0">
+                                            <Path Name="PART_ChevronRight" Classes="icon"
+                                                  Width="12" Height="12"
+                                                  Data="{DynamicResource IconChevronRightGeometry}" />
+                                            <Path Name="PART_ChevronDown" Classes="icon"
+                                                  Width="12" Height="12"
+                                                  IsVisible="False"
+                                                  Data="{DynamicResource IconChevronDownGeometry}" />
+                                        </Panel>
+                                    </Grid>
+                                </Border>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                        <ToggleButton.Styles>
+                            <Style Selector="ToggleButton:pointerover /template/ Border#PART_Bg">
+                                <Setter Property="Background" Value="{DynamicResource BgHover}" />
+                            </Style>
+                            <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronRight">
+                                <Setter Property="IsVisible" Value="False" />
+                            </Style>
+                            <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronDown">
+                                <Setter Property="IsVisible" Value="True" />
+                            </Style>
+                        </ToggleButton.Styles>
+                        <ContentPresenter Content="{TemplateBinding Header}"
+                                          ContentTemplate="{TemplateBinding HeaderTemplate}" />
+                    </ToggleButton>
+                    <ContentPresenter Name="PART_ContentPresenter"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      IsVisible="{TemplateBinding IsExpanded}" />
+                </StackPanel>
             </ControlTemplate>
         </Setter>
     </ControlTheme>

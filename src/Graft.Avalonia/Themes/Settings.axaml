@@ -11,9 +11,15 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <!-- 設定項目の見出しラベル。幅を揃えて入力欄の左端を一列にする。 -->
+    <!--
+        設定項目の見出しラベル。入力欄の左端が一列に揃うよう幅を確保するが、
+        固定幅にすると長い項目名（「最大保持リビジョン数（0で無制限）」等）が
+        途中で切れてしまうため下限として与える。文字数が下限を超える行だけ
+        入力欄が右にずれる。
+    -->
     <Style Selector="TextBlock.fieldLabel">
-        <Setter Property="Width" Value="200" />
+        <Setter Property="MinWidth" Value="280" />
+        <Setter Property="Margin" Value="0,0,8,0" />
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 

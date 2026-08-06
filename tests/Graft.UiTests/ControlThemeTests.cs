@@ -1,7 +1,10 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia;
+using Avalonia.Controls.Presenters;
 using Avalonia.Layout;
+using Avalonia.VisualTree;
 using FluentAssertions;
 
 namespace Graft.UiTests;
@@ -37,5 +40,37 @@ public class ControlThemeTests
         withShortSelected.Should().BeApproximately(withLongSelected, 0.5,
             "どの項目を選んでいても最長項目が収まる幅である必要がある");
         withShortSelected.Should().BeGreaterThan(100, "最長項目と矢印が収まる幅が確保されている必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "タブ位置を左にすると見出しが本文の左側へ並ぶ")]
+    public void タブ位置を左にすると左側へ並ぶ()
+    {
+        // 設定画面は TabStripPlacement="Left" を指定している。共通テーマがこれを無視すると
+        // 見出しが上へ横並びになり、数が多いと折り返して2段になる（実機で発生した不具合）。
+        var tabs = new TabControl
+        {
+            TabStripPlacement = Dock.Left,
+            ItemsSource = new[]
+            {
+                new TabItem { Header = "一般", Content = new TextBlock { Text = "本文" } },
+                new TabItem { Header = "エディタ", Content = new TextBlock { Text = "本文" } },
+                new TabItem { Header = "プロンプトテンプレート", Content = new TextBlock { Text = "本文" } },
+            },
+        };
+        var window = new Window { Width = 800, Height = 400, Content = tabs };
+        window.Show();
+        window.CaptureRenderedFrame().Should().NotBeNull();
+
+        var strip = tabs.GetVisualDescendants().OfType<ItemsPresenter>().First();
+        var content = tabs.GetVisualDescendants().OfType<ContentPresenter>()
+            .First(c => c.Name == "PART_SelectedContentHost");
+
+        // 各要素のタブコントロール内での位置で比較する（見出しの右端 <= 本文の左端）。
+        var stripLeft = strip.TranslatePoint(default, tabs)!.Value.X;
+        var contentLeft = content.TranslatePoint(default, tabs)!.Value.X;
+        contentLeft.Should().BeGreaterThanOrEqualTo(stripLeft + strip.Bounds.Width,
+            "タブ見出しは本文の左側に並ぶ必要がある");
+        strip.Bounds.Width.Should().BeLessThan(tabs.Bounds.Width / 2,
+            "見出しの列が本文を押し出すほど広がってはならない");
     }
 }
