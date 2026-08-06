@@ -22,7 +22,9 @@
         - Visibility は IsVisible（bool）へ。サイドビューの出し分けはコンバータで行う。
         - Popup は Avalonia でも同名だが、配置は PlacementTarget＋Placement="Bottom" と
           IsLightDismissEnabled（WPFのStaysOpen=Falseに相当）で指定する。
-        - ComboBox の DisplayMemberPath は DisplayMemberBinding へ。
+        - ComboBox の DisplayMemberPath は ItemTemplate（共通テンプレート）へ。
+          DisplayMemberBinding ではなく ItemTemplate を使うのは、閉じた状態の幅を
+          「一番長い項目＋矢印」に合わせる共通テーマの仕組みが ItemTemplate を見るため。
         - GridSplitter の ResizeDirection/ResizeBehavior は無く、置いた向き（幅か高さか）で
           自動的に決まる。
     -->
@@ -45,7 +47,7 @@
                           VerticalAlignment="Center"
                           ItemsSource="{Binding Graft.ProjectPane.Items}"
                           SelectedItem="{Binding Graft.ProjectPane.SelectedItem, Mode=TwoWay}"
-                          DisplayMemberBinding="{Binding Name}"
+                          ItemTemplate="{StaticResource NameItemTemplate}"
                           AutomationProperties.Name="プロジェクトを選択" />
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
@@ -150,24 +152,33 @@
 
             <views:SideBar Grid.Column="0" />
 
-            <!-- サイドビュー: エクスプローラ／プロジェクト／履歴／検索。 -->
+            <!--
+                サイドビュー: エクスプローラ／プロジェクト／履歴／検索。
+                表示の出し分けは外側のBorderに置く。同じ要素で DataContext を差し替えると
+                IsVisible のバインドもその新しいDataContext（Explorer等）に対して解決されてしまい、
+                SelectedSideView が見つからず全ビューが重なって表示されるため。
+            -->
             <Grid Grid.Column="1">
-                <views:ExplorerView x:Name="ExplorerViewControl" DataContext="{Binding Explorer}"
-                                    IsVisible="{Binding SelectedSideView,
-                                                Converter={x:Static views:Converters.SideViewIs},
-                                                ConverterParameter=Explorer}" />
-                <views:ProjectPane x:Name="ProjectPaneControl" DataContext="{Binding Graft.ProjectPane}"
-                                   IsVisible="{Binding SelectedSideView,
-                                               Converter={x:Static views:Converters.SideViewIs},
-                                               ConverterParameter=Project}" />
-                <views:HistoryPane x:Name="HistoryPaneControl" DataContext="{Binding Graft.History}"
-                                   IsVisible="{Binding SelectedSideView,
-                                               Converter={x:Static views:Converters.SideViewIs},
-                                               ConverterParameter=History}" />
-                <views:SearchView DataContext="{Binding Search}"
-                                  IsVisible="{Binding SelectedSideView,
-                                              Converter={x:Static views:Converters.SideViewIs},
-                                              ConverterParameter=Search}" />
+                <Border IsVisible="{Binding SelectedSideView,
+                                    Converter={x:Static views:Converters.SideViewIs},
+                                    ConverterParameter=Explorer}">
+                    <views:ExplorerView x:Name="ExplorerViewControl" DataContext="{Binding Explorer}" />
+                </Border>
+                <Border IsVisible="{Binding SelectedSideView,
+                                    Converter={x:Static views:Converters.SideViewIs},
+                                    ConverterParameter=Project}">
+                    <views:ProjectPane x:Name="ProjectPaneControl" DataContext="{Binding Graft.ProjectPane}" />
+                </Border>
+                <Border IsVisible="{Binding SelectedSideView,
+                                    Converter={x:Static views:Converters.SideViewIs},
+                                    ConverterParameter=History}">
+                    <views:HistoryPane x:Name="HistoryPaneControl" DataContext="{Binding Graft.History}" />
+                </Border>
+                <Border IsVisible="{Binding SelectedSideView,
+                                    Converter={x:Static views:Converters.SideViewIs},
+                                    ConverterParameter=Search}">
+                    <views:SearchView DataContext="{Binding Search}" />
+                </Border>
             </Grid>
 
             <GridSplitter x:Name="SideViewSplitter"

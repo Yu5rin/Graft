@@ -55,7 +55,8 @@
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="反応時の挙動" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ClipboardActionOptions}" SelectedValueBinding="{Binding Value}"
-                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedClipboardAction}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}"
+                          SelectedValue="{Binding SelectedClipboardAction}"
                           AutomationProperties.Name="クリップボード監視反応時の挙動" />
             </StackPanel>
         </StackPanel>

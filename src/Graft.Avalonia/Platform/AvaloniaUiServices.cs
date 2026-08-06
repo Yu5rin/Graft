@@ -29,15 +29,21 @@ public sealed class AvaloniaUiServices : IUiServices
 
     public IUiTimer CreateTimer(TimeSpan interval, Action onTick) => new AvaloniaUiTimer(interval, onTick);
 
-    /// <summary>デスクトップライフタイムのメインウィンドウを起点に<see cref="TopLevel"/>を解決する。</summary>
+    /// <summary>
+    /// デスクトップライフタイムのメインウィンドウを起点に<see cref="TopLevel"/>を解決する。
+    /// 起動直後（MainWindowの割り当て前）にも画面情報が必要になるため、未設定の場合は
+    /// 開いているウィンドウのいずれかで代用する。ここでnullを返すと画面構成が「無し」と
+    /// みなされ、ウィンドウの復元サイズが最小サイズまで縮んでしまう。
+    /// </summary>
     internal static TopLevel? ResolveTopLevel()
     {
         if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
         {
             return null;
         }
-        var mainWindow = desktop.MainWindow;
-        return mainWindow is null ? null : TopLevel.GetTopLevel(mainWindow);
+
+        var window = desktop.MainWindow ?? desktop.Windows.FirstOrDefault();
+        return window is null ? null : TopLevel.GetTopLevel(window);
     }
 }
 

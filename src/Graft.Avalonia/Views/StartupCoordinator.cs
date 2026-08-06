@@ -25,7 +25,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     private const string MainWindowTitle = "Graft";
     private const string PromptCopyHotkey = "Ctrl+Shift+C";
 
-    private readonly AppPaths _appPaths = new();
+    private readonly AppPaths _appPaths;
 
     // UIフレームワーク固有の機能（クリップボード・画面情報・タイマー）。ViewModelへ手動で配る。
     private readonly IUiServices _ui = new AvaloniaUiServices();
@@ -38,6 +38,15 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     private PatchQueue? _patchQueue;
     private ShellViewModel? _shellViewModel;
     private AppSettings _settings = new();
+
+    /// <param name="baseDirectory">
+    /// settings.json 等の基準ディレクトリ。省略時は実行ファイルの場所を使う。
+    /// テストから一時ディレクトリを渡して、利用者の設定を汚さずに起動処理を検証できるようにする。
+    /// </param>
+    public StartupCoordinator(string? baseDirectory = null)
+    {
+        _appPaths = new AppPaths(baseDirectory);
+    }
 
     /// <summary>生成されたメインウィンドウ（仕様書9.2の新シェルレイアウト）。<see cref="StartAsync"/> 完了後に設定される。</summary>
     public ShellWindow? MainWindow { get; private set; }
@@ -84,7 +93,6 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         var projectStore = new ProjectStore(_appPaths);
         var revisionStore = new RevisionStore(_appPaths);
         var revisionRestorer = new RevisionRestorer(_appPaths);
-        var applyEngine = BuildApplyEngine(_appPaths, _settings);
 
         void OpenSettings()
         {
@@ -94,15 +102,22 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             else window.Show();
         }
 
-        var mainViewModel = new MainViewModel(
-            applyEngine, projectStore, revisionStore, revisionRestorer,
-            _settingsStore, new WindowLayoutStore(_appPaths), dialogService, patchQueue, OpenSettings, _ui);
-        var editorViewModel = new EditorPaneViewModel(_settings, dialogService, _ui);
-        var shellViewModel = new ShellViewModel(mainViewModel, editorViewModel, dialogService, _settings, _ui);
+        var shellViewModel = BuildShellViewModel(
+            _appPaths, _settings, _settingsStore, patchQueue, projectStore, revisionStore, revisionRestorer,
+            dialogService, _ui, OpenSettings);
+        var mainViewModel = shellViewModel.Graft;
         _shellViewModel = shellViewModel;
 
         var window = new ShellWindow(shellViewModel);
         MainWindow = window;
+
+        // 画面情報（IScreenInfo）はデスクトップライフタイムのウィンドウ経由で解決するため、
+        // レイアウト復元より前にMainWindowを割り当てておく。割り当てが遅れると画面構成が
+        // 取得できず、復元サイズが最小サイズまで縮む。
+        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.MainWindow = window;
+        }
 
         var startupIssues = new List<GraftIssue>(settingsResult.Issues);
         WirePlatformServices(window, mainViewModel, startupIssues);
@@ -123,6 +138,23 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
         _ = RunStartupValidationAsync(
             projectStore, revisionStore, dialogService, revisionRestorer, startupIssues);
+    }
+
+    /// <summary>
+    /// ShellViewModel以下の依存グラフを組み立てる（附録A.3: DIコンテナを使わない手動構築）。
+    /// 起動処理本体とUIテストの双方から使い、実際の起動と同じ組み合わせを検証できるようにする。
+    /// </summary>
+    public static ShellViewModel BuildShellViewModel(
+        AppPaths appPaths, AppSettings settings, SettingsStore settingsStore, PatchQueue patchQueue,
+        ProjectStore projectStore, RevisionStore revisionStore, RevisionRestorer revisionRestorer,
+        IDialogService dialogService, IUiServices ui, Action openSettings)
+    {
+        var applyEngine = BuildApplyEngine(appPaths, settings);
+        var mainViewModel = new MainViewModel(
+            applyEngine, projectStore, revisionStore, revisionRestorer,
+            settingsStore, new WindowLayoutStore(appPaths), dialogService, patchQueue, openSettings, ui);
+        var editorViewModel = new EditorPaneViewModel(settings, dialogService, ui);
+        return new ShellViewModel(mainViewModel, editorViewModel, dialogService, settings, ui);
     }
 
     private static ApplyEngine BuildApplyEngine(AppPaths appPaths, AppSettings settings)

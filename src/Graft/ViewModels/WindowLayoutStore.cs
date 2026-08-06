@@ -143,9 +143,21 @@ public sealed class WindowLayoutStore
         return virtualScreen.IntersectsWith(titleBar);
     }
 
+    /// <summary>
+    /// プライマリモニタの作業領域中央へ配置する。作業領域が取得できない場合
+    /// （幅か高さが0。ウィンドウマネージャの無い環境や、画面情報の準備が整う前の
+    /// 問い合わせで起こりうる）は、要求されたサイズをそのまま維持し位置だけ原点に置く。
+    /// ここで作業領域の大きさで単純に切り詰めると、サイズが0へ潰れたうえで最小サイズまで
+    /// しか戻らず、ウィンドウが常に最小サイズで開いてしまう。
+    /// </summary>
     private static UiRect CenterOnPrimary(double width, double height, IScreenInfo screens)
     {
         var workArea = screens.PrimaryWorkArea;
+        if (workArea.Width <= 0 || workArea.Height <= 0)
+        {
+            return new UiRect(0, 0, width, height);
+        }
+
         var boundedWidth = Math.Min(width, workArea.Width);
         var boundedHeight = Math.Min(height, workArea.Height);
         var left = workArea.Left + Math.Max(0, (workArea.Width - boundedWidth) / 2);

@@ -34,13 +34,14 @@
             <Grid Margin="0,8,0,0" ColumnDefinitions="Auto,*,Auto,*">
                 <TextBlock Grid.Column="0" Text="収集モード" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <ComboBox Grid.Column="1" ItemsSource="{Binding Modes}" SelectedValue="{Binding SelectedMode}"
-                          SelectedValueBinding="{Binding Mode}" DisplayMemberBinding="{Binding Label}"
+                          SelectedValueBinding="{Binding Mode}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}"
                           MaxWidth="220" HorizontalAlignment="Left"
                           AutomationProperties.Name="収集モード" TabIndex="0" />
                 <TextBlock Grid.Column="2" Text="対象リビジョン" VerticalAlignment="Center" Margin="16,0,8,0"
                            IsVisible="{Binding ShowRevisionPicker}" />
                 <ComboBox Grid.Column="3" ItemsSource="{Binding Revisions}" SelectedItem="{Binding SelectedRevision}"
-                          DisplayMemberBinding="{Binding DisplayText}"
+                          ItemTemplate="{StaticResource DisplayTextItemTemplate}"
                           MaxWidth="260" HorizontalAlignment="Left"
                           AutomationProperties.Name="差分の基準リビジョン" TabIndex="1"
                           IsVisible="{Binding ShowRevisionPicker}" />
