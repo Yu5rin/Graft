@@ -20,6 +20,13 @@
     <Compile Include="..\..\src\Graft\Core\**\*.cs" LinkBase="Linked\Core" />
     <Compile Include="..\..\src\Graft\Features\**\*.cs" LinkBase="Linked\Features" />
     <Compile Include="..\..\src\Graft\Infra\**\*.cs" LinkBase="Linked\Infra" />
+    <!--
+      Platform層の抽象とNull実装はUIフレームワーク非依存のため取り込む。
+      Platform/Windows は WPF・レジストリに依存し、実装を選ぶファクトリ
+      （Platform/PlatformServices.cs）はそれを参照するため、いずれも取り込まない。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\IPlatformServices.cs" LinkBase="Linked\Platform" />
+    <Compile Include="..\..\src\Graft\Platform\Null\**\*.cs" LinkBase="Linked\Platform\Null" />
   </ItemGroup>
 
   <ItemGroup>
