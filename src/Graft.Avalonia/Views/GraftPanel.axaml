@@ -1,0 +1,169 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.GraftPanel"
+             x:Name="Root">
+    <!--
+        9.2 接ぎ木パネル（下部）。diffはエディタ領域の専用タブへ移設したため、本パネルは
+        ブロック一覧・適用サマリ・操作ボタンに絞る。通常時は折りたたまれ、パッチ解析時に
+        自動展開する（ShellViewModel.IsGraftPanelOpen）。
+        Root（このUserControl自体）のDataContextはShellWindowから継承したまま
+        （ShellViewModel）にしておき、ヘッダー・本体の内側だけGraft（MainViewModel）へ
+        差し替える。開閉状態とトグルコマンドはShellViewModel側のためElementName=Rootで参照する。
+
+        WPF版からの差分:
+        - Visibility は IsVisible（bool）へ。
+        - 状態アイコンのDataTrigger（check / alert-triangle / x-circle）は、3つのPathを
+          重ねてViewModel側の真偽値（IsOk/IsWarn/IsError）で出し分ける形にした。
+    -->
+    <Grid Background="{DynamicResource BgSurface}" RowDefinitions="32,*">
+
+        <!-- ヘッダー: 開閉トグル・タイトル・状態サマリ・プレビュー/適用・失敗再依頼 -->
+        <Border Grid.Row="0" DataContext="{Binding Graft}"
+                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0">
+            <Grid Margin="8,0" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
+
+                <Button Grid.Column="0"
+                        Command="{Binding DataContext.ToggleGraftPanelCommand, ElementName=Root}"
+                        Background="Transparent" BorderThickness="0" Padding="4"
+                        AutomationProperties.Name="接ぎ木パネルの開閉">
+                    <Panel>
+                        <Path Classes="icon" Width="14" Height="14"
+                              Data="{DynamicResource IconChevronRightGeometry}"
+                              IsVisible="{Binding !DataContext.IsGraftPanelOpen, ElementName=Root}" />
+                        <Path Classes="icon" Width="14" Height="14"
+                              Data="{DynamicResource IconChevronDownGeometry}"
+                              IsVisible="{Binding DataContext.IsGraftPanelOpen, ElementName=Root}" />
+                    </Panel>
+                </Button>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="4,0,12,0">
+                    <Path Classes="icon" Width="14" Height="14"
+                          Data="{DynamicResource IconPanelBottomGeometry}"
+                          Stroke="{DynamicResource TextSecondary}" Margin="0,0,4,0" />
+                    <TextBlock Text="接ぎ木" VerticalAlignment="Center"
+                               FontSize="{DynamicResource PaneHeadingFontSize}"
+                               FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                               Foreground="{DynamicResource TextSecondary}" />
+                </StackPanel>
+
+                <TextBlock Grid.Column="2" Text="{Binding StatusSummaryText}" VerticalAlignment="Center"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           Foreground="{DynamicResource TextSecondary}" />
+
+                <!-- 11章 失敗時リカバリ支援: 失敗ブロックがある場合のみ有効になる。 -->
+                <Button Grid.Column="3" Content="失敗を再依頼" Margin="4,0"
+                        Command="{Binding CopyRecoveryPromptCommand}"
+                        AutomationProperties.Name="失敗ブロックの再依頼プロンプトをコピー" />
+
+                <Button Grid.Column="4" Margin="4,0" Command="{Binding PreviewCommand}"
+                        AutomationProperties.Name="プレビューを再実行">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{DynamicResource IconEyeGeometry}" Classes="icon"
+                              Width="14" Height="14" Margin="0,0,4,0" />
+                        <TextBlock Text="プレビュー" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
+                <!-- F6ペイン巡回の最後の停留先（GraftPanel.axaml.cs: DiffHost）。 -->
+                <Button x:Name="ApplyButtonElement" Grid.Column="5" Command="{Binding ApplyCommand}"
+                        AutomationProperties.Name="適用を実行">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{DynamicResource IconPlayGeometry}" Classes="icon"
+                              Width="14" Height="14" Margin="0,0,4,0" />
+                        <TextBlock Text="適用" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- 本体: ブロック一覧（展開時のみ表示）。 -->
+        <Grid Grid.Row="1" DataContext="{Binding Graft}"
+              IsVisible="{Binding DataContext.IsGraftPanelOpen, ElementName=Root}"
+              RowDefinitions="Auto,*">
+
+            <TextBox Grid.Row="0" Margin="8,6"
+                     Text="{Binding FilterText}"
+                     AutomationProperties.Name="ブロック一覧を検索" />
+
+            <Grid Grid.Row="1">
+                <!-- ブロック一覧（1行目パス・2行目変更説明、状態アイコン、チェックボックス）。
+                     選択すると差分がエディタ領域のタブへ開く（ShellViewModel側の配線）。 -->
+                <ListBox x:Name="BlockListBox"
+                         ItemsSource="{Binding Blocks}"
+                         SelectedItem="{Binding SelectedBlock, Mode=TwoWay}"
+                         Background="Transparent"
+                         AutomationProperties.Name="ブロック一覧">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,4" ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+
+                                <CheckBox Grid.Column="0" VerticalAlignment="Top" Margin="0,2,4,0"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          IsEnabled="{Binding CanToggle}"
+                                          AutomationProperties.Name="適用可否を切り替え" />
+
+                                <!-- 8.5: 状態は色と形状の両方で区別する（check / alert-triangle / x-circle）。 -->
+                                <Panel Grid.Column="1" VerticalAlignment="Top" Margin="0,2,6,0">
+                                    <Path Classes="icon" Width="16" Height="16"
+                                          Data="{DynamicResource IconCheckGeometry}"
+                                          Stroke="{DynamicResource StateOk}"
+                                          IsVisible="{Binding IsOk}" />
+                                    <Path Classes="icon" Width="16" Height="16"
+                                          Data="{DynamicResource IconAlertTriangleGeometry}"
+                                          Stroke="{DynamicResource StateWarn}"
+                                          IsVisible="{Binding IsWarn}" />
+                                    <Path Classes="icon" Width="16" Height="16"
+                                          Data="{DynamicResource IconXCircleGeometry}"
+                                          Stroke="{DynamicResource StateError}"
+                                          IsVisible="{Binding IsError}" />
+                                </Panel>
+
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="{Binding PathText}" FontSize="{DynamicResource BodyFontSize}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding DescriptionText}"
+                                               FontSize="{DynamicResource CaptionFontSize}"
+                                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" />
+                                    <!-- 8.8: エラーは赤い帯ではなく該当行のインライン表示。エラーコード＋対処方法併記。 -->
+                                    <TextBlock Text="{Binding IssueText}" FontSize="{DynamicResource CaptionFontSize}"
+                                               Foreground="{DynamicResource StateError}" TextWrapping="Wrap"
+                                               IsVisible="{Binding HasIssue}" />
+                                </StackPanel>
+
+                                <TextBlock Grid.Column="3" Text="{Binding AddedRemovedText}" VerticalAlignment="Top"
+                                           Margin="4,0"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
+
+                                <!-- 4.8: ブロック一覧からのジャンプ。マッチ位置をエディタで開く。 -->
+                                <Button Grid.Column="4" VerticalAlignment="Top" Padding="2"
+                                        Background="Transparent" BorderThickness="0"
+                                        Command="{Binding DataContext.OpenBlockInEditorCommand, ElementName=Root}"
+                                        CommandParameter="{Binding}"
+                                        AutomationProperties.Name="エディタで開く">
+                                    <Path Classes="icon" Width="14" Height="14"
+                                          Data="{DynamicResource IconFileCodeGeometry}"
+                                          Stroke="{DynamicResource TextSecondary}" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <views:EmptyStateView State="{Binding State,
+                                              Converter={x:Static views:Converters.CenterPaneStateToEmptyState}}"
+                                      IconGeometry="{DynamicResource IconCopyGeometry}"
+                                      Message="AIの出力をコピーして Ctrl+Shift+V"
+                                      ActionText="解析"
+                                      ActionCommand="{Binding PasteAndParseCommand}"
+                                      Issue="{Binding CenterError}" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>
