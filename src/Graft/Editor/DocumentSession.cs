@@ -127,7 +127,13 @@ public sealed class DocumentSession : IDisposable
 
     /// <summary>
     /// ディスク上の内容で再読込する。呼び出し側（4.6/4.8）が未保存変更との競合有無を
-    /// 判断した後に呼ぶことを想定し、本メソッド自体は確認を行わず常に上書きする。
+    /// 判断した後に呼ぶことを想定し、本メソッド自体は確認を行わない。
+    ///
+    /// ただし、ディスク上の内容が編集中の内容と同一の場合は文書へ触れない。
+    /// 自分で保存した直後もファイル監視（4.6）は変更として通知してくるため、
+    /// 無条件に差し替えるとカーソル位置とアンドゥ履歴が保存のたびに失われる
+    /// （実機で「保存するとカーソルが末尾へ飛ぶ」不具合として現れた）。
+    /// 内容が同じなら再読込の必要そのものが無いので、誰が書いたかを問わず何もしない。
     /// </summary>
     public async Task<GraftResult<bool>> ReloadAsync(CancellationToken ct = default)
     {
@@ -140,9 +146,14 @@ public sealed class DocumentSession : IDisposable
         var (text, shape) = read.Value;
 
         // Document/UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う
-        // 必要がある（クラス冒頭のコメント参照）。
+        // 必要がある（クラス冒頭のコメント参照）。Document.Textの読み取りも同様。
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            if (Shape == shape && string.Equals(Document.Text, text, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             Shape = shape;
             Document.Text = text;
             Document.UndoStack.ClearAll();

@@ -16,7 +16,12 @@
     -->
     <Grid DataContext="{Binding Templates}" Margin="16,8" RowDefinitions="Auto,*,Auto">
 
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+        <!--
+            横一列に固定すると、プロジェクト名が長い場合にセレクトボックスが広がり、
+            右端のチェックボックスの文字が見切れる（実機で発生）。幅が足りないときは
+            折り返して2段にする。
+        -->
+        <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="プレビュー対象プロジェクト" Classes="fieldLabel" />
             <ComboBox ItemsSource="{Binding Projects}"
                       ItemTemplate="{StaticResource NameItemTemplate}"
@@ -25,7 +30,7 @@
             <CheckBox Content="継続用（短縮版）でコピーする" IsChecked="{Binding IsContinuationMode}"
                       Margin="24,0,0,0" VerticalAlignment="Center"
                       AutomationProperties.Name="継続用の短縮版でコピーする" />
-        </StackPanel>
+        </WrapPanel>
 
         <Grid Grid.Row="1" ColumnDefinitions="280,Auto,*">
 
@@ -51,10 +56,15 @@
                 <TextBox Grid.Row="0" Text="{Binding Name}"
                          IsReadOnly="{Binding IsBuiltIn}" Margin="0,0,0,8"
                          AutomationProperties.Name="テンプレート名" />
+                <!--
+                    「type: feat|fix|refactor|...」のように区切りの無い長い語は折り返せず
+                    右へはみ出すため、横方向にもスクロールできるようにする。
+                -->
                 <TextBox Grid.Row="1" Text="{Binding Body}"
                          IsReadOnly="{Binding IsBuiltIn}" AcceptsReturn="True" TextWrapping="Wrap"
                          FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
                          AutomationProperties.Name="テンプレート本文" />
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="保存"
