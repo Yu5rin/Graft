@@ -182,6 +182,10 @@ public sealed class ProjectStore
         var full = Path.GetFullPath(root);
         var withSlashes = full.Replace('\\', '/');
         var trimmed = withSlashes.Length > 1 ? withSlashes.TrimEnd('/') : withSlashes;
-        return trimmed.ToLowerInvariant();
+
+        // 仕様書v2.1 3章: パスの比較規則はプラットフォームへ委ねる。Windowsは大文字小文字を
+        // 無視するため小文字へ正規化し、区別するLinuxではそのまま使う。ここで一律に
+        // 小文字化すると、Linuxで大文字小文字だけが異なる別フォルダが同一プロジェクトIDになる。
+        return OperatingSystem.IsWindows() ? trimmed.ToLowerInvariant() : trimmed;
     }
 }

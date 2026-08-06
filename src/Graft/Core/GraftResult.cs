@@ -59,9 +59,12 @@ public sealed record GraftIssue
 /// </summary>
 public sealed class GraftResult<T>
 {
-    private readonly T? _value;
+    // 成否は IsSuccess のみで表す。値がnullかどうかで判断してはならない。
+    // T が null を許す型（例: GraftResult<RevisionSummary?>）では「成功したが値はnull」が
+    // 正当な結果であり、これを失敗と混同すると Value の参照だけで例外になる。
+    private readonly T _value;
 
-    private GraftResult(bool ok, T? value, IReadOnlyList<GraftIssue> issues)
+    private GraftResult(bool ok, T value, IReadOnlyList<GraftIssue> issues)
     {
         IsSuccess = ok;
         _value = value;
@@ -77,13 +80,16 @@ public sealed class GraftResult<T>
     /// <summary>致命的失敗のみを抽出する。</summary>
     public IEnumerable<GraftIssue> Errors => Issues.Where(i => i.Severity == Severity.Error);
 
-    /// <summary>成功値。失敗時に参照すると例外を投げる。</summary>
-    public T Value => IsSuccess && _value is not null
+    /// <summary>
+    /// 成功値。失敗時に参照すると例外を投げる。
+    /// 成功していれば、値が null であってもそのまま返す（T が null を許す型の場合）。
+    /// </summary>
+    public T Value => IsSuccess
         ? _value
         : throw new InvalidOperationException("失敗した結果から値を取得しようとしました。");
 
     /// <summary>成功値。失敗時は既定値を返す。</summary>
-    public T? ValueOrDefault => _value;
+    public T? ValueOrDefault => IsSuccess ? _value : default;
 
     /// <summary>成功を生成する。警告を伴う成功も表現できる。</summary>
     public static GraftResult<T> Ok(T value, IEnumerable<GraftIssue>? issues = null)
@@ -91,7 +97,7 @@ public sealed class GraftResult<T>
 
     /// <summary>失敗を生成する。</summary>
     public static GraftResult<T> Fail(params GraftIssue[] issues)
-        => new(false, default, issues);
+        => new(false, FailureValue, issues);
 
     /// <summary>単一のエラーコードから失敗を生成する。</summary>
     public static GraftResult<T> Fail(ErrorCode code, string? detail = null, int? line = null, string? path = null)
@@ -99,5 +105,10 @@ public sealed class GraftResult<T>
 
     /// <summary>失敗を生成する。</summary>
     public static GraftResult<T> Fail(IEnumerable<GraftIssue> issues)
-        => new(false, default, issues.ToArray());
+        => new(false, FailureValue, issues.ToArray());
+
+    // 失敗時に保持する値。Value からは参照されず（IsSuccess が false のため必ず例外になる）、
+    // ValueOrDefault も default を返すため外へ漏れない。T が非null参照型でも
+    // フィールドを初期化する必要があるため、ここでのみ null 許容の抑制を行う。
+    private static T FailureValue => default!;
 }

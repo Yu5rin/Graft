@@ -309,16 +309,21 @@ public class ApplyEngineTests
     {
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);
-        harness.WriteProjectBytes("mixed.txt", Utf8Bytes("先頭行\r\nターゲット行\n末尾行\r\n", withBom: false));
+        // 優勢な改行はLF（2対1）。CRLFの「ターゲット行」は変更せず、先頭行だけを置き換える。
+        harness.WriteProjectBytes("mixed.txt", Utf8Bytes("先頭行\nターゲット行\r\n末尾行\n", withBom: false));
 
-        var patchText = BuildSrPatch("mixed.txt", "ターゲット行", "置換後の行");
+        var patchText = BuildSrPatch("mixed.txt", "先頭行", "置換後の行");
         var ctx = harness.MakeContext(1);
         var dryRun = await harness.DryRunAsync(patchText, ctx);
         var apply = await harness.ApplyAsync(dryRun, ctx);
 
         apply.IsSuccess.Should().BeTrue();
         var text = Encoding.UTF8.GetString(harness.ReadProjectBytes("mixed.txt"));
-        text.Should().Be("先頭行\r\n置換後の行\n末尾行\r\n", "未変更の先頭行・末尾行はそれぞれ元の改行コードのままであるはず");
+        // 6.4: 主たる規則は「優勢な改行コードに統一する」で、「混在は可能な限り維持」は
+        // 未変更行を書き換えないという意味。置換で生成された行は優勢な改行（LF）を使い、
+        // 未変更のCRLF行はCRLFのまま残るのが正しい。
+        text.Should().Be("置換後の行\nターゲット行\r\n末尾行\n",
+            "未変更行は優勢な改行と異なっていても元の改行コードのまま維持されるはず");
     }
 
     // ------------------------------------------------------------------
