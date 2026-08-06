@@ -1,7 +1,9 @@
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Threading;
 using Graft.Themes;
+using Graft.ViewModels;
 using Graft.Views;
 
 namespace Graft;
@@ -25,6 +27,12 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         DispatcherUnhandledException += OnDispatcherUnhandledException;
+
+        // ViewModel層はUIフレームワークに依存しないため、WPFの再評価機構への接続はここで行う
+        // （仕様書v2.1 19章 L3）。
+        CommandRequery.SubscribeHook = handler => CommandManager.RequerySuggested += handler;
+        CommandRequery.UnsubscribeHook = handler => CommandManager.RequerySuggested -= handler;
+        CommandRequery.InvalidateHook = CommandManager.InvalidateRequerySuggested;
 
         ThemeManager.Initialize();
 

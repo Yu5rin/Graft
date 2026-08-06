@@ -54,7 +54,7 @@ public partial class SearchOverlay : UserControl
             _editor = editor;
             _editor.TextArea.TextView.BackgroundRenderers.Add(_renderer);
         }
-        ViewModel.Attach(editor);
+        ViewModel.Attach(new Graft.Editor.AvalonEditTextAccess(editor));
     }
 
     /// <summary>Ctrl+F。選択中の文字列があれば検索欄へ引き継ぐ。</summary>

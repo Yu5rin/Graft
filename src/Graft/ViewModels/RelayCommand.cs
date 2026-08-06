@@ -4,8 +4,8 @@ namespace Graft.ViewModels;
 
 /// <summary>
 /// パラメータなしの同期コマンド。MVVMフレームワークを使わない方針（附録A.3）のため
-/// 自前実装する。<see cref="CommandManager.RequerySuggested"/> に相乗りすることで、
-/// フォーカス移動やキー入力のたびにCanExecuteが再評価されるようにする。
+/// 自前実装する。再評価の通知は<see cref="CommandRequery"/>越しに受け取り、
+/// WPF版ではフォーカス移動やキー入力のたびにCanExecuteが再評価されるようにする。
 /// </summary>
 public sealed class RelayCommand : ICommand
 {
@@ -20,16 +20,16 @@ public sealed class RelayCommand : ICommand
 
     public event EventHandler? CanExecuteChanged
     {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
+        add => CommandRequery.Subscribe(value);
+        remove => CommandRequery.Unsubscribe(value);
     }
 
     public bool CanExecute(object? parameter) => _canExecute?.Invoke() ?? true;
 
     public void Execute(object? parameter) => _execute();
 
-    /// <summary>CommandManagerの自動再評価だけでは不十分な場合に明示的に呼び出す。</summary>
-    public void RaiseCanExecuteChanged() => CommandManager.InvalidateRequerySuggested();
+    /// <summary>自動再評価だけでは不十分な場合に明示的に呼び出す。</summary>
+    public void RaiseCanExecuteChanged() => CommandRequery.Invalidate();
 }
 
 /// <summary>パラメータ付きの同期コマンド。</summary>
@@ -46,15 +46,15 @@ public sealed class RelayCommand<T> : ICommand
 
     public event EventHandler? CanExecuteChanged
     {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
+        add => CommandRequery.Subscribe(value);
+        remove => CommandRequery.Unsubscribe(value);
     }
 
     public bool CanExecute(object? parameter) => _canExecute?.Invoke(ConvertParameter(parameter)) ?? true;
 
     public void Execute(object? parameter) => _execute(ConvertParameter(parameter));
 
-    public void RaiseCanExecuteChanged() => CommandManager.InvalidateRequerySuggested();
+    public void RaiseCanExecuteChanged() => CommandRequery.Invalidate();
 
     private static T? ConvertParameter(object? parameter)
     {
@@ -89,8 +89,8 @@ public sealed class AsyncRelayCommand : ICommand
 
     public event EventHandler? CanExecuteChanged
     {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
+        add => CommandRequery.Subscribe(value);
+        remove => CommandRequery.Unsubscribe(value);
     }
 
     /// <summary>非同期処理を実行中かどうか。</summary>
@@ -113,5 +113,5 @@ public sealed class AsyncRelayCommand : ICommand
         }
     }
 
-    public void RaiseCanExecuteChanged() => CommandManager.InvalidateRequerySuggested();
+    public void RaiseCanExecuteChanged() => CommandRequery.Invalidate();
 }

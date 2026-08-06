@@ -37,7 +37,21 @@
     <Compile Include="..\Graft\Platform\IPlatformServices.cs" LinkBase="Shared\Platform" />
     <Compile Include="..\Graft\Platform\IUiServices.cs" LinkBase="Shared\Platform" />
     <Compile Include="..\Graft\Platform\IDialogService.cs" LinkBase="Shared\Platform" />
+    <Compile Include="..\Graft\Platform\ITextEditorAccess.cs" LinkBase="Shared\Platform" />
     <Compile Include="..\Graft\Platform\Null\**\*.cs" LinkBase="Shared\Platform\Null" />
+    <!--
+      ViewModel層はUIフレームワークに依存しない（ICommandはSystem.ObjectModelが提供する
+      ため .NET 8 標準で解決できる）。WPF固有の型に触れる箇所はPlatform層の抽象
+      （IUiServices / IDialogService）越しに扱っているので、そのまま共有できる。
+    -->
+    <Compile Include="..\Graft\ViewModels\**\*.cs" LinkBase="Shared\ViewModels" />
+    <!--
+      EditorTabManagerはタブの生成・保存確認・MRU管理のみを行い、DocumentSessionの
+      公開APIしか触らない。DocumentSessionはWPF版とAvalonia版で同じ公開APIを持つため、
+      このファイルはそのまま共有できる（Editor層の他のファイルはエディタ制御に
+      密着しているためAvalonia版を個別に用意している）。
+    -->
+    <Compile Include="..\Graft\Editor\EditorTabManager.cs" Link="Editor\EditorTabManager.cs" />
   </ItemGroup>
 
   <ItemGroup>
