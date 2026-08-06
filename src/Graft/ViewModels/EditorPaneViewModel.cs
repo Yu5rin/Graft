@@ -34,8 +34,9 @@ public sealed class EditorPaneViewModel : ObservableObject
     private bool _wordWrap;
     private bool _showWhitespace;
 
-    public EditorPaneViewModel(Settings settings, DialogService dialogs)
+    public EditorPaneViewModel(Settings settings, DialogService dialogs, Graft.Platform.IUiServices ui)
     {
+        Ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _manager = new EditorTabManager(dialogs);
         _manager.Tabs.CollectionChanged += OnManagerTabsChanged;
@@ -97,6 +98,9 @@ public sealed class EditorPaneViewModel : ObservableObject
 
     /// <summary>行番号ガターにGitの変更状態を表示するか（4.7章）。</summary>
     public bool GitGutterEnabled => _settings.Editor.GitGutter;
+
+    /// <summary>UIフレームワーク固有の機能。検索オーバーレイなどViewから参照する。</summary>
+    public Graft.Platform.IUiServices Ui { get; }
 
     /// <summary>シンタックスハイライトが有効か（8.6/9.2章、settings.jsonの既存キー）。</summary>
     public bool SyntaxEnabled => _settings.Syntax.Enabled;

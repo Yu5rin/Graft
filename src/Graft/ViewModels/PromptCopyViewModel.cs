@@ -1,9 +1,9 @@
 using System.Collections.ObjectModel;
-using System.Windows;
 using System.Windows.Input;
 using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
+using Graft.Platform;
 using Graft.Views;
 
 namespace Graft.ViewModels;
@@ -38,6 +38,7 @@ public sealed class PromptCopyViewModel : ObservableObject
     private readonly PromptTemplateRenderer _renderer;
     private readonly RevisionStore _revisionStore;
     private readonly DialogService _dialogs;
+    private readonly IUiServices _ui;
     private Project _project;
     private Settings _settings;
 
@@ -52,7 +53,8 @@ public sealed class PromptCopyViewModel : ObservableObject
         DialogService dialogs,
         ContextCollectViewModel context,
         Project project,
-        Settings settings)
+        Settings settings,
+        IUiServices ui)
     {
         _templateStore = templateStore ?? throw new ArgumentNullException(nameof(templateStore));
         _renderer = renderer ?? throw new ArgumentNullException(nameof(renderer));
@@ -61,6 +63,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         Context = context ?? throw new ArgumentNullException(nameof(context));
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
 
         CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null);
     }
@@ -178,7 +181,7 @@ public sealed class PromptCopyViewModel : ObservableObject
             return;
         }
 
-        Clipboard.SetText(rendered.Value);
+        _ui.Clipboard.SetText(rendered.Value);
         _templateStore.RecordCopy(_project.Id, DateTimeOffset.Now);
         IsOpen = false;
         StatusMessage = $"「{template.Template.Name}」をコピーしました。";

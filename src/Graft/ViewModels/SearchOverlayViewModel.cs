@@ -1,8 +1,8 @@
 using System.Text.RegularExpressions;
 using System.Windows.Input;
-using System.Windows.Threading;
 using ICSharpCode.AvalonEdit;
 using Graft.Features;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -20,7 +20,7 @@ public sealed class SearchOverlayViewModel : ObservableObject
     private const int DebounceMs = 150;
     private const int MaxMatches = 20000;
 
-    private readonly DispatcherTimer _debounceTimer;
+    private readonly IUiTimer _debounceTimer;
     private readonly List<Match> _matches = new();
 
     private TextEditor? _editor;
@@ -35,11 +35,12 @@ public sealed class SearchOverlayViewModel : ObservableObject
     private string _statusText = string.Empty;
     private string? _patternError;
     private bool _pendingMoveToNearestCaret;
+    private bool _debouncePending;
 
-    public SearchOverlayViewModel()
+    public SearchOverlayViewModel(IUiServices ui)
     {
-        _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DebounceMs) };
-        _debounceTimer.Tick += (_, _) => { _debounceTimer.Stop(); RecomputeNow(_pendingMoveToNearestCaret); };
+        ArgumentNullException.ThrowIfNull(ui);
+        _debounceTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(DebounceMs), OnDebounceTick);
 
         FindNextCommand = new RelayCommand(() => MoveTo(1), () => _matches.Count > 0);
         FindPreviousCommand = new RelayCommand(() => MoveTo(-1), () => _matches.Count > 0);
@@ -101,6 +102,7 @@ public sealed class SearchOverlayViewModel : ObservableObject
         _matches.Clear();
         _currentIndex = -1;
         _debounceTimer.Stop();
+        _debouncePending = false;
         MatchesChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -117,18 +119,26 @@ public sealed class SearchOverlayViewModel : ObservableObject
         RecomputeNow(true);
     }
 
+    private void OnDebounceTick()
+    {
+        _debounceTimer.Stop();
+        _debouncePending = false;
+        RecomputeNow(_pendingMoveToNearestCaret);
+    }
+
     private void ScheduleRecompute(bool moveToNearestCaret)
     {
         if (!IsOpen) return;
         _pendingMoveToNearestCaret = moveToNearestCaret;
-        _debounceTimer.Stop();
-        _debounceTimer.Start();
+        _debouncePending = true;
+        _debounceTimer.Restart();
     }
 
     private void FlushPending()
     {
-        if (!_debounceTimer.IsEnabled) return;
+        if (!_debouncePending) return;
         _debounceTimer.Stop();
+        _debouncePending = false;
         RecomputeNow(_pendingMoveToNearestCaret);
     }
 
