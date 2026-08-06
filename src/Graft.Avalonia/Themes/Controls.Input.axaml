@@ -1,0 +1,194 @@
+<!--
+  共通コントロールスタイル（入力編）。WPF版 Themes/Controls.xaml（CheckBox/ListBox部分）・
+  Controls.Input.xaml（ComboBox部分）の移植（附録A・20章L2）。構成・命名方針は
+  Controls.axaml と同じ。9.1: フォーカスリングは:focus/:focus-within疑似クラスで
+  常時可視にする。
+
+  【WPF版からのComboBoxの構成差分（値は変えていない。振る舞いの単純化のみ）】
+  WPF版はカスタムControlTemplateを与えたComboBoxで閉じた状態の表示に
+  DisplayMemberPathが反映されない問題への回避策（隠しItemsControlでの幅計測、
+  ComboBoxDisplayConverter）を持っていた。AvaloniaのComboBoxはSelectionBoxItem
+  プロパティが最初からDisplayMemberPath/ItemTemplateを反映した表示値を提供するため、
+  この回避策は不要（Avalonia側の設計により症状自体が発生しない）。色・寸法・
+  枠線・フォーカスリングの扱いはWPF版のトークン値をそのまま踏襲する。
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ========== CheckBox ========== -->
+    <ControlTheme x:Key="{x:Type CheckBox}" TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <!--
+                    フォーカスリングは箱の外周に描くが、負のMarginで外側へはみ出させると
+                    コンテナ左端に置かれたとき枠が欠ける。リングの太さぶんを含めた22x22を
+                    レイアウト上の占有領域とし、リングが常に境界内に収まるようにする
+                    （WPF版と同じ考え方）。
+                -->
+                <Grid ColumnDefinitions="Auto,*">
+                    <Grid Width="22" Height="22" VerticalAlignment="Center">
+                        <Border Name="PART_Box"
+                                Margin="3"
+                                BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1"
+                                Background="{DynamicResource BgSurface}" />
+                        <Path Name="PART_CheckMark"
+                              Data="{DynamicResource IconCheckGeometry}"
+                              Stretch="Uniform"
+                              Margin="5"
+                              Stroke="{DynamicResource Accent}"
+                              StrokeThickness="1.5"
+                              StrokeLineCap="Round"
+                              StrokeJoin="Round"
+                              IsVisible="False" />
+                        <Border Name="PART_FocusRing"
+                                BorderBrush="{DynamicResource Accent}"
+                                BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                                IsHitTestVisible="False"
+                                Opacity="0" />
+                    </Grid>
+                    <ContentPresenter Grid.Column="1"
+                                       Content="{TemplateBinding Content}"
+                                       ContentTemplate="{TemplateBinding ContentTemplate}"
+                                       Margin="6,0,0,0"
+                                       VerticalAlignment="Center" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:checked /template/ Path#PART_CheckMark">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_Box">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:focus /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== ListBoxItem（ListBox本体の既定書式はControls.Base.axaml側） ========== -->
+    <ControlTheme x:Key="{x:Type ListBoxItem}" TargetType="ListBoxItem">
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid>
+                    <Border Name="PART_Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}" />
+                    </Border>
+                    <Border Name="PART_FocusRing"
+                            BorderBrush="{DynamicResource Accent}"
+                            BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            IsHitTestVisible="False"
+                            Opacity="0" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:selected /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+        </Style>
+        <Style Selector="^:focus /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== ComboBox / ComboBoxItem（コマンドバーのプロジェクト選択等） ========== -->
+    <ControlTheme x:Key="{x:Type ComboBoxItem}" TargetType="ComboBoxItem">
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:selected /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ComboBox}" TargetType="ComboBox">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid>
+                    <Border Name="PART_Border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <!-- 右側は矢印の占有領域。本文が矢印の下へ潜り込まないよう常に空ける。 -->
+                            <ContentPresenter Grid.Column="0"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding ItemTemplate}"
+                                              Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Left"
+                                              VerticalAlignment="Center" />
+                            <Path Grid.Column="1"
+                                  Margin="0,0,10,0"
+                                  Data="M4,6 L8,10 L12,6"
+                                  Stroke="{DynamicResource TextSecondary}"
+                                  StrokeThickness="1.5"
+                                  StrokeLineCap="Round"
+                                  StrokeJoin="Round"
+                                  VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <Popup Name="PART_Popup"
+                           WindowManagerAddShadowHint="False"
+                           IsOpen="{TemplateBinding IsDropDownOpen, Mode=TwoWay}"
+                           Placement="Bottom">
+                        <Border Background="{DynamicResource BgElevated}"
+                                BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1"
+                                MaxHeight="240"
+                                MinWidth="{Binding Bounds.Width, RelativeSource={RelativeSource TemplatedParent}}">
+                            <ScrollViewer>
+                                <ItemsPresenter Name="PART_ItemsPresenter"
+                                                ItemsPanel="{TemplateBinding ItemsPanel}" />
+                            </ScrollViewer>
+                        </Border>
+                    </Popup>
+                    <Border Name="PART_FocusRing"
+                            BorderBrush="{DynamicResource Accent}"
+                            BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            IsHitTestVisible="False"
+                            Opacity="0" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:focus-within /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+    </ControlTheme>
+
+</ResourceDictionary>

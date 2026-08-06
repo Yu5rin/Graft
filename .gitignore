@@ -5,3 +5,6 @@ obj/
 publish/
 artifacts/
 *_wpftmp.csproj
+
+# UIテストが出力する画面キャプチャ（目視確認用の生成物）
+tests/Graft.UiTests/screenshots/
