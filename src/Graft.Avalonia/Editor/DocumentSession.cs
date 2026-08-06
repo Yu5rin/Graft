@@ -96,8 +96,9 @@ public sealed class DocumentSession : IDisposable
         var relativePath = ComputeRelativePath(fullPath, projectRoot);
 
         // TextDocumentの生成はUIスレッドへ切り替えてから行う（クラス冒頭のコメント参照）。
+        // DispatcherOperationはConfigureAwaitを持たないため素直にawaitする。
         var session = await Dispatcher.UIThread.InvokeAsync(
-            () => new DocumentSession(fullPath, relativePath, new TextDocument(text), shape)).ConfigureAwait(false);
+            () => new DocumentSession(fullPath, relativePath, new TextDocument(text), shape));
         return GraftResult<DocumentSession>.Ok(session, read.Issues);
     }
 
@@ -120,7 +121,7 @@ public sealed class DocumentSession : IDisposable
 
         // UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う必要がある
         // （クラス冒頭のコメント参照）。
-        await Dispatcher.UIThread.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile()).ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
         return result;
     }
 
@@ -137,10 +138,16 @@ public sealed class DocumentSession : IDisposable
         }
 
         var (text, shape) = read.Value;
-        Shape = shape;
-        Document.Text = text;
-        Document.UndoStack.ClearAll();
-        Document.UndoStack.MarkAsOriginalFile();
+
+        // Document/UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う
+        // 必要がある（クラス冒頭のコメント参照）。
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            Shape = shape;
+            Document.Text = text;
+            Document.UndoStack.ClearAll();
+            Document.UndoStack.MarkAsOriginalFile();
+        });
         return GraftResult<bool>.Ok(true, read.Issues);
     }
 
