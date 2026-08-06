@@ -35,6 +35,7 @@
     <Compile Include="..\Graft\Features\**\*.cs" LinkBase="Shared\Features" />
     <Compile Include="..\Graft\Infra\**\*.cs" LinkBase="Shared\Infra" />
     <Compile Include="..\Graft\Platform\IPlatformServices.cs" LinkBase="Shared\Platform" />
+    <Compile Include="..\Graft\Platform\IUiServices.cs" LinkBase="Shared\Platform" />
     <Compile Include="..\Graft\Platform\Null\**\*.cs" LinkBase="Shared\Platform\Null" />
   </ItemGroup>
 

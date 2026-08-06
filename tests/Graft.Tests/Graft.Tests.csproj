@@ -26,6 +26,7 @@
       （Platform/PlatformServices.cs）はそれを参照するため、いずれも取り込まない。
     -->
     <Compile Include="..\..\src\Graft\Platform\IPlatformServices.cs" LinkBase="Linked\Platform" />
+    <Compile Include="..\..\src\Graft\Platform\IUiServices.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\Null\**\*.cs" LinkBase="Linked\Platform\Null" />
   </ItemGroup>
 
