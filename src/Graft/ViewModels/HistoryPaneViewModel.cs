@@ -37,7 +37,8 @@ public sealed class RevisionRowViewModel
 
     public string SummaryText => string.IsNullOrWhiteSpace(Revision.Manifest.Summary) ? "（要約なし）" : Revision.Manifest.Summary!;
 
-    public string StatsText => $"{Revision.Manifest.Stats.Files} files   +{Revision.Manifest.Stats.Added} -{Revision.Manifest.Stats.Removed}";
+    // 9章: UIの文言は日本語で統一する。増減の +/- は記号として残す。
+    public string StatsText => $"{Revision.Manifest.Stats.Files}ファイル   +{Revision.Manifest.Stats.Added} -{Revision.Manifest.Stats.Removed}";
 
     /// <summary>復元可能かどうか（仕様書13.1）。バックアップ実体が失われている場合は false。</summary>
     public bool CanRestore => Revision.IsRestorable;
