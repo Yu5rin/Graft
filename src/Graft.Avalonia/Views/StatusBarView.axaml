@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.StatusBarView"
+             Focusable="False">
+    <!--
+        9.2/9.9 ステータスバー（24px）。行:列・選択文字数・エンコーディング・改行コード・言語は
+        ShellViewModel.Editor、接ぎ木状態・シンタックス無効化通知は ShellViewModel.Graft を
+        参照する。DataContextはShellWindowから継承する（上書きしない）。
+
+        WPF版からの差分: Visibilityが無いためIsVisibleへ直接boolをバインドする
+        （BoolToVisibilityコンバータが不要になる）。
+    -->
+    <Border Background="{DynamicResource BgSurface}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="0,1,0,0"
+            AutomationProperties.Name="ステータスバー">
+        <Grid Margin="12,0" ColumnDefinitions="*,Auto">
+
+            <!-- 左: エディタの状態（行:列・エンコーディング・改行コード・言語） -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Editor.CaretText}" FontSize="{DynamicResource StatusBarFontSize}" />
+                <TextBlock Text="{Binding Editor.EncodingText}" Margin="12,0,0,0"
+                           FontSize="{DynamicResource StatusBarFontSize}" />
+                <TextBlock Text="{Binding Editor.NewLineText}" Margin="12,0,0,0"
+                           FontSize="{DynamicResource StatusBarFontSize}" />
+                <TextBlock Text="{Binding Editor.LanguageText}" Margin="12,0,0,0"
+                           FontSize="{DynamicResource StatusBarFontSize}" />
+                <!-- 8.6: シンタックスハイライトが性能基準を満たさず無効化された場合の通知。 -->
+                <TextBlock Text="シンタックスハイライトを無効化しました" Margin="12,0,0,0"
+                           Foreground="{DynamicResource StateWarn}"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.Diff.SyntaxHighlightDisabled}" />
+            </StackPanel>
+
+            <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->
+            <TextBlock Grid.Column="1" Text="{Binding Graft.StatusSummaryText}"
+                       VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
+        </Grid>
+    </Border>
+</UserControl>
