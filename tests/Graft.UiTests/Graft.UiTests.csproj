@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Graft.Avalonia\Graft.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\Graft\Graft.csproj" />
   </ItemGroup>
 
   <ItemGroup>

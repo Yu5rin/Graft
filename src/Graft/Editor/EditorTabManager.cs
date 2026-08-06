@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using Graft.Core;
+using Graft.Platform;
 using Graft.ViewModels;
-using Graft.Views;
 
 namespace Graft.Editor;
 
@@ -9,15 +9,15 @@ namespace Graft.Editor;
 /// エディタタブの生成・復元・保存確認を担当する（19章）。<see cref="Graft.ViewModels.EditorPaneViewModel"/>
 /// から呼び出される、ObservableObjectではない純粋なロジック層。プレビュータブの置換規則
 /// （4.3節）とCtrl+Tab用の直近使用順（MRU）もここで管理する。
-/// 保存/破棄/キャンセルの3択確認は<see cref="DialogService.ConfirmThreeWayAsync"/>を使う。
+/// 保存/破棄/キャンセルの3択確認は<see cref="IDialogService.ConfirmThreeWayAsync"/>を使う。
 /// </summary>
 public sealed class EditorTabManager
 {
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private readonly List<EditorTabViewModel> _mru = new();
     private string? _projectRoot;
 
-    public EditorTabManager(DialogService dialogs)
+    public EditorTabManager(IDialogService dialogs)
     {
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
     }

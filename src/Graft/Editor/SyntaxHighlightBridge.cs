@@ -1,22 +1,28 @@
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Threading;
-using ICSharpCode.AvalonEdit;
-using ICSharpCode.AvalonEdit.Document;
-using ICSharpCode.AvalonEdit.Rendering;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Threading;
+using AvaloniaEdit;
+using AvaloniaEdit.Document;
+using AvaloniaEdit.Rendering;
 using Graft.Core;
 using Graft.Themes;
 
 namespace Graft.Editor;
 
 /// <summary>
-/// 自前レキサ（<see cref="SyntaxLexer"/>、11言語）をAvalonEditの描画パイプラインへ接続する
-/// カラライザ（4.1節）。AvalonEdit内蔵の.xshd定義は一切使用しない。可視行のみが
+/// 自前レキサ（<see cref="SyntaxLexer"/>、11言語）をAvaloniaEditの描画パイプラインへ接続する
+/// カラライザ（4.1節）。AvaloniaEdit内蔵の.xshd定義は一切使用しない。可視行のみが
 /// <see cref="ColorizeLine"/>経由で<see cref="SyntaxLexer.TokenizeLine"/>へ渡されるため、
 /// ファイル全体のUI要素を一括生成することはない（18章: 仮想化の維持）。
-/// 色は<c>Themes/Dark.xaml</c>・<c>Themes/Light.xaml</c>の<c>SyntaxXxxColor</c>を
+/// 色は<c>Themes/Dark.axaml</c>・<c>Themes/Light.axaml</c>の<c>SyntaxXxxColor</c>を
 /// <c>TryFindResource</c>で都度解決するため、テーマ切替に自動追従する
 /// （<see cref="ThemeManager.ThemeChanged"/>購読による再描画と合わせて反映する）。
+/// v2.0のWPF版（AvalonEdit）からの移植。DocumentColorizingTransformerのAPIはAvaloniaEditでも
+/// 同名同形のため、System.Windows.*をAvalonia.*へ、DispatcherTimerをAvalonia.Threading側へ
+/// 差し替えるのみで移植できる。Brush/PenのFreeze()はAvaloniaに対応物が無いため呼び出さない
+/// （Avalonia の描画リソースはWPFのFreezableパターンを持たず、都度生成しても
+/// スレッド共有できないため元々の意図（凍結による共有最適化）自体が不要になる）。
 /// </summary>
 public sealed class SyntaxHighlightBridge : DocumentColorizingTransformer, IDisposable
 {
@@ -90,7 +96,6 @@ public sealed class SyntaxHighlightBridge : DocumentColorizingTransformer, IDisp
         if (ResolveColor(kind) is { } color)
         {
             var brush = new SolidColorBrush(color);
-            brush.Freeze();
             element.TextRunProperties.SetForegroundBrush(brush);
         }
 
@@ -99,12 +104,14 @@ public sealed class SyntaxHighlightBridge : DocumentColorizingTransformer, IDisp
         {
             var current = element.TextRunProperties.Typeface;
             element.TextRunProperties.SetTypeface(
-                new Typeface(current.FontFamily, FontStyles.Italic, current.Weight, current.Stretch));
+                new Typeface(current.FontFamily, FontStyle.Italic, current.Weight, current.Stretch));
         }
     }
 
     private static Color? ResolveColor(TokenKind kind)
-        => Application.Current?.TryFindResource(ColorKeyFor(kind)) is Color c ? c : null;
+        => Application.Current is { } app && app.TryFindResource(ColorKeyFor(kind), null, out var value) && value is Color c
+            ? c
+            : null;
 
     private static string ColorKeyFor(TokenKind kind) => kind switch
     {

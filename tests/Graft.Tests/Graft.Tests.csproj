@@ -27,7 +27,16 @@
     -->
     <Compile Include="..\..\src\Graft\Platform\IPlatformServices.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\IUiServices.cs" LinkBase="Linked\Platform" />
+    <Compile Include="..\..\src\Graft\Platform\IDialogService.cs" LinkBase="Linked\Platform" />
+    <Compile Include="..\..\src\Graft\Platform\ITextEditorAccess.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\Null\**\*.cs" LinkBase="Linked\Platform\Null" />
+    <!--
+      ViewModel層は基本的にUIテスト（tests/Graft.UiTests）の担当だが、
+      WindowLayoutStore はウィンドウ位置・サイズの幾何計算（8.11・9.6）そのものであり、
+      画面を出さずに検証できる。実機で「画面構成が取得できないと最小サイズまで縮む」
+      不具合が出たため、単体テストで押さえる。
+    -->
+    <Compile Include="..\..\src\Graft\ViewModels\WindowLayoutStore.cs" LinkBase="Linked\ViewModels" />
   </ItemGroup>
 
   <ItemGroup>

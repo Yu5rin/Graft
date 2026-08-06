@@ -1,0 +1,161 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.SearchOverlay"
+             Focusable="False"
+             HorizontalAlignment="Right"
+             VerticalAlignment="Top"
+             Margin="0,8,20,0"
+             IsVisible="{Binding IsOpen, FallbackValue=False}"
+             AutomationProperties.Name="検索・置換">
+    <!--
+        4.4 検索・置換オーバーレイ。AvaloniaEdit標準のSearchPanelは使わず自前実装する
+        （テーマ・日本語文言を制御できないため）。エディタ領域に浮かせて配置する。
+
+        v2.0のWPF版からの差分:
+        - Visibility は IsVisible（bool）へ。DataContextが未設定のうちは
+          FallbackValue=False で隠しておく（Attach前に一瞬表示されるのを防ぐ）。
+        - トグルボタンのControlTemplateは差し替えず、疑似クラスのStyleで配色を与える。
+    -->
+    <UserControl.Styles>
+        <!-- 正規表現・大文字小文字区別・単語単位のトグル。専用アイコンは無いため短い文字で表す。 -->
+        <Style Selector="ToggleButton.searchToggle">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="ToggleButton.searchToggle:pointerover">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="ToggleButton.searchToggle:checked">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+
+        <Style Selector="Button.searchIcon">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </UserControl.Styles>
+
+    <Border Background="{DynamicResource BgElevated}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="1"
+            Padding="8">
+        <StackPanel>
+            <!-- ========== 検索行 ========== -->
+            <Grid ColumnDefinitions="Auto,180,Auto,Auto,Auto,Auto,70,Auto,Auto,Auto">
+
+                <ToggleButton Grid.Column="0" Classes="searchToggle"
+                              IsChecked="{Binding IsReplaceMode, Mode=OneWay}"
+                              Command="{Binding ToggleReplaceModeCommand}"
+                              AutomationProperties.Name="置換欄の表示切り替え">
+                    <Panel>
+                        <Path Classes="icon" Width="12" Height="12"
+                              Data="{DynamicResource IconChevronRightGeometry}"
+                              IsVisible="{Binding !IsReplaceMode}" />
+                        <Path Classes="icon" Width="12" Height="12"
+                              Data="{DynamicResource IconChevronDownGeometry}"
+                              IsVisible="{Binding IsReplaceMode}" />
+                    </Panel>
+                </ToggleButton>
+
+                <TextBox x:Name="FindBox"
+                         Grid.Column="1"
+                         Text="{Binding Query}"
+                         KeyDown="OnFindBoxKeyDown"
+                         AutomationProperties.Name="検索文字列" />
+
+                <ToggleButton Grid.Column="2" Classes="searchToggle"
+                              IsChecked="{Binding UseRegex, Mode=OneWay}"
+                              Command="{Binding ToggleRegexCommand}"
+                              Content=".*"
+                              ToolTip.Tip="正規表現を使用"
+                              AutomationProperties.Name="正規表現を使用" />
+                <ToggleButton Grid.Column="3" Classes="searchToggle"
+                              IsChecked="{Binding CaseSensitive, Mode=OneWay}"
+                              Command="{Binding ToggleCaseCommand}"
+                              Content="Aa"
+                              ToolTip.Tip="大文字と小文字を区別"
+                              AutomationProperties.Name="大文字と小文字を区別" />
+                <ToggleButton Grid.Column="4" Classes="searchToggle"
+                              IsChecked="{Binding WholeWord, Mode=OneWay}"
+                              Command="{Binding ToggleWholeWordCommand}"
+                              Content="ab"
+                              ToolTip.Tip="単語単位で検索"
+                              AutomationProperties.Name="単語単位で検索" />
+
+                <TextBlock Grid.Column="6"
+                           Text="{Binding StatusText}"
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
+                           Margin="6,0"
+                           FontSize="{DynamicResource CaptionFontSize}"
+                           Foreground="{DynamicResource TextSecondary}"
+                           AutomationProperties.Name="検索結果件数"
+                           AutomationProperties.LiveSetting="Polite" />
+
+                <Button Grid.Column="7" Classes="searchIcon"
+                        Command="{Binding FindPreviousCommand}"
+                        ToolTip.Tip="前の一致へ移動"
+                        AutomationProperties.Name="前の一致へ移動">
+                    <Path Data="{DynamicResource IconChevronRightGeometry}"
+                          Classes="icon" Width="12" Height="12"
+                          RenderTransformOrigin="50%,50%">
+                        <Path.RenderTransform>
+                            <RotateTransform Angle="180" />
+                        </Path.RenderTransform>
+                    </Path>
+                </Button>
+                <Button Grid.Column="8" Classes="searchIcon"
+                        Command="{Binding FindNextCommand}"
+                        ToolTip.Tip="次の一致へ移動"
+                        AutomationProperties.Name="次の一致へ移動">
+                    <Path Data="{DynamicResource IconChevronRightGeometry}" Classes="icon" Width="12" Height="12" />
+                </Button>
+                <Button Grid.Column="9" Classes="searchIcon"
+                        Command="{Binding CloseCommand}"
+                        ToolTip.Tip="検索を閉じる"
+                        AutomationProperties.Name="検索を閉じる">
+                    <Path Data="{DynamicResource IconXGeometry}" Classes="icon" Width="12" Height="12" />
+                </Button>
+            </Grid>
+
+            <!-- ========== 置換行（IsReplaceModeのときのみ表示） ========== -->
+            <Grid Margin="0,6,0,0" IsVisible="{Binding IsReplaceMode}"
+                  ColumnDefinitions="Auto,180,Auto,Auto">
+
+                <Border Grid.Column="0" Width="26" />
+
+                <TextBox x:Name="ReplaceBox"
+                         Grid.Column="1"
+                         Text="{Binding ReplaceText}"
+                         KeyDown="OnReplaceBoxKeyDown"
+                         AutomationProperties.Name="置換文字列" />
+
+                <Button Grid.Column="2"
+                        Command="{Binding ReplaceCommand}"
+                        Content="置換"
+                        Margin="4,0,0,0"
+                        AutomationProperties.Name="この一致を置換" />
+                <Button Grid.Column="3"
+                        Command="{Binding ReplaceAllCommand}"
+                        Content="すべて置換"
+                        Margin="4,0,0,0"
+                        AutomationProperties.Name="すべて置換" />
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>

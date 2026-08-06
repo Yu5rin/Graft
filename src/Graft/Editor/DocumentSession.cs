@@ -1,14 +1,24 @@
 using System.IO;
-using ICSharpCode.AvalonEdit.Document;
+using Avalonia.Threading;
+using AvaloniaEdit.Document;
 using Graft.Core;
 
 namespace Graft.Editor;
 
 /// <summary>
 /// 1ファイルの編集セッション（4.5節）。<see cref="Graft.Core.TextShape"/>（エンコーディング・
-/// 改行・末尾改行）を保持し、AvalonEditの<see cref="TextDocument"/>・<see cref="UndoStack"/>と
+/// 改行・末尾改行）を保持し、AvaloniaEditの<see cref="TextDocument"/>・<see cref="UndoStack"/>と
 /// 連携して未保存状態を追跡する。実I/Oは常にCoreの<see cref="FileTextIO"/>へ委譲し、
 /// 本クラス自身がFile.WriteAllText等で直接ファイルへ書き込むことはない（附録A）。
+/// v2.0のWPF版（AvalonEdit）からの移植。<see cref="TextDocument"/>・<see cref="UndoStack"/>の
+/// APIはAvaloniaEditでも同名同形のため、大部分は名前空間の差し替えのみで移植できるが、
+/// 1点だけAvaloniaEdit固有の吸収が必要（4.1節「APIの差だけを吸収する」の対象）。
+/// AvaloniaEditの<see cref="TextDocument"/>はv2.0のWPF版と異なり、生成したスレッド以外からの
+/// アクセスで例外を送出する（<c>VerifyAccess</c>によるスレッド固定。生成時に暗黙的に
+/// 所有スレッドが確定する）。<see cref="FileTextIO"/>によるI/Oは<c>ConfigureAwait(false)</c>で
+/// スレッドプール上へ移るため、続けて<see cref="TextDocument"/>を生成・変更する箇所だけは
+/// <see cref="Dispatcher.UIThread"/>へ明示的に切り替えて実行する
+/// （<see cref="OpenAsync"/>・<see cref="SaveAsync"/>・<see cref="ReloadAsync"/>参照）。
 /// </summary>
 public sealed class DocumentSession : IDisposable
 {
@@ -43,14 +53,14 @@ public sealed class DocumentSession : IDisposable
     /// <summary>ファイル名のみ。</summary>
     public string FileName { get; private set; }
 
-    /// <summary>AvalonEditの編集対象文書。アンドゥスタックもこれが保持する。</summary>
+    /// <summary>AvaloniaEditの編集対象文書。アンドゥスタックもこれが保持する。</summary>
     public TextDocument Document { get; }
 
     /// <summary>読み込み時に判定したエンコーディング・改行・末尾改行の見た目。</summary>
     public TextShape Shape { get; private set; }
 
     /// <summary>
-    /// 未保存の変更があるかどうか。AvalonEditのアンドゥスタックが持つ
+    /// 未保存の変更があるかどうか。AvaloniaEditのアンドゥスタックが持つ
     /// 「元ファイルの状態まで戻ったか」を表す<see cref="UndoStack.IsOriginalFile"/>の否定で
     /// 判定するため、アンドゥで編集前に戻せば自動的に未保存扱いが解除される。
     /// </summary>
@@ -83,9 +93,12 @@ public sealed class DocumentSession : IDisposable
         }
 
         var (text, shape) = read.Value;
-        var document = new TextDocument(text);
         var relativePath = ComputeRelativePath(fullPath, projectRoot);
-        var session = new DocumentSession(fullPath, relativePath, document, shape);
+
+        // TextDocumentの生成はUIスレッドへ切り替えてから行う（クラス冒頭のコメント参照）。
+        // DispatcherOperationはConfigureAwaitを持たないため素直にawaitする。
+        var session = await Dispatcher.UIThread.InvokeAsync(
+            () => new DocumentSession(fullPath, relativePath, new TextDocument(text), shape));
         return GraftResult<DocumentSession>.Ok(session, read.Issues);
     }
 
@@ -106,7 +119,9 @@ public sealed class DocumentSession : IDisposable
                 i => GraftIssue.Of(ErrorCode.E701, i.Detail, i.LineNumber, i.Path, i.Severity)));
         }
 
-        Document.UndoStack.MarkAsOriginalFile();
+        // UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う必要がある
+        // （クラス冒頭のコメント参照）。
+        await Dispatcher.UIThread.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
         return result;
     }
 
@@ -123,10 +138,16 @@ public sealed class DocumentSession : IDisposable
         }
 
         var (text, shape) = read.Value;
-        Shape = shape;
-        Document.Text = text;
-        Document.UndoStack.ClearAll();
-        Document.UndoStack.MarkAsOriginalFile();
+
+        // Document/UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う
+        // 必要がある（クラス冒頭のコメント参照）。
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            Shape = shape;
+            Document.Text = text;
+            Document.UndoStack.ClearAll();
+            Document.UndoStack.MarkAsOriginalFile();
+        });
         return GraftResult<bool>.Ok(true, read.Issues);
     }
 

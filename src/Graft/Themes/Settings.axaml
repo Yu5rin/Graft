@@ -1,0 +1,49 @@
+<!--
+  設定画面の各タブ（Views/SettingsPanels配下）が共通で使う書式。
+  v2.0のWPF版 Views/SettingsPanels/SettingsPanelResources.xaml の移植（20章L3）。
+
+  v2.0のWPF版は「x:Keyを付けたStyleを Style="{StaticResource FieldLabel}" で個別に適用する」
+  方式だったため、UserControlから親WindowのResourcesを参照できないという制約に
+  合わせて専用の辞書ファイルを両側からマージする必要があった。Avaloniaのスタイルは
+  セレクタによる暗黙適用に一本化されているため、クラス（Classes="fieldLabel"）で
+  指定でき、App.StylesへStyleIncludeするだけで全画面へ行き渡る。
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        設定項目の見出しラベル。入力欄の左端が一列に揃うよう幅を確保するが、
+        固定幅にすると長い項目名（「最大保持リビジョン数（0で無制限）」等）が
+        途中で切れてしまうため下限として与える。文字数が下限を超える行だけ
+        入力欄が右にずれる。
+    -->
+    <Style Selector="TextBlock.fieldLabel">
+        <Setter Property="MinWidth" Value="280" />
+        <Setter Property="Margin" Value="0,0,8,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- ラベルと入力欄を横に並べる1行分の入れ物。 -->
+    <Style Selector="StackPanel.fieldRow">
+        <Setter Property="Orientation" Value="Horizontal" />
+        <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+
+    <!-- 区分の見出し。 -->
+    <Style Selector="TextBlock.sectionHeading">
+        <Setter Property="FontSize" Value="{DynamicResource PaneHeadingFontSize}" />
+        <Setter Property="FontWeight" Value="{DynamicResource PaneHeadingFontWeight}" />
+        <Setter Property="Margin" Value="0,16,0,8" />
+    </Style>
+
+    <!-- 区分の先頭に置く見出し（上の余白を詰める）。 -->
+    <Style Selector="TextBlock.sectionHeading.first">
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+
+    <!-- チェックボックス1行分の下余白。 -->
+    <Style Selector="CheckBox.settingRow">
+        <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+
+</Styles>

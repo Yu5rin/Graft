@@ -1,0 +1,142 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.HistoryPane"
+             Background="{DynamicResource BgSurface}">
+    <!--
+        左ペイン下段「リビジョン履歴」（仕様書7.1〜7.3・8.2）。
+        v2.0のWPF版からの差分:
+        - Visibility は IsVisible（bool）へ。反転はコンバータで行う。
+        - TextBoxのUpdateSourceTrigger=PropertyChangedはAvaloniaでは既定の挙動のため不要。
+        - DatePicker.SelectedDate は DateTimeOffset? を直接扱うため、v2.0のWPF版で必要だった
+          DateTime? との変換コンバータは使わない。
+    -->
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+
+        <!-- 見出しと復元ボタン -->
+        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0"
+                       Text="履歴"
+                       VerticalAlignment="Center"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <Button Grid.Column="1"
+                    Command="{Binding RestoreCommand}"
+                    Padding="4"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    ToolTip.Tip="選択したリビジョン直前の状態へ復元"
+                    AutomationProperties.Name="選択したリビジョンへ復元">
+                <Path Data="{DynamicResource IconRotateCcwGeometry}" Classes="icon" />
+            </Button>
+        </Grid>
+
+        <!-- 全文検索（Ctrl+F） -->
+        <Grid Grid.Row="1" Margin="8,0,8,4" ColumnDefinitions="Auto,*">
+            <Path Grid.Column="0"
+                  Data="{DynamicResource IconSearchGeometry}"
+                  Classes="icon"
+                  Width="14" Height="14"
+                  Margin="4,0,4,0"
+                  Stroke="{DynamicResource TextSecondary}" />
+            <TextBox x:Name="KeywordBox"
+                     Grid.Column="1"
+                     Text="{Binding Keyword}"
+                     AutomationProperties.Name="リビジョンの要約を検索" />
+        </Grid>
+
+        <!-- type絞り込み -->
+        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
+            <ComboBox x:Name="TypeCombo"
+                      Grid.Column="0"
+                      ItemsSource="{Binding AvailableTypes}"
+                      SelectedItem="{Binding TypeFilter, Mode=TwoWay}"
+                      AutomationProperties.Name="種別で絞り込み" />
+            <Button Grid.Column="1"
+                    Content="×"
+                    Click="OnClearTypeFilter"
+                    Padding="6,2"
+                    Margin="4,0,0,0"
+                    ToolTip.Tip="種別絞り込みを解除"
+                    AutomationProperties.Name="種別絞り込みを解除" />
+        </Grid>
+
+        <!--
+            日付範囲。日付選択コントロールではなく入力欄にしているのは、Avaloniaの
+            DatePickerが英語の項目名（year/month/day）を表示し差し替えられないことと、
+            サイドビューの幅に3項目分の枠が収まらないため（HistoryPaneViewModel参照）。
+        -->
+        <Grid Grid.Row="3" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
+            <TextBlock Grid.Column="0" Text="期間" VerticalAlignment="Center"
+                       Margin="0,0,6,0"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <TextBox Grid.Column="1" Text="{Binding DateFromText}"
+                     Watermark="2026-01-01"
+                     AutomationProperties.Name="開始日（年-月-日）" />
+            <TextBlock Grid.Column="2" Text="〜" VerticalAlignment="Center" Margin="4,0"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <TextBox Grid.Column="3" Text="{Binding DateToText}"
+                     Watermark="2026-12-31"
+                     AutomationProperties.Name="終了日（年-月-日）" />
+        </Grid>
+
+        <Grid Grid.Row="4">
+            <ListBox x:Name="RevisionListBox"
+                     ItemsSource="{Binding Items}"
+                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                     Background="Transparent"
+                     AutomationProperties.Name="リビジョン履歴一覧">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,3">
+                            <Grid ColumnDefinitions="Auto,Auto,*">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding RevisionLabel}"
+                                           FontWeight="SemiBold"
+                                           FontSize="{DynamicResource BodyFontSize}" />
+                                <Border Grid.Column="1"
+                                        Margin="6,0,0,0"
+                                        Padding="4,0"
+                                        Background="{DynamicResource BgHover}">
+                                    <TextBlock Text="{Binding TypeText}" FontSize="{DynamicResource CaptionFontSize}" />
+                                </Border>
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding AppliedAtText}"
+                                           HorizontalAlignment="Right"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                            </Grid>
+                            <TextBlock Text="{Binding SummaryText}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding StatsText}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}" />
+                            <!-- 13.1: 復元不可のリビジョンはその旨を示す（色のみに依存しない文言表示） -->
+                            <TextBlock Text="{Binding RestorabilityText}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource StateWarn}"
+                                       IsVisible="{Binding CanRestore,
+                                                   Converter={x:Static local:Converters.InverseBoolean}}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <local:EmptyStateView State="{Binding State,
+                                          Converter={x:Static local:Converters.HistoryPaneStateToEmptyState}}"
+                                  IconGeometry="{DynamicResource IconHistoryGeometry}"
+                                  Message="AIの出力を適用すると、ここに履歴が残ります"
+                                  Issue="{Binding Error}" />
+        </Grid>
+    </Grid>
+</UserControl>

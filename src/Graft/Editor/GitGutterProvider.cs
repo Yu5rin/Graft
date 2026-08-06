@@ -1,11 +1,11 @@
-using System.Windows;
-using System.Windows.Automation;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using ICSharpCode.AvalonEdit;
-using ICSharpCode.AvalonEdit.Editing;
-using ICSharpCode.AvalonEdit.Rendering;
+using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+using AvaloniaEdit;
+using AvaloniaEdit.Editing;
+using AvaloniaEdit.Rendering;
 using Graft.Core;
 using Graft.Features;
 
@@ -31,6 +31,12 @@ public enum GitGutterKind
 /// HEAD内容の取得（<c>git show</c>）と差分計算はファイル保存のたびに1回だけ非同期で行い、
 /// UIスレッドを塞がない。プロジェクトがGit管理外、またはgit未検出の場合は速やかに諦め、
 /// 何も描画しない。
+/// v2.0のWPF版（AvalonEdit）からの移植。描画は<c>OnRender(DrawingContext)</c>から
+/// <see cref="Visual.Render(DrawingContext)"/>のオーバーライドへ、<c>RenderSize</c>は
+/// <see cref="Visual.Bounds"/>のSizeへ、<c>System.Windows.Automation.AutomationProperties</c>は
+/// <see cref="Avalonia.Automation.AutomationProperties"/>へ、<c>ToolTipService</c>は
+/// <see cref="ToolTip"/>へ、<c>MouseEventArgs</c>は<see cref="PointerEventArgs"/>へそれぞれ
+/// 差し替える。Brush/Pen/GeometryのFreeze()はAvaloniaに対応物が無いため呼び出さない。
 /// </summary>
 public sealed class GitGutterProvider : AbstractMargin, IDisposable
 {
@@ -120,9 +126,9 @@ public sealed class GitGutterProvider : AbstractMargin, IDisposable
 
     protected override Size MeasureOverride(Size availableSize) => new(MarginWidth, 0);
 
-    protected override void OnRender(DrawingContext drawingContext)
+    public override void Render(DrawingContext drawingContext)
     {
-        var renderSize = RenderSize;
+        var renderSize = Bounds.Size;
         drawingContext.DrawRectangle(Brushes.Transparent, null, new Rect(renderSize));
 
         var textView = TextView;
@@ -154,11 +160,11 @@ public sealed class GitGutterProvider : AbstractMargin, IDisposable
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
         {
-            ctx.BeginFigure(new Point(0, top - 3), true, true);
-            ctx.LineTo(new Point(0, top + 3), true, false);
-            ctx.LineTo(new Point(MarginWidth, top), true, false);
+            ctx.BeginFigure(new Point(0, top - 3), true);
+            ctx.LineTo(new Point(0, top + 3));
+            ctx.LineTo(new Point(MarginWidth, top));
+            ctx.EndFigure(true);
         }
-        geometry.Freeze();
         dc.DrawGeometry(brush, null, geometry);
     }
 
@@ -181,10 +187,10 @@ public sealed class GitGutterProvider : AbstractMargin, IDisposable
     private void OnRedrawRequested(object? sender, EventArgs e) => InvalidateVisual();
 
     /// <summary>9.4: 色帯は色のみに依存しないよう、ホバー位置の種別をツールチップで日本語表示する。</summary>
-    protected override void OnMouseMove(MouseEventArgs e)
+    protected override void OnPointerMoved(PointerEventArgs e)
     {
-        base.OnMouseMove(e);
-        ToolTipService.SetToolTip(this, ResolveTooltipText(e.GetPosition(this)));
+        base.OnPointerMoved(e);
+        ToolTip.SetTip(this, ResolveTooltipText(e.GetPosition(this)));
     }
 
     private string? ResolveTooltipText(Point position)
@@ -287,6 +293,6 @@ public sealed class GitGutterProvider : AbstractMargin, IDisposable
         InvalidateVisual();
     }
 
-    private static Brush? ResolveBrush(string resourceKey)
-        => Application.Current?.TryFindResource(resourceKey) as Brush;
+    private static IBrush? ResolveBrush(string resourceKey)
+        => Application.Current is { } app && app.TryFindResource(resourceKey, null, out var value) ? value as IBrush : null;
 }

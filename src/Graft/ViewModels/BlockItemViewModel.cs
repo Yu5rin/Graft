@@ -64,6 +64,18 @@ public sealed class BlockItemViewModel : ObservableObject
         _ => "失敗",
     };
 
+    /// <summary>
+    /// 状態が「適用可」かどうか（8.5の状態アイコン切り替え用）。UI側で<see cref="Status"/>と
+    /// 特定値を突き合わせる条件分岐（WPFのDataTrigger等）を書かずに済むよう真偽値で公開する。
+    /// </summary>
+    public bool IsOk => Status == BlockStatusKind.Ok;
+
+    /// <inheritdoc cref="IsOk"/>
+    public bool IsWarn => Status == BlockStatusKind.Warn;
+
+    /// <inheritdoc cref="IsOk"/>
+    public bool IsError => Status == BlockStatusKind.Error;
+
     /// <summary>検出された問題があるかどうか。</summary>
     public bool HasIssue => Plan.Issues.Count > 0;
 

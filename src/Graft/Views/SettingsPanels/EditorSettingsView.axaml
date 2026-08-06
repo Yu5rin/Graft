@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.SettingsPanels.EditorSettingsView"
+             AutomationProperties.Name="エディタ設定">
+    <!--
+        15章 editorセクション（12項目）・4章 コードエディタの設定タブ。
+        書式は Themes/Settings.axaml のクラス。DataContextはSettingsViewModelを継承する。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
+        <StackPanel>
+            <TextBlock Text="表示" Classes="sectionHeading first" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="フォントサイズ" Classes="fieldLabel" />
+                <TextBox Text="{Binding EditorFontSizeText}" Width="80"
+                         AutomationProperties.Name="エディタのフォントサイズ" />
+            </StackPanel>
+            <CheckBox Classes="settingRow" Content="長い行を折り返す" IsChecked="{Binding EditorWordWrap}"
+                      AutomationProperties.Name="長い行を折り返す" />
+            <CheckBox Classes="settingRow" Content="タブ・行末空白を可視化する" IsChecked="{Binding EditorShowWhitespace}"
+                      AutomationProperties.Name="タブ・行末空白を可視化する" />
+            <CheckBox Classes="settingRow" Content="行番号を表示する" IsChecked="{Binding EditorShowLineNumbers}"
+                      AutomationProperties.Name="行番号を表示する" />
+            <CheckBox Classes="settingRow" Content="現在行をハイライトする" IsChecked="{Binding EditorHighlightCurrentLine}"
+                      AutomationProperties.Name="現在行をハイライトする" />
+            <CheckBox Classes="settingRow" Content="行番号ガターにGitの変更状態を表示する" IsChecked="{Binding EditorGitGutter}"
+                      AutomationProperties.Name="行番号ガターにGitの変更状態を表示する" />
+
+            <TextBlock Text="インデント" Classes="sectionHeading" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="タブ幅（検出不能時の既定値）" Classes="fieldLabel" />
+                <TextBox Text="{Binding EditorTabSizeText}" Width="80" AutomationProperties.Name="タブ幅" />
+            </StackPanel>
+            <CheckBox Classes="settingRow" Content="タブの代わりにスペースを挿入する（検出不能時の既定値）"
+                      IsChecked="{Binding EditorInsertSpaces}"
+                      AutomationProperties.Name="タブの代わりにスペースを挿入する" />
+            <CheckBox Classes="settingRow" Content="ファイルを開いた時点で優勢なインデントを自動検出する"
+                      IsChecked="{Binding EditorDetectIndent}"
+                      AutomationProperties.Name="ファイルのインデントを自動検出する" />
+
+            <TextBlock Text="編集支援" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow" Content="括弧の自動閉じと対応括弧の強調を行う"
+                      IsChecked="{Binding EditorAutoClosingBrackets}"
+                      AutomationProperties.Name="括弧の自動閉じと対応括弧の強調を行う" />
+            <CheckBox Classes="settingRow" Content="コードの折りたたみを有効にする" IsChecked="{Binding EditorFolding}"
+                      AutomationProperties.Name="コードの折りたたみを有効にする" />
+            <CheckBox Classes="settingRow" Content="単語ベースの簡易補完を有効にする" IsChecked="{Binding EditorCompletion}"
+                      AutomationProperties.Name="単語ベースの簡易補完を有効にする" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

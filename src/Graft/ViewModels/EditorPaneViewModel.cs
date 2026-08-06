@@ -6,7 +6,7 @@ using System.Windows.Input;
 using Graft.Core;
 using Graft.Editor;
 using Graft.Infra;
-using Graft.Views;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -34,7 +34,7 @@ public sealed class EditorPaneViewModel : ObservableObject
     private bool _wordWrap;
     private bool _showWhitespace;
 
-    public EditorPaneViewModel(Settings settings, DialogService dialogs, Graft.Platform.IUiServices ui)
+    public EditorPaneViewModel(Settings settings, IDialogService dialogs, Graft.Platform.IUiServices ui)
     {
         Ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));

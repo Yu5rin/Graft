@@ -5,7 +5,7 @@ using Graft.Core;
 namespace Graft.Platform.Windows;
 
 /// <summary>
-/// <see cref="IGlobalHotkeys"/> のWindows実装。移設元は <c>Features/HotkeyManager.cs</c>。
+/// <see cref="IGlobalHotkeys"/> のWindows実装。v2.0での実装元は <c>Features/HotkeyManager.cs</c>。
 /// <c>RegisterHotKey</c> により "Ctrl+Alt+V" などの "修飾キー+キー" 形式の文字列を解釈して
 /// 登録する。登録失敗（他アプリが使用中など）は例外を投げず <see cref="GraftResult{T}"/> の
 /// 失敗として返す。ロジックは移設元から変更していない。

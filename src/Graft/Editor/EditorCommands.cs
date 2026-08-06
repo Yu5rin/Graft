@@ -1,5 +1,5 @@
-using ICSharpCode.AvalonEdit;
-using ICSharpCode.AvalonEdit.Document;
+using AvaloniaEdit;
+using AvaloniaEdit.Document;
 using Graft.Core;
 
 namespace Graft.Editor;
@@ -10,6 +10,8 @@ namespace Graft.Editor;
 /// （E3ブリーフの制約により<c>Views/EditorPane.xaml.cs</c>は変更しない）。
 /// 複数回の<see cref="TextDocument"/>操作は<see cref="UndoStack.StartUndoGroup()"/>で
 /// 1回のCtrl+Zにまとめる。
+/// v2.0のWPF版（AvalonEdit）からの移植。TextEditor/TextDocumentのAPIはAvaloniaEditでも
+/// 同名同形のため、名前空間の差し替えのみで移植できる。
 /// </summary>
 public static class EditorCommands
 {

@@ -1,17 +1,20 @@
 using System.Text.RegularExpressions;
-using System.Windows.Media;
-using ICSharpCode.AvalonEdit;
-using ICSharpCode.AvalonEdit.CodeCompletion;
-using ICSharpCode.AvalonEdit.Document;
-using ICSharpCode.AvalonEdit.Editing;
+using Avalonia.Media;
+using AvaloniaEdit;
+using AvaloniaEdit.CodeCompletion;
+using AvaloniaEdit.Document;
+using AvaloniaEdit.Editing;
 
 namespace Graft.Editor;
 
 /// <summary>
 /// 開いているファイル内の識別子を候補とする単語ベース補完（4.4節・Ctrl+Space）。
 /// LSP等の意味解析は行わない（21章対象外）。<see cref="TextEditor"/>を直接受け取り、
-/// <see cref="ICSharpCode.AvalonEdit.CodeCompletion.CompletionWindow"/>で候補を表示する。
+/// <see cref="AvaloniaEdit.CodeCompletion.CompletionWindow"/>で候補を表示する。
 /// エディタへの組み込み（Ctrl+Spaceの購読）は統合担当が行う。
+/// v2.0のWPF版（AvalonEdit）からの移植。CompletionWindow/ICompletionDataのAPIはAvaloniaEditでも
+/// 同名同形だが、<see cref="ICompletionData.Image"/>の型のみ<c>ImageSource</c>から
+/// <see cref="Avalonia.Media.IImage"/>へ変わる。
 /// </summary>
 public sealed class CompletionProvider
 {
@@ -82,14 +85,14 @@ public sealed class CompletionProvider
 }
 
 /// <summary>
-/// 単語ベース補完の1候補。挿入するテキストのみを持つ単純な実装（説明・アイコンは持たない。
-/// LSP等の意味解析は行わないため21章の対象外機能に踏み込まない）。
+/// 単語ベース補完の1候補。挿入するテキストのみを持つ単純な実装(説明・アイコンは持たない。
+/// LSP等の意味解析は行わないため21章の対象外機能に踏み込まない)。
 /// </summary>
 internal sealed class WordCompletionData : ICompletionData
 {
     public WordCompletionData(string text) => Text = text;
 
-    public ImageSource? Image => null;
+    public IImage? Image => null;
     public string Text { get; }
     public object Content => Text;
     public object Description => string.Empty;

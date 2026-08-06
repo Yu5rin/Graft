@@ -1,5 +1,5 @@
 using System.IO;
-using System.Windows.Threading;
+using Avalonia.Threading;
 using Graft.Core;
 
 namespace Graft.Editor;
@@ -11,6 +11,14 @@ namespace Graft.Editor;
 /// （<see cref="FileContentChanged"/>）の2種類の通知に振り分ける。監視開始に失敗しても例外は
 /// 投げず、呼び出し側は<see cref="Start"/>が返す<see cref="GraftResult{T}"/>のE704警告を見て
 /// 手動更新（更新ボタン）で継続できるようにする。UI層（Editor/）に置くのは指示（附録A）どおり。
+/// Linuxではinotifyの監視数上限（<c>fs.inotify.max_user_watches</c>）に達すると
+/// <see cref="FileSystemWatcher"/>のコンストラクタ自体が例外を投げるため、その場合も
+/// このメソッドがE704警告として吸収し、アプリを落とさない（仕様書4.2）。
+/// v2.0のWPF版からの移植。<see cref="System.Windows.Threading.DispatcherTimer"/>を
+/// <see cref="Avalonia.Threading.DispatcherTimer"/>へ差し替え、UIスレッドでない
+/// FileSystemWatcherのコールバックからのタイマー開始は<c>Dispatcher.BeginInvoke</c>ではなく
+/// <see cref="Dispatcher.Post(System.Action, DispatcherPriority)"/>で行う（Avaloniaの
+/// <see cref="Dispatcher"/>にはBeginInvokeが無いため）。
 /// </summary>
 public sealed class FileWatchService : IDisposable
 {
@@ -111,10 +119,10 @@ public sealed class FileWatchService : IDisposable
 
         // FileSystemWatcherのコールバックはスレッドプール上で実行されるため、
         // DispatcherTimer（UIスレッド専用）の開始はDispatcher経由で行う。
-        _debounceTimer.Dispatcher.BeginInvoke(new Action(() =>
+        _debounceTimer.Dispatcher.Post(() =>
         {
             if (!_debounceTimer.IsEnabled) _debounceTimer.Start();
-        }));
+        }, DispatcherPriority.Normal);
     }
 
     private bool IsSuppressed(string fullPath)

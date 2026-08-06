@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using System.Windows.Input;
-using ICSharpCode.AvalonEdit;
 using Graft.Features;
 using Graft.Platform;
 
@@ -23,7 +22,7 @@ public sealed class SearchOverlayViewModel : ObservableObject
     private readonly IUiTimer _debounceTimer;
     private readonly List<Match> _matches = new();
 
-    private TextEditor? _editor;
+    private ITextEditorAccess? _editor;
     private int _currentIndex = -1;
     private string _query = string.Empty;
     private string _replaceText = string.Empty;
@@ -83,7 +82,7 @@ public sealed class SearchOverlayViewModel : ObservableObject
     public int CurrentIndex => _currentIndex;
 
     /// <summary>対象のエディタへ接続する。タブ切替のたびに呼び直す。</summary>
-    public void Attach(TextEditor editor)
+    public void Attach(ITextEditorAccess editor)
     {
         _editor = editor;
         if (IsOpen) RecomputeNow(false);
@@ -150,7 +149,7 @@ public sealed class SearchOverlayViewModel : ObservableObject
 
         if (regex is not null && _editor is not null && !string.IsNullOrEmpty(_query))
         {
-            CollectMatches(regex, _editor.Document.Text);
+            CollectMatches(regex, _editor.Text);
         }
 
         _currentIndex = _matches.Count > 0 ? 0 : -1;
@@ -186,7 +185,7 @@ public sealed class SearchOverlayViewModel : ObservableObject
         if (_editor is null || _currentIndex < 0) return;
         var match = _matches[_currentIndex];
         _editor.Select(match.Index, match.Length);
-        _editor.ScrollToLine(_editor.Document.GetLineByOffset(match.Index).LineNumber);
+        _editor.ScrollToOffset(match.Index);
     }
 
     private void SelectNearestToCaret()
@@ -205,7 +204,7 @@ public sealed class SearchOverlayViewModel : ObservableObject
         var replacement = SafeResult(match);
         if (replacement is null) { UpdateStatus(); OnPropertyChanged(nameof(HasError)); return; }
 
-        _editor.Document.Replace(match.Index, match.Length, replacement);
+        _editor.Replace(match.Index, match.Length, replacement);
         var caretAfter = match.Index + replacement.Length;
         RecomputeNow(false);
         SelectNearestTo(caretAfter);
@@ -214,20 +213,19 @@ public sealed class SearchOverlayViewModel : ObservableObject
     private void ReplaceAll()
     {
         if (_editor is null || _matches.Count == 0) return;
-        var doc = _editor.Document;
-        doc.UndoStack.StartUndoGroup();
+        _editor.BeginUndoGroup();
         try
         {
             for (var i = _matches.Count - 1; i >= 0; i--) // 末尾から処理しオフセットのズレを避ける
             {
                 var replacement = SafeResult(_matches[i]);
                 if (replacement is null) continue;
-                doc.Replace(_matches[i].Index, _matches[i].Length, replacement);
+                _editor.Replace(_matches[i].Index, _matches[i].Length, replacement);
             }
         }
         finally
         {
-            doc.UndoStack.EndUndoGroup();
+            _editor.EndUndoGroup();
         }
         RecomputeNow(false);
     }

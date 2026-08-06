@@ -327,6 +327,21 @@ v2.0（フェーズE1〜E5）の完了を前提とした増分として実施す
 | L4 | `Platform/Linux/` の実装（トレイ・ホットキー・クリップボード監視・ごみ箱・ファイルマネージャ・テーマ判定）。利用不可時の縮退とUI表示 |
 | L5 | 主要画面・主要シナリオの headless UIテスト整備、両プラットフォームでの発行検証、WPF版の撤去、フォント・文言・性能の最終確認 |
 
+### 20.1 実装状況（L5 完了時点）
+
+L0〜L5 をすべて完了した。実測値と確認方法は以下のとおり。
+
+| 項目 | 結果 |
+|---|---|
+| 発行 | win-x64 / linux-x64 の単一実行ファイルを生成できることを確認（各約120〜126MB） |
+| 起動から操作可能まで | Linux 実測 約0.71秒（ReadyToRun 有効。無効時は約1.85秒） |
+| 10万行のファイル | 読み込みと初回描画 342ms / スクロール 135ms / 編集 77ms / レキサ走査 339ms |
+| 自動テスト | 278件（単体 217・UI 61）。UIテストは画面のない環境で実描画して検証する |
+| OS固有機能 | Windows・Linux とも全機能が有効。利用できない項目は起動ログと起動時通知で提示する |
+
+**Wayland での制約**: グローバルホットキーは他クライアントのキーをつかみ取れないため利用できない。
+起動時に E601 として通知し、他の機能はそのまま使える。
+
 ---
 
 ## 21. 対象外
@@ -343,7 +358,7 @@ v2.0 の対象外（ブランチとマージ、複数プロジェクト同時適
 
 v2.0 附録Aを以下の変更を除き**そのまま適用**する。
 
-- **A.3改訂**: 本体プロジェクトの外部パッケージは Avalonia 一式（`Avalonia`・`Avalonia.Desktop`・`Avalonia.Themes.Fluent`）、**AvaloniaEdit**、DiffPlex、System.Text.Encoding.CodePages とする。テストは xUnit・FluentAssertions・**Avalonia.Headless・Avalonia.Headless.XUnit**。これ以外の追加は理由を添えて確認。MVVMフレームワーク・DIコンテナ・TextMateSharp は引き続き禁止。シンタックスハイライトの定義は自前レキサに一元化する。
+- **A.3改訂**: 本体プロジェクトの外部パッケージは Avalonia 一式（`Avalonia`・`Avalonia.Desktop`・`Avalonia.Win32`・`Avalonia.Themes.Fluent`）、**AvaloniaEdit**、DiffPlex、System.Text.Encoding.CodePages、Microsoft.Win32.SystemEvents とする。テストは xUnit・FluentAssertions・**Avalonia.Headless・Avalonia.Headless.XUnit**。これ以外の追加は理由を添えて確認。MVVMフレームワーク・DIコンテナ・TextMateSharp は引き続き禁止。シンタックスハイライトの定義は自前レキサに一元化する。
 - **A.4追加**: `Core`・`Features`・`Infra`・`Platform`（抽象とNull実装）に UI フレームワークの型を持ち込まないこと。`Platform/Windows` `Platform/Linux` は各OS固有APIを使ってよいが、**必ず `IsSupported` で利用可否を返し、例外を投げずに縮退する**こと。
 - **A.7改訂（テスト方針）**: 従来の単体テストに加え、**headless UIテストを必須**とする。
   - 主要画面（シェル・エディタ・エクスプローラ・接ぎ木パネル・設定・各ダイアログ）が**例外なく構築・描画できる**ことを1件以上のテストで保証する。リソース解決の失敗はここで検出する

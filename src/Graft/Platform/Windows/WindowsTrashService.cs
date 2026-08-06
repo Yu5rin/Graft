@@ -4,7 +4,7 @@ using System.Runtime.Versioning;
 namespace Graft.Platform.Windows;
 
 /// <summary>
-/// <see cref="ITrashService"/> のWindows実装。移設元は <c>Core/RevisionIndex.cs</c> の
+/// <see cref="ITrashService"/> のWindows実装。v2.0での実装元は <c>Core/RevisionIndex.cs</c> の
 /// <c>RecycleBin</c>。<c>Microsoft.VisualBasic</c> への参照を追加しないため、shell32.dll の
 /// <c>SHFileOperationW</c> を直接呼び出す（附録A.3の依存関係制約に準拠）。ロジックは
 /// 移設元から変更していない。

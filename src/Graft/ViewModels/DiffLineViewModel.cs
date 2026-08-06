@@ -42,6 +42,16 @@ public sealed class DiffCellViewModel
     /// <summary>スクリーンリーダー向けの読み上げ文言（8.14）。</summary>
     public string AutomationName { get; }
 
+    /// <summary>
+    /// 追加行かどうか（8.3の背景色・左端バーの切り替え用）。UI側で
+    /// <see cref="Kind"/> と特定値を突き合わせる条件分岐（WPFのDataTrigger等）を
+    /// 書かずに済むよう、真偽値として公開する。
+    /// </summary>
+    public bool IsAdded => Kind == DiffLineKind.Added;
+
+    /// <summary>削除行かどうか（8.3）。<see cref="IsAdded"/>と同じ理由で公開する。</summary>
+    public bool IsRemoved => Kind == DiffLineKind.Removed;
+
     /// <summary>内容を持たない空セル（並列表示で対応する側が存在しない行）を生成する。</summary>
     public static DiffCellViewModel Blank { get; }
         = new(DiffLineKind.Unchanged, null, null, string.Empty,
