@@ -3,7 +3,6 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -19,7 +18,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
     private readonly ProjectStore _projectStore;
     private readonly ContextCollector _collector;
     private readonly PromptTemplateRenderer _renderer;
-    private readonly DialogService _dialogService;
+    private readonly IDialogService _dialogService;
     private readonly IUiServices _ui;
 
     private Settings _settings;
@@ -31,7 +30,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
     private GraftIssue? _errorIssue;
 
     public PromptTemplateViewModel(
-        AppPaths appPaths, ProjectStore projectStore, DialogService dialogService, Settings initialSettings, IUiServices ui)
+        AppPaths appPaths, ProjectStore projectStore, IDialogService dialogService, Settings initialSettings, IUiServices ui)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));

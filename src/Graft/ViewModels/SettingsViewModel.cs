@@ -6,7 +6,6 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Themes;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -17,7 +16,7 @@ namespace Graft.ViewModels;
 /// </summary>
 public sealed class SettingsViewModel : ObservableObject
 {
-    private readonly SettingsStore _settingsStore; private readonly DialogService _dialogService;
+    private readonly SettingsStore _settingsStore; private readonly IDialogService _dialogService;
     private Settings _settings = new();
 
     private string _selectedTheme = "system";
@@ -65,7 +64,7 @@ public sealed class SettingsViewModel : ObservableObject
     private bool _isBusy;
     private string? _statusMessage;
 
-    public SettingsViewModel(AppPaths appPaths, DialogService dialogService, IUiServices ui)
+    public SettingsViewModel(AppPaths appPaths, IDialogService dialogService, IUiServices ui)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         ArgumentNullException.ThrowIfNull(ui);
@@ -241,7 +240,7 @@ public sealed class SettingsViewModel : ObservableObject
 
     private async Task ExportAsync()
     {
-        var folder = _dialogService.PickFolder("エクスポート先フォルダを選択してください");
+        var folder = await _dialogService.PickFolderAsync("エクスポート先フォルダを選択してください").ConfigureAwait(true);
         if (folder is null) return;
 
         var scope = _exportSettingsOnly ? SettingsExportScope.SettingsOnly : SettingsExportScope.IncludeProjects;
@@ -254,7 +253,7 @@ public sealed class SettingsViewModel : ObservableObject
 
     private async Task ImportAsync()
     {
-        var folder = _dialogService.PickFolder("インポート元フォルダを選択してください");
+        var folder = await _dialogService.PickFolderAsync("インポート元フォルダを選択してください").ConfigureAwait(true);
         if (folder is null) return;
 
         var confirmed = await _dialogService

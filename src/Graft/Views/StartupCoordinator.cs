@@ -84,7 +84,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         var projectStore = new ProjectStore(_appPaths);
         var revisionStore = new RevisionStore(_appPaths);
         var revisionRestorer = new RevisionRestorer(_appPaths);
-        var dialogService = new DialogService();
+        IDialogService dialogService = new DialogService();
         var applyEngine = BuildApplyEngine(_appPaths, _settings);
 
         void OpenSettings()

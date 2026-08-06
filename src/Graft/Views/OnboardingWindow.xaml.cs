@@ -74,7 +74,7 @@ public partial class OnboardingWindow : Window
 
     private async void OnRegisterProjectClicked(object sender, RoutedEventArgs e)
     {
-        var folder = _dialogService.PickFolder("登録するプロジェクトのフォルダを選択してください");
+        var folder = await _dialogService.PickFolderAsync("登録するプロジェクトのフォルダを選択してください").ConfigureAwait(true);
         if (folder is null)
         {
             return;

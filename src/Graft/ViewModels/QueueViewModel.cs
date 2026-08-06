@@ -1,7 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Graft.Features;
-using Graft.Views;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -37,9 +37,9 @@ public sealed class QueuedBlockRowViewModel
 public sealed class QueueViewModel : ObservableObject
 {
     private readonly PatchQueue _queue;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
 
-    public QueueViewModel(PatchQueue queue, DialogService dialogs)
+    public QueueViewModel(PatchQueue queue, IDialogService dialogs)
     {
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));

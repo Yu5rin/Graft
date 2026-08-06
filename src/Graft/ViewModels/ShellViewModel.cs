@@ -4,7 +4,6 @@ using System.Windows.Input;
 using Graft.Core;
 using Graft.Features;
 using Graft.Platform;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -38,7 +37,7 @@ public enum LegacyKey
 /// </summary>
 public sealed class ShellViewModel : ObservableObject, IDisposable
 {
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private readonly Graft.Infra.Settings _settings;
     private readonly IUiServices _ui;
     private readonly HashSet<LegacyKey> _notifiedLegacyKeys = new();
@@ -49,7 +48,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private string? _currentProjectId;
 
     public ShellViewModel(
-        MainViewModel graft, EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
+        MainViewModel graft, EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
     {
         Graft = graft ?? throw new ArgumentNullException(nameof(graft));
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));

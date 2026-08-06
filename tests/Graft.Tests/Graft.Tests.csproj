@@ -27,6 +27,7 @@
     -->
     <Compile Include="..\..\src\Graft\Platform\IPlatformServices.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\IUiServices.cs" LinkBase="Linked\Platform" />
+    <Compile Include="..\..\src\Graft\Platform\IDialogService.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\Null\**\*.cs" LinkBase="Linked\Platform\Null" />
   </ItemGroup>
 
