@@ -11,7 +11,7 @@
         - DatePicker.SelectedDate は DateTimeOffset? を直接扱うため、v2.0のWPF版で必要だった
           DateTime? との変換コンバータは使わない。
     -->
-    <Grid RowDefinitions="Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
 
         <!-- 見出しと復元ボタン -->
         <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
@@ -46,8 +46,8 @@
                      AutomationProperties.Name="リビジョンの要約を検索" />
         </Grid>
 
-        <!-- type絞り込み・日付範囲 -->
-        <Grid Grid.Row="2" Margin="8,0,8,6" ColumnDefinitions="*,Auto,Auto,Auto">
+        <!-- type絞り込み -->
+        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
             <ComboBox x:Name="TypeCombo"
                       Grid.Column="0"
                       ItemsSource="{Binding AvailableTypes}"
@@ -60,17 +60,29 @@
                     Margin="4,0,0,0"
                     ToolTip.Tip="種別絞り込みを解除"
                     AutomationProperties.Name="種別絞り込みを解除" />
-            <DatePicker Grid.Column="2"
-                        SelectedDate="{Binding DateFrom, Mode=TwoWay}"
-                        Margin="4,0,0,0"
-                        AutomationProperties.Name="開始日" />
-            <DatePicker Grid.Column="3"
-                        SelectedDate="{Binding DateTo, Mode=TwoWay}"
-                        Margin="4,0,0,0"
-                        AutomationProperties.Name="終了日" />
         </Grid>
 
-        <Grid Grid.Row="3">
+        <!--
+            日付範囲。日付選択コントロールではなく入力欄にしているのは、Avaloniaの
+            DatePickerが英語の項目名（year/month/day）を表示し差し替えられないことと、
+            サイドビューの幅に3項目分の枠が収まらないため（HistoryPaneViewModel参照）。
+        -->
+        <Grid Grid.Row="3" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
+            <TextBlock Grid.Column="0" Text="期間" VerticalAlignment="Center"
+                       Margin="0,0,6,0"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <TextBox Grid.Column="1" Text="{Binding DateFromText}"
+                     Watermark="2026-01-01"
+                     AutomationProperties.Name="開始日（年-月-日）" />
+            <TextBlock Grid.Column="2" Text="〜" VerticalAlignment="Center" Margin="4,0"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <TextBox Grid.Column="3" Text="{Binding DateToText}"
+                     Watermark="2026-12-31"
+                     AutomationProperties.Name="終了日（年-月-日）" />
+        </Grid>
+
+        <Grid Grid.Row="4">
             <ListBox x:Name="RevisionListBox"
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
