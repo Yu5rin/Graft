@@ -65,6 +65,24 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "エディタペインを構築して描画できる")]
     public void エディタペインを描画できる() => RenderInWindow(new EditorPane());
 
+    [AvaloniaFact(DisplayName = "接ぎ木パネルを構築して描画できる")]
+    public void 接ぎ木パネルを描画できる() => RenderInWindow(new GraftPanel());
+
+    [AvaloniaFact(DisplayName = "パッチキュー画面を構築して描画できる")]
+    public void パッチキュー画面を描画できる() => RenderWindow(new QueueWindow());
+
+    [AvaloniaFact(DisplayName = "コンテキスト収集画面を構築して描画できる")]
+    public void コンテキスト収集画面を描画できる() => RenderWindow(new ContextCollectWindow());
+
+    /// <summary>ウィンドウそのものを表示して描画する（Window派生の画面用）。</summary>
+    private static void RenderWindow(Window window)
+    {
+        window.Show();
+
+        using var frame = window.CaptureRenderedFrame();
+        frame.Should().NotBeNull("リソース解決に失敗すると描画そのものができない");
+    }
+
     /// <summary>
     /// コントロールをウィンドウに載せて実際に描画する。UserControl単体では描画パスに
     /// 乗らずリソース解決の失敗を検出できないため、必ずウィンドウ経由で確認する。
