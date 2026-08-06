@@ -16,6 +16,8 @@ namespace Graft;
 /// </summary>
 public partial class App : Application
 {
+    private Views.StartupCoordinator? _coordinator;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -31,14 +33,52 @@ public partial class App : Application
         EnableCommandRequery();
     }
 
-    public override void OnFrameworkInitializationCompleted()
+    public override async void OnFrameworkInitializationCompleted()
     {
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        base.OnFrameworkInitializationCompleted();
+
+        if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
+
+        // 想定外の例外は最上位で記録する（附録A.4）。ユーザー操作起因の失敗は各所で
+        // GraftResult として扱われ、ここには到達しない。
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
+        _coordinator = new Views.StartupCoordinator();
+        if (!_coordinator.TryAcquireSingleInstance())
         {
-            desktop.MainWindow = new Views.ShellWindow();
+            // 既に起動中の場合は既存ウィンドウを前面へ表示済み（StartupCoordinator側）。
+            // このプロセスはウィンドウを一切表示せずに終了する。
+            desktop.Shutdown();
+            return;
         }
 
-        base.OnFrameworkInitializationCompleted();
+        desktop.ShutdownRequested += OnShutdownRequested;
+
+        await _coordinator.StartAsync().ConfigureAwait(true);
+        desktop.MainWindow = _coordinator.MainWindow;
+    }
+
+    private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
+    {
+        ThemeManager.Shutdown();
+        _coordinator?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    /// <summary>UIスレッド外（バックグラウンドタスク・ファイナライザ等）の想定外の例外。記録のみ行う。</summary>
+    private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception ex)
+        {
+            _coordinator?.Logger?.Error("unhandled", ex.ToString());
+        }
+    }
+
+    /// <summary>await されなかった Task 内の想定外の例外。記録のうえ観測済みとしてプロセス終了を防ぐ。</summary>
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        _coordinator?.Logger?.Error("unhandled", e.Exception.ToString());
+        e.SetObserved();
     }
 
     /// <summary>
