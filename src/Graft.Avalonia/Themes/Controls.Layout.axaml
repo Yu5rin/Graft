@@ -80,15 +80,42 @@
                 <StackPanel>
                     <Border Name="PART_Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
                         <Grid ColumnDefinitions="Auto,Auto,*">
-                            <!-- 開閉シェブロン。9.5のIconChevronRight/Downと同じ視覚言語を
-                                 使うため、状態に応じてどちらのジオメトリを見せるかは
-                                 利用側（L3のExplorerView等）でHeaderに組み込む想定とし、
-                                 ここでは開閉トグルの当たり判定のみを提供する。 -->
+                            <!-- 開閉シェブロン。9.5のIconChevronRight/Downのジオメトリを
+                                 重ねて置き、開閉状態でどちらを見せるか切り替える
+                                 （9.1: OSの既定の三角ではなくベクターアイコンで表す）。
+                                 子を持たない項目では場所だけ確保して非表示にし、
+                                 名前の開始位置が階層内で揃うようにする。 -->
                             <ToggleButton Name="PART_ExpandCollapseChevron"
                                           Grid.Column="0"
+                                          Width="16" Height="16"
+                                          Padding="0"
                                           Focusable="False"
                                           Background="Transparent"
-                                          IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}" />
+                                          BorderThickness="0"
+                                          AutomationProperties.Name="展開切り替え"
+                                          IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate>
+                                        <Panel Background="Transparent">
+                                            <Path Name="PART_ChevronRight" Classes="icon"
+                                                  Width="9" Height="9"
+                                                  Data="{DynamicResource IconChevronRightGeometry}" />
+                                            <Path Name="PART_ChevronDown" Classes="icon"
+                                                  Width="9" Height="9"
+                                                  IsVisible="False"
+                                                  Data="{DynamicResource IconChevronDownGeometry}" />
+                                        </Panel>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                                <ToggleButton.Styles>
+                                    <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronRight">
+                                        <Setter Property="IsVisible" Value="False" />
+                                    </Style>
+                                    <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronDown">
+                                        <Setter Property="IsVisible" Value="True" />
+                                    </Style>
+                                </ToggleButton.Styles>
+                            </ToggleButton>
                             <ContentPresenter Grid.Column="2"
                                               Name="PART_HeaderPresenter"
                                               Content="{TemplateBinding Header}"
@@ -109,6 +136,11 @@
         </Style>
         <Style Selector="^:pointerover /template/ Border#PART_Bg">
             <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <!-- 子項目を持たない場合はシェブロンを隠す（場所は確保したままにする）。 -->
+        <Style Selector="^:empty /template/ ToggleButton#PART_ExpandCollapseChevron">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="IsHitTestVisible" Value="False" />
         </Style>
     </ControlTheme>
 

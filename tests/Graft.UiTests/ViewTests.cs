@@ -41,6 +41,15 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "サイドバーを構築して描画できる")]
     public void サイドバーを描画できる() => RenderInWindow(new SideBar());
 
+    [AvaloniaFact(DisplayName = "プロジェクトペインを構築して描画できる")]
+    public void プロジェクトペインを描画できる() => RenderInWindow(new ProjectPane());
+
+    [AvaloniaFact(DisplayName = "履歴ペインを構築して描画できる")]
+    public void 履歴ペインを描画できる() => RenderInWindow(new HistoryPane());
+
+    [AvaloniaFact(DisplayName = "エクスプローラビューを構築して描画できる")]
+    public void エクスプローラビューを描画できる() => RenderInWindow(new ExplorerView());
+
     /// <summary>
     /// コントロールをウィンドウに載せて実際に描画する。UserControl単体では描画パスに
     /// 乗らずリソース解決の失敗を検出できないため、必ずウィンドウ経由で確認する。
