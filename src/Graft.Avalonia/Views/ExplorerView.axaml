@@ -1,0 +1,173 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             x:Class="Graft.Views.ExplorerView"
+             x:Name="Root"
+             Background="{DynamicResource BgSurface}">
+    <!--
+        4.2 エクスプローラ: プロジェクトルート配下をフォルダ優先・名前順のツリーで表示する。
+        遅延読み込み・除外規則のグレー表示／トグル・ファイル監視による自動更新は
+        ExplorerViewModel側の責務。本Viewはツリーの描画・右クリックメニュー・
+        キー操作（F2/Delete/Enter）のみを担う。
+
+        WPF版からの差分:
+        - HierarchicalDataTemplate は TreeDataTemplate へ。
+        - ItemContainerStyle は ItemContainerTheme へ。開閉シェブロンのControlTemplateは
+          Themes/Controls.Layout.axaml のTreeViewItemテーマが持つため、ここでは
+          ビュー固有の設定（IsExpandedの双方向バインドと右クリックメニュー）だけを足す。
+        - TreeView.SelectedItem はAvaloniaでは双方向バインド可能なため、WPF版で必要だった
+          SelectedItemChangedハンドラによる橋渡しは不要。
+        - ContextMenu は論理ツリーを共有するため、WPF版の PlacementTarget.Tag 経由の
+          回りくどい参照は不要で、ExplorerViewModel を直接参照できる。
+        - Visibility は IsVisible（bool）へ。
+    -->
+    <UserControl.Styles>
+        <Style Selector="Path.treeIcon">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="Height" Value="14" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+        </Style>
+        <Style Selector="Path.treeIcon.excluded">
+            <Setter Property="Stroke" Value="{DynamicResource TextDisabled}" />
+        </Style>
+        <Style Selector="TextBlock.nodeName">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+        <Style Selector="TextBlock.nodeName.excluded">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+        <Style Selector="TextBlock.nodeName.placeholder">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="FontStyle" Value="Italic" />
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <ControlTheme x:Key="FileTreeItemTheme" TargetType="TreeViewItem"
+                      BasedOn="{StaticResource {x:Type TreeViewItem}}">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+            <Setter Property="Padding" Value="2,3" />
+            <Setter Property="IsVisible">
+                <Setter.Value>
+                    <MultiBinding Converter="{x:Static local:Converters.ExcludedNodeVisible}">
+                        <Binding Path="IsExcluded" />
+                        <Binding Path="DataContext.ShowExcludedFiles" ElementName="Root" />
+                    </MultiBinding>
+                </Setter.Value>
+            </Setter>
+        </ControlTheme>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="2,Auto,Auto,*">
+
+        <!-- 9.2: 読み込み中はアクセント色の細い不確定プログレスバーを上端に。 -->
+        <ProgressBar Grid.Row="0" IsIndeterminate="True" Height="2" BorderThickness="0"
+                     Background="Transparent" Foreground="{DynamicResource Accent}"
+                     IsVisible="{Binding IsLoading}"
+                     AutomationProperties.Name="ツリーを読み込み中" />
+
+        <!-- 見出しと操作ボタン -->
+        <Grid Grid.Row="1" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="エクスプローラ" VerticalAlignment="Center"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Command="{Binding NewFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="新規ファイル" AutomationProperties.Name="新規ファイルを作成">
+                    <Path Data="{DynamicResource IconFileGeometry}" Classes="icon" />
+                </Button>
+                <Button Command="{Binding NewFolderCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="新規フォルダ" AutomationProperties.Name="新規フォルダを作成">
+                    <Path Data="{DynamicResource IconFolderGeometry}" Classes="icon" />
+                </Button>
+                <Button Command="{Binding RefreshCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="更新" AutomationProperties.Name="ツリーを更新">
+                    <Path Data="{DynamicResource IconRotateCcwGeometry}" Classes="icon" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- 除外ファイルの表示トグル -->
+        <CheckBox Grid.Row="2" Content="除外ファイルを表示" Margin="12,0,8,6"
+                  IsChecked="{Binding ShowExcludedFiles, Mode=TwoWay}"
+                  AutomationProperties.Name="除外ファイルを表示する" />
+
+        <Grid Grid.Row="3">
+            <TreeView x:Name="FileTreeView"
+                      ItemsSource="{Binding RootNodes}"
+                      SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
+                      ItemContainerTheme="{StaticResource FileTreeItemTheme}"
+                      Background="Transparent" BorderThickness="0"
+                      AutomationProperties.Name="ファイルツリー">
+                <TreeView.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="開く"
+                                  Command="{Binding OpenCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="開く" />
+                        <Separator />
+                        <MenuItem Header="新規ファイル..."
+                                  Command="{Binding NewFileCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="新規ファイルを作成" />
+                        <MenuItem Header="新規フォルダ..."
+                                  Command="{Binding NewFolderCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="新規フォルダを作成" />
+                        <Separator />
+                        <MenuItem Header="名前の変更 (F2)"
+                                  Command="{Binding RenameCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="名前を変更" />
+                        <MenuItem Header="削除 (Delete)"
+                                  Command="{Binding DeleteCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="ごみ箱へ削除" />
+                        <Separator />
+                        <MenuItem Header="パスをコピー"
+                                  Command="{Binding CopyPathCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="パスをコピー" />
+                        <MenuItem Header="エクスプローラで表示"
+                                  Command="{Binding RevealCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="OSのエクスプローラで表示" />
+                    </ContextMenu>
+                </TreeView.ContextMenu>
+                <TreeView.ItemTemplate>
+                    <TreeDataTemplate DataType="vm:FileNodeViewModel" ItemsSource="{Binding Children}">
+                        <StackPanel Orientation="Horizontal" Margin="2,2">
+                            <Path Data="{DynamicResource IconFolderGeometry}"
+                                  Classes="icon treeIcon" Classes.excluded="{Binding IsExcluded}"
+                                  IsVisible="{Binding ShowFolderIcon}" />
+                            <Path Data="{DynamicResource IconFileCodeGeometry}"
+                                  Classes="icon treeIcon" Classes.excluded="{Binding IsExcluded}"
+                                  IsVisible="{Binding ShowCodeIcon}" />
+                            <Path Data="{DynamicResource IconFileGeometry}"
+                                  Classes="icon treeIcon" Classes.excluded="{Binding IsExcluded}"
+                                  IsVisible="{Binding ShowPlainFileIcon}" />
+                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
+                                       Classes="nodeName"
+                                       Classes.excluded="{Binding IsExcluded}"
+                                       Classes.placeholder="{Binding IsPlaceholder}" />
+                        </StackPanel>
+                    </TreeDataTemplate>
+                </TreeView.ItemTemplate>
+                <TreeView.KeyBindings>
+                    <KeyBinding Gesture="F2" Command="{Binding RenameCommand}" CommandParameter="{Binding SelectedNode}" />
+                    <KeyBinding Gesture="Delete" Command="{Binding DeleteCommand}" CommandParameter="{Binding SelectedNode}" />
+                    <KeyBinding Gesture="Enter" Command="{Binding OpenCommand}" CommandParameter="{Binding SelectedNode}" />
+                </TreeView.KeyBindings>
+            </TreeView>
+
+            <local:EmptyStateView AutomationProperties.Name="エクスプローラビュー"
+                                  IconGeometry="{DynamicResource IconFolderGeometry}"
+                                  Message="プロジェクトを選択してください"
+                                  State="{Binding HasProject,
+                                          Converter={x:Static local:Converters.HasNodesToEmptyState}}" />
+        </Grid>
+    </Grid>
+</UserControl>
