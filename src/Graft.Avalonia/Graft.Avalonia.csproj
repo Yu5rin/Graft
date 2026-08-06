@@ -19,11 +19,23 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.3" />
     <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <!--
+      Windowsのウィンドウプロシージャへ割り込むAPI（Win32Properties）を参照するために必要。
+      Avalonia.Desktopの依存として実行時には既に含まれており、追加で配布物が増えることはない。
+      Windows以外では読み込まれない（Platform/WindowMessageBridge.cs のコメント参照）。
+    -->
+    <PackageReference Include="Avalonia.Win32" Version="11.2.3" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.2.3" Condition="'$(Configuration)'=='Debug'" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.1.0" />
     <PackageReference Include="DiffPlex" Version="1.7.2" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+    <!--
+      Windowsのテーマ変更通知（SystemEvents.UserPreferenceChanged）に必要。WPF版では
+      WindowsBase経由で暗黙に参照されていたが、この版はWPFを参照しないため明示的に足す。
+      Windows以外では実行時に読み込まれない。
+    -->
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="8.0.0" />
   </ItemGroup>
 
   <!--
@@ -39,6 +51,21 @@
     <Compile Include="..\Graft\Platform\IDialogService.cs" LinkBase="Shared\Platform" />
     <Compile Include="..\Graft\Platform\ITextEditorAccess.cs" LinkBase="Shared\Platform" />
     <Compile Include="..\Graft\Platform\Null\**\*.cs" LinkBase="Shared\Platform\Null" />
+    <!--
+      Windows向けのOS機能実装（仕様書v2.1 19章 L4）。いずれもWin32のP/Invokeだけで
+      構成されておりWPFに依存しないため、WPF版と同一のソースを共有する。
+      WPFに依存する3ファイル（WpfUiServices・WindowsTrayIcon・WindowsTrayIconRenderer）
+      だけは対象外とし、この版ではPlatform/TrayIcon側で改めて実装する。
+      Windows以外のOSでもコンパイルはされるが、実行時に呼び出すのは
+      AvaloniaPlatformServicesがWindowsと判定した場合だけ。
+    -->
+    <Compile Include="..\Graft\Platform\Windows\WindowsClipboardMonitor.cs" LinkBase="Shared\Platform\Windows" />
+    <Compile Include="..\Graft\Platform\Windows\WindowsFileManagerLauncher.cs" LinkBase="Shared\Platform\Windows" />
+    <Compile Include="..\Graft\Platform\Windows\WindowsGlobalHotkeys.cs" LinkBase="Shared\Platform\Windows" />
+    <Compile Include="..\Graft\Platform\Windows\WindowsNativeMethods.cs" LinkBase="Shared\Platform\Windows" />
+    <Compile Include="..\Graft\Platform\Windows\WindowsSingleInstanceGuard.cs" LinkBase="Shared\Platform\Windows" />
+    <Compile Include="..\Graft\Platform\Windows\WindowsSystemThemeWatcher.cs" LinkBase="Shared\Platform\Windows" />
+    <Compile Include="..\Graft\Platform\Windows\WindowsTrashService.cs" LinkBase="Shared\Platform\Windows" />
     <!--
       ViewModel層はUIフレームワークに依存しない（ICommandはSystem.ObjectModelが提供する
       ため .NET 8 標準で解決できる）。WPF固有の型に触れる箇所はPlatform層の抽象

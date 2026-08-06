@@ -56,7 +56,7 @@ public sealed class AvaloniaUiServices : IUiServices
 /// 将来バックエンドが真に非同期化された場合は<see cref="IClipboardAccess"/>自体を
 /// 非同期シグネチャへ変更する必要がある（統合担当への報告事項）。
 /// </summary>
-internal sealed class AvaloniaClipboardAccess : IClipboardAccess
+public sealed class AvaloniaClipboardAccess : IClipboardAccess
 {
     public void SetText(string text)
     {
