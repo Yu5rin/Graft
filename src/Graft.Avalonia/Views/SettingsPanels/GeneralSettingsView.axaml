@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.SettingsPanels.GeneralSettingsView"
+             AutomationProperties.Name="一般設定">
+    <!--
+        14章「一般」区分。テーマ・適用モード・ホットキー・ログレベルに加え、バックアップ・
+        世代管理・Git連携・適用後フック・エクスポート/インポートをまとめる。
+        書式（fieldLabel/fieldRow/sectionHeading）は Themes/Settings.axaml のクラス。
+        DataContextはTabItem経由でSettingsViewModelを継承する。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
+        <StackPanel>
+            <TextBlock Text="一般" Classes="sectionHeading first" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="テーマ" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedValueBinding="{Binding Value}"
+                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedTheme}"
+                          AutomationProperties.Name="テーマ" />
+            </StackPanel>
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="適用モード" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding ApplyModeOptions}" SelectedValueBinding="{Binding Value}"
+                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedApplyMode}"
+                          AutomationProperties.Name="適用モード" />
+            </StackPanel>
+            <CheckBox Classes="settingRow" Content="適用前にプレビューを表示する" IsChecked="{Binding ShowPreview}"
+                      AutomationProperties.Name="適用前にプレビューを表示する" />
+            <CheckBox Classes="settingRow" Content="パッチメタデータのsummaryを必須にする" IsChecked="{Binding RequireSummary}"
+                      AutomationProperties.Name="パッチメタデータのsummaryを必須にする" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="グローバルホットキー" Classes="fieldLabel" />
+                <TextBox Text="{Binding Hotkey}" Width="220"
+                         AutomationProperties.Name="グローバルホットキー" />
+            </StackPanel>
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="ログレベル" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding LogLevelOptions}" SelectedValueBinding="{Binding Value}"
+                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedLogLevel}"
+                          AutomationProperties.Name="ログレベル" />
+            </StackPanel>
+
+            <TextBlock Text="バックアップ・世代管理" Classes="sectionHeading" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />
+                <TextBox Text="{Binding MaxRevisionsText}" Width="120"
+                         AutomationProperties.Name="最大保持リビジョン数" />
+            </StackPanel>
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="バックアップ合計上限（MB、0で無制限）" Classes="fieldLabel" />
+                <TextBox Text="{Binding MaxTotalMBText}" Width="120"
+                         AutomationProperties.Name="バックアップ合計上限" />
+            </StackPanel>
+            <CheckBox Classes="settingRow" Content="世代整理でごみ箱を使用する" IsChecked="{Binding UseRecycleBin}"
+                      AutomationProperties.Name="世代整理でごみ箱を使用する" />
+
+            <TextBlock Text="Git連携・適用後フック" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow" Content="適用後に自動コミットする" IsChecked="{Binding AutoCommit}"
+                      AutomationProperties.Name="適用後に自動コミットする" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="フックのタイムアウト（秒）" Classes="fieldLabel" />
+                <TextBox Text="{Binding HooksTimeoutSecText}" Width="120"
+                         AutomationProperties.Name="フックのタイムアウト秒数" />
+            </StackPanel>
+
+            <TextBlock Text="エクスポート／インポート" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow" Content="設定のみを対象にする（プロジェクト定義を除外）"
+                      IsChecked="{Binding ExportSettingsOnly}" AutomationProperties.Name="設定のみを対象にする" />
+            <StackPanel Orientation="Horizontal">
+                <Button Content="エクスポート" Command="{Binding ExportCommand}" Margin="0,0,8,0"
+                        AutomationProperties.Name="設定をエクスポート" />
+                <Button Content="インポート" Command="{Binding ImportCommand}"
+                        AutomationProperties.Name="設定をインポート" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

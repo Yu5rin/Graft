@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.SettingsPanels.SafetySettingsView"
+             AutomationProperties.Name="安全機構設定">
+    <!-- 14章「safety」区分（13章 安全機構）。 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
+        <StackPanel>
+            <TextBlock Text="安全機構" Classes="sectionHeading first" />
+            <TextBlock Text="許可する拡張子（カンマ区切り）" Margin="0,0,0,4"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}" />
+            <TextBox Text="{Binding AllowedExtensionsText}"
+                     AcceptsReturn="True" TextWrapping="Wrap" Height="60" Margin="0,0,0,10"
+                     AutomationProperties.Name="許可する拡張子" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="1ファイルの上限サイズ（MB）" Classes="fieldLabel" />
+                <TextBox Text="{Binding MaxFileSizeMBText}" Width="120"
+                         AutomationProperties.Name="1ファイルの上限サイズ" />
+            </StackPanel>
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="1リビジョンの上限ファイル数" Classes="fieldLabel" />
+                <TextBox Text="{Binding MaxFilesPerRevisionText}" Width="120"
+                         AutomationProperties.Name="1リビジョンの上限ファイル数" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

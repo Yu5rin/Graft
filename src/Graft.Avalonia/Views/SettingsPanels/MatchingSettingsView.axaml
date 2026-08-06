@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.SettingsPanels.MatchingSettingsView"
+             AutomationProperties.Name="マッチング設定">
+    <!-- 14章「matching」区分（5章マッチングエンジンの挙動）。 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
+        <StackPanel>
+            <TextBlock Text="マッチングエンジン" Classes="sectionHeading first" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="類似度マッチの閾値（0〜1）" Classes="fieldLabel" />
+                <TextBox Text="{Binding SimilarityThresholdText}" Width="120"
+                         AutomationProperties.Name="類似度マッチの閾値" />
+            </StackPanel>
+            <CheckBox Classes="settingRow" Content="類似度マッチ（段階5）を許可する"
+                      IsChecked="{Binding AllowSimilarityMatch}" AutomationProperties.Name="類似度マッチを許可する" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="アンカー範囲の警告閾値（行）" Classes="fieldLabel" />
+                <TextBox Text="{Binding RangeWarningLinesText}" Width="120"
+                         AutomationProperties.Name="アンカー範囲の警告閾値" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

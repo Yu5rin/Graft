@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.SettingsPanels.DiffSettingsView"
+             AutomationProperties.Name="表示・コンテキスト設定">
+    <!--
+        14章「syntax」「diff」「context」「encoding」「clipboardWatch」区分をまとめる
+        （8.6シンタックス・8.13 diff表示制御・10章コンテキスト収集の各設定）。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
+        <StackPanel>
+            <TextBlock Text="シンタックスハイライト" Classes="sectionHeading first" />
+            <CheckBox Classes="settingRow" Content="シンタックスハイライトを有効にする" IsChecked="{Binding SyntaxEnabled}"
+                      AutomationProperties.Name="シンタックスハイライトを有効にする" />
+            <CheckBox Classes="settingRow" Content="行番号を表示する" IsChecked="{Binding ShowLineNumbers}"
+                      AutomationProperties.Name="行番号を表示する" />
+
+            <TextBlock Text="diff表示" Classes="sectionHeading" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="前後のコンテキスト行数" Classes="fieldLabel" />
+                <TextBox Text="{Binding ContextLinesText}" Width="120"
+                         AutomationProperties.Name="前後のコンテキスト行数" />
+            </StackPanel>
+            <CheckBox Classes="settingRow" Content="長い行を折り返す" IsChecked="{Binding WordWrap}"
+                      AutomationProperties.Name="長い行を折り返す" />
+            <CheckBox Classes="settingRow" Content="空白文字を可視化する" IsChecked="{Binding ShowWhitespace}"
+                      AutomationProperties.Name="空白文字を可視化する" />
+
+            <TextBlock Text="コンテキスト収集" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow" Content=".gitignoreを尊重する" IsChecked="{Binding RespectGitignore}"
+                      AutomationProperties.Name="gitignoreを尊重する" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="トークン概算比率（文字数÷この値）" Classes="fieldLabel" />
+                <TextBox Text="{Binding TokenRatioText}" Width="120"
+                         AutomationProperties.Name="トークン概算比率" />
+            </StackPanel>
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="トークン数の警告閾値" Classes="fieldLabel" />
+                <TextBox Text="{Binding TokenWarnThresholdText}" Width="120"
+                         AutomationProperties.Name="トークン数の警告閾値" />
+            </StackPanel>
+
+            <TextBlock Text="新規ファイル" Classes="sectionHeading" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="エンコーディング" Classes="fieldLabel" />
+                <TextBox Text="{Binding NewFileEncoding}" Width="160"
+                         AutomationProperties.Name="新規ファイルのエンコーディング" />
+            </StackPanel>
+            <CheckBox Classes="settingRow" Content="BOMを付与する" IsChecked="{Binding NewFileBom}"
+                      AutomationProperties.Name="新規ファイルにBOMを付与する" />
+
+            <TextBlock Text="クリップボード監視" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow" Content="クリップボード監視を有効にする"
+                      IsChecked="{Binding ClipboardWatchEnabled}"
+                      AutomationProperties.Name="クリップボード監視を有効にする" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="反応時の挙動" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding ClipboardActionOptions}" SelectedValueBinding="{Binding Value}"
+                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedClipboardAction}"
+                          AutomationProperties.Name="クリップボード監視反応時の挙動" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

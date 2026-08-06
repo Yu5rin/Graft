@@ -74,6 +74,28 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "コンテキスト収集画面を構築して描画できる")]
     public void コンテキスト収集画面を描画できる() => RenderWindow(new ContextCollectWindow());
 
+    [AvaloniaFact(DisplayName = "設定画面を構築して描画できる")]
+    public void 設定画面を描画できる() => RenderWindow(new SettingsWindow());
+
+    [AvaloniaFact(DisplayName = "初回起動ガイドを構築して描画できる")]
+    public void 初回起動ガイドを描画できる() => RenderWindow(new OnboardingWindow());
+
+    [AvaloniaFact(DisplayName = "バージョン情報を構築して描画できる")]
+    public void バージョン情報を描画できる() => RenderInWindow(new AboutView());
+
+    [AvaloniaFact(DisplayName = "設定画面の各タブを構築して描画できる")]
+    public void 設定タブを描画できる()
+    {
+        // 設定画面のタブ7枚。1枚でもXAMLやリソース参照を誤ると、ここで描画に失敗する。
+        RenderInWindow(new Graft.Views.SettingsPanels.GeneralSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.EditorSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.MatchingSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.SafetySettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.DiffSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.TemplateSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.RawJsonSettingsView());
+    }
+
     /// <summary>ウィンドウそのものを表示して描画する（Window派生の画面用）。</summary>
     private static void RenderWindow(Window window)
     {
