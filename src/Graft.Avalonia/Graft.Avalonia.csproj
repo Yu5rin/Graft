@@ -12,8 +12,21 @@
     <Product>Graft</Product>
     <WarningsAsErrors>nullable</WarningsAsErrors>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!--
+      実行ファイルのアイコン。tools/generate-icon.py が Themes/Logo.axaml のベクター定義から
+      生成した成果物で、元となる定義はあくまでベクター側にある（附録A.5）。
+      Windows以外の発行では単に無視される。
+    -->
+    <ApplicationIcon>..\Graft\Assets\Graft.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!--
+      18章「起動から操作可能まで1秒以内」。ILを事前にネイティブコードへ変換しておくことで
+      起動時のJITを大幅に減らす。Linuxでの実測で 約1.85秒 → 約0.66秒 に短縮した。
+      引き換えに発行物のサイズが約87MBから約120MBへ増えるが、単一実行ファイルでの
+      配布（2.1）に支障はなく、常駐時のメモリ使用量にも影響しない。
+    -->
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>
