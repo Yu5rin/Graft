@@ -1,0 +1,91 @@
+<!--
+  アプリのロゴ。WPF版 Themes/Logo.xaml の移植（附録A・20章L2）。
+  ラスタ画像ではなくベクター（Geometry）として保持し、ウィンドウアイコン・
+  トレイアイコン・バージョン情報画面から共通で参照する。ロゴの配色はブランド固有で
+  テーマに追従しないため、ここに専用トークンとして定義する（値はWPF版と同一）。
+  256x256 のビューボックスで定義する。
+
+  【WPF版からの構文差分（値・形状は変えていない）】
+  - 背景の角丸矩形（Rect 0,0,256,256 / RadiusX=RadiusY=44）は、AvaloniaのRectangleGeometryが
+    角丸（RadiusX/RadiusY相当）を持たないため、同じ形状を表す角丸矩形のパスデータを
+    直接StreamGeometryとして書き下す（円弧4つで表現。数学的に同一の輪郭になる）。
+  - 幹・接ぎ穂・葉・葉脈は、WPFのPathGeometry(Figures="...")をAvaloniaの
+    StreamGeometry（内容テキストとしてパスのミニ言語をそのまま渡す）へ置き換える。
+    Avaloniaのプロパティ型コンバータにはFigures文字列だけを受け取る変換器が
+    ないため、Geometry全体を文字列から生成できるStreamGeometryを使う。
+    パスデータそのものは1文字も変更していない。
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ロゴのブランド配色 -->
+    <Color x:Key="LogoBackgroundColor">#FBFAF2</Color>
+    <Color x:Key="LogoTrunkColor">#3E4F43</Color>
+    <Color x:Key="LogoLeafColor">#7CAA4E</Color>
+
+    <SolidColorBrush x:Key="LogoBackgroundBrush" Color="{StaticResource LogoBackgroundColor}" />
+    <SolidColorBrush x:Key="LogoTrunkBrush" Color="{StaticResource LogoTrunkColor}" />
+    <SolidColorBrush x:Key="LogoLeafBrush" Color="{StaticResource LogoLeafColor}" />
+
+    <!-- 背景（角丸44の正方形、0,0-256,256）。WPFのRectangleGeometry+RadiusX/RadiusYと
+         同一の輪郭を表す角丸矩形パス。 -->
+    <StreamGeometry x:Key="LogoBackgroundGeometry">
+        M44,0 L212,0 A44,44 0 0 1 256,44 L256,212 A44,44 0 0 1 212,256
+        L44,256 A44,44 0 0 1 0,212 L0,44 A44,44 0 0 1 44,0 Z
+    </StreamGeometry>
+
+    <!-- 幹（接ぎ木される台木） -->
+    <StreamGeometry x:Key="LogoTrunkGeometry">
+        M78.5,229.5 L78.5,149 C78.5,145 80,141.5 83,139 L100,125 C103.5,122 109.5,124.5 109.5,129
+        L109.5,161 L117,161 C121,161 124,164 124,168 L124,175 C124,179 121,182 117,182
+        L109.5,182 L109.5,229.5 Z
+    </StreamGeometry>
+
+    <!-- 接ぎ穂の茎 -->
+    <StreamGeometry x:Key="LogoStalkGeometry">
+        M109.5,127 C126,127 138,118 144,104 C148,96 149.5,90 150,83 L163.5,86
+        C162,96 159,112 150,126 C140,141 126,152 109.5,158 Z
+    </StreamGeometry>
+
+    <!-- 上の葉 -->
+    <StreamGeometry x:Key="LogoLeafUpperGeometry">
+        M150,88 C145,62 164,37 196,26 C207,50 197,77 170,89 C163,92 154,93 150,88 Z
+    </StreamGeometry>
+
+    <!-- 下の葉 -->
+    <StreamGeometry x:Key="LogoLeafLowerGeometry">
+        M152,122 C163,100 189,90 210,98 C203,120 180,132 158,128 C154,127 151,125 152,122 Z
+    </StreamGeometry>
+
+    <!-- 葉脈（背景色で抜く） -->
+    <StreamGeometry x:Key="LogoVeinUpperGeometry">
+        M196,26 C176,44 163,63 157,85 C161,62 178,42 196,26 Z
+    </StreamGeometry>
+
+    <StreamGeometry x:Key="LogoVeinLowerGeometry">
+        M210,98 C191,100 173,108 158,122 C174,112 191,103 210,98 Z
+    </StreamGeometry>
+
+    <!-- ロゴ全体。Image.Source から参照する -->
+    <DrawingImage x:Key="LogoImage">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Geometry="{StaticResource LogoBackgroundGeometry}"
+                                  Brush="{StaticResource LogoBackgroundBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoTrunkGeometry}"
+                                  Brush="{StaticResource LogoTrunkBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoStalkGeometry}"
+                                  Brush="{StaticResource LogoLeafBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoLeafUpperGeometry}"
+                                  Brush="{StaticResource LogoLeafBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoLeafLowerGeometry}"
+                                  Brush="{StaticResource LogoLeafBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoVeinUpperGeometry}"
+                                  Brush="{StaticResource LogoBackgroundBrush}" />
+                <GeometryDrawing Geometry="{StaticResource LogoVeinLowerGeometry}"
+                                  Brush="{StaticResource LogoBackgroundBrush}" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
+</ResourceDictionary>
