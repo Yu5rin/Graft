@@ -1,6 +1,6 @@
 using System.IO;
-using System.Windows;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -114,18 +114,21 @@ public sealed class WindowLayoutStore
     /// 保存された位置・サイズから実際にウィンドウへ適用すべき矩形を求める。
     /// 現在のモニタ構成（仮想画面全体）でタイトルバー付近が画面外になる場合は
     /// プライマリモニタの作業領域中央へ補正する（仕様書8.11）。
+    /// 画面構成の問い合わせは<see cref="IScreenInfo"/>経由とし、WPF/Avalonia双方の
+    /// 呼び出し側から同じロジックを共有できるようにする（仕様書19章・20章 L3）。
     /// </summary>
-    public static Rect ResolveWindowBounds(WindowLayoutState state, double minWidth, double minHeight)
+    public static UiRect ResolveWindowBounds(WindowLayoutState state, double minWidth, double minHeight, IScreenInfo screens)
     {
+        ArgumentNullException.ThrowIfNull(screens);
         var width = Math.Max(state.Width, minWidth);
         var height = Math.Max(state.Height, minHeight);
 
-        if (double.IsNaN(state.Left) || double.IsNaN(state.Top) || !IsReachable(state.Left, state.Top, width))
+        if (double.IsNaN(state.Left) || double.IsNaN(state.Top) || !IsReachable(state.Left, state.Top, width, screens))
         {
-            return CenterOnPrimary(width, height);
+            return CenterOnPrimary(width, height, screens);
         }
 
-        return new Rect(state.Left, state.Top, width, height);
+        return new UiRect(state.Left, state.Top, width, height);
     }
 
     /// <summary>
@@ -133,26 +136,21 @@ public sealed class WindowLayoutStore
     /// かかっていれば「到達可能」とみなす。モニタ構成の変化（取り外し等）で
     /// 完全に画面外へ追いやられているケースだけを補正対象とする。
     /// </summary>
-    private static bool IsReachable(double left, double top, double width)
+    private static bool IsReachable(double left, double top, double width, IScreenInfo screens)
     {
-        var virtualScreen = new Rect(
-            SystemParameters.VirtualScreenLeft,
-            SystemParameters.VirtualScreenTop,
-            SystemParameters.VirtualScreenWidth,
-            SystemParameters.VirtualScreenHeight);
-
-        var titleBar = new Rect(left, top, Math.Min(width, 200), 40);
+        var virtualScreen = screens.VirtualScreen;
+        var titleBar = new UiRect(left, top, Math.Min(width, 200), 40);
         return virtualScreen.IntersectsWith(titleBar);
     }
 
-    private static Rect CenterOnPrimary(double width, double height)
+    private static UiRect CenterOnPrimary(double width, double height, IScreenInfo screens)
     {
-        var workArea = SystemParameters.WorkArea;
+        var workArea = screens.PrimaryWorkArea;
         var boundedWidth = Math.Min(width, workArea.Width);
         var boundedHeight = Math.Min(height, workArea.Height);
         var left = workArea.Left + Math.Max(0, (workArea.Width - boundedWidth) / 2);
         var top = workArea.Top + Math.Max(0, (workArea.Height - boundedHeight) / 2);
-        return new Rect(left, top, boundedWidth, boundedHeight);
+        return new UiRect(left, top, boundedWidth, boundedHeight);
     }
 
     /// <summary>指定プロジェクトのペイン幅設定を取得する。無ければ既定値で作成して登録する。</summary>

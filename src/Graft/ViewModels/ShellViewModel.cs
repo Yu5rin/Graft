@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows.Input;
 using Graft.Core;
 using Graft.Features;
+using Graft.Platform;
 using Graft.Views;
 
 namespace Graft.ViewModels;
@@ -39,6 +40,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly DialogService _dialogs;
     private readonly Graft.Infra.Settings _settings;
+    private readonly IUiServices _ui;
     private readonly HashSet<LegacyKey> _notifiedLegacyKeys = new();
 
     private SideViewKind _selectedSideView = SideViewKind.Project;
@@ -46,12 +48,14 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private bool _isGraftPanelOpen;
     private string? _currentProjectId;
 
-    public ShellViewModel(MainViewModel graft, EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings)
+    public ShellViewModel(
+        MainViewModel graft, EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
     {
         Graft = graft ?? throw new ArgumentNullException(nameof(graft));
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
-        Explorer = new ExplorerViewModel(Editor, _dialogs, settings);
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+        Explorer = new ExplorerViewModel(Editor, _dialogs, settings, ui);
         Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs);
         Search.JumpRequested += OnSearchJumpRequested;
         _settings = settings;
@@ -66,6 +70,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
         OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
     }
+
+    /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>
+    public IUiServices Ui => _ui;
 
     /// <summary>保持している破棄が必要な資源（ファイル監視）を解放する。</summary>
     public void Dispose() => Explorer.Dispose();

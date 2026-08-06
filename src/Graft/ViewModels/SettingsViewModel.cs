@@ -4,6 +4,7 @@ using System.Text.Json;
 using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
+using Graft.Platform;
 using Graft.Themes;
 using Graft.Views;
 
@@ -16,14 +17,12 @@ namespace Graft.ViewModels;
 /// </summary>
 public sealed class SettingsViewModel : ObservableObject
 {
-    private readonly SettingsStore _settingsStore;
-    private readonly DialogService _dialogService;
+    private readonly SettingsStore _settingsStore; private readonly DialogService _dialogService;
     private Settings _settings = new();
 
     private string _selectedTheme = "system";
     private string _selectedApplyMode = "allOrNothing";
-    private bool _showPreview;
-    private bool _requireSummary;
+    private bool _showPreview; private bool _requireSummary;
     private string _hotkey = string.Empty;
     private string _selectedLogLevel = "info";
     private bool _clipboardWatchEnabled;
@@ -66,14 +65,15 @@ public sealed class SettingsViewModel : ObservableObject
     private bool _isBusy;
     private string? _statusMessage;
 
-    public SettingsViewModel(AppPaths appPaths, DialogService dialogService)
+    public SettingsViewModel(AppPaths appPaths, DialogService dialogService, IUiServices ui)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
+        ArgumentNullException.ThrowIfNull(ui);
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         _settingsStore = new SettingsStore(appPaths);
         var projectStore = new ProjectStore(appPaths);
 
-        Templates = new PromptTemplateViewModel(appPaths, projectStore, dialogService, _settings);
+        Templates = new PromptTemplateViewModel(appPaths, projectStore, dialogService, _settings, ui);
         TokenStats = new TokenStatisticsViewModel(appPaths, projectStore);
         ValidationIssues = new ObservableCollection<GraftIssue>();
 

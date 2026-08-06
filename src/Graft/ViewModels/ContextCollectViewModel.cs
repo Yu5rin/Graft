@@ -1,10 +1,10 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.RegularExpressions;
-using System.Windows;
 using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -19,9 +19,8 @@ public sealed class ContextCollectViewModel : ObservableObject
 
     private readonly ContextCollector _collector;
     private readonly RevisionStore _revisionStore;
-    private readonly ProjectStore _projectStore;
-    private Project _project;
-    private readonly Settings _settings;
+    private readonly ProjectStore _projectStore; private readonly IUiServices _ui;
+    private Project _project; private readonly Settings _settings;
 
     private ContextMode _selectedMode = ContextMode.TreeAndSelected;
     private RevisionOption? _selectedRevision;
@@ -34,12 +33,13 @@ public sealed class ContextCollectViewModel : ObservableObject
     private string? _statusMessage;
     private string _newExcludePattern = string.Empty;
 
-    public ContextCollectViewModel(AppPaths appPaths, ProjectStore projectStore, Project project, Settings settings)
+    public ContextCollectViewModel(AppPaths appPaths, ProjectStore projectStore, Project project, Settings settings, IUiServices ui)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
         _project = project ?? throw new ArgumentNullException(nameof(project));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _collector = new ContextCollector(appPaths);
         _revisionStore = new RevisionStore(appPaths);
 
@@ -224,7 +224,7 @@ public sealed class ContextCollectViewModel : ObservableObject
             return;
         }
 
-        Clipboard.SetText(result.Text);
+        _ui.Clipboard.SetText(result.Text);
         StatusMessage = "クリップボードにコピーしました。";
     }
 

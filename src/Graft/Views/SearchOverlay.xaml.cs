@@ -19,25 +19,35 @@ namespace Graft.Views;
 /// </summary>
 public partial class SearchOverlay : UserControl
 {
-    private readonly SearchHighlightRenderer _renderer;
+    private SearchHighlightRenderer? _renderer;
     private TextEditor? _editor;
+    private SearchOverlayViewModel? _viewModel;
 
-    public SearchOverlay()
-    {
-        InitializeComponent();
-        ViewModel = new SearchOverlayViewModel();
-        DataContext = ViewModel;
-        _renderer = new SearchHighlightRenderer(ViewModel);
-        ViewModel.MatchesChanged += OnMatchesChanged;
-        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
-    }
+    public SearchOverlay() => InitializeComponent();
 
-    public SearchOverlayViewModel ViewModel { get; }
+    /// <summary>
+    /// 検索の状態。<see cref="Attach"/> より前は未初期化のため参照できない。
+    /// XAMLから引数なしで生成されるコントロールのため、UI機能（デバウンス用タイマー）は
+    /// <see cref="Attach"/> で受け取る。
+    /// </summary>
+    public SearchOverlayViewModel ViewModel
+        => _viewModel ?? throw new InvalidOperationException("Attachより前に参照されました。");
 
     /// <summary>対象のエディタへ接続する。タブ切替のたびに呼び直す。</summary>
-    public void Attach(TextEditor editor)
+    public void Attach(TextEditor editor, Graft.Platform.IUiServices ui)
     {
         ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(ui);
+
+        if (_viewModel is null)
+        {
+            _viewModel = new SearchOverlayViewModel(ui);
+            DataContext = _viewModel;
+            _renderer = new SearchHighlightRenderer(_viewModel);
+            _viewModel.MatchesChanged += OnMatchesChanged;
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        }
+
         if (!ReferenceEquals(_editor, editor))
         {
             _editor?.TextArea.TextView.BackgroundRenderers.Remove(_renderer);

@@ -95,7 +95,7 @@ public partial class ShellWindow : Window
     private void ApplyLayoutToWindow()
     {
         var layout = ViewModel.Graft.Layout;
-        var bounds = WindowLayoutStore.ResolveWindowBounds(layout, MinWidth, MinHeight);
+        var bounds = WindowLayoutStore.ResolveWindowBounds(layout, MinWidth, MinHeight, ViewModel.Ui.Screens);
         WindowStartupLocation = WindowStartupLocation.Manual;
         Left = bounds.Left;
         Top = bounds.Top;

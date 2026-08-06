@@ -2,11 +2,11 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
-using System.Windows;
 using System.Windows.Input;
 using Graft.Core;
 using Graft.Editor;
 using Graft.Features;
+using Graft.Platform;
 using Graft.Views;
 
 namespace Graft.ViewModels;
@@ -21,6 +21,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
 {
     private readonly EditorPaneViewModel _editor;
     private readonly DialogService _dialogs;
+    private readonly IUiServices _ui;
     private readonly FileTreeService _treeService = new();
     private readonly FileWatchService _fileWatch = new();
 
@@ -31,10 +32,11 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private bool _isLoading;
     private FileNodeViewModel? _selectedNode;
 
-    public ExplorerViewModel(EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings)
+    public ExplorerViewModel(EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
     {
         _editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _guardOptions = FileTreeService.BuildGuardOptions(settings);
         _fileWatch.DirectoriesChanged += OnDirectoriesChanged;
         _fileWatch.FileContentChanged += OnFileContentChanged;
@@ -333,14 +335,10 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (ReferenceEquals(SelectedNode, node)) SelectedNode = null;
     }
 
-    private static void CopyPath(FileNodeViewModel? node)
+    private void CopyPath(FileNodeViewModel? node)
     {
-        if (node is null) return;
-        try { Clipboard.SetText(node.FullPath); }
-        catch (System.Runtime.InteropServices.ExternalException)
-        {
-            // クリップボードが他プロセスに占有されている場合は静かに諦める（MainViewModelと同方針）。
-        }
+        // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
+        if (node is not null) _ui.Clipboard.SetText(node.FullPath);
     }
 
     private static void RevealInExplorer(FileNodeViewModel? node)

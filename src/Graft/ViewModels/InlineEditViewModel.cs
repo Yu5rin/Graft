@@ -1,5 +1,5 @@
-using System.Windows.Threading;
 using Graft.Core;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -37,15 +37,16 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
     private readonly string _fileText;
     private readonly OccurrenceSpec _occurrence;
     private readonly MatchEngine _matchEngine;
-    private readonly DispatcherTimer _debounceTimer;
+    private readonly IUiTimer _debounceTimer;
     private string _searchText;
     private string _resultSummary = string.Empty;
     private bool _isMatchSuccessful;
     private MatchStage _resultStage = MatchStage.None;
 
     public InlineEditViewModel(string filePath, SearchReplacePair originalPair, string fileText,
-        OccurrenceSpec occurrence, MatchOptions matchOptions, bool syntaxEnabled)
+        OccurrenceSpec occurrence, MatchOptions matchOptions, bool syntaxEnabled, IUiServices ui)
     {
+        ArgumentNullException.ThrowIfNull(ui);
         FilePath = filePath;
         _originalPair = originalPair;
         _fileText = fileText;
@@ -55,8 +56,7 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
 
         FileLines = BuildFileLines(filePath, fileText, syntaxEnabled);
 
-        _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DebounceMs) };
-        _debounceTimer.Tick += OnDebounceTick;
+        _debounceTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(DebounceMs), OnDebounceTick);
 
         RunMatch();
     }
@@ -87,8 +87,7 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
         {
             if (!SetProperty(ref _searchText, value)) return;
             OnPropertyChanged(nameof(HasEdits));
-            _debounceTimer.Stop();
-            _debounceTimer.Start();
+            _debounceTimer.Restart();
         }
     }
 
@@ -107,13 +106,9 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
     /// <summary>編集後のペアを返す。元のパッチ本文は変更せず、このリビジョンへの適用時にのみ使う。</summary>
     public SearchReplacePair BuildEditedPair() => _originalPair with { SearchText = _searchText };
 
-    public void Dispose()
-    {
-        _debounceTimer.Stop();
-        _debounceTimer.Tick -= OnDebounceTick;
-    }
+    public void Dispose() => _debounceTimer.Dispose();
 
-    private void OnDebounceTick(object? sender, EventArgs e)
+    private void OnDebounceTick()
     {
         _debounceTimer.Stop();
         RunMatch();

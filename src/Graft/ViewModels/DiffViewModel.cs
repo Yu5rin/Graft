@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Graft.Core;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -20,6 +21,7 @@ public sealed partial class DiffViewModel : ObservableObject
     private const double MaxCodeFontSize = 32;
 
     private readonly Settings _settings;
+    private readonly IUiServices _ui;
 
     private BlockPlan? _plan;
     private SyntaxLexer? _beforeLexer;
@@ -36,9 +38,10 @@ public sealed partial class DiffViewModel : ObservableObject
     private bool _syntaxHighlightDisabled;
     private double _codeFontSize = 13;
 
-    public DiffViewModel(Settings settings)
+    public DiffViewModel(Settings settings, IUiServices ui)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _wordWrap = settings.Diff.WordWrap;
         _showWhitespace = settings.Diff.ShowWhitespace;
     }
@@ -219,7 +222,7 @@ public sealed partial class DiffViewModel : ObservableObject
             if (result.IsSuccess) continue;
 
             InlineEdits.Add(new InlineEditViewModel(
-                plan.Path, pair, fileText, srBlock.Occurrence, options, _settings.Syntax.Enabled));
+                plan.Path, pair, fileText, srBlock.Occurrence, options, _settings.Syntax.Enabled, _ui));
         }
     }
 

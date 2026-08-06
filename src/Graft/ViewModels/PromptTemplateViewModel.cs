@@ -1,8 +1,8 @@
 using System.Collections.ObjectModel;
-using System.Windows;
 using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
+using Graft.Platform;
 using Graft.Views;
 
 namespace Graft.ViewModels;
@@ -20,6 +20,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
     private readonly ContextCollector _collector;
     private readonly PromptTemplateRenderer _renderer;
     private readonly DialogService _dialogService;
+    private readonly IUiServices _ui;
 
     private Settings _settings;
     private Project? _selectedProject;
@@ -29,12 +30,14 @@ public sealed class PromptTemplateViewModel : ObservableObject
     private string? _statusMessage;
     private GraftIssue? _errorIssue;
 
-    public PromptTemplateViewModel(AppPaths appPaths, ProjectStore projectStore, DialogService dialogService, Settings initialSettings)
+    public PromptTemplateViewModel(
+        AppPaths appPaths, ProjectStore projectStore, DialogService dialogService, Settings initialSettings, IUiServices ui)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         _settings = initialSettings ?? throw new ArgumentNullException(nameof(initialSettings));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _templateStore = new PromptTemplateStore(appPaths);
         _collector = new ContextCollector(appPaths);
         _renderer = new PromptTemplateRenderer(_collector);
@@ -200,7 +203,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
             return;
         }
 
-        Clipboard.SetText(rendered.Value);
+        _ui.Clipboard.SetText(rendered.Value);
         _templateStore.RecordCopy(_selectedProject.Id, DateTimeOffset.Now);
         StatusMessage = $"「{target.Name}」をクリップボードへコピーしました。";
     }

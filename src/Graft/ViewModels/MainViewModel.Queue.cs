@@ -1,5 +1,4 @@
 using System.IO;
-using System.Windows;
 using System.Windows.Input;
 using Graft.Core;
 using Graft.Features;
@@ -128,15 +127,6 @@ public sealed partial class MainViewModel
         }
     }
 
-    private static void TrySetClipboardText(string text)
-    {
-        try
-        {
-            Clipboard.SetText(text);
-        }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException)
-        {
-            // 他プロセスがクリップボードを占有している場合は諦める。
-        }
-    }
+    // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
+    private void TrySetClipboardText(string text) => _ui.Clipboard.SetText(text);
 }

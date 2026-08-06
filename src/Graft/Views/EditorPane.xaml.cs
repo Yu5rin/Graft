@@ -148,7 +148,7 @@ public partial class EditorPane : UserControl
         _brackets.SetAutoCloseEnabled(_viewModel?.AutoClosingBrackets ?? true);
         _folding.Attach(tab.Session.Document, extension);
         _folding.SetEnabled(_viewModel?.Folding ?? true);
-        Search.Attach(Editor);
+        if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
         ApplyGitGutter(tab);
 
         RestoreViewStateFrom(tab);

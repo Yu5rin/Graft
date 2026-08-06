@@ -65,9 +65,9 @@ public sealed partial class MainViewModel
     /// <summary>プロジェクトが切り替わるたびに、コンテキスト収集・プロンプトコピーの両ViewModelを作り直す。</summary>
     private void RebuildPromptContext(Project project)
     {
-        ContextCollect = new ContextCollectViewModel(_appPaths, _projectStoreForPrompt, project, _settings);
+        ContextCollect = new ContextCollectViewModel(_appPaths, _projectStoreForPrompt, project, _settings, _ui);
         PromptCopy = new PromptCopyViewModel(
-            _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings);
+            _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings, _ui);
         OnPropertyChanged(nameof(ContextCollect));
         OnPropertyChanged(nameof(PromptCopy));
     }

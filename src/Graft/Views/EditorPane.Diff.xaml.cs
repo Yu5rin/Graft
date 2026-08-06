@@ -26,7 +26,7 @@ public partial class EditorPane
         _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
         _brackets.Attach(Editor.Document, string.Empty);
         _folding.Attach(Editor.Document, string.Empty);
-        Search.Attach(Editor);
+        if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
     }
 
     /// <summary>

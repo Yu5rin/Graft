@@ -1,10 +1,10 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Windows;
 using System.Windows.Input;
 using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
+using Graft.Platform;
 using Graft.Views;
 
 namespace Graft.ViewModels;
@@ -29,6 +29,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly RevisionStore _revisionStore;
     private readonly SettingsStore _settingsStore;
     private readonly DialogService _dialogs;
+    private readonly IUiServices _ui;
     private readonly PatchParser _parser = new();
     private readonly Action _openSettingsRequested;
 
@@ -53,7 +54,8 @@ public sealed partial class MainViewModel : ObservableObject
         WindowLayoutStore layoutStore,
         DialogService dialogService,
         Features.PatchQueue patchQueue,
-        Action openSettingsRequested)
+        Action openSettingsRequested,
+        IUiServices ui)
     {
         _applyEngine = applyEngine ?? throw new ArgumentNullException(nameof(applyEngine));
         ArgumentNullException.ThrowIfNull(projectStore);
@@ -63,12 +65,13 @@ public sealed partial class MainViewModel : ObservableObject
         _dialogs = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         ArgumentNullException.ThrowIfNull(patchQueue);
         _openSettingsRequested = openSettingsRequested ?? throw new ArgumentNullException(nameof(openSettingsRequested));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, dialogService);
         // DiffViewModelは構築時にSettingsを固定するため、設定読み込み前は既定値で仮に構築し、
         // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
-        Diff = new DiffViewModel(new Settings());
+        Diff = new DiffViewModel(new Settings(), _ui);
         Diff.PropertyChanged += OnDiffPropertyChanged;
 
         PatchQueue = patchQueue;
@@ -257,15 +260,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task PasteAndParseAsync()
     {
-        string text;
-        try
-        {
-            text = Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
-        }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException)
-        {
-            return; // クリップボードが他プロセスに占有されている場合は静かに諦める。
-        }
+        // IClipboardAccess.GetTextは取得できない場合にnullを返す契約のため、
+        // 個別の例外保護は不要（クリップボードが他プロセスに占有されている場合もnullになる）。
+        var text = _ui.Clipboard.GetText();
         if (string.IsNullOrWhiteSpace(text)) return;
 
         var parsed = _parser.Parse(text);
