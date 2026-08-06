@@ -19,6 +19,7 @@
         <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
         <StyleInclude Source="avares://Graft/Themes/Icons.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Controls.Base.axaml" />
+        <StyleInclude Source="avares://Graft/Themes/Settings.axaml" />
     </Application.Styles>
     <Application.Resources>
         <ResourceDictionary>
