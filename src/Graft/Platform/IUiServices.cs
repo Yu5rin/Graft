@@ -26,8 +26,14 @@ public interface IClipboardAccess
     /// <summary>テキストを書き込む。失敗しても例外を投げない。</summary>
     void SetText(string text);
 
-    /// <summary>テキストを読み取る。取得できない場合は null。</summary>
-    string? GetText();
+    /// <summary>
+    /// テキストを読み取る。取得できない場合は null。
+    ///
+    /// 非同期にしているのは、X11のクリップボードが「所有アプリへ要求を送り、応答を
+    /// イベントループで受け取る」仕組みのため。UIスレッドを塞いで待つと、応答を処理する
+    /// イベントループごと止まって取得に失敗する（Linuxで実際に発生した）。
+    /// </summary>
+    Task<string?> GetTextAsync();
 }
 
 /// <summary>画面構成の問い合わせ。</summary>

@@ -23,6 +23,8 @@ public sealed class LinuxClipboardMonitor : IClipboardMonitor
     private readonly IClipboardAccess _clipboard;
     private DispatcherTimer? _timer;
     private int _lastHash;
+    private bool _isFirstTick = true;
+    private bool _reading;
     private bool _disposed;
 
     public LinuxClipboardMonitor(IClipboardAccess clipboard)
@@ -54,7 +56,8 @@ public sealed class LinuxClipboardMonitor : IClipboardMonitor
         }
 
         // 監視開始時点の内容は「変化」とみなさない（起動直後に既存の内容へ反応しないため）。
-        _lastHash = ComputeHash(ReadClipboardText());
+        // 初回の読み取りは巡回の1回目で行い、そこで得た内容を基準にする。
+        _isFirstTick = true;
 
         _timer = new DispatcherTimer(PollInterval, DispatcherPriority.Background, OnTick);
         _timer.Start();
@@ -75,24 +78,43 @@ public sealed class LinuxClipboardMonitor : IClipboardMonitor
         _timer = null;
     }
 
-    private void OnTick(object? sender, EventArgs e)
+    private async void OnTick(object? sender, EventArgs e)
     {
-        var text = ReadClipboardText();
-        var hash = ComputeHash(text);
-        if (hash == _lastHash) return;
+        // 前回の読み取りが終わる前に次の巡回が来ても、多重に読みにいかない。
+        if (_reading) return;
+        _reading = true;
 
-        _lastHash = hash;
-        if (text is not null && PatchTextDetector.LooksLikePatch(text))
+        try
         {
-            PatchDetected?.Invoke(this, text);
+            var text = await ReadClipboardTextAsync().ConfigureAwait(true);
+            var hash = ComputeHash(text);
+
+            if (_isFirstTick)
+            {
+                _isFirstTick = false;
+                _lastHash = hash;
+                return;
+            }
+
+            if (hash == _lastHash) return;
+            _lastHash = hash;
+
+            if (text is not null && PatchTextDetector.LooksLikePatch(text))
+            {
+                PatchDetected?.Invoke(this, text);
+            }
+        }
+        finally
+        {
+            _reading = false;
         }
     }
 
-    private string? ReadClipboardText()
+    private async Task<string?> ReadClipboardTextAsync()
     {
         try
         {
-            return _clipboard.GetText();
+            return await _clipboard.GetTextAsync().ConfigureAwait(true);
         }
         catch (Exception)
         {

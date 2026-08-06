@@ -204,7 +204,7 @@ public class ScenarioTests : IDisposable
 
         public void SetText(string text) => Text = text;
 
-        public string? GetText() => Text;
+        public Task<string?> GetTextAsync() => Task.FromResult(Text);
     }
 
     /// <summary>クリップボードだけ差し替えたUI機能一式。画面情報とタイマーは本物を使う。</summary>
