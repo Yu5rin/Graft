@@ -1,8 +1,12 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Graft.Platform.Null;
 using Graft.Themes;
+using Graft.ViewModels;
 
 namespace Graft;
 
@@ -24,6 +28,7 @@ public partial class App : Application
         // システムテーマ判定の実装（Platform/Windows・Platform/Linux）はL4の担当のため、
         // 現時点では何もしない実装を渡し、AppTheme.Systemは常にダークへ解決される。
         ThemeManager.Initialize(new NullSystemThemeWatcher());
+        EnableCommandRequery();
     }
 
     public override void OnFrameworkInitializationCompleted()
@@ -34,5 +39,22 @@ public partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// AvaloniaにはWPFの<c>CommandManager</c>に相当するアプリ全体の再評価機構が無いため、
+    /// 同等のタイミング（ポインタ操作・キー入力・フォーカス移動の後）で
+    /// <see cref="CommandRequery.Invalidate"/>を呼ぶよう配線する（仕様書v2.1 19章 L3）。
+    /// トンネリング段階で購読するのは、各コントロールが処理を終えた直後ではなく
+    /// 入力が届いた確実なタイミングで一度だけ拾うため。
+    /// </summary>
+    private static void EnableCommandRequery()
+    {
+        InputElement.PointerReleasedEvent.AddClassHandler<TopLevel>(
+            (_, _) => CommandRequery.Invalidate(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble);
+        InputElement.KeyUpEvent.AddClassHandler<TopLevel>(
+            (_, _) => CommandRequery.Invalidate(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble);
+        InputElement.GotFocusEvent.AddClassHandler<TopLevel>(
+            (_, _) => CommandRequery.Invalidate(), RoutingStrategies.Tunnel | RoutingStrategies.Bubble);
     }
 }
