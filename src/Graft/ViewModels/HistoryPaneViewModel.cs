@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Input;
 using Graft.Core;
-using Graft.Views;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -62,7 +62,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
 {
     private readonly RevisionStore _revisionStore;
     private readonly RevisionRestorer _restorer;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
 
     private string? _projectId;
     private string? _projectRoot;
@@ -76,7 +76,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
     private DateTimeOffset? _dateFrom;
     private DateTimeOffset? _dateTo;
 
-    public HistoryPaneViewModel(RevisionStore revisionStore, RevisionRestorer restorer, DialogService dialogs)
+    public HistoryPaneViewModel(RevisionStore revisionStore, RevisionRestorer restorer, IDialogService dialogs)
     {
         _revisionStore = revisionStore ?? throw new ArgumentNullException(nameof(revisionStore));
         _restorer = restorer ?? throw new ArgumentNullException(nameof(restorer));

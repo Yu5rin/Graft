@@ -5,7 +5,6 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -28,7 +27,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ApplyEngine _applyEngine;
     private readonly RevisionStore _revisionStore;
     private readonly SettingsStore _settingsStore;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private readonly IUiServices _ui;
     private readonly PatchParser _parser = new();
     private readonly Action _openSettingsRequested;
@@ -52,7 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
         RevisionRestorer revisionRestorer,
         SettingsStore settingsStore,
         WindowLayoutStore layoutStore,
-        DialogService dialogService,
+        IDialogService dialogService,
         Features.PatchQueue patchQueue,
         Action openSettingsRequested,
         IUiServices ui)

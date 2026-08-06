@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using Graft.Platform;
 using Microsoft.Win32;
 
 namespace Graft.Views;
@@ -12,8 +13,10 @@ namespace Graft.Views;
 /// <c>DynamicResource</c> で参照するWindowをコードから組み立てる。フォルダ選択は
 /// WPF標準の <see cref="OpenFolderDialog"/>（.NET 8）を使い、外部パッケージは追加しない。
 /// 8.10: いずれのダイアログもボタンに <c>IsCancel</c> を設定しており、Escで閉じられる。
+/// <see cref="IDialogService"/> を実装し、ViewModel層からはWPF非依存の抽象越しに使われる
+/// （仕様書v2.1 19章・20章 L3）。
 /// </summary>
-public sealed class DialogService
+public sealed class DialogService : IDialogService
 {
     /// <summary>OK/キャンセルの確認ダイアログを表示する。</summary>
     public Task<bool> ConfirmAsync(string title, string message)
@@ -90,13 +93,17 @@ public sealed class DialogService
         return Task.FromResult(result);
     }
 
-    /// <summary>フォルダ選択ダイアログを表示する。WPF標準の <see cref="OpenFolderDialog"/> を使う。</summary>
-    public string? PickFolder(string title)
+    /// <summary>
+    /// フォルダ選択ダイアログを表示する。WPF標準の <see cref="OpenFolderDialog"/> を使う。
+    /// WPF側は完全同期のAPIのため、<see cref="Task.FromResult{TResult}(TResult)"/> で包むだけでよい
+    /// （<see cref="IDialogService.PickFolderAsync"/> のコメント参照）。
+    /// </summary>
+    public Task<string?> PickFolderAsync(string title)
     {
         var dialog = new OpenFolderDialog { Title = title };
         var owner = FindOwnerWindow();
         var accepted = owner is not null ? dialog.ShowDialog(owner) : dialog.ShowDialog();
-        return accepted == true ? dialog.FolderName : null;
+        return Task.FromResult(accepted == true ? dialog.FolderName : null);
     }
 
     /// <summary>OKボタンのみの通知ダイアログを表示する。</summary>

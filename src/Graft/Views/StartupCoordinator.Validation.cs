@@ -5,6 +5,7 @@ using System.Windows.Threading;
 using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
+using Graft.Platform;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -21,7 +22,7 @@ public sealed partial class StartupCoordinator
     // ------------------------------------------------------------------
 
     private async Task RunStartupValidationAsync(
-        ProjectStore projectStore, RevisionStore revisionStore, DialogService dialogService,
+        ProjectStore projectStore, RevisionStore revisionStore, IDialogService dialogService,
         RevisionRestorer revisionRestorer, List<GraftIssue> issues, Dispatcher dispatcher)
     {
         var loaded = await projectStore.LoadAsync().ConfigureAwait(false);
@@ -99,7 +100,7 @@ public sealed partial class StartupCoordinator
     // 検証結果の通知（UIスレッド上で実行）
     // ------------------------------------------------------------------
 
-    private async Task PresentReportAsync(StartupReport report, DialogService dialogService, RevisionRestorer revisionRestorer)
+    private async Task PresentReportAsync(StartupReport report, IDialogService dialogService, RevisionRestorer revisionRestorer)
     {
         var summary = report.BuildIssuesSummaryText();
         if (!string.IsNullOrEmpty(summary))
@@ -115,7 +116,7 @@ public sealed partial class StartupCoordinator
 
     /// <summary>6.3/E403: 中途半端な適用状態を通知し、承諾された場合のみロールバックを実行する。</summary>
     private async Task OfferRollbackAsync(
-        InProgressRevisionIssue issue, DialogService dialogService, RevisionRestorer revisionRestorer)
+        InProgressRevisionIssue issue, IDialogService dialogService, RevisionRestorer revisionRestorer)
     {
         var confirmed = await dialogService
             .ConfirmAsync("未完了の適用を検出しました", StartupReport.BuildRollbackPrompt(issue))

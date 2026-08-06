@@ -3,7 +3,7 @@ using System.IO;
 using System.Windows.Input;
 using Graft.Features;
 using Graft.Infra;
-using Graft.Views;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -61,7 +61,7 @@ public sealed class SearchFileGroupViewModel : ObservableObject
 public sealed class SearchViewModel : ObservableObject
 {
     private readonly CrossFileSearchEngine _engine;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
 
     private Project? _project;
     private Settings _settings = new();
@@ -76,7 +76,7 @@ public sealed class SearchViewModel : ObservableObject
     private string _statusText = string.Empty;
     private string? _truncatedMessage;
 
-    public SearchViewModel(CrossFileSearchEngine engine, DialogService dialogs)
+    public SearchViewModel(CrossFileSearchEngine engine, IDialogService dialogs)
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
