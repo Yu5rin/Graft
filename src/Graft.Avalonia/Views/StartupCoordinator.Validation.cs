@@ -160,6 +160,7 @@ public sealed partial class StartupCoordinator
             await _patchQueue.SaveAsync().ConfigureAwait(true);
         }
         _shellViewModel?.Dispose();
+        _messageBridge?.Dispose();
         _platform.Hotkeys.Dispose();
         _platform.Clipboard.Dispose();
         _platform.Tray.Dispose();

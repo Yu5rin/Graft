@@ -4,7 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
-using Graft.Platform.Null;
+using Graft.Platform;
 using Graft.Themes;
 using Graft.ViewModels;
 
@@ -27,9 +27,9 @@ public partial class App : Application
         // 差し替え対象にするため）。Initialize()はheadlessテストを含め、Appが
         // 構築されるたびに必ず呼ばれるため、ここで初期化しておけばOnFrameworkInitialization
         // CompletedがCLIの起動経路以外で呼ばれない場合でもトークンが解決できる。
-        // システムテーマ判定の実装（Platform/Windows・Platform/Linux）はL4の担当のため、
-        // 現時点では何もしない実装を渡し、AppTheme.Systemは常にダークへ解決される。
-        ThemeManager.Initialize(new NullSystemThemeWatcher());
+        // システムテーマの判定・変更通知は実行中のOSに応じた実装が担う（L4）。
+        // 判定できない環境ではNull実装が選ばれ、AppTheme.Systemはダークへ解決される。
+        ThemeManager.Initialize(AvaloniaPlatformServices.Current.Theme);
         EnableCommandRequery();
     }
 

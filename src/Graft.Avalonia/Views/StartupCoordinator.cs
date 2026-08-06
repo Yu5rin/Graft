@@ -37,6 +37,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     private SettingsStore? _settingsStore;
     private PatchQueue? _patchQueue;
     private ShellViewModel? _shellViewModel;
+    private WindowMessageBridge? _messageBridge;
     private AppSettings _settings = new();
 
     /// <param name="baseDirectory">
@@ -181,9 +182,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
     private void WirePlatformServices(Window window, MainViewModel mainViewModel, List<GraftIssue> issues)
     {
-        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-        _platform.Clipboard.Attach(handle);
-        _platform.Hotkeys.Attach(handle);
+        // クリップボード監視とホットキーが受信するウィンドウハンドルの割り当ては
+        // WindowMessageBridge が行う（Windowsは専用のメッセージ受信ウィンドウ、
+        // Linuxはハンドルを使わない実装）。
+        _messageBridge = WindowMessageBridge.Attach(_platform);
 
         if (_settings.ClipboardWatch.Enabled)
         {
