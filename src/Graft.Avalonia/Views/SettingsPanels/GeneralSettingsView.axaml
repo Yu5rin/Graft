@@ -14,13 +14,13 @@
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="テーマ" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedValueBinding="{Binding Value}"
-                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedTheme}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTheme}"
                           AutomationProperties.Name="テーマ" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="適用モード" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ApplyModeOptions}" SelectedValueBinding="{Binding Value}"
-                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedApplyMode}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedApplyMode}"
                           AutomationProperties.Name="適用モード" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="適用前にプレビューを表示する" IsChecked="{Binding ShowPreview}"
@@ -35,7 +35,7 @@
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="ログレベル" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding LogLevelOptions}" SelectedValueBinding="{Binding Value}"
-                          DisplayMemberBinding="{Binding Label}" SelectedValue="{Binding SelectedLogLevel}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedLogLevel}"
                           AutomationProperties.Name="ログレベル" />
             </StackPanel>
 

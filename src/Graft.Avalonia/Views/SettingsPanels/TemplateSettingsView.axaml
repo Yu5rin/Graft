@@ -18,7 +18,8 @@
 
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="プレビュー対象プロジェクト" Classes="fieldLabel" />
-            <ComboBox ItemsSource="{Binding Projects}" DisplayMemberBinding="{Binding Name}"
+            <ComboBox ItemsSource="{Binding Projects}"
+                      ItemTemplate="{StaticResource NameItemTemplate}"
                       SelectedItem="{Binding SelectedProject}"
                       AutomationProperties.Name="プレビュー対象プロジェクト" />
             <CheckBox Content="継続用（短縮版）でコピーする" IsChecked="{Binding IsContinuationMode}"

@@ -4,16 +4,32 @@
   Controls.axaml と同じ。9.1: フォーカスリングは:focus/:focus-within疑似クラスで
   常時可視にする。
 
-  【WPF版からのComboBoxの構成差分（値は変えていない。振る舞いの単純化のみ）】
-  WPF版はカスタムControlTemplateを与えたComboBoxで閉じた状態の表示に
-  DisplayMemberPathが反映されない問題への回避策（隠しItemsControlでの幅計測、
-  ComboBoxDisplayConverter）を持っていた。AvaloniaのComboBoxはSelectionBoxItem
-  プロパティが最初からDisplayMemberPath/ItemTemplateを反映した表示値を提供するため、
-  この回避策は不要（Avalonia側の設計により症状自体が発生しない）。色・寸法・
-  枠線・フォーカスリングの扱いはWPF版のトークン値をそのまま踏襲する。
+  【WPF版からのComboBoxの構成差分（値は変えていない）】
+  WPF版がカスタムControlTemplateのために必要としていた「閉じた状態でDisplayMemberPathが
+  反映されない」問題への回避策（ComboBoxDisplayConverter）は、AvaloniaのSelectionBoxItemが
+  最初から表示値を提供するため不要になった。
+  一方、閉じた状態の幅が選択中の項目だけで決まってしまう点はAvaloniaでも同じであり、
+  WPF版と同様に高さ0の見えないItemsControlを重ねて「一番長い項目＋矢印」の幅を確保する。
+  色・寸法・枠線・フォーカスリングの扱いはWPF版のトークン値をそのまま踏襲する。
 -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        ComboBoxの項目テンプレート（よく使う3種）。DisplayMemberBinding ではなく
+        ItemTemplate を使うのは、閉じた状態の幅を「一番長い項目＋矢印」に合わせる
+        ComboBoxテーマ側の仕組みが ItemTemplate を参照するため
+        （DisplayMemberBinding は同じ Binding インスタンスを2箇所へ結び付けられない）。
+    -->
+    <DataTemplate x:Key="LabelItemTemplate">
+        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+    </DataTemplate>
+    <DataTemplate x:Key="NameItemTemplate">
+        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+    </DataTemplate>
+    <DataTemplate x:Key="DisplayTextItemTemplate">
+        <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center" />
+    </DataTemplate>
 
     <!-- ========== CheckBox ========== -->
     <ControlTheme x:Key="{x:Type CheckBox}" TargetType="CheckBox">
@@ -135,6 +151,22 @@
         <Setter Property="Template">
             <ControlTemplate>
                 <Grid>
+                    <!--
+                        幅の確保: 閉じた状態のボックスは選択中の項目しか描かないため、
+                        そのままでは幅が選択中の項目だけで決まり、他の項目を選ぶと
+                        文字が切れる。高さ0の見えないItemsControlに全項目を並べて
+                        計測にだけ参加させ、「一番長い項目＋矢印」の幅を常に確保する
+                        （WPF版 Themes/Controls.Input.xaml と同じ方針）。
+                        IsVisible="False" ではレイアウトから外れて計測にも参加しないため、
+                        Opacity="0" で見えなくする。
+                    -->
+                    <ItemsControl ItemsSource="{TemplateBinding ItemsSource}"
+                                  ItemTemplate="{TemplateBinding ItemTemplate}"
+                                  Height="0"
+                                  Margin="9,0,37,0"
+                                  Opacity="0"
+                                  IsHitTestVisible="False"
+                                  Focusable="False" />
                     <Border Name="PART_Border"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"

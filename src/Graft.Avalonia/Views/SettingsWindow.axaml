@@ -91,11 +91,13 @@
 
                     <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,8">
                         <TextBlock Text="プロジェクト" Classes="fieldLabel" />
-                        <ComboBox ItemsSource="{Binding Projects}" DisplayMemberBinding="{Binding Name}"
+                        <ComboBox ItemsSource="{Binding Projects}"
+                                  ItemTemplate="{StaticResource NameItemTemplate}"
                                   SelectedItem="{Binding SelectedProject}"
                                   AutomationProperties.Name="集計対象プロジェクト" />
                         <TextBlock Text="集計単位" Classes="fieldLabel" Margin="24,0,0,0" />
-                        <ComboBox ItemsSource="{Binding Granularities}" DisplayMemberBinding="{Binding Label}"
+                        <ComboBox ItemsSource="{Binding Granularities}"
+                                  ItemTemplate="{StaticResource LabelItemTemplate}"
                                   SelectedValueBinding="{Binding Value}" SelectedValue="{Binding Granularity}"
                                   AutomationProperties.Name="集計単位" />
                         <Button Content="更新" Command="{Binding RefreshCommand}" Margin="24,0,0,0"
