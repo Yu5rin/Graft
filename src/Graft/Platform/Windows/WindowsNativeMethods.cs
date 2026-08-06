@@ -5,7 +5,7 @@ namespace Graft.Platform.Windows;
 
 /// <summary>
 /// <see cref="WindowsGlobalHotkeys"/>・<see cref="WindowsClipboardMonitor"/> で使用する
-/// Win32 API宣言と定数をまとめる。移設元は <c>Features/NativeMethods.cs</c>
+/// Win32 API宣言と定数をまとめる。v2.0での実装元は <c>Features/NativeMethods.cs</c>
 /// （クリップボード監視・グローバルホットキー部分）。宣言内容は変更しない。
 /// </summary>
 [SupportedOSPlatform("windows")]

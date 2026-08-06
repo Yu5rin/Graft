@@ -1,17 +1,19 @@
-using System.Windows.Threading;
-using ICSharpCode.AvalonEdit;
-using ICSharpCode.AvalonEdit.Document;
-using ICSharpCode.AvalonEdit.Folding;
+using Avalonia.Threading;
+using AvaloniaEdit;
+using AvaloniaEdit.Document;
+using AvaloniaEdit.Folding;
 using Graft.Core;
 
 namespace Graft.Editor;
 
 /// <summary>
 /// コードの折りたたみ（4.4節）。インデントベースを既定とし、C系（<c>{}</c>を持つ言語）は
-/// 括弧ベースで折りたたみ範囲を求める。<see cref="ICSharpCode.AvalonEdit.Folding.FoldingManager"/>を
+/// 括弧ベースで折りたたみ範囲を求める。<see cref="AvaloniaEdit.Folding.FoldingManager"/>を
 /// <see cref="TextEditor"/>へ直接インストールして動作するため、エディタへの組み込み
 /// （<see cref="Attach"/>の呼び出し・<see cref="Dispose"/>のタイミング管理）は統合担当が行う。
 /// 18章の性能要件により、再計算は編集のたびではなくデバウンスして行う。
+/// v2.0のWPF版（AvalonEdit）からの移植。FoldingManager/NewFoldingのAPIはAvaloniaEditでも
+/// 同名同形のため、名前空間の差し替えのみで移植できる。
 /// </summary>
 public sealed class FoldingSupport : IDisposable
 {

@@ -4,7 +4,7 @@ using Microsoft.Win32;
 namespace Graft.Platform.Windows;
 
 /// <summary>
-/// <see cref="ISystemThemeWatcher"/> のWindows実装。移設元は <c>Themes/ThemeManager.cs</c> の
+/// <see cref="ISystemThemeWatcher"/> のWindows実装。v2.0での実装元は <c>Themes/ThemeManager.cs</c> の
 /// <c>TryReadAppsUseLightTheme</c> と、それに付随する <c>SystemEvents.UserPreferenceChanged</c>
 /// の監視。レジストリの読み取りロジックは変更していない。テーマ辞書の差し替えなどUIに関わる
 /// 処理は行わず、変更の可能性があったことを <see cref="Changed"/> で通知するのみとする

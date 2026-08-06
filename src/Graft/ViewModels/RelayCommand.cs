@@ -5,7 +5,7 @@ namespace Graft.ViewModels;
 /// <summary>
 /// パラメータなしの同期コマンド。MVVMフレームワークを使わない方針（附録A.3）のため
 /// 自前実装する。再評価の通知は<see cref="CommandRequery"/>越しに受け取り、
-/// WPF版ではフォーカス移動やキー入力のたびにCanExecuteが再評価されるようにする。
+/// フォーカス移動やキー入力のたびにCanExecuteが再評価されるようにする。
 /// </summary>
 public sealed class RelayCommand : ICommand
 {
@@ -71,9 +71,8 @@ public sealed class RelayCommand<T> : ICommand
 /// 非同期処理を実行するコマンド。実行中は多重起動を防ぐため <see cref="CanExecute"/> が
 /// falseを返す。例外は握り潰さず（附録A.4）、awaitの外へそのまま伝播させる。
 /// ICommand.Executeはvoidを返すため内部的には async void になるが、これは
-/// SynchronizationContext（WPFではUIスレッドのDispatcher）へ例外を伝播させ、
-/// 未処理例外として最上位（Application.DispatcherUnhandledException）で
-/// 捕捉できるようにするための意図的な選択である。
+/// SynchronizationContext（UIスレッドのDispatcher）へ例外を伝播させ、
+/// 未処理例外として最上位で捕捉できるようにするための意図的な選択である。
 /// </summary>
 public sealed class AsyncRelayCommand : ICommand
 {

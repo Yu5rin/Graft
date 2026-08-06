@@ -1,0 +1,176 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Graft.Views"
+        xmlns:settings="clr-namespace:Graft.Views.SettingsPanels"
+        x:Class="Graft.Views.SettingsWindow"
+        Title="設定"
+        Width="880" Height="680" MinWidth="760" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        AutomationProperties.Name="設定">
+    <!--
+        14章 設定画面。v2.0のWPF版からの差分:
+        - 各タブ共通の書式（fieldLabel/fieldRow/sectionHeading）は Themes/Settings.axaml の
+          クラスとしてApp.Stylesへ入れているため、v2.0のWPF版が必要としていた専用の
+          リソース辞書（SettingsPanelResources.xaml）を両側からマージする回避策は不要になった。
+        - TabControl/TabItem/ListBoxItem の書式は共通テーマ側が持つため重複定義しない。
+        - トークン統計の表は ListView + GridView がAvaloniaに無いため、
+          DataGrid を使わず ListBox ＋ 桁を揃えたテンプレートで表現する
+          （別パッケージ Avalonia.Controls.DataGrid を増やさないため。附録A.2 依存最小化）。
+        - Visibility は IsVisible（bool）へ。
+    -->
+    <Window.Styles>
+        <!-- トークン統計の表。見出し行と各行で同じ桁幅を使う。 -->
+        <Style Selector="TextBlock.statCell">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.statHeader">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="2,Auto,*,Auto">
+
+        <!-- 8.8: アクセント色の細い不確定プログレスバー。 -->
+        <ProgressBar Grid.Row="0" Height="2" IsIndeterminate="True"
+                     Background="Transparent" BorderThickness="0"
+                     Foreground="{DynamicResource Accent}"
+                     IsVisible="{Binding IsBusy}" />
+
+        <ItemsControl Grid.Row="1" Margin="16,10,16,0" ItemsSource="{Binding ValidationIssues}"
+                      IsVisible="{Binding ValidationIssues, Converter={x:Static local:Converters.HasItems}}"
+                      AutomationProperties.Name="設定の検証結果">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border BorderBrush="{DynamicResource StateWarn}" BorderThickness="1" Padding="8" Margin="0,0,0,4">
+                        <TextBlock Foreground="{DynamicResource StateWarn}" TextWrapping="Wrap"
+                                   Text="{Binding Converter={x:Static local:Converters.IssueToText}}" />
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TabControl Grid.Row="2" Margin="16,12,16,12" TabStripPlacement="Left"
+                    Background="Transparent" BorderThickness="0">
+
+            <TabItem Header="一般" AutomationProperties.Name="一般設定タブ">
+                <settings:GeneralSettingsView />
+            </TabItem>
+
+            <TabItem Header="エディタ" AutomationProperties.Name="エディタ設定タブ">
+                <settings:EditorSettingsView />
+            </TabItem>
+
+            <TabItem Header="マッチング" AutomationProperties.Name="マッチング設定タブ">
+                <settings:MatchingSettingsView />
+            </TabItem>
+
+            <TabItem Header="安全機構" AutomationProperties.Name="安全機構設定タブ">
+                <settings:SafetySettingsView />
+            </TabItem>
+
+            <TabItem Header="表示・コンテキスト" AutomationProperties.Name="表示・コンテキスト設定タブ">
+                <settings:DiffSettingsView />
+            </TabItem>
+
+            <TabItem Header="プロンプトテンプレート" AutomationProperties.Name="プロンプトテンプレート設定タブ">
+                <settings:TemplateSettingsView />
+            </TabItem>
+
+            <TabItem Header="トークン統計" AutomationProperties.Name="トークン統計タブ">
+                <Grid DataContext="{Binding TokenStats}" Margin="16,8" RowDefinitions="2,Auto,Auto,*,Auto">
+
+                    <ProgressBar Grid.Row="0" Height="2" IsIndeterminate="True"
+                                 Background="Transparent" BorderThickness="0"
+                                 Foreground="{DynamicResource Accent}"
+                                 IsVisible="{Binding IsBusy}" />
+
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,8">
+                        <TextBlock Text="プロジェクト" Classes="fieldLabel" />
+                        <ComboBox ItemsSource="{Binding Projects}"
+                                  ItemTemplate="{StaticResource NameItemTemplate}"
+                                  SelectedItem="{Binding SelectedProject}"
+                                  AutomationProperties.Name="集計対象プロジェクト" />
+                        <TextBlock Text="集計単位" Classes="fieldLabel" Margin="24,0,0,0" />
+                        <ComboBox ItemsSource="{Binding Granularities}"
+                                  ItemTemplate="{StaticResource LabelItemTemplate}"
+                                  SelectedValueBinding="{Binding Value}" SelectedValue="{Binding Granularity}"
+                                  AutomationProperties.Name="集計単位" />
+                        <Button Content="更新" Command="{Binding RefreshCommand}" Margin="24,0,0,0"
+                                AutomationProperties.Name="トークン統計を更新" />
+                    </StackPanel>
+
+                    <!-- 表の見出し行。桁幅は各行のテンプレートと合わせる。 -->
+                    <Border Grid.Row="2" BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
+                            Background="{DynamicResource BgSurface}"
+                            IsVisible="{Binding !IsEmpty}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Classes="statHeader" Text="期間" Width="160" />
+                            <TextBlock Classes="statHeader" Text="推定トークン数" Width="140" />
+                            <TextBlock Classes="statHeader" Text="削減できた推定トークン数" Width="180" />
+                            <TextBlock Classes="statHeader" Text="リビジョン数" Width="120" />
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Grid.Row="3">
+                        <ListBox ItemsSource="{Binding Buckets}" AutomationProperties.Name="期間別トークン統計"
+                                 Background="{DynamicResource BgSurface}" BorderThickness="0"
+                                 IsVisible="{Binding !IsEmpty}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Classes="statCell" Text="{Binding Label}" Width="160" />
+                                        <TextBlock Classes="statCell" Text="{Binding Tokens}" Width="140" />
+                                        <TextBlock Classes="statCell" Text="{Binding SavedTokens}" Width="180" />
+                                        <TextBlock Classes="statCell" Text="{Binding Revisions}" Width="120" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                    IsVisible="{Binding IsEmpty}">
+                            <Path Data="{DynamicResource IconHistoryGeometry}" Classes="icon"
+                                  Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
+                            <TextBlock Text="このプロジェクトのリビジョンがまだありません" Margin="0,8,0,0"
+                                       Foreground="{DynamicResource TextSecondary}" />
+                        </StackPanel>
+                        <Border BorderBrush="{DynamicResource StateError}" BorderThickness="1" Padding="8"
+                                VerticalAlignment="Top"
+                                IsVisible="{Binding ErrorIssue, Converter={x:Static local:Converters.NotNull}}">
+                            <TextBlock Foreground="{DynamicResource StateError}" TextWrapping="Wrap"
+                                       Text="{Binding ErrorIssue, Converter={x:Static local:Converters.IssueToText}}" />
+                        </Border>
+                    </Grid>
+
+                    <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
+                        <TextBlock Text="{Binding TotalTokens, StringFormat=推定トークン数 合計: {0}}" Margin="0,0,16,0" />
+                        <TextBlock Text="{Binding TotalSavedTokens, StringFormat=削減できた推定トークン数 合計: {0}}"
+                                   Margin="0,0,16,0" />
+                        <TextBlock Text="{Binding TotalRevisions, StringFormat=リビジョン数 合計: {0}}" />
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="JSON編集" AutomationProperties.Name="設定JSON直接編集タブ">
+                <settings:RawJsonSettingsView />
+            </TabItem>
+
+            <TabItem Header="バージョン情報" AutomationProperties.Name="バージョン情報タブ">
+                <local:AboutView />
+            </TabItem>
+        </TabControl>
+
+        <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <Button Grid.Column="1" Content="保存" Command="{Binding SaveCommand}" Margin="0,0,8,0"
+                    IsDefault="True" AutomationProperties.Name="設定を保存" />
+            <Button Grid.Column="2" Content="閉じる" Click="OnCloseClicked"
+                    AutomationProperties.Name="設定を閉じる" />
+        </Grid>
+    </Grid>
+</Window>

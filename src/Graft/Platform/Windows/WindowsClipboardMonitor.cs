@@ -7,7 +7,7 @@ using Graft.Core;
 namespace Graft.Platform.Windows;
 
 /// <summary>
-/// <see cref="IClipboardMonitor"/> のWindows実装。移設元は <c>Features/ClipboardWatcher.cs</c>。
+/// <see cref="IClipboardMonitor"/> のWindows実装。v2.0での実装元は <c>Features/ClipboardWatcher.cs</c>。
 /// <c>AddClipboardFormatListener</c> による変更検知のみを行い、ポーリングは一切行わない。
 /// 取得したテキストがブロックヘッダのパターンを含む場合のみ <see cref="PatchDetected"/> を
 /// 発火する。ロジックは移設元から変更していない。

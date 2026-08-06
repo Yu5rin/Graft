@@ -1,10 +1,11 @@
-using System.Windows;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Threading;
-using ICSharpCode.AvalonEdit;
-using ICSharpCode.AvalonEdit.Document;
-using ICSharpCode.AvalonEdit.Rendering;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Threading;
+using AvaloniaEdit;
+using AvaloniaEdit.Document;
+using AvaloniaEdit.Rendering;
 using Graft.Core;
 
 namespace Graft.Editor;
@@ -16,6 +17,11 @@ namespace Graft.Editor;
 /// 行わない（<see cref="SyntaxHighlightBridge"/>とは別に独自のレキサインスタンスを持つ。
 /// 色付け用インスタンスは<c>EditorPane</c>内部に閉じているため参照できないための実装）。
 /// 対応括弧の強調は<see cref="IBackgroundRenderer"/>として描画する。
+/// v2.0のWPF版（AvalonEdit）からの移植。TextEntering/TextEnteredのイベント引数は
+/// <see cref="TextCompositionEventArgs"/>から<see cref="TextInputEventArgs"/>へ、
+/// マウス関連は<see cref="MouseEventArgs"/>ではなく<see cref="PointerEventArgs"/>へ、
+/// それぞれAvalonia側の対応物へ差し替える。Pen/BrushのFreeze()はAvaloniaに対応物が無いため
+/// 呼び出さない。
 /// </summary>
 public sealed class BracketSupport : IBackgroundRenderer, IDisposable
 {
@@ -93,7 +99,7 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
         if (_document is not null) _document.Changed -= OnDocumentChanged;
     }
 
-    private void OnTextEntering(object? sender, TextCompositionEventArgs e)
+    private void OnTextEntering(object? sender, TextInputEventArgs e)
     {
         if (!_autoCloseEnabled || string.IsNullOrEmpty(e.Text)) return;
         var ch = e.Text[0];
@@ -108,7 +114,7 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
         if (CloseChars.Contains(ch)) TryTypeOverClose(ch, e);
     }
 
-    private void OnTextEntered(object? sender, TextCompositionEventArgs e)
+    private void OnTextEntered(object? sender, TextInputEventArgs e)
     {
         if (!_autoCloseEnabled || string.IsNullOrEmpty(e.Text)) return;
         var ch = e.Text[0];
@@ -140,7 +146,7 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
         _editor.Select(start + 1, length);
     }
 
-    private void TryTypeOverClose(char ch, TextCompositionEventArgs e)
+    private void TryTypeOverClose(char ch, TextInputEventArgs e)
     {
         var caret = _editor.CaretOffset;
         if (caret >= _editor.Document.TextLength || _editor.Document.GetCharAt(caret) != ch) return;
@@ -205,7 +211,7 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
         return false;
     }
 
-    private static void DrawBracketBox(TextView textView, DrawingContext drawingContext, Pen pen, int offset)
+    private static void DrawBracketBox(TextView textView, DrawingContext drawingContext, IPen pen, int offset)
     {
         var builder = new BackgroundGeometryBuilder { AlignToWholePixels = true, CornerRadius = 2 };
         builder.AddSegment(textView, new TextSegment { StartOffset = offset, EndOffset = offset + 1 });
@@ -213,14 +219,15 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
         if (geometry is not null) drawingContext.DrawGeometry(Brushes.Transparent, pen, geometry);
     }
 
-    private static Pen? ResolvePen()
+    private static IPen? ResolvePen()
     {
-        if (Application.Current?.TryFindResource("AccentColor") is not Color color) return null;
+        if (Application.Current is not { } app || !app.TryFindResource("AccentColor", null, out var value) || value is not Color color)
+        {
+            return null;
+        }
+
         var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        var pen = new Pen(brush, 1.3);
-        pen.Freeze();
-        return pen;
+        return new Pen(brush, 1.3);
     }
 
     private void OnCaretPositionChanged(object? sender, EventArgs e)
