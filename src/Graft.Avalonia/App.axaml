@@ -1,0 +1,12 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.App"
+             RequestedThemeVariant="Default">
+    <!--
+        9.1: OSのネイティブな見た目に寄せず、WindowsとLinuxで同一の外観にする。
+        Fluentテーマは土台としてのみ使い、色・寸法はTokens/Dark/Lightで上書きする。
+    -->
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</Application>

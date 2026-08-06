@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Graft.Views.ShellWindow"
+        Title="Graft"
+        Width="1280" Height="800"
+        MinWidth="960" MinHeight="600">
+    <!-- 9.2 レイアウトはフェーズL3で移植する。ここでは骨組みのみ。 -->
+    <Grid RowDefinitions="40,*,24">
+        <Border Grid.Row="0" Name="CommandBar">
+            <TextBlock Text="Graft" VerticalAlignment="Center" Margin="12,0" />
+        </Border>
+        <Grid Grid.Row="1" ColumnDefinitions="48,260,*" Name="Body">
+            <Border Grid.Column="0" Name="SideBar" />
+            <Border Grid.Column="1" Name="SideView" />
+            <Border Grid.Column="2" Name="EditorArea" />
+        </Grid>
+        <Border Grid.Row="2" Name="StatusBar">
+            <TextBlock Text="準備完了" VerticalAlignment="Center" Margin="12,0" />
+        </Border>
+    </Grid>
+</Window>
