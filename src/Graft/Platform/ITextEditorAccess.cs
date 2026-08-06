@@ -3,10 +3,9 @@ namespace Graft.Platform;
 /// <summary>
 /// ViewModelから編集中のテキストエディタを操作するための抽象（仕様書v2.1 19章・20章 L3）。
 /// エディタ内検索・置換（4.4節）は選択位置の変更やスクロールといったUI操作を伴うため、
-/// ViewModel層がエディタコントロールの型（WPF版は<c>ICSharpCode.AvalonEdit.TextEditor</c>、
-/// Avalonia版は<c>AvaloniaEdit.TextEditor</c>）を直接参照してしまうと、ViewModelを
-/// 両プラットフォームで共有できなくなる。必要な操作だけをこの抽象に切り出し、
-/// 各UI側でアダプタを実装する。
+/// ViewModel層がエディタコントロールの型（<c>AvaloniaEdit.TextEditor</c>）を直接参照すると、
+/// ViewModelがUIフレームワークへ依存してしまう。必要な操作だけをこの抽象に切り出し、
+/// UI側でアダプタを実装する。
 /// </summary>
 public interface ITextEditorAccess
 {

@@ -1,0 +1,85 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.AboutView"
+             AutomationProperties.Name="バージョン情報">
+    <!--
+        8.15章のバージョン情報。ロゴは Themes/Logo.axaml の {DynamicResource LogoImage} を使い、
+        ラスタ画像は使用しない。v2.0のWPF版からの移植（19章 L3）。
+        Expander の Expanded イベントは Avalonia に無いため、IsExpanded の変化を
+        コードビハインドで購読してライセンス全文を読み込む。見た目は共通テーマ
+        （Themes/Controls.Layout.axaml）の Expander が担う。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
+        <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <Image Source="{DynamicResource LogoImage}" Width="56" Height="56"
+                       AutomationProperties.Name="Graftロゴ" />
+                <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Graft" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock x:Name="VersionText" Foreground="{DynamicResource TextSecondary}" />
+                    <TextBlock x:Name="BuildDateText" Foreground="{DynamicResource TextSecondary}"
+                               FontSize="{DynamicResource CaptionFontSize}" />
+                </StackPanel>
+            </StackPanel>
+
+            <TextBlock Text="使用ライブラリのライセンス表記" FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}" Margin="0,0,0,8" />
+
+            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12" Margin="0,0,0,8">
+                <StackPanel>
+                    <TextBlock Text="DiffPlex" FontWeight="SemiBold" />
+                    <TextBlock Text="ライセンス: Apache License 2.0" Foreground="{DynamicResource TextSecondary}"
+                               Margin="0,2,0,0" />
+                    <TextBlock Text="パッチ適用の内部で使用する差分計算ライブラリ。"
+                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,8" />
+                    <Expander x:Name="DiffPlexLicenseExpander" Header="ライセンス全文を表示"
+                              AutomationProperties.Name="DiffPlexのライセンス全文を表示">
+                        <Border Background="{DynamicResource BgSurface}" BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1" Margin="0,8,0,0" MaxHeight="260">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBlock x:Name="LicenseText" Margin="8" TextWrapping="Wrap"
+                                           FontFamily="{DynamicResource CodeFontFamily}"
+                                           FontSize="{DynamicResource CodeFontSize}"
+                                           AutomationProperties.Name="DiffPlexのライセンス全文" />
+                            </ScrollViewer>
+                        </Border>
+                    </Expander>
+                </StackPanel>
+            </Border>
+
+            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12" Margin="0,0,0,8">
+                <StackPanel>
+                    <TextBlock Text="System.Text.Encoding.CodePages" FontWeight="SemiBold" />
+                    <TextBlock Text="発行元: Microsoft　ライセンス: MIT License"
+                               Foreground="{DynamicResource TextSecondary}" Margin="0,2,0,0" />
+                    <TextBlock Text="Shift_JIS等、.NET既定に含まれないコードページのエンコーディング判定に使用する。"
+                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                </StackPanel>
+            </Border>
+
+            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12">
+                <StackPanel>
+                    <TextBlock Text="AvaloniaEdit" FontWeight="SemiBold" />
+                    <TextBlock Text="ライセンス: MIT License" Foreground="{DynamicResource TextSecondary}"
+                               Margin="0,2,0,0" />
+                    <TextBlock Text="コードエディタ本体（4章）に使用するテキスト編集コンポーネント。"
+                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,8" />
+                    <Expander x:Name="AvalonEditLicenseExpander" Header="ライセンス全文を表示"
+                              AutomationProperties.Name="AvaloniaEditのライセンス全文を表示">
+                        <Border Background="{DynamicResource BgSurface}" BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1" Margin="0,8,0,0" MaxHeight="260">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBlock x:Name="AvalonEditLicenseText" Margin="8" TextWrapping="Wrap"
+                                           FontFamily="{DynamicResource CodeFontFamily}"
+                                           FontSize="{DynamicResource CodeFontSize}"
+                                           AutomationProperties.Name="AvaloniaEditのライセンス全文" />
+                            </ScrollViewer>
+                        </Border>
+                    </Expander>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

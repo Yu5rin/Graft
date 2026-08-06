@@ -1,0 +1,138 @@
+<!--
+  共通コントロールスタイル（基礎編。ControlTemplateを差し替えるもの）。
+  v2.0のWPF版 Themes/Controls.xaml の移植（附録A・20章L2）。9.1: OSのネイティブな見た目に
+  寄せず、色はすべてDynamicResourceでトークン参照する。9.1: フォーカスリングは
+  アクセント色の2px枠で常時可視にする（マウス操作でも消さない）。
+
+  Window/TextBlock/ListBox/TreeViewなどSetterのみ（ControlTemplateを差し替えない）の
+  項目はControls.Base.axamlへ分離した（構文上の理由。同ファイル冒頭のコメント参照）。
+  CheckBox/ComboBox/ListBoxItemはControls.Input.axaml、TabControl/TreeViewItem/
+  ScrollBar/GridSplitter/ProgressBarはControls.Layout.axamlに分割する
+  （1ファイル400行の上限のため。v2.0のWPF版もControls.xaml/Controls.Input.xamlに分割していた
+  構成を踏襲する）。
+
+  【Avalonia化にあたっての構文の要点（WPFとの対応）】
+  - ControlTemplateを差し替える場合は、Avalonia 11の正道である ControlTheme を使い、
+    x:Key="{x:Type X}" という予約キーでApplication.Resourcesへ登録する。この形の
+    キーはAvaloniaの既定テーマ解決の仕組みそのものであり、暗黙スタイルとして機能する
+    （実測確認済み。FluentThemeより優先して解決される）。
+  - フォーカスの可視化は、WPFのIsFocusedトリガーに対応するAvaloniaの:focus疑似クラスを
+    使う。マウス操作時のみフォーカスリングを隠す:focus-visibleは意図的に使わない
+    （9.1: 常時可視の要件のため）。
+  - WPFのStrokeStartLineCap/StrokeEndLineCapはAvaloniaではStrokeLineCap 1つに、
+    StrokeLineJoinはStrokeJoinという名前になる（値は変えていない）。
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ========== Button ========== -->
+    <ControlTheme x:Key="{x:Type Button}" TargetType="Button">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid>
+                    <Border Name="PART_Border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Name="PART_ContentPresenter"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Padding="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          RecognizesAccessKey="True" />
+                    </Border>
+                    <!-- 9.1: フォーカスリングはIsFocusedならぬ:focusで反応させ、
+                         マウスクリックによるフォーカスでも消さない。 -->
+                    <Border Name="PART_FocusRing"
+                            BorderBrush="{DynamicResource Accent}"
+                            BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            IsHitTestVisible="False"
+                            Opacity="0" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:pressed /template/ Border#PART_Border">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+        </Style>
+        <Style Selector="^:focus /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== TextBox ========== -->
+    <ControlTheme x:Key="{x:Type TextBox}" TargetType="TextBox">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource BgSelected}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid>
+                    <Border Name="PART_Border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ScrollViewer Name="PART_ScrollViewer"
+                                      Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center"
+                                      HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollBarVisibility="Hidden">
+                            <TextPresenter Name="PART_TextPresenter"
+                                           Text="{TemplateBinding Text, Mode=TwoWay}"
+                                           CaretBrush="{TemplateBinding CaretBrush}"
+                                           SelectionBrush="{TemplateBinding SelectionBrush}"
+                                           SelectionStart="{TemplateBinding SelectionStart}"
+                                           SelectionEnd="{TemplateBinding SelectionEnd}"
+                                           CaretIndex="{TemplateBinding CaretIndex}" />
+                        </ScrollViewer>
+                    </Border>
+                    <Border Name="PART_FocusRing"
+                            BorderBrush="{DynamicResource Accent}"
+                            BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            IsHitTestVisible="False"
+                            Opacity="0" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:focus /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== ToolTip ========== -->
+    <!-- WPFのHasDropShadow相当のプロパティはAvaloniaに存在しないため持たない
+         （影の有無はAvaloniaのウィンドウ管理側の既定に委ねる）。 -->
+    <ControlTheme x:Key="{x:Type ToolTip}" TargetType="ToolTip">
+        <Setter Property="Background" Value="{DynamicResource BgElevated}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource CaptionFontSize}" />
+    </ControlTheme>
+
+</ResourceDictionary>

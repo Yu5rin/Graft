@@ -4,7 +4,7 @@ namespace Graft.Platform;
 /// 確認・入力・フォルダ選択・通知の共通ダイアログを抽象化したもの。
 ///
 /// ViewModel はほぼ全クラスがこれをコンストラクタ注入されており、WPF専用の
-/// <c>Graft.Views.DialogService</c> がViewModel層に残っていたことが、WPF版とAvalonia版で
+/// <c>Graft.Views.DialogService</c> がViewModel層に残っていたことが、v2.0のWPF版とAvalonia版で
 /// ViewModelをソース共有する最後の障害だった。<see cref="IUiServices"/> と同じ考え方で
 /// ここへ抽象化する（仕様書v2.1 19章・20章 L3）。
 ///
@@ -31,7 +31,7 @@ public interface IDialogService
     /// フォルダ選択ダイアログを表示する。キャンセル時はnullを返す。
     /// 非同期シグネチャなのは、Avalonia版が使う<c>IStorageProvider.OpenFolderPickerAsync</c>が
     /// 非同期APIしか持たず、UIスレッドを塞がずに待ち合わせる必要があるため
-    /// （WPF版は<see cref="Task.FromResult{TResult}(TResult)"/>で包むだけでよい）。
+    /// （v2.0のWPF版は<see cref="Task.FromResult{TResult}(TResult)"/>で包むだけでよい）。
     /// </summary>
     Task<string?> PickFolderAsync(string title);
 

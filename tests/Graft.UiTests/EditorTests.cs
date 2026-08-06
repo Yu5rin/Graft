@@ -15,9 +15,9 @@ namespace Graft.UiTests;
 
 /// <summary>
 /// エディタ層（フェーズL3: AvalonEdit→AvaloniaEdit移植）の検証テスト（仕様書v2.1 18章・
-/// 附録A.7）。<c>src/Graft.Avalonia/Editor/</c> の各クラスが例外なく構築・描画でき、
+/// 附録A.7）。<c>src/Graft/Editor/</c> の各クラスが例外なく構築・描画でき、
 /// 4.5節のエンコーディング・改行保持と4.1節のシンタックスハイライト接続が
-/// WPF版と同じ挙動を保つことを検証する。代表画面のスクリーンショットも保存する。
+/// v2.0のWPF版と同じ挙動を保つことを検証する。代表画面のスクリーンショットも保存する。
 /// </summary>
 public class EditorTests
 {
