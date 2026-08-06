@@ -1,8 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Windows.Input;
 using Graft.Core;
-using Graft.Views;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -62,7 +63,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
 {
     private readonly RevisionStore _revisionStore;
     private readonly RevisionRestorer _restorer;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
 
     private string? _projectId;
     private string? _projectRoot;
@@ -73,10 +74,12 @@ public sealed class HistoryPaneViewModel : ObservableObject
     private RevisionRowViewModel? _selectedItem;
     private string _keyword = string.Empty;
     private string? _typeFilter;
+    private string _dateFromText = string.Empty;
+    private string _dateToText = string.Empty;
     private DateTimeOffset? _dateFrom;
     private DateTimeOffset? _dateTo;
 
-    public HistoryPaneViewModel(RevisionStore revisionStore, RevisionRestorer restorer, DialogService dialogs)
+    public HistoryPaneViewModel(RevisionStore revisionStore, RevisionRestorer restorer, IDialogService dialogs)
     {
         _revisionStore = revisionStore ?? throw new ArgumentNullException(nameof(revisionStore));
         _restorer = restorer ?? throw new ArgumentNullException(nameof(restorer));
@@ -137,6 +140,36 @@ public sealed class HistoryPaneViewModel : ObservableObject
         get => _dateTo;
         set => SetProperty(ref _dateTo, value, ApplyFilter);
     }
+
+    /// <summary>
+    /// 絞り込みの開始日を「yyyy-MM-dd」の文字列として読み書きする（空文字は指定なし）。
+    ///
+    /// 日付選択コントロールを使わないのは、UIをすべて日本語で統一する方針（9章）に対して
+    /// AvaloniaのDatePickerが英語の項目名（year/month/day）を表示し、差し替える手段が
+    /// 無いため。加えて、サイドビューの幅（既定260px）に3項目分の枠が収まらない。
+    /// 解釈できない入力は「指定なし」として扱い、入力の途中で一覧が消えないようにする。
+    /// </summary>
+    public string DateFromText
+    {
+        get => FormatDate(_dateFrom);
+        set { if (SetProperty(ref _dateFromText, value)) DateFrom = ParseDate(value); }
+    }
+
+    /// <inheritdoc cref="DateFromText"/>
+    public string DateToText
+    {
+        get => FormatDate(_dateTo);
+        set { if (SetProperty(ref _dateToText, value)) DateTo = ParseDate(value); }
+    }
+
+    private static string FormatDate(DateTimeOffset? value)
+        => value is null ? string.Empty : value.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static DateTimeOffset? ParseDate(string? text)
+        => DateTimeOffset.TryParseExact(
+            text?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed
+            : null;
 
     /// <summary>選択リビジョンが変わった（diffの再表示が必要になった）ことの通知。</summary>
     public event EventHandler<RevisionRowViewModel?>? RevisionSelected;

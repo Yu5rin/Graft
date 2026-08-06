@@ -7,7 +7,7 @@ using Graft.Core;
 namespace Graft.Platform.Windows;
 
 /// <summary>
-/// <see cref="IClipboardMonitor"/> のWindows実装。移設元は <c>Features/ClipboardWatcher.cs</c>。
+/// <see cref="IClipboardMonitor"/> のWindows実装。v2.0での実装元は <c>Features/ClipboardWatcher.cs</c>。
 /// <c>AddClipboardFormatListener</c> による変更検知のみを行い、ポーリングは一切行わない。
 /// 取得したテキストがブロックヘッダのパターンを含む場合のみ <see cref="PatchDetected"/> を
 /// 発火する。ロジックは移設元から変更していない。
@@ -17,18 +17,6 @@ public sealed class WindowsClipboardMonitor : IClipboardMonitor
 {
     private const int RetryCount = 5;
     private const int RetryDelayMs = 50;
-
-    private static readonly string[] PatchHeaderPrefixes =
-    {
-        "<<<< FILE:",
-        "<<<< PATCH",
-        "<<<< DELETE:",
-        "<<<< RENAME:",
-        "<<<< MKDIR:",
-        "<<<< APPEND:",
-        "<<<< PREPEND:",
-        "<<<<<<< SEARCH",
-    };
 
     private IntPtr _hwnd;
     private uint _excludeFormat;
@@ -106,7 +94,7 @@ public sealed class WindowsClipboardMonitor : IClipboardMonitor
             return;
         }
 
-        if (LooksLikePatch(text))
+        if (PatchTextDetector.LooksLikePatch(text))
         {
             PatchDetected?.Invoke(this, text);
         }
@@ -165,28 +153,6 @@ public sealed class WindowsClipboardMonitor : IClipboardMonitor
         {
             WindowsNativeMethods.GlobalUnlock(handle);
         }
-    }
-
-    /// <summary>
-    /// テキストがブロックヘッダのパターンを行頭に含むかどうかを判定する。
-    /// パッチらしいと判定できない通常のコピー内容はここで弾かれ、以降一切処理しない。
-    /// </summary>
-    public static bool LooksLikePatch(string text)
-    {
-        using var reader = new StringReader(text);
-        string? line;
-        while ((line = reader.ReadLine()) is not null)
-        {
-            foreach (var prefix in PatchHeaderPrefixes)
-            {
-                if (line.StartsWith(prefix, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     public void Dispose()

@@ -19,10 +19,10 @@ public interface IPlatformService
 }
 
 /// <summary>
-/// 仕様書8.12 トレイ常駐。移設元は <c>Views/TrayIconHost.cs</c>・<c>TrayIconRenderer.cs</c>・
-/// <c>TrayNativeMethods.cs</c>。WPFの <see cref="System.Windows.Controls.ContextMenu"/> 等へ
-/// 依存できないため、右クリックメニューの内容は <see cref="TrayMenuDescriptor"/>（本ファイル）
-/// を介してデータとコールバックのみで表現する。アイコン画像は実装側（Windows実装）が
+/// 仕様書8.12 トレイ常駐。v2.0での実装元は <c>Views/TrayIconHost.cs</c>・<c>TrayIconRenderer.cs</c>・
+/// <c>TrayNativeMethods.cs</c>。UIフレームワークのメニュー型へ依存させないため、
+/// 右クリックメニューの内容は <see cref="TrayMenuDescriptor"/>（本ファイル）を介して
+/// データとコールバックのみで表現する。アイコン画像は実装側（Windows実装）が
 /// ベクター資源から実行時に生成する（附録A.5「アイコンにラスタ画像を使わない」）。
 /// </summary>
 public interface ITrayIcon : IPlatformService, IDisposable
@@ -66,7 +66,7 @@ public sealed record TrayMenuDescriptor
 public sealed record TrayRecentProjectItem(string Name, Action OnSelect);
 
 /// <summary>
-/// 仕様書8.10 グローバルホットキー。移設元は <c>Features/HotkeyManager.cs</c>・
+/// 仕様書8.10 グローバルホットキー。v2.0での実装元は <c>Features/HotkeyManager.cs</c>・
 /// <c>NativeMethods.cs</c>。ウィンドウメッセージの配線（<c>HwndSource.AddHook</c> 等）は
 /// UI層の責務のまま残し、本インターフェースは <see cref="Attach"/> でウィンドウハンドルを
 /// 受け取ったうえで登録・メッセージ処理のみを担う。
@@ -93,7 +93,7 @@ public interface IGlobalHotkeys : IPlatformService, IDisposable
 }
 
 /// <summary>
-/// 仕様書9章・10章 クリップボード監視。移設元は <c>Features/ClipboardWatcher.cs</c>・
+/// 仕様書9章・10章 クリップボード監視。v2.0での実装元は <c>Features/ClipboardWatcher.cs</c>・
 /// <c>NativeMethods.cs</c>。ブロックヘッダのパターン判定はこの層で完結させ、読み取った内容は
 /// どこにも保持しない方針を維持する。
 /// </summary>
@@ -122,7 +122,7 @@ public interface IClipboardMonitor : IPlatformService, IDisposable
 }
 
 /// <summary>
-/// 仕様書7.4・14章 ごみ箱への削除。移設元は <c>Core/RevisionIndex.cs</c> の <c>RecycleBin</c>。
+/// 仕様書7.4・14章 ごみ箱への削除。v2.0での実装元は <c>Core/RevisionIndex.cs</c> の <c>RecycleBin</c>。
 /// </summary>
 public interface ITrashService : IPlatformService
 {
@@ -131,7 +131,7 @@ public interface ITrashService : IPlatformService
 }
 
 /// <summary>
-/// 仕様書4.2 ファイルマネージャで表示。移設元は <c>Features/FileTreeService.cs</c> の
+/// 仕様書4.2 ファイルマネージャで表示。v2.0での実装元は <c>Features/FileTreeService.cs</c> の
 /// <c>RevealInFileExplorer</c>。
 /// </summary>
 public interface IFileManagerLauncher : IPlatformService
@@ -141,7 +141,7 @@ public interface IFileManagerLauncher : IPlatformService
 }
 
 /// <summary>
-/// 仕様書8.3 システムテーマの判定と変更通知。移設元は <c>Themes/ThemeManager.cs</c> の
+/// 仕様書8.3 システムテーマの判定と変更通知。v2.0での実装元は <c>Themes/ThemeManager.cs</c> の
 /// <c>TryReadAppsUseLightTheme</c> と、それに付随するシステム設定変更監視。
 /// </summary>
 public interface ISystemThemeWatcher : IPlatformService, IDisposable
@@ -163,7 +163,7 @@ public interface ISystemThemeWatcher : IPlatformService, IDisposable
 }
 
 /// <summary>
-/// 仕様書6.8 多重起動の防止と既存ウィンドウの前面化。移設元は <c>Core/SingleInstanceGuard.cs</c>
+/// 仕様書6.8 多重起動の防止と既存ウィンドウの前面化。v2.0での実装元は <c>Core/SingleInstanceGuard.cs</c>
 /// （取得・解放。プラットフォームを問わず動作するためロジックはそのまま利用する）と
 /// <c>Views/StartupCoordinator.cs</c> の前面化用P/Invoke（<c>FindWindow</c> 等、Windows固有）。
 /// </summary>

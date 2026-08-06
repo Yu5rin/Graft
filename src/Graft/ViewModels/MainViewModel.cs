@@ -5,7 +5,6 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -28,7 +27,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ApplyEngine _applyEngine;
     private readonly RevisionStore _revisionStore;
     private readonly SettingsStore _settingsStore;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private readonly IUiServices _ui;
     private readonly PatchParser _parser = new();
     private readonly Action _openSettingsRequested;
@@ -52,7 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
         RevisionRestorer revisionRestorer,
         SettingsStore settingsStore,
         WindowLayoutStore layoutStore,
-        DialogService dialogService,
+        IDialogService dialogService,
         Features.PatchQueue patchQueue,
         Action openSettingsRequested,
         IUiServices ui)
@@ -262,7 +261,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         // IClipboardAccess.GetTextは取得できない場合にnullを返す契約のため、
         // 個別の例外保護は不要（クリップボードが他プロセスに占有されている場合もnullになる）。
-        var text = _ui.Clipboard.GetText();
+        var text = await _ui.Clipboard.GetTextAsync().ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(text)) return;
 
         var parsed = _parser.Parse(text);

@@ -1,0 +1,105 @@
+<!--
+  共通デザイントークン（色以外）。v2.0のWPF版 Themes/Tokens.xaml の移植（附録A・20章L2）。
+
+  8.4 タイポグラフィの表、8.2/8.11 のレイアウト寸法、8.9 のモーション定義を
+  リソース化する。色トークンは Dark.axaml / Light.axaml が担当し、このファイルには
+  一切の色を持たない。参照側は必ず DynamicResource を使うこと（テーマ切り替え時に
+  即時反映させるため）。
+
+  【v2.0のWPF版からの差分（意図的・仕様書の指示による）】
+  - フォントは2.5節のとおり、プラットフォームのフォールバック列で指定し直す
+    （v2.0のWPF版はWindows専用フォントのみを列挙していたため、そのままでは移植にならない）。
+  - Duration型はAvaloniaに存在しないため、TimeSpanのみを持つ（v2.0のWPF版はDurationと
+    TimeSpanの両方を持っていたが、Avalonia側で必要なのはTimeSpanのみ）。
+  - イージングはAvaloniaの型体系（モードごとに別クラス）に合わせ、
+    QuadraticEase(EasingMode=EaseOut) 相当の QuadraticEaseOut を使う。
+  - 値・キー名はいずれもv2.0のWPF版と同一（プラットフォームで値を変えない、9.3/9.4）。
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ========== 9.4 タイポグラフィ：フォントファミリ（2.5 フォールバック列） ========== -->
+    <FontFamily x:Key="UiFontFamily">Yu Gothic UI, Segoe UI Variable, Noto Sans CJK JP, IPAexGothic, sans-serif</FontFamily>
+    <FontFamily x:Key="CodeFontFamily">Cascadia Mono, JetBrains Mono, Noto Sans Mono CJK JP, DejaVu Sans Mono, monospace</FontFamily>
+
+    <!-- ========== 9.4 タイポグラフィ：用途別サイズ・ウェイト・行間 ========== -->
+    <!-- 行間（LineHeight）はTextBlock.LineHeightにそのまま設定できるよう、
+         表の行間比率にフォントサイズを乗じた実ピクセル値として保持する。 -->
+
+    <!-- ペイン見出し：12px / SemiBold / 行間1.4 -->
+    <x:Double x:Key="PaneHeadingFontSize">12</x:Double>
+    <FontWeight x:Key="PaneHeadingFontWeight">SemiBold</FontWeight>
+    <x:Double x:Key="PaneHeadingLineHeight">16.8</x:Double>
+
+    <!-- 本文・リスト：13px / Regular / 行間1.6 -->
+    <x:Double x:Key="BodyFontSize">13</x:Double>
+    <FontWeight x:Key="BodyFontWeight">Regular</FontWeight>
+    <x:Double x:Key="BodyLineHeight">20.8</x:Double>
+
+    <!-- 変更説明・補助：12px / Regular / 行間1.5 -->
+    <x:Double x:Key="CaptionFontSize">12</x:Double>
+    <FontWeight x:Key="CaptionFontWeight">Regular</FontWeight>
+    <x:Double x:Key="CaptionLineHeight">18</x:Double>
+
+    <!-- コード・diff：13px / Regular / 行間1.5 -->
+    <x:Double x:Key="CodeFontSize">13</x:Double>
+    <FontWeight x:Key="CodeFontWeight">Regular</FontWeight>
+    <x:Double x:Key="CodeLineHeight">19.5</x:Double>
+
+    <!-- ステータスバー：12px / Regular / 行間1.4 -->
+    <x:Double x:Key="StatusBarFontSize">12</x:Double>
+    <FontWeight x:Key="StatusBarFontWeight">Regular</FontWeight>
+    <x:Double x:Key="StatusBarLineHeight">16.8</x:Double>
+
+    <!-- ========== 余白スケール ========== -->
+    <x:Double x:Key="SpacingXs">4</x:Double>
+    <x:Double x:Key="SpacingSm">8</x:Double>
+    <x:Double x:Key="SpacingMd">12</x:Double>
+    <x:Double x:Key="SpacingLg">16</x:Double>
+    <x:Double x:Key="SpacingXl">24</x:Double>
+
+    <!-- Margin / Padding / BorderThickness は Thickness 型のため、上の Double を
+         そのまま割り当てると実行時に例外になる。四辺同値の Thickness 版を用意する。 -->
+    <Thickness x:Key="SpacingXsThickness">4</Thickness>
+    <Thickness x:Key="SpacingSmThickness">8</Thickness>
+    <Thickness x:Key="SpacingMdThickness">12</Thickness>
+    <Thickness x:Key="SpacingLgThickness">16</Thickness>
+    <Thickness x:Key="SpacingXlThickness">24</Thickness>
+
+    <!-- ========== 9.2 / 附録A レイアウト寸法 ========== -->
+    <x:Double x:Key="CommandBarHeight">40</x:Double>
+    <x:Double x:Key="StatusBarHeight">48</x:Double>
+
+    <!-- RowDefinition.Height は GridLength 型のため、Double を割り当てると
+         実行時に例外になる。同じ値の GridLength 版を用意する。 -->
+    <GridLength x:Key="CommandBarRowHeight">40</GridLength>
+    <GridLength x:Key="StatusBarRowHeight">48</GridLength>
+    <x:Double x:Key="MinWindowWidth">960</x:Double>
+    <x:Double x:Key="MinWindowHeight">600</x:Double>
+
+    <!-- ========== diff左端バー ========== -->
+    <x:Double x:Key="DiffBarWidth">3</x:Double>
+
+    <!-- ========== 9.5 アイコン共通寸法 ========== -->
+    <x:Double x:Key="IconViewboxSize">24</x:Double>
+    <x:Double x:Key="IconStrokeThickness">1.5</x:Double>
+    <!-- 一覧・ツールバーでの既定表示サイズ。個々の利用箇所で上書き可。 -->
+    <x:Double x:Key="IconDisplaySize">16</x:Double>
+
+    <!-- ========== フォーカスリング（9.1: 常時可視、アクセント色2px枠） ========== -->
+    <!-- 色はAccentトークン（Dark.axaml / Light.axaml）を使う。太さのみここで持つ。
+         FocusRingThickness は数値そのもの、FocusRingBorderThickness は
+         Border.BorderThickness（Thickness型）へそのまま割り当てるための同じ値の
+         Thickness版。DynamicResourceは値の型変換を行わないため、Double型のリソースを
+         Thickness型のプロパティへ直接割り当てると実行時エラーになる。 -->
+    <x:Double x:Key="FocusRingThickness">2</x:Double>
+    <Thickness x:Key="FocusRingBorderThickness">2</Thickness>
+
+    <!-- ========== モーション ========== -->
+    <!-- 継続時間120ms、イージングはease-outのみ。対象はペイン開閉・ポップオーバー・
+         テーマ切り替えのクロスフェードに限定する（ThemeManager.axaml.cs および将来の
+         各Viewから参照する）。 -->
+    <x:TimeSpan x:Key="MotionDuration">0:0:0.12</x:TimeSpan>
+    <QuadraticEaseOut x:Key="MotionEaseOut" />
+
+</ResourceDictionary>

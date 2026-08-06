@@ -1,8 +1,10 @@
-using System.Windows;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Media3D;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.VisualTree;
+using AvaloniaEdit.Editing;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -11,13 +13,19 @@ namespace Graft.Views;
 /// <see cref="ShellWindow"/> のキーボード操作（仕様書9.5・附録A「キーマップ移行」）を担う分割
 /// ファイル（1ファイル400行上限のため）。エディタが処理すべきキー（Ctrl+F/H/G/W/Tab/
 /// Ctrl+/・Ctrl+Space等）はここで一切横取りしない。フォーカスがエディタ内か、通常の
-/// テキスト入力欄（TextBox等）かは <see cref="IsTextInput"/> で判定する
-/// （AvalonEditはTextBoxBaseを継承しないため、エディタ領域はEditorHostへの包含で判定する）。
+/// テキスト入力欄（TextBox等）かは <see cref="IsTextInput"/> で判定する。
+///
+/// v2.0のWPF版からの移植（19章 L3）。PreviewKeyDown が無いためトンネリング段階の
+/// KeyDown を AddHandler で購読し、Keyboard.FocusedElement は
+/// <see cref="TopLevel.FocusManager"/> から取得する。AvaloniaEditのTextAreaは
+/// TextBoxを継承しないため、v2.0のWPF版と同様にエディタ領域（EditorHost）への包含でも判定する。
 /// </summary>
 public partial class ShellWindow
 {
-    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
     {
+        if (DataContext is not ShellViewModel) return;
+
         if (e.Key == Key.Escape)
         {
             ViewModel.Graft.DiscardCommand.Execute(null);
@@ -34,13 +42,13 @@ public partial class ShellWindow
 
         // 9.5: Ctrl+Shift+V/C/H/E/F・Ctrl+Alt+Z/1〜9・Ctrl+J・Ctrl+S はエディタの標準操作と
         // 衝突しない組み合わせのため、フォーカス位置に関わらずシェル側で処理する。
-        if (HandleUnconditionalShortcut(e.Key))
+        if (HandleUnconditionalShortcut(e.Key, e.KeyModifiers))
         {
             e.Handled = true;
             return;
         }
 
-        var focused = Keyboard.FocusedElement as DependencyObject;
+        var focused = FocusManager?.GetFocusedElement() as Visual;
         var inTextInput = IsTextInput(focused) || IsDescendant(focused, EditorHost);
 
         if (e.Key == Key.Space && !inTextInput && IsDescendant(focused, GraftPanelControl.ListBoxElement))
@@ -57,7 +65,7 @@ public partial class ShellWindow
             return;
         }
 
-        if (Keyboard.Modifiers == ModifierKeys.Control)
+        if (e.KeyModifiers == KeyModifiers.Control)
         {
             e.Handled = HandlePlainCtrlGatedShortcut(e.Key);
             return;
@@ -71,12 +79,11 @@ public partial class ShellWindow
     }
 
     /// <summary>Ctrl+Shift+*・Ctrl+Alt+*・一部の素のCtrl+*（J/S/Enter）をフォーカス位置に関係なく処理する。</summary>
-    private bool HandleUnconditionalShortcut(Key key)
+    private bool HandleUnconditionalShortcut(Key key, KeyModifiers mods)
     {
-        var mods = Keyboard.Modifiers;
-        if (mods == (ModifierKeys.Control | ModifierKeys.Shift)) return HandleCtrlShiftShortcut(key);
-        if (mods == (ModifierKeys.Control | ModifierKeys.Alt)) return HandleCtrlAltShortcut(key);
-        if (mods == ModifierKeys.Control) return HandlePlainCtrlUnconditionalShortcut(key);
+        if (mods == (KeyModifiers.Control | KeyModifiers.Shift)) return HandleCtrlShiftShortcut(key);
+        if (mods == (KeyModifiers.Control | KeyModifiers.Alt)) return HandleCtrlAltShortcut(key);
+        if (mods == KeyModifiers.Control) return HandlePlainCtrlUnconditionalShortcut(key);
         return false;
     }
 
@@ -132,24 +139,24 @@ public partial class ShellWindow
             case Key.Z: ViewModel.NotifyLegacyKey(LegacyKey.UndoCtrlZ); return true;
             case Key.H: ViewModel.NotifyLegacyKey(LegacyKey.HistoryCtrlH); return true;
             case Key.OemComma: ViewModel.Graft.OpenSettingsCommand.Execute(null); return true;
-            default: return false; // F/G/W/Tab/Y/`/`/Space等はここでも何もしない。
+            default: return false; // F/G/W/Tab/Y/Space等はここでも何もしない。
         }
     }
 
     /// <summary>
-    /// F6: サイドビュー（表示中のもの） → エディタ領域 → ブロック一覧 → diff の順に
+    /// F6: サイドビュー（表示中のもの） → エディタ領域 → ブロック一覧 → 適用ボタンの順に
     /// フォーカスを巡回する。
     /// </summary>
     private void CyclePaneFocus()
     {
-        FrameworkElement? sideViewTarget = ViewModel.SelectedSideView switch
+        Control? sideViewTarget = ViewModel.SelectedSideView switch
         {
             SideViewKind.Project => ProjectPaneControl.ListBoxElement,
             SideViewKind.History => HistoryPaneControl.ListBoxElement,
             _ => null,
         };
 
-        var targets = new FrameworkElement?[]
+        var targets = new Control?[]
         {
             sideViewTarget,
             EditorHost,
@@ -157,7 +164,7 @@ public partial class ShellWindow
             GraftPanelControl.DiffHost,
         };
 
-        var current = Keyboard.FocusedElement as DependencyObject;
+        var current = FocusManager?.GetFocusedElement() as Visual;
         var currentIndex = Array.FindIndex(targets, t => t is not null && IsDescendant(current, t));
         for (var offset = 1; offset <= targets.Length; offset++)
         {
@@ -168,36 +175,27 @@ public partial class ShellWindow
         }
     }
 
-    private static bool IsTextInput(DependencyObject? element)
+    private static bool IsTextInput(Visual? element)
     {
         while (element is not null)
         {
-            if (element is TextBoxBase)
-            {
-                return true;
-            }
-            element = GetParent(element);
+            // AvaloniaEditのTextAreaはTextBoxを継承しないため個別に判定する
+            // （v2.0のWPF版がTextBoxBaseで拾えていた範囲に相当させるため）。
+            if (element is TextBox or TextPresenter or TextArea) return true;
+            element = element.GetVisualParent();
         }
         return false;
     }
 
-    private static bool IsDescendant(DependencyObject? element, DependencyObject? ancestor)
+    private static bool IsDescendant(Visual? element, Visual? ancestor)
     {
-        if (ancestor is null)
-        {
-            return false;
-        }
+        if (ancestor is null) return false;
+
         while (element is not null)
         {
-            if (Equals(element, ancestor))
-            {
-                return true;
-            }
-            element = GetParent(element);
+            if (ReferenceEquals(element, ancestor)) return true;
+            element = element.GetVisualParent();
         }
         return false;
     }
-
-    private static DependencyObject? GetParent(DependencyObject element)
-        => element is Visual or Visual3D ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element);
 }

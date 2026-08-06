@@ -4,7 +4,6 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -37,7 +36,7 @@ public sealed class PromptCopyViewModel : ObservableObject
     private readonly PromptTemplateStore _templateStore;
     private readonly PromptTemplateRenderer _renderer;
     private readonly RevisionStore _revisionStore;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private readonly IUiServices _ui;
     private Project _project;
     private Settings _settings;
@@ -50,7 +49,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         PromptTemplateStore templateStore,
         PromptTemplateRenderer renderer,
         RevisionStore revisionStore,
-        DialogService dialogs,
+        IDialogService dialogs,
         ContextCollectViewModel context,
         Project project,
         Settings settings,

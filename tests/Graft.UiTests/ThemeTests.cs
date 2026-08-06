@@ -12,13 +12,13 @@ namespace Graft.UiTests;
 
 /// <summary>
 /// テーマ・カラートークン・アイコンの移植を検証するテスト（仕様書v2.1 18章・附録A.7、
-/// 20章L2）。カラートークン一覧・アイコン一覧はWPF版 Themes/Dark.xaml・Light.xaml・
+/// 20章L2）。カラートークン一覧・アイコン一覧はv2.0のWPF版 Themes/Dark.xaml・Light.xaml・
 /// Icons.xaml のキー名をそのまま列挙したものであり、移植漏れがあればここで機械的に
 /// 検出できる（1つでも欠けたら失敗する）。
 /// </summary>
 public class ThemeTests
 {
-    // WPF版 Dark.xaml / Light.xaml と同一のキー名一覧（9.3）。Color/Brushの対で持つ
+    // v2.0のWPF版 Dark.xaml / Light.xaml と同一のキー名一覧（9.3）。Color/Brushの対で持つ
     // トークンはどちらも列挙する。SyntaxPlainのみColor版を持たない（8.6の規則どおり
     // text.primaryと同値のBrushのみ）。
     private static readonly string[] ColorTokenKeys =
@@ -40,7 +40,7 @@ public class ThemeTests
         "EditorCurrentLineColor", "EditorCurrentLine", "EditorSelectionColor", "EditorSelection",
     };
 
-    // WPF版 Icons.xaml と同一のキー名一覧（9.5）。21種すべて。
+    // v2.0のWPF版 Icons.xaml と同一のキー名一覧（9.5）。21種すべて。
     private static readonly string[] IconGeometryKeys =
     {
         "IconCheckGeometry", "IconAlertTriangleGeometry", "IconXCircleGeometry", "IconPlayGeometry",
@@ -94,7 +94,7 @@ public class ThemeTests
     [AvaloniaFact(DisplayName = "アイコンの数はちょうど21種である")]
     public void アイコンの数はちょうど21種である()
     {
-        IconGeometryKeys.Should().HaveCount(21, "9.5の仕様どおりWPF版の21種を維持する必要がある");
+        IconGeometryKeys.Should().HaveCount(21, "9.5の仕様どおりv2.0のWPF版の21種を維持する必要がある");
     }
 
     [AvaloniaFact(DisplayName = "テーマを切り替えると実際にトークンの値が変わる")]
@@ -109,8 +109,8 @@ public class ThemeTests
         var lightColor = ((ISolidColorBrush)lightValue!).Color;
 
         darkColor.Should().NotBe(lightColor, "ダークとライトでBgBaseの実際の色が異なる必要がある");
-        darkColor.Should().Be(Color.Parse("#151619"), "ダークのBgBaseはWPF版と同一の値を維持する必要がある");
-        lightColor.Should().Be(Color.Parse("#FAFAF8"), "ライトのBgBaseはWPF版と同一の値を維持する必要がある");
+        darkColor.Should().Be(Color.Parse("#151619"), "ダークのBgBaseはv2.0のWPF版と同一の値を維持する必要がある");
+        lightColor.Should().Be(Color.Parse("#FAFAF8"), "ライトのBgBaseはv2.0のWPF版と同一の値を維持する必要がある");
     }
 
     [AvaloniaFact(DisplayName = "テーマ切り替えはウィンドウの再構築なしに反映される")]

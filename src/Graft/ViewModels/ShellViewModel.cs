@@ -4,7 +4,6 @@ using System.Windows.Input;
 using Graft.Core;
 using Graft.Features;
 using Graft.Platform;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -38,7 +37,7 @@ public enum LegacyKey
 /// </summary>
 public sealed class ShellViewModel : ObservableObject, IDisposable
 {
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private readonly Graft.Infra.Settings _settings;
     private readonly IUiServices _ui;
     private readonly HashSet<LegacyKey> _notifiedLegacyKeys = new();
@@ -49,7 +48,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private string? _currentProjectId;
 
     public ShellViewModel(
-        MainViewModel graft, EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
+        MainViewModel graft, EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
     {
         Graft = graft ?? throw new ArgumentNullException(nameof(graft));
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));
@@ -93,15 +92,33 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     public SideViewKind SelectedSideView
     {
         get => _selectedSideView;
-        private set => SetProperty(ref _selectedSideView, value);
+        private set => SetProperty(ref _selectedSideView, value, NotifyActiveSideViewChanged);
     }
 
     /// <summary>サイドビューが折りたたまれているかどうか（同じアイコンの再クリックで切替）。</summary>
     public bool IsSideViewCollapsed
     {
         get => _isSideViewCollapsed;
-        private set => SetProperty(ref _isSideViewCollapsed, value);
+        private set => SetProperty(ref _isSideViewCollapsed, value, NotifyActiveSideViewChanged);
     }
+
+    /// <summary>
+    /// サイドバーのアイコンを選択状態（背景を強調）にするかどうか（9.2）。折りたたみ中は
+    /// どのアイコンも選択状態にしない。
+    /// 「表示中のビューであること」と「折りたたまれていないこと」の2条件の組み合わせのため、
+    /// UI側で条件を組み立てるとWPFのMultiDataTriggerのようなUIフレームワーク固有の
+    /// 仕組みに頼ることになる。ViewModel側で解決してboolとして公開する。
+    /// </summary>
+    public bool IsExplorerActive => IsSideViewActive(SideViewKind.Explorer);
+
+    /// <inheritdoc cref="IsExplorerActive"/>
+    public bool IsProjectActive => IsSideViewActive(SideViewKind.Project);
+
+    /// <inheritdoc cref="IsExplorerActive"/>
+    public bool IsHistoryActive => IsSideViewActive(SideViewKind.History);
+
+    /// <inheritdoc cref="IsExplorerActive"/>
+    public bool IsSearchActive => IsSideViewActive(SideViewKind.Search);
 
     /// <summary>接ぎ木パネルが展開されているかどうか。通常時はfalse（折りたたみ）。</summary>
     public bool IsGraftPanelOpen
@@ -132,6 +149,16 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
         SelectedSideView = kind;
         IsSideViewCollapsed = false;
+    }
+
+    private bool IsSideViewActive(SideViewKind kind) => !IsSideViewCollapsed && SelectedSideView == kind;
+
+    private void NotifyActiveSideViewChanged()
+    {
+        OnPropertyChanged(nameof(IsExplorerActive));
+        OnPropertyChanged(nameof(IsProjectActive));
+        OnPropertyChanged(nameof(IsHistoryActive));
+        OnPropertyChanged(nameof(IsSearchActive));
     }
 
     /// <summary>

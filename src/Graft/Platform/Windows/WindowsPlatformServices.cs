@@ -5,13 +5,19 @@ namespace Graft.Platform.Windows;
 
 /// <summary>
 /// <see cref="IPlatformServices"/> のWindows実装の集約。各サービスの実体は本フォルダの
-/// <c>WindowsXxx</c> クラス群であり、いずれも移設元（<c>Views/</c>・<c>Features/</c>・
-/// <c>Core/</c>・<c>Themes/</c>）のロジックをそのまま移したものである。
+/// <c>WindowsXxx</c> クラス群で、いずれもWin32のP/Invokeのみで構成される。
+///
+/// トレイ常駐だけは例外で、Avalonia標準のTrayIconを使う<see cref="AvaloniaTrayIcon"/>を
+/// 用いる（WindowsのシェルNotifyIconとLinuxのStatusNotifierItemの双方をAvaloniaが
+/// 受け持つため、OSごとに別々の実装を持つ必要がない）。
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsPlatformServices : IPlatformServices
 {
-    public ITrayIcon Tray { get; } = new WindowsTrayIcon();
+    // AvaloniaのTrayIconにはバルーン通知に相当するAPIが無い。Windowsではトースト通知に
+    // AppUserModelIDの登録（＝インストーラの用意）が要るため、単一実行ファイルでの配布
+    // （2.1）と両立しない。ここでは通知を出さない実装を渡し、機能として縮退させる。
+    public ITrayIcon Tray { get; } = new AvaloniaTrayIcon(new NullDesktopNotifier());
 
     public IGlobalHotkeys Hotkeys { get; } = new WindowsGlobalHotkeys();
 

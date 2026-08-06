@@ -1,0 +1,83 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.SettingsPanels.TemplateSettingsView"
+             x:Name="Root"
+             AutomationProperties.Name="プロンプトテンプレート設定">
+    <!--
+        4.8章 AI向けプロンプトテンプレート管理。テンプレートの追加・編集・削除、名前の右への
+        推定トークン数表示、プロジェクトごとの既定紐づけ、初回用/継続用トグルでのコピーを行う。
+        このUserControl自身のDataContextは（TabItem経由で）SettingsViewModelを継承するため、
+        内側のGridで {Binding Templates}（PromptTemplateViewModel）へ明示的に設定し直す。
+
+        v2.0のWPF版からの差分: RelativeSource AncestorType=Window で SettingsViewModel を辿っていた
+        保存・削除ボタンは、このUserControl自身（#Root）のDataContextから参照する。
+    -->
+    <Grid DataContext="{Binding Templates}" Margin="16,8" RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="プレビュー対象プロジェクト" Classes="fieldLabel" />
+            <ComboBox ItemsSource="{Binding Projects}"
+                      ItemTemplate="{StaticResource NameItemTemplate}"
+                      SelectedItem="{Binding SelectedProject}"
+                      AutomationProperties.Name="プレビュー対象プロジェクト" />
+            <CheckBox Content="継続用（短縮版）でコピーする" IsChecked="{Binding IsContinuationMode}"
+                      Margin="24,0,0,0" VerticalAlignment="Center"
+                      AutomationProperties.Name="継続用の短縮版でコピーする" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" ColumnDefinitions="280,Auto,*">
+
+            <ListBox Grid.Column="0" ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}"
+                     AutomationProperties.Name="テンプレート一覧">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="vm:TemplateEntry">
+                        <Grid AutomationProperties.Name="{Binding Name}" ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Foreground="{DynamicResource TextSecondary}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Text="{Binding EstimatedTokens, StringFormat=約{0}トークン}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" Background="Transparent" />
+
+            <Grid Grid.Column="2" DataContext="{Binding SelectedTemplate}" Margin="8,0,0,0"
+                  IsVisible="{Binding Converter={x:Static views:Converters.NotNull}}"
+                  RowDefinitions="Auto,*,Auto">
+                <TextBox Grid.Row="0" Text="{Binding Name}"
+                         IsReadOnly="{Binding IsBuiltIn}" Margin="0,0,0,8"
+                         AutomationProperties.Name="テンプレート名" />
+                <TextBox Grid.Row="1" Text="{Binding Body}"
+                         IsReadOnly="{Binding IsBuiltIn}" AcceptsReturn="True" TextWrapping="Wrap"
+                         FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         AutomationProperties.Name="テンプレート本文" />
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="保存"
+                            Command="{Binding DataContext.Templates.SaveEditCommand, ElementName=Root}"
+                            IsEnabled="{Binding !IsBuiltIn}"
+                            Margin="0,0,8,0" AutomationProperties.Name="テンプレートを保存" />
+                    <Button Content="削除"
+                            Command="{Binding DataContext.Templates.DeleteCommand, ElementName=Root}"
+                            IsEnabled="{Binding !IsBuiltIn}"
+                            Margin="0,0,8,0" AutomationProperties.Name="テンプレートを削除" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button Content="テンプレートを追加" Command="{Binding AddCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="テンプレートを追加" />
+            <Button Content="コピー" Command="{Binding CopyCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="テンプレートをコピー" />
+            <Button Content="プロジェクトの既定に設定" Command="{Binding SetAsProjectDefaultCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="プロジェクトの既定テンプレートに設定" />
+            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
+        </StackPanel>
+    </Grid>
+</UserControl>

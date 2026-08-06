@@ -1,15 +1,15 @@
-using System.Collections.ObjectModel;
-using System.Windows;
-using System.Windows.Documents;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
-using Microsoft.Win32;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Markup.Xaml.Styling;
+using Avalonia.Threading;
+using Graft.Platform;
+using Graft.Platform.Null;
 
 namespace Graft.Themes;
 
 /// <summary>
-/// テーマ選択（8.3）。システム追従はライト/ダークどちらかへ解決される。
+/// テーマ選択（9.3）。システム追従はライト/ダークどちらかへ解決される。
+/// v2.0のWPF版の<c>Themes/ThemeManager.cs</c> の <c>AppTheme</c> と同一の選択肢を持つ。
 /// </summary>
 public enum AppTheme
 {
@@ -19,18 +19,40 @@ public enum AppTheme
 }
 
 /// <summary>
-/// テーマ辞書の切り替えを一元管理する。<see cref="Application.Resources"/> の
-/// MergedDictionaries内、テーマ用の1枠を差し替えることで即時反映し、
-/// アプリの再起動を要求しない（8.3）。
+/// テーマ辞書の切り替えを一元管理する。v2.0のWPF版の<c>Themes/ThemeManager.cs</c> の移植
+/// （附録A・20章L2）。<see cref="Application.Resources"/> の MergedDictionaries内、
+/// テーマ用の1枠（Dark.axaml / Light.axaml のいずれか）を差し替えることで即時反映し、
+/// アプリの再起動を要求しない（9.3）。
+///
+/// 【v2.0のWPF版からの構成差分】
+/// - システムテーマの判定は、v2.0のWPF版が行っていたレジストリの直接読み取り
+///   （<c>Microsoft.Win32.SystemEvents</c> 経由）ではなく、仕様書2.4のとおり
+///   <see cref="ISystemThemeWatcher"/> 抽象を経由する（OS固有APIを直接呼ばない）。
+///   実装（<c>Platform/Windows</c>・<c>Platform/Linux</c>）はL4で追加され、それまでは
+///   何もしない <see cref="NullSystemThemeWatcher"/> が使われる。判定できない場合は
+///   ダークへフォールバックする（<see cref="ISystemThemeWatcher.TryReadIsLightTheme"/>
+///   のドキュメントどおり）。
+/// - ハイコントラストモードへのフォールバック（v2.0のWPF版の<c>BuildHighContrastDictionary</c>）
+///   は持たない。<see cref="ISystemThemeWatcher"/> にハイコントラストの概念がなく、
+///   検出手段が確立していないため（L4以降、Windows/Linux実装が追加された時点で
+///   必要なら拡張する）。
+/// - テーマ切り替え時のクロスフェード演出（v2.0のWPF版の<c>AnimateSwap</c>、
+///   <c>RenderTargetBitmap</c>によるスナップショット合成）は持たない。即時反映という
+///   要件（9.3・附録A）は満たすが、演出の移植はUIツリーが揃うフェーズL3以降で
+///   検討する（本フェーズの担当はテーマ基盤そのものであり、Viewの装飾ではないため）。
+/// - headless UIテスト（附録A.7）では1テストにつき新しい<see cref="Application"/>
+///   インスタンスが生成される。監視の二重登録（<see cref="ISystemThemeWatcher"/>への
+///   購読）は一度きりでよいが、テーマ辞書そのものは「今アクティブな
+///   <see cref="Application.Current"/>」へ毎回適用し直す必要があるため、
+///   両者のライフサイクルを分離している（<see cref="ApplyResolvedTheme"/>参照）。
 /// </summary>
 public static class ThemeManager
 {
-    // MergedDictionaries内のどれが「テーマ用の枠」かを型やSourceに依存せず
-    // 追跡するための目印。ハイコントラスト用辞書はコードで生成しSourceを
-    // 持たないため、Sourceパスでの判定ではなくこのマーカーキーで統一する。
-    private static readonly object ThemeSlotMarker = new();
-
-    private static bool _initialized;
+    private static ISystemThemeWatcher _themeWatcher = new NullSystemThemeWatcher();
+    private static IResourceProvider? _currentThemeDictionary;
+    private static Application? _lastAppliedApp;
+    private static bool _watcherInitialized;
+    private static bool _watcherAttached;
     private static AppTheme _selectedTheme = AppTheme.System;
 
     /// <summary>現在選択されているテーマ（解決前）。</summary>
@@ -40,62 +62,75 @@ public static class ThemeManager
     public static event EventHandler? ThemeChanged;
 
     /// <summary>
-    /// Windowsの「アニメーションを表示する」設定（8.9）。オフの場合はクロスフェードを
-    /// 含む全てのモーションを無効化する。
+    /// アプリ起動時に呼び出す。システム設定の監視開始は初回のみ行い、テーマ辞書の適用は
+    /// 呼び出しのたびに「今の <see cref="Application.Current"/>」へ対して行う
+    /// （<see cref="Application"/> が複数生成されるheadlessテストに対応するため）。
+    /// <paramref name="themeWatcher"/> を省略した場合は何もしない実装が使われ、
+    /// <see cref="AppTheme.System"/> は常にダークへ解決される。
     /// </summary>
-    public static bool AnimationsEnabled => SystemParameters.ClientAreaAnimation;
-
-    /// <summary>Windowsのハイコントラストモードが有効かどうか（8.3）。</summary>
-    public static bool IsHighContrastActive => SystemParameters.HighContrast;
-
-    /// <summary>
-    /// アプリ起動時に1度だけ呼び出す。システム設定変更の監視を開始し、
-    /// 初期テーマを適用する。
-    /// </summary>
-    public static void Initialize(AppTheme initialTheme = AppTheme.System)
+    public static void Initialize(ISystemThemeWatcher? themeWatcher = null, AppTheme initialTheme = AppTheme.System)
     {
-        if (_initialized)
+        if (!_watcherInitialized)
         {
-            return;
+            _watcherInitialized = true;
+            _themeWatcher = themeWatcher ?? new NullSystemThemeWatcher();
+            _selectedTheme = initialTheme;
+
+            if (_themeWatcher.IsSupported)
+            {
+                _themeWatcher.Changed += OnSystemThemeChanged;
+                _themeWatcher.StartWatching();
+                _watcherAttached = true;
+            }
         }
 
-        _initialized = true;
-        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
-        SetTheme(initialTheme);
+        ApplyResolvedTheme();
     }
 
     /// <summary>監視を停止する。アプリ終了時に呼び出すことを想定する。</summary>
     public static void Shutdown()
     {
-        if (!_initialized)
+        if (!_watcherInitialized)
         {
             return;
         }
 
-        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
-        _initialized = false;
+        if (_watcherAttached)
+        {
+            _themeWatcher.Changed -= OnSystemThemeChanged;
+            _themeWatcher.StopWatching();
+            _watcherAttached = false;
+        }
+
+        _watcherInitialized = false;
     }
 
     /// <summary>テーマを変更し、即時に反映する。</summary>
     public static void SetTheme(AppTheme theme)
     {
         _selectedTheme = theme;
-        ApplyResolvedTheme(animate: _initialized);
+        ApplyResolvedTheme();
     }
 
-    private static void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    private static void OnSystemThemeChanged(object? sender, EventArgs e)
     {
-        // ハイコントラストの切り替えやアニメーション設定の変更はGeneral/Color/
-        // Accessibilityカテゴリで通知される。関係のない変更まで毎回再評価しない。
-        if (e.Category is UserPreferenceCategory.General
-            or UserPreferenceCategory.Color
-            or UserPreferenceCategory.Accessibility)
+        if (_selectedTheme != AppTheme.System)
         {
-            Application.Current?.Dispatcher.BeginInvoke(new Action(() => ApplyResolvedTheme(animate: true)));
+            // システム追従を選んでいない間はシステム設定の変化を無視する（v2.0のWPF版と同じ方針）。
+            return;
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            ApplyResolvedTheme();
+        }
+        else
+        {
+            Dispatcher.UIThread.Post(ApplyResolvedTheme);
         }
     }
 
-    private static void ApplyResolvedTheme(bool animate)
+    private static void ApplyResolvedTheme()
     {
         var app = Application.Current;
         if (app is null)
@@ -103,235 +138,41 @@ public static class ThemeManager
             return;
         }
 
-        var newDictionary = BuildDictionary(ResolveKind(_selectedTheme));
-        newDictionary[ThemeSlotMarker] = true;
+        if (!ReferenceEquals(app, _lastAppliedApp))
+        {
+            // Applicationインスタンスが前回と異なる（headlessテストでは1テストにつき
+            // 新規生成される）。古い参照は別インスタンスのMergedDictionariesを
+            // 指しているため、そのまま使うと何も削除できない。ここで破棄しておく。
+            _currentThemeDictionary = null;
+            _lastAppliedApp = app;
+        }
+
+        var isDark = ResolveIsDark(_selectedTheme);
+        var fileName = isDark ? "Dark.axaml" : "Light.axaml";
+        var uri = new Uri($"avares://Graft/Themes/{fileName}");
+        var newDictionary = new ResourceInclude(uri) { Source = uri };
 
         var dictionaries = app.Resources.MergedDictionaries;
-        var existingIndex = FindThemeDictionaryIndex(dictionaries);
+        if (_currentThemeDictionary is not null)
+        {
+            dictionaries.Remove(_currentThemeDictionary);
+        }
 
-        if (existingIndex < 0)
-        {
-            dictionaries.Add(newDictionary);
-        }
-        else if (animate && AnimationsEnabled)
-        {
-            AnimateSwap(dictionaries, existingIndex, newDictionary);
-        }
-        else
-        {
-            dictionaries[existingIndex] = newDictionary;
-        }
+        dictionaries.Add(newDictionary);
+        _currentThemeDictionary = newDictionary;
 
         ThemeChanged?.Invoke(null, EventArgs.Empty);
     }
 
-    private enum ResolvedThemeKind
-    {
-        Dark,
-        Light,
-        HighContrast,
-    }
-
-    private static ResolvedThemeKind ResolveKind(AppTheme requested)
-    {
-        if (IsHighContrastActive)
-        {
-            return ResolvedThemeKind.HighContrast;
-        }
-
-        return requested switch
-        {
-            AppTheme.Dark => ResolvedThemeKind.Dark,
-            AppTheme.Light => ResolvedThemeKind.Light,
-            _ => ResolveSystemKind(),
-        };
-    }
-
     /// <summary>
-    /// AppTheme.System の解決。附録A.5で禁止されているのはレジストリへの
-    /// 「書き込み」のみであり、読み取りは禁止されていない（附録A.5 / 2章）ため、
-    /// Windowsの「アプリのモード」設定（HKCU\...\Personalize\AppsUseLightTheme）を
-    /// 読み取り専用で参照する。書き込みは一切行わない。
+    /// <see cref="AppTheme.System"/> の解決。<see cref="ISystemThemeWatcher"/> が利用不可、
+    /// または判定できない場合はダークへフォールバックする（仕様書2.3・
+    /// <see cref="ISystemThemeWatcher.TryReadIsLightTheme"/> の既定方針）。
     /// </summary>
-    private static ResolvedThemeKind ResolveSystemKind()
+    private static bool ResolveIsDark(AppTheme requested) => requested switch
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            // Windows以外（本リポジトリのビルド検証環境であるLinux等）では
-            // 当該レジストリキー自体が存在しないため、既定のダークで固定する。
-            return ResolvedThemeKind.Dark;
-        }
-
-        var isLight = TryReadAppsUseLightTheme();
-        return isLight == true ? ResolvedThemeKind.Light : ResolvedThemeKind.Dark;
-    }
-
-    /// <summary>
-    /// HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize の
-    /// AppsUseLightTheme（DWORD、0=ダーク / 1=ライト）を読み取る。取得できない場合はnullを
-    /// 返し、呼び出し側で既定のダークへフォールバックさせる。
-    /// </summary>
-    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private static bool? TryReadAppsUseLightTheme()
-    {
-        const string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
-        const string valueName = "AppsUseLightTheme";
-
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(keyPath);
-            if (key?.GetValue(valueName) is int value)
-            {
-                return value != 0;
-            }
-        }
-        catch (Exception)
-        {
-            // レジストリキーが存在しない、アクセス権がない等、読み取りに失敗する
-            // ケースは環境依存で網羅できないため、ここでは判定不能として扱い
-            // 呼び出し側の既定（ダーク）へフォールバックさせる。書き込みは行わない
-            // 読み取り専用の最善努力の参照であるため、例外種別を問わずここで吸収する。
-        }
-
-        return null;
-    }
-
-    private static ResourceDictionary BuildDictionary(ResolvedThemeKind kind)
-    {
-        if (kind == ResolvedThemeKind.HighContrast)
-        {
-            return BuildHighContrastDictionary();
-        }
-
-        var fileName = kind == ResolvedThemeKind.Dark ? "Dark.xaml" : "Light.xaml";
-        return new ResourceDictionary { Source = new Uri($"Themes/{fileName}", UriKind.Relative) };
-    }
-
-    /// <summary>
-    /// 8.3: ハイコントラストモード検出時はシステムカラーへフォールバックする。
-    /// レジストリは読まず、SystemColorsが提供する静的ブラシのみを使う。
-    /// 状態別の色（追加/削除/警告/失敗）はハイコントラストの限られた配色に
-    /// 収束するため区別が弱まるが、8.1の設計原則どおり形状（アイコン・バー）で
-    /// 状態を判別できることを前提に許容する。
-    /// </summary>
-    private static ResourceDictionary BuildHighContrastDictionary()
-    {
-        var d = new ResourceDictionary();
-
-        SetBrushAndColor(d, "BgBase", SystemColors.WindowBrush);
-        SetBrushAndColor(d, "BgSurface", SystemColors.WindowBrush);
-        SetBrushAndColor(d, "BgElevated", SystemColors.WindowBrush);
-        SetBrushAndColor(d, "BgHover", SystemColors.HighlightBrush);
-        SetBrushAndColor(d, "BgSelected", SystemColors.HighlightBrush);
-        SetBrushAndColor(d, "TextPrimary", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "TextSecondary", SystemColors.GrayTextBrush);
-        SetBrushAndColor(d, "TextDisabled", SystemColors.GrayTextBrush);
-        SetBrushAndColor(d, "Accent", SystemColors.HighlightBrush);
-        SetBrushAndColor(d, "BorderSubtle", SystemColors.ActiveBorderBrush);
-        SetBrushAndColor(d, "DiffAddBg", SystemColors.WindowBrush);
-        SetBrushAndColor(d, "DiffAddBar", SystemColors.HighlightBrush);
-        SetBrushAndColor(d, "DiffDelBg", SystemColors.WindowBrush);
-        SetBrushAndColor(d, "DiffDelBar", SystemColors.HotTrackBrush);
-        SetBrushAndColor(d, "StateWarn", SystemColors.HotTrackBrush);
-        SetBrushAndColor(d, "StateError", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "StateOk", SystemColors.HighlightBrush);
-
-        SetBrushAndColor(d, "SyntaxKeyword", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "SyntaxString", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "SyntaxNumber", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "SyntaxComment", SystemColors.GrayTextBrush);
-        SetBrushAndColor(d, "SyntaxFunction", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "SyntaxType", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "SyntaxOperator", SystemColors.WindowTextBrush);
-        SetBrushAndColor(d, "SyntaxPlain", SystemColors.WindowTextBrush);
-
-        return d;
-    }
-
-    private static void SetBrushAndColor(ResourceDictionary d, string key, SolidColorBrush brush)
-    {
-        d[key] = brush;
-        d[key + "Color"] = brush.Color;
-    }
-
-    private static int FindThemeDictionaryIndex(Collection<ResourceDictionary> dictionaries)
-    {
-        for (var i = 0; i < dictionaries.Count; i++)
-        {
-            if (dictionaries[i].Contains(ThemeSlotMarker))
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    /// <summary>
-    /// 8.9: テーマ切り替えのクロスフェード（120ms / ease-out）。
-    /// 切り替え前の見た目をビットマップとして捕捉し、新テーマ適用後に
-    /// 重ねてフェードアウトさせることでクロスフェードに見せる。
-    /// メインウィンドウが未生成・非表示の場合は即時切り替えにフォールバックする。
-    /// </summary>
-    private static void AnimateSwap(
-        Collection<ResourceDictionary> dictionaries, int index, ResourceDictionary newDictionary)
-    {
-        var window = Application.Current?.MainWindow;
-        var root = window?.Content as UIElement;
-
-        if (window is null || root is null || !window.IsVisible
-            || root.RenderSize.Width <= 0 || root.RenderSize.Height <= 0)
-        {
-            dictionaries[index] = newDictionary;
-            return;
-        }
-
-        var layer = AdornerLayer.GetAdornerLayer(root);
-        if (layer is null)
-        {
-            dictionaries[index] = newDictionary;
-            return;
-        }
-
-        var snapshot = new RenderTargetBitmap(
-            (int)Math.Ceiling(root.RenderSize.Width),
-            (int)Math.Ceiling(root.RenderSize.Height),
-            96, 96, PixelFormats.Pbgra32);
-        snapshot.Render(root);
-        snapshot.Freeze();
-
-        dictionaries[index] = newDictionary;
-
-        var adorner = new ThemeSnapshotAdorner(root, snapshot);
-        layer.Add(adorner);
-
-        var duration = window.TryFindResource("MotionDuration") is Duration d ? d : new Duration(TimeSpan.FromMilliseconds(120));
-        var fadeOut = new DoubleAnimation
-        {
-            From = 1.0,
-            To = 0.0,
-            Duration = duration,
-            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
-        };
-        fadeOut.Completed += (_, _) => layer.Remove(adorner);
-        adorner.BeginAnimation(UIElement.OpacityProperty, fadeOut);
-    }
-
-    /// <summary>旧テーマの見た目のスナップショットを表示するだけの読み取り専用アドーナ。</summary>
-    private sealed class ThemeSnapshotAdorner : Adorner
-    {
-        private readonly ImageSource _snapshot;
-
-        public ThemeSnapshotAdorner(UIElement adornedElement, ImageSource snapshot)
-            : base(adornedElement)
-        {
-            _snapshot = snapshot;
-            IsHitTestVisible = false;
-        }
-
-        protected override void OnRender(DrawingContext drawingContext)
-        {
-            drawingContext.DrawImage(_snapshot, new Rect(0, 0, AdornedElement.RenderSize.Width, AdornedElement.RenderSize.Height));
-        }
-    }
+        AppTheme.Dark => true,
+        AppTheme.Light => false,
+        _ => _themeWatcher.TryReadIsLightTheme() != true,
+    };
 }

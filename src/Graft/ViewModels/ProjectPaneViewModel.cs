@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Graft.Core;
 using Graft.Features;
-using Graft.Views;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -66,12 +66,12 @@ public sealed class ProjectListItemViewModel
 public sealed class ProjectPaneViewModel : ObservableObject
 {
     private readonly ProjectStore _store;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private ProjectPaneState _state = ProjectPaneState.Loading;
     private GraftIssue? _error;
     private ProjectListItemViewModel? _selectedItem;
 
-    public ProjectPaneViewModel(ProjectStore store, DialogService dialogs)
+    public ProjectPaneViewModel(ProjectStore store, IDialogService dialogs)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
@@ -142,7 +142,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
 
     private async Task AddProjectViaDialogAsync()
     {
-        var folder = _dialogs.PickFolder("プロジェクトフォルダを選択");
+        var folder = await _dialogs.PickFolderAsync("プロジェクトフォルダを選択").ConfigureAwait(true);
         if (string.IsNullOrEmpty(folder))
         {
             return;

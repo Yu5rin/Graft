@@ -7,7 +7,6 @@ using Graft.Core;
 using Graft.Editor;
 using Graft.Features;
 using Graft.Platform;
-using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -20,7 +19,7 @@ namespace Graft.ViewModels;
 public sealed class ExplorerViewModel : ObservableObject, IDisposable
 {
     private readonly EditorPaneViewModel _editor;
-    private readonly DialogService _dialogs;
+    private readonly IDialogService _dialogs;
     private readonly IUiServices _ui;
     private readonly FileTreeService _treeService = new();
     private readonly FileWatchService _fileWatch = new();
@@ -32,7 +31,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private bool _isLoading;
     private FileNodeViewModel? _selectedNode;
 
-    public ExplorerViewModel(EditorPaneViewModel editor, DialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
+    public ExplorerViewModel(EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
     {
         _editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));

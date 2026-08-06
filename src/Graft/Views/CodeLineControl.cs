@@ -1,8 +1,9 @@
 using System.Text;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Documents;
-using System.Windows.Media;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
+using Avalonia.Interactivity;
+using Avalonia.Media;
 using Graft.Core;
 using Graft.Themes;
 
@@ -11,41 +12,38 @@ namespace Graft.Views;
 /// <summary>
 /// 1行分のコードをシンタックス色付きで描画する軽量コントロール（仕様書8.6）。
 ///
-/// 実装方式: <see cref="TextBlock"/> を継承し、<see cref="Inlines"/> を <see cref="Run"/> の
-/// 並びとして都度組み立てる方式を採用した（DrawingVisual/FormattedTextによる直描画ではなく）。
+/// 実装方式: <see cref="TextBlock"/> を継承し、<see cref="TextBlock.Inlines"/> を
+/// <see cref="Run"/> の並びとして都度組み立てる方式を採用した（直描画ではなく）。
 /// 理由: 8.6終盤の重ね合わせ規則（診断済みブラシの都度解決・15%彩度低下・コメントのみ
 /// イタリック）や8.13の空白可視化など派生規則が多く、Runごとに独立した見た目を持たせる方が
-/// 保守しやすい。表示行数自体は呼び出し側（DiffView）のVirtualizingStackPanelで可視範囲へ
+/// 保守しやすい。表示行数自体は呼び出し側（DiffView）の仮想化パネルで可視範囲へ
 /// 絞り込まれるため、1行あたりのInlines構築コストは実用上問題にならない。
 /// テーマ切り替え追従は <see cref="ThemeManager.ThemeChanged"/> を購読して明示的に再構築する
-/// ことで実現する（彩度変換後の色は固定Brushとして都度生成するため、DynamicResourceの
-/// 自動追従だけでは対応できないため）。
+/// （彩度変換後の色は固定Brushとして都度生成するため、DynamicResourceの自動追従では
+/// 対応できないため）。
+///
+/// v2.0のWPF版からの移植（19章 L3）。DependencyPropertyは<see cref="StyledProperty{TValue}"/>へ、
+/// FontStylesはFontStyleへ置き換え、AvaloniaのBrushにFreeze()が無いため呼び出さない。
 /// </summary>
 public sealed class CodeLineControl : TextBlock
 {
-    public static readonly DependencyProperty LineTextProperty = DependencyProperty.Register(
-        nameof(LineText), typeof(string), typeof(CodeLineControl),
-        new FrameworkPropertyMetadata(string.Empty, OnVisualPropertyChanged));
+    public static readonly StyledProperty<string> LineTextProperty =
+        AvaloniaProperty.Register<CodeLineControl, string>(nameof(LineText), string.Empty);
 
-    public static readonly DependencyProperty TokensProperty = DependencyProperty.Register(
-        nameof(Tokens), typeof(IReadOnlyList<SyntaxToken>), typeof(CodeLineControl),
-        new FrameworkPropertyMetadata(null, OnVisualPropertyChanged));
+    public static readonly StyledProperty<IReadOnlyList<SyntaxToken>?> TokensProperty =
+        AvaloniaProperty.Register<CodeLineControl, IReadOnlyList<SyntaxToken>?>(nameof(Tokens));
 
-    public static readonly DependencyProperty InlineHighlightsProperty = DependencyProperty.Register(
-        nameof(InlineHighlights), typeof(IReadOnlyList<InlineSpan>), typeof(CodeLineControl),
-        new FrameworkPropertyMetadata(null, OnVisualPropertyChanged));
+    public static readonly StyledProperty<IReadOnlyList<InlineSpan>?> InlineHighlightsProperty =
+        AvaloniaProperty.Register<CodeLineControl, IReadOnlyList<InlineSpan>?>(nameof(InlineHighlights));
 
-    public static readonly DependencyProperty ShowWhitespaceProperty = DependencyProperty.Register(
-        nameof(ShowWhitespace), typeof(bool), typeof(CodeLineControl),
-        new FrameworkPropertyMetadata(false, OnVisualPropertyChanged));
+    public static readonly StyledProperty<bool> ShowWhitespaceProperty =
+        AvaloniaProperty.Register<CodeLineControl, bool>(nameof(ShowWhitespace));
 
-    public static readonly DependencyProperty IsDiffRowProperty = DependencyProperty.Register(
-        nameof(IsDiffRow), typeof(bool), typeof(CodeLineControl),
-        new FrameworkPropertyMetadata(false, OnVisualPropertyChanged));
+    public static readonly StyledProperty<bool> IsDiffRowProperty =
+        AvaloniaProperty.Register<CodeLineControl, bool>(nameof(IsDiffRow));
 
-    public static readonly DependencyProperty DiffKindProperty = DependencyProperty.Register(
-        nameof(DiffKind), typeof(DiffLineKind), typeof(CodeLineControl),
-        new FrameworkPropertyMetadata(DiffLineKind.Unchanged, OnVisualPropertyChanged));
+    public static readonly StyledProperty<DiffLineKind> DiffKindProperty =
+        AvaloniaProperty.Register<CodeLineControl, DiffLineKind>(nameof(DiffKind), DiffLineKind.Unchanged);
 
     public CodeLineControl()
     {
@@ -55,49 +53,61 @@ public sealed class CodeLineControl : TextBlock
     }
 
     /// <summary>行の内容。</summary>
-    public string LineText { get => (string)GetValue(LineTextProperty); set => SetValue(LineTextProperty, value); }
+    public string LineText { get => GetValue(LineTextProperty); set => SetValue(LineTextProperty, value); }
 
     /// <summary>シンタックストークン（8.6）。未対応言語・無効時は null もしくは空。</summary>
     public IReadOnlyList<SyntaxToken>? Tokens
     {
-        get => (IReadOnlyList<SyntaxToken>?)GetValue(TokensProperty);
+        get => GetValue(TokensProperty);
         set => SetValue(TokensProperty, value);
     }
 
     /// <summary>文字単位の差分ハイライト範囲（8.3）。背景を一段強める対象。</summary>
     public IReadOnlyList<InlineSpan>? InlineHighlights
     {
-        get => (IReadOnlyList<InlineSpan>?)GetValue(InlineHighlightsProperty);
+        get => GetValue(InlineHighlightsProperty);
         set => SetValue(InlineHighlightsProperty, value);
     }
 
     /// <summary>タブ・行末空白を可視化するかどうか（8.13）。</summary>
-    public bool ShowWhitespace { get => (bool)GetValue(ShowWhitespaceProperty); set => SetValue(ShowWhitespaceProperty, value); }
+    public bool ShowWhitespace { get => GetValue(ShowWhitespaceProperty); set => SetValue(ShowWhitespaceProperty, value); }
 
     /// <summary>diff行上での表示かどうか。true の場合シンタックス色の彩度を15%落とす（8.6）。</summary>
-    public bool IsDiffRow { get => (bool)GetValue(IsDiffRowProperty); set => SetValue(IsDiffRowProperty, value); }
+    public bool IsDiffRow { get => GetValue(IsDiffRowProperty); set => SetValue(IsDiffRowProperty, value); }
 
     /// <summary>diff行種別。文字単位ハイライトの背景色（追加/削除どちらを基準に強めるか）の判定に使う。</summary>
-    public DiffLineKind DiffKind { get => (DiffLineKind)GetValue(DiffKindProperty); set => SetValue(DiffKindProperty, value); }
+    public DiffLineKind DiffKind { get => GetValue(DiffKindProperty); set => SetValue(DiffKindProperty, value); }
 
-    private static void OnVisualPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-        => ((CodeLineControl)d).Rebuild();
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+        if (change.Property == LineTextProperty
+            || change.Property == TokensProperty
+            || change.Property == InlineHighlightsProperty
+            || change.Property == ShowWhitespaceProperty
+            || change.Property == IsDiffRowProperty
+            || change.Property == DiffKindProperty)
+        {
+            Rebuild();
+        }
+    }
+
+    private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         ThemeManager.ThemeChanged += OnThemeChanged;
         Rebuild();
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => ThemeManager.ThemeChanged -= OnThemeChanged;
+    private void OnUnloaded(object? sender, RoutedEventArgs e) => ThemeManager.ThemeChanged -= OnThemeChanged;
 
     private void OnThemeChanged(object? sender, EventArgs e) => Rebuild();
 
     private void Rebuild()
     {
-        Inlines.Clear();
+        Inlines?.Clear();
         var text = LineText;
-        if (string.IsNullOrEmpty(text)) return;
+        if (string.IsNullOrEmpty(text) || Inlines is null) return;
 
         var trailingStart = TrailingWhitespaceStart(text);
         foreach (var seg in TokenSegmentBuilder.Build(text, Tokens, InlineHighlights))
@@ -117,35 +127,30 @@ public sealed class CodeLineControl : TextBlock
     {
         var raw = fullText.Substring(seg.Start, seg.Length);
         var display = ShowWhitespace ? WhitespaceVisualizer.Visualize(raw, seg.Start, trailingStart) : raw;
-        var run = new Run(display);
+        var run = new Run(display) { Foreground = ResolveForeground(seg.Kind) };
 
-        run.Foreground = ResolveForeground(seg.Kind);
-        if (seg.Kind == TokenKind.Comment) run.FontStyle = FontStyles.Italic;
+        if (seg.Kind == TokenKind.Comment) run.FontStyle = FontStyle.Italic;
         if (seg.IsHighlighted) run.Background = ResolveHighlightBackground();
         return run;
     }
 
-    private Brush ResolveForeground(TokenKind kind)
+    private IBrush ResolveForeground(TokenKind kind)
     {
-        var color = TryFindResource(ResourceKeyFor(kind)) is Color c ? c : Colors.Transparent;
+        var color = FindColor(ResourceKeyFor(kind));
         if (IsDiffRow) color = ColorMath.Desaturate(color, 0.15);
-        var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        return brush;
+        return new SolidColorBrush(color);
     }
 
-    private Brush ResolveHighlightBackground()
+    private IBrush ResolveHighlightBackground()
     {
         var removed = DiffKind == DiffLineKind.Removed;
-        var bgKey = removed ? "DiffDelBgColor" : "DiffAddBgColor";
-        var barKey = removed ? "DiffDelBarColor" : "DiffAddBarColor";
-        var bg = TryFindResource(bgKey) is Color b ? b : Colors.Transparent;
-        var bar = TryFindResource(barKey) is Color r ? r : bg;
-
-        var brush = new SolidColorBrush(ColorMath.Blend(bg, bar, 0.35));
-        brush.Freeze();
-        return brush;
+        var bg = FindColor(removed ? "DiffDelBgColor" : "DiffAddBgColor");
+        var bar = FindColor(removed ? "DiffDelBarColor" : "DiffAddBarColor");
+        return new SolidColorBrush(ColorMath.Blend(bg, bar, 0.35));
     }
+
+    private Color FindColor(string key)
+        => this.TryFindResource(key, out var value) && value is Color color ? color : Colors.Transparent;
 
     private static string ResourceKeyFor(TokenKind kind) => kind switch
     {

@@ -1,0 +1,371 @@
+<!--
+  共通コントロールスタイル（レイアウト編）。v2.0のWPF版 Themes/Controls.xaml（ScrollBar部分）・
+  Controls.Input.xaml（TabControl/GridSplitter/ProgressBar部分）の移植（附録A・20章L2）。
+  構成・命名方針はControls.axamlと同じ。
+
+  TreeViewはv2.0のWPF版に対応するテーマファイルが存在しない（v2.0のWPF版はビュー側で個別に
+  スタイルを与えていた）。9.1が要求する共通コントロール一覧にTreeViewが含まれるため、
+  ここではListBoxItem・TabItemと同じ配色規則（BgHover/BgSelected/Accentフォーカス
+  リング）で新規に定義する。値の由来はv2.0のWPF版のトークンであり、独自の色は導入しない。
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ========== TabControl / TabItem（設定画面） ========== -->
+    <ControlTheme x:Key="{x:Type TabItem}" TargetType="TabItem">
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid>
+                    <Border Name="PART_Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Header}"
+                                          ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center" />
+                    </Border>
+                    <!-- 選択中を示すアクセント帯。タブ位置が左のときは左端の縦帯に変わる
+                         （下のセレクタで切り替える）。 -->
+                    <Border Name="PART_Underline" Height="2" VerticalAlignment="Bottom"
+                            HorizontalAlignment="Stretch"
+                            Background="{DynamicResource Accent}" IsVisible="False" />
+                    <Border Name="PART_FocusRing"
+                            BorderBrush="{DynamicResource Accent}"
+                            BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            IsHitTestVisible="False"
+                            Opacity="0" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:selected /template/ Border#PART_Underline">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="^:selected">
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:focus /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <!-- タブ位置が左（設定画面）のとき: 見出しは左寄せ、アクセント帯は左端の縦帯にする。 -->
+        <Style Selector="^[TabStripPlacement=Left] /template/ ContentPresenter">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+        <Style Selector="^[TabStripPlacement=Left] /template/ Border#PART_Underline">
+            <Setter Property="Height" Value="NaN" />
+            <Setter Property="Width" Value="2" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type TabControl}" TargetType="TabControl">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <!-- 既定は上（横並び）。TabStripPlacement="Left" のときは下のセレクタで縦並びへ切り替える。 -->
+        <Setter Property="ItemsPanel">
+            <ItemsPanelTemplate>
+                <WrapPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+        </Setter>
+        <Setter Property="Template">
+            <ControlTemplate>
+                <!--
+                    タブ見出しの位置（上／左）に応じて配置を変えるためDockPanelで組む。
+                    Gridの行・列を固定すると TabStripPlacement を無視してしまう
+                    （設定画面は左並びを指定しているため、無視すると見出しが上に折り返される）。
+                -->
+                <DockPanel>
+                    <Border Name="PART_Strip" DockPanel.Dock="Top"
+                            BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1">
+                        <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                    </Border>
+                    <Border Background="{TemplateBinding Background}">
+                        <ContentPresenter Name="PART_SelectedContentHost"
+                                          Content="{TemplateBinding SelectedContent}"
+                                          ContentTemplate="{TemplateBinding SelectedContentTemplate}"
+                                          Margin="12" />
+                    </Border>
+                </DockPanel>
+            </ControlTemplate>
+        </Setter>
+        <!--
+            AvaloniaのTabControlはタブ位置に対応する疑似クラス（:left等）を立てないため、
+            プロパティセレクタで直接 TabStripPlacement を見て切り替える。
+        -->
+        <Style Selector="^[TabStripPlacement=Left]">
+            <Setter Property="ItemsPanel">
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Vertical" />
+                </ItemsPanelTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="^[TabStripPlacement=Left] /template/ Border#PART_Strip">
+            <Setter Property="DockPanel.Dock" Value="Left" />
+            <Setter Property="BorderThickness" Value="0,0,1,0" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== Expander（バージョン情報のライセンス全文） ==========
+         9.1: OSのネイティブな見た目に寄せない。Fluentの既定テーマは明るい背景の
+         見出しを持ち、ダークテーマでコントラストが崩れるため差し替える。 -->
+    <ControlTheme x:Key="{x:Type Expander}" TargetType="Expander">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <StackPanel>
+                    <ToggleButton Name="PART_toggle"
+                                  HorizontalAlignment="Stretch"
+                                  HorizontalContentAlignment="Stretch"
+                                  Padding="{TemplateBinding Padding}"
+                                  Background="{TemplateBinding Background}"
+                                  BorderBrush="{TemplateBinding BorderBrush}"
+                                  BorderThickness="{TemplateBinding BorderThickness}"
+                                  Foreground="{TemplateBinding Foreground}"
+                                  Cursor="Hand"
+                                  IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}">
+                        <ToggleButton.Template>
+                            <ControlTemplate>
+                                <Border Name="PART_Bg"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        Padding="{TemplateBinding Padding}">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <ContentPresenter Grid.Column="0"
+                                                          Content="{TemplateBinding Content}"
+                                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                          VerticalAlignment="Center" />
+                                        <Panel Grid.Column="1" Margin="8,0,0,0">
+                                            <Path Name="PART_ChevronRight" Classes="icon"
+                                                  Width="12" Height="12"
+                                                  Data="{DynamicResource IconChevronRightGeometry}" />
+                                            <Path Name="PART_ChevronDown" Classes="icon"
+                                                  Width="12" Height="12"
+                                                  IsVisible="False"
+                                                  Data="{DynamicResource IconChevronDownGeometry}" />
+                                        </Panel>
+                                    </Grid>
+                                </Border>
+                            </ControlTemplate>
+                        </ToggleButton.Template>
+                        <ToggleButton.Styles>
+                            <Style Selector="ToggleButton:pointerover /template/ Border#PART_Bg">
+                                <Setter Property="Background" Value="{DynamicResource BgHover}" />
+                            </Style>
+                            <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronRight">
+                                <Setter Property="IsVisible" Value="False" />
+                            </Style>
+                            <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronDown">
+                                <Setter Property="IsVisible" Value="True" />
+                            </Style>
+                        </ToggleButton.Styles>
+                        <ContentPresenter Content="{TemplateBinding Header}"
+                                          ContentTemplate="{TemplateBinding HeaderTemplate}" />
+                    </ToggleButton>
+                    <ContentPresenter Name="PART_ContentPresenter"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      IsVisible="{TemplateBinding IsExpanded}" />
+                </StackPanel>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <!-- ========== TreeViewItem（4章 エクスプローラ・接ぎ木パネル用。TreeView本体の
+         既定書式はControls.Base.axaml側） ========== -->
+    <ControlTheme x:Key="{x:Type TreeViewItem}" TargetType="TreeViewItem">
+        <Setter Property="Padding" Value="4,4" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <StackPanel>
+                    <Border Name="PART_Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <Grid ColumnDefinitions="Auto,Auto,*">
+                            <!-- 開閉シェブロン。9.5のIconChevronRight/Downのジオメトリを
+                                 重ねて置き、開閉状態でどちらを見せるか切り替える
+                                 （9.1: OSの既定の三角ではなくベクターアイコンで表す）。
+                                 子を持たない項目では場所だけ確保して非表示にし、
+                                 名前の開始位置が階層内で揃うようにする。 -->
+                            <ToggleButton Name="PART_ExpandCollapseChevron"
+                                          Grid.Column="0"
+                                          Width="16" Height="16"
+                                          Padding="0"
+                                          Focusable="False"
+                                          Background="Transparent"
+                                          BorderThickness="0"
+                                          AutomationProperties.Name="展開切り替え"
+                                          IsChecked="{TemplateBinding IsExpanded, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate>
+                                        <Panel Background="Transparent">
+                                            <Path Name="PART_ChevronRight" Classes="icon"
+                                                  Width="9" Height="9"
+                                                  Data="{DynamicResource IconChevronRightGeometry}" />
+                                            <Path Name="PART_ChevronDown" Classes="icon"
+                                                  Width="9" Height="9"
+                                                  IsVisible="False"
+                                                  Data="{DynamicResource IconChevronDownGeometry}" />
+                                        </Panel>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                                <ToggleButton.Styles>
+                                    <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronRight">
+                                        <Setter Property="IsVisible" Value="False" />
+                                    </Style>
+                                    <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronDown">
+                                        <Setter Property="IsVisible" Value="True" />
+                                    </Style>
+                                </ToggleButton.Styles>
+                            </ToggleButton>
+                            <ContentPresenter Grid.Column="2"
+                                              Name="PART_HeaderPresenter"
+                                              Content="{TemplateBinding Header}"
+                                              ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                              Margin="4,0,0,0"
+                                              VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <ItemsPresenter Name="PART_ItemsPresenter"
+                                     Margin="16,0,0,0"
+                                     ItemsPanel="{TemplateBinding ItemsPanel}"
+                                     IsVisible="{TemplateBinding IsExpanded}" />
+                </StackPanel>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:selected /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <!-- 子項目を持たない場合はシェブロンを隠す（場所は確保したままにする）。 -->
+        <Style Selector="^:empty /template/ ToggleButton#PART_ExpandCollapseChevron">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== ScrollBar ========== -->
+    <ControlTheme x:Key="GraftScrollBarThumb" TargetType="Thumb">
+        <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Background="{TemplateBinding Background}" CornerRadius="3" Margin="2" />
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover">
+            <Setter Property="Background" Value="{DynamicResource TextSecondary}" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="GraftScrollBarRepeatButton" TargetType="RepeatButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Background="Transparent" />
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ScrollBar}" TargetType="ScrollBar">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Width" Value="10" />
+        <Setter Property="MinWidth" Value="10" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid Background="{TemplateBinding Background}">
+                    <Track Name="PART_Track"
+                           Minimum="{TemplateBinding Minimum}"
+                           Maximum="{TemplateBinding Maximum}"
+                           Value="{TemplateBinding Value, Mode=TwoWay}"
+                           ViewportSize="{TemplateBinding ViewportSize}"
+                           Orientation="{TemplateBinding Orientation}"
+                           IsDirectionReversed="True">
+                        <Track.DecreaseButton>
+                            <RepeatButton Theme="{StaticResource GraftScrollBarRepeatButton}" />
+                        </Track.DecreaseButton>
+                        <Track.IncreaseButton>
+                            <RepeatButton Theme="{StaticResource GraftScrollBarRepeatButton}" />
+                        </Track.IncreaseButton>
+                        <Thumb Theme="{StaticResource GraftScrollBarThumb}" />
+                    </Track>
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^[Orientation=Horizontal]">
+            <Setter Property="Width" Value="NaN" />
+            <Setter Property="Height" Value="10" />
+        </Style>
+        <Style Selector="^[Orientation=Horizontal] /template/ Track#PART_Track">
+            <Setter Property="IsDirectionReversed" Value="False" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== GridSplitter（3ペインの区切り） ========== -->
+    <ControlTheme x:Key="{x:Type GridSplitter}" TargetType="GridSplitter">
+        <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="Width" Value="1" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Style Selector="^:pointerover">
+            <Setter Property="Background" Value="{DynamicResource Accent}" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ========== ProgressBar（9.1: アクセント色の細い不確定プログレスバー） ========== -->
+    <ControlTheme x:Key="{x:Type ProgressBar}" TargetType="ProgressBar">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="Foreground" Value="{DynamicResource Accent}" />
+        <Setter Property="Height" Value="2" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid Name="PART_Root" Background="{TemplateBinding Background}" ClipToBounds="True">
+                    <!-- 確定的な進捗。ProgressBar本体がPART_Indicatorの幅を
+                         Value/Minimum/Maximumから自動的に計算する。 -->
+                    <Border Name="PART_Indicator"
+                            Background="{TemplateBinding Foreground}"
+                            HorizontalAlignment="Left" />
+                    <!-- 不確定表示。動き自体が「処理中」を伝える機能的な表示であり、
+                         装飾的アニメーションとは性質が異なるため常時動作させる
+                         （v2.0のWPF版と同じ方針）。 -->
+                    <Border Name="PART_IndeterminateIndicator"
+                            Background="{TemplateBinding Foreground}"
+                            HorizontalAlignment="Left"
+                            Width="80"
+                            IsVisible="False"
+                            RenderTransform="translateX(-80px)" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:indeterminate /template/ Border#PART_Indicator">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="^:indeterminate /template/ Border#PART_IndeterminateIndicator">
+            <Setter Property="IsVisible" Value="True" />
+            <Style.Animations>
+                <Animation Duration="0:0:1.2" IterationCount="INFINITE">
+                    <KeyFrame Cue="0%">
+                        <Setter Property="(TranslateTransform.X)" Value="-80" />
+                    </KeyFrame>
+                    <KeyFrame Cue="100%">
+                        <Setter Property="(TranslateTransform.X)" Value="400" />
+                    </KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </ControlTheme>
+
+</ResourceDictionary>
