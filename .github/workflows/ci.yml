@@ -1,0 +1,33 @@
+# main への push とプルリクエストで、ビルドとテストを実行する。
+#
+# UIテストは Avalonia.Headless を実描画モード（Skia）で動かすため、
+# 画面が無い環境でも動作する。Xサーバは不要。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: ビルドとテスト
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET SDK の準備
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 依存関係の復元
+        run: dotnet restore
+
+      - name: ビルド
+        run: dotnet build -c Release --no-restore
+
+      - name: テスト
+        run: dotnet test -c Release --no-build --logger "console;verbosity=normal"
