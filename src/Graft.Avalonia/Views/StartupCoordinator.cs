@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Graft.Core;
@@ -70,6 +71,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// <summary>依存の生成・メインウィンドウの表示・各種配線・初回起動ガイドまでを行う。</summary>
     public async Task StartAsync()
     {
+        // 18章「起動から操作可能まで1秒以内」を実機で確認できるよう、ウィンドウが
+        // 表示されるまでの所要時間を記録する。プロセス開始からの計測とするため、
+        // 起点は現在のプロセスの開始時刻を使う。
+        var startedAt = Process.GetCurrentProcess().StartTime;
+
         _appPaths.EnsureCoreDirectoriesExist();
         _logger = new Logger(_appPaths);
         _logger.Info("startup", _platform.DescribeEnvironment());
@@ -131,6 +137,8 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         };
 
         window.Show();
+        _logger.Info("startup",
+            $"操作可能まで {(int)(DateTime.Now - startedAt).TotalMilliseconds} ms");
 
         if (!OnboardingWindow.HasCompleted(_appPaths))
         {
