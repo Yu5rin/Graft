@@ -1,0 +1,92 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.InlineEditPanel">
+    <!--
+        仕様書8.7: マッチ失敗ブロックのSEARCH部インライン編集。
+        右ペインに実ファイル内容、左に入力中のSEARCH部を並べ、DataContext
+        （InlineEditViewModel）が入力から200ms後に再マッチ判定を行った結果を
+        ResultSummary/IsMatchSuccessfulへ反映する。
+
+        WPF版からの差分: Visibility は IsVisible（bool）へ。仮想化はAvaloniaの
+        ListBoxが既定で行うためVirtualizingPanelの添付プロパティ指定は不要。
+    -->
+    <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0"
+            Background="{DynamicResource BgElevated}" Padding="{DynamicResource SpacingMdThickness}">
+        <Grid RowDefinitions="Auto,Auto,220">
+
+            <!-- ヘッダー -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                <Path Classes="icon" Data="{DynamicResource IconXCircleGeometry}"
+                      Stroke="{DynamicResource StateError}" Margin="0,0,8,0" />
+                <TextBlock Text="マッチ失敗: SEARCH部を編集して再判定できます"
+                           FontWeight="{DynamicResource PaneHeadingFontWeight}" />
+                <TextBlock Text="{Binding Description}" Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
+            </StackPanel>
+
+            <!-- 再判定結果 -->
+            <Border Grid.Row="1" Margin="0,0,0,8" Padding="8,4" Background="{DynamicResource BgSurface}">
+                <StackPanel Orientation="Horizontal">
+                    <Path Classes="icon" Data="{DynamicResource IconCheckGeometry}"
+                          Stroke="{DynamicResource StateOk}" Margin="0,0,8,0"
+                          IsVisible="{Binding IsMatchSuccessful}" />
+                    <Path Classes="icon" Data="{DynamicResource IconXCircleGeometry}"
+                          Stroke="{DynamicResource StateError}" Margin="0,0,8,0"
+                          IsVisible="{Binding !IsMatchSuccessful}" />
+                    <TextBlock Text="{Binding ResultSummary}" VerticalAlignment="Center"
+                               AutomationProperties.Name="再判定結果" />
+                </StackPanel>
+            </Border>
+
+            <!-- 左: SEARCH部の編集 / 右: 実ファイル内容 -->
+            <Grid Grid.Row="2" ColumnDefinitions="*,3,*">
+
+                <DockPanel Grid.Column="0">
+                    <TextBlock DockPanel.Dock="Top" Text="SEARCH部（編集可）" Margin="0,0,0,4"
+                               FontSize="{DynamicResource CaptionFontSize}"
+                               Foreground="{DynamicResource TextSecondary}" />
+                    <TextBox Text="{Binding SearchText}"
+                             AcceptsReturn="True" AcceptsTab="True"
+                             TextWrapping="NoWrap"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             FontFamily="{DynamicResource CodeFontFamily}"
+                             FontSize="{DynamicResource CodeFontSize}"
+                             AutomationProperties.Name="SEARCH部の編集" />
+                </DockPanel>
+
+                <Border Grid.Column="1" Background="{DynamicResource BorderSubtle}" />
+
+                <DockPanel Grid.Column="2" Margin="8,0,0,0">
+                    <TextBlock DockPanel.Dock="Top" Text="実際のファイル内容" Margin="0,0,0,4"
+                               FontSize="{DynamicResource CaptionFontSize}"
+                               Foreground="{DynamicResource TextSecondary}" />
+                    <ListBox ItemsSource="{Binding FileLines}" Background="{DynamicResource BgSurface}"
+                             BorderThickness="0" FontFamily="{DynamicResource CodeFontFamily}"
+                             FontSize="{DynamicResource CodeFontSize}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             AutomationProperties.Name="実際のファイル内容">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Focusable" Value="False" />
+                                <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                            </Style>
+                        </ListBox.Styles>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="vm:FileLineViewModel">
+                                <Grid ColumnDefinitions="40,*">
+                                    <TextBlock Grid.Column="0" Text="{Binding LineNumberText}" TextAlignment="Right"
+                                               Padding="0,0,8,0" Foreground="{DynamicResource TextSecondary}" />
+                                    <views:CodeLineControl Grid.Column="1" LineText="{Binding Text}"
+                                                           Tokens="{Binding Tokens}" IsDiffRow="False" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

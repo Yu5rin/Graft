@@ -1,0 +1,151 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             x:Class="Graft.Views.SearchView"
+             Background="{DynamicResource BgSurface}">
+    <!--
+        4.4 ファイル横断検索（Ctrl+Shift+F）のサイドビュー。結果はファイル→行のツリーで表示し、
+        クリックで該当行へジャンプする（JumpCommand経由でSearchViewModel.JumpRequestedを発火）。
+        置換は事前に対象件数を確認ダイアログで提示してから実行する（SearchViewModel側）。
+
+        WPF版からの差分:
+        - ツリー項目のControlTemplateは Themes/Controls.Layout.axaml のTreeViewItemテーマが
+          持つため、WPF版がこのファイル内に持っていた簡易版の定義は不要になった。
+        - HierarchicalDataTemplate は TreeDataTemplate へ。
+        - Visibility は IsVisible（bool）へ。UpdateSourceTrigger=PropertyChangedは既定の挙動。
+    -->
+    <UserControl.Styles>
+        <!-- 検索オプションの小さなトグル（.* / Aa / ab）。 -->
+        <Style Selector="ToggleButton.searchOption">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="ToggleButton.searchOption:pointerover">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="ToggleButton.searchOption:checked">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <ControlTheme x:Key="SearchTreeItemTheme" TargetType="TreeViewItem"
+                      BasedOn="{StaticResource {x:Type TreeViewItem}}">
+            <Setter Property="Padding" Value="2,3" />
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+        </ControlTheme>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+
+        <TextBlock Grid.Row="0" Text="検索" Margin="12,10,8,4"
+                   FontSize="{DynamicResource PaneHeadingFontSize}"
+                   FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                   Foreground="{DynamicResource TextSecondary}" />
+
+        <!-- ========== 検索行 ========== -->
+        <Grid Grid.Row="1" Margin="8,0,8,4" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+            <TextBox x:Name="QueryBox"
+                     Grid.Column="0"
+                     Text="{Binding Query}"
+                     KeyDown="OnQueryBoxKeyDown"
+                     AutomationProperties.Name="検索文字列（ファイル横断）" />
+
+            <ToggleButton Grid.Column="1" Classes="searchOption"
+                          IsChecked="{Binding UseRegex, Mode=OneWay}"
+                          Command="{Binding ToggleRegexCommand}" Content=".*"
+                          ToolTip.Tip="正規表現を使用" AutomationProperties.Name="正規表現を使用" />
+            <ToggleButton Grid.Column="2" Classes="searchOption"
+                          IsChecked="{Binding CaseSensitive, Mode=OneWay}"
+                          Command="{Binding ToggleCaseCommand}" Content="Aa"
+                          ToolTip.Tip="大文字と小文字を区別" AutomationProperties.Name="大文字と小文字を区別" />
+            <ToggleButton Grid.Column="3" Classes="searchOption"
+                          IsChecked="{Binding WholeWord, Mode=OneWay}"
+                          Command="{Binding ToggleWholeWordCommand}" Content="ab"
+                          ToolTip.Tip="単語単位で検索" AutomationProperties.Name="単語単位で検索" />
+
+            <Button Grid.Column="4" Command="{Binding SearchCommand}"
+                    Width="26" Height="26" Margin="2,0,0,0" Padding="0"
+                    Background="Transparent"
+                    ToolTip.Tip="検索" AutomationProperties.Name="ファイル横断検索を実行">
+                <Path Data="{DynamicResource IconSearchGeometry}" Classes="icon" Width="14" Height="14" />
+            </Button>
+        </Grid>
+
+        <!-- ========== 置換行 ========== -->
+        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
+            <TextBox Grid.Column="0"
+                     Text="{Binding ReplaceText}"
+                     AutomationProperties.Name="置換文字列（ファイル横断）" />
+            <Button Grid.Column="1" Content="すべて置換" Command="{Binding ReplaceAllCommand}"
+                    Margin="4,0,0,0" AutomationProperties.Name="ファイル横断ですべて置換" />
+        </Grid>
+
+        <!-- ========== 状態表示 ========== -->
+        <StackPanel Grid.Row="3" Margin="12,0,8,4">
+            <TextBlock Text="{Binding StatusText}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       AutomationProperties.Name="検索結果件数"
+                       AutomationProperties.LiveSetting="Polite"
+                       IsVisible="{Binding StatusText, Converter={x:Static local:Converters.NotEmptyString}}" />
+            <!-- 18章: ヒット上限で打ち切った場合は黙って切り詰めず必ず表示する。 -->
+            <TextBlock Text="{Binding TruncatedMessage}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource StateWarn}"
+                       AutomationProperties.LiveSetting="Assertive"
+                       IsVisible="{Binding TruncatedMessage, Converter={x:Static local:Converters.NotEmptyString}}" />
+            <Button Content="検索を中止" Command="{Binding CancelCommand}"
+                    HorizontalAlignment="Left" Margin="0,4,0,0"
+                    IsVisible="{Binding IsSearching}"
+                    AutomationProperties.Name="ファイル横断検索を中止" />
+        </StackPanel>
+
+        <!-- ========== 結果ツリー（ファイル→行） ========== -->
+        <TreeView x:Name="ResultTree"
+                  Grid.Row="4"
+                  ItemsSource="{Binding Groups}"
+                  ItemContainerTheme="{StaticResource SearchTreeItemTheme}"
+                  Background="Transparent" BorderThickness="0"
+                  KeyDown="OnResultKeyDown"
+                  AutomationProperties.Name="検索結果（ファイルと行のツリー）">
+            <TreeView.DataTemplates>
+                <TreeDataTemplate DataType="vm:SearchFileGroupViewModel" ItemsSource="{Binding Hits}">
+                    <StackPanel Orientation="Horizontal" Margin="2"
+                                AutomationProperties.Name="{Binding AutomationName}">
+                        <Path Data="{DynamicResource IconFileCodeGeometry}" Classes="icon"
+                              Width="14" Height="14" Margin="0,0,4,0" />
+                        <TextBlock Text="{Binding HeaderText}" Foreground="{DynamicResource TextPrimary}" />
+                    </StackPanel>
+                </TreeDataTemplate>
+                <DataTemplate DataType="vm:SearchHitViewModel">
+                    <StackPanel Orientation="Horizontal" Margin="2"
+                                AutomationProperties.Name="{Binding AutomationName}">
+                        <TextBlock Text="{Binding LineNumber}" Width="34"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   FontSize="{DynamicResource CaptionFontSize}" />
+                        <TextBlock Text="{Binding Before}" Foreground="{DynamicResource TextSecondary}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Match}" Foreground="{DynamicResource TextPrimary}"
+                                   Background="{DynamicResource BgSelected}" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding After}" Foreground="{DynamicResource TextSecondary}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </DataTemplate>
+            </TreeView.DataTemplates>
+        </TreeView>
+    </Grid>
+</UserControl>

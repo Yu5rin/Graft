@@ -1,0 +1,169 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.DiffView"
+             x:Name="Root">
+    <!--
+        仕様書8.7 プレビューとインライン編集 / 8.13 diffの表示制御 / 8.6 シンタックス
+        ハイライト / 8.3 diffの形状的区別 / 8.14 アクセシビリティ を担当する。
+        DataContext には DiffViewModel を受け取る。
+
+        WPF版からの差分:
+        - Visibility は IsVisible（bool）へ。反転は「!」バインドで書ける。
+        - DataTemplate.Triggers が無いため、行の背景・左端バーの色分けは条件付きクラス
+          （Classes.added / Classes.removed）とStyleで表現する。
+        - RelativeSource AncestorType による親Viewの参照は ElementName（#Root）へ。
+        - 仮想化はListBoxの既定の挙動のため VirtualizingPanel の添付プロパティは不要。
+        - 削除行の破線バーは DrawingBrush が無いため、破線を引いた Rectangle で表す。
+    -->
+    <UserControl.Styles>
+        <Style Selector="Grid.diffCell.added">
+            <Setter Property="Background" Value="{DynamicResource DiffAddBg}" />
+        </Style>
+        <Style Selector="Grid.diffCell.removed">
+            <Setter Property="Background" Value="{DynamicResource DiffDelBg}" />
+        </Style>
+        <!-- 8.3: 追加行の左端バーは実線。 -->
+        <Style Selector="Border.diffBar.added">
+            <Setter Property="Background" Value="{DynamicResource DiffAddBar}" />
+        </Style>
+        <!-- 8.3: 削除行の左端バーは破線（色ではなく形状でも区別できるようにする）。 -->
+        <Style Selector="Rectangle.diffBarDashed">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="Grid.diffCell.removed Rectangle.diffBarDashed">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <!-- 1セル（変更前 or 変更後の片側）の共通描画。行番号2列＋左端3pxバー＋コード本体。 -->
+        <DataTemplate x:Key="CellTemplate" DataType="vm:DiffCellViewModel">
+            <Grid Classes="diffCell"
+                  Classes.added="{Binding IsAdded}"
+                  Classes.removed="{Binding IsRemoved}"
+                  Background="Transparent"
+                  ColumnDefinitions="Auto,Auto,3,*">
+
+                <TextBlock Grid.Column="0" Text="{Binding OldLineText}" Width="40" Padding="4,0,8,0"
+                           TextAlignment="Right" Foreground="{DynamicResource TextSecondary}"
+                           FontFamily="{DynamicResource CodeFontFamily}"
+                           IsVisible="{Binding DataContext.ShowLineNumbers, ElementName=Root}" />
+                <TextBlock Grid.Column="1" Text="{Binding NewLineText}" Width="40" Padding="4,0,8,0"
+                           TextAlignment="Right" Foreground="{DynamicResource TextSecondary}"
+                           FontFamily="{DynamicResource CodeFontFamily}"
+                           IsVisible="{Binding DataContext.ShowLineNumbers, ElementName=Root}" />
+
+                <Panel Grid.Column="2">
+                    <Border Classes="diffBar"
+                            Classes.added="{Binding IsAdded}" />
+                    <Rectangle Classes="diffBarDashed" Width="3" HorizontalAlignment="Stretch"
+                               Stroke="{DynamicResource DiffDelBar}" StrokeThickness="3"
+                               StrokeDashArray="1,1" />
+                </Panel>
+
+                <views:CodeLineControl Grid.Column="3" Margin="8,0,0,0"
+                                       LineText="{Binding Text}" Tokens="{Binding Tokens}"
+                                       InlineHighlights="{Binding InlineSpans}" DiffKind="{Binding Kind}"
+                                       IsDiffRow="True"
+                                       AutomationProperties.Name="{Binding AutomationName}"
+                                       ShowWhitespace="{Binding DataContext.ShowWhitespace, ElementName=Root}"
+                                       TextWrapping="{Binding DataContext.WordWrap, ElementName=Root,
+                                                      Converter={x:Static views:Converters.BoolToTextWrapping}}" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- diff本体の1行。省略行はクリックで展開するボタン、それ以外は左右セル。 -->
+        <DataTemplate x:Key="RowTemplate" DataType="vm:DiffLineViewModel">
+            <Grid>
+                <Button Content="{Binding Left.Text}" Command="{Binding ExpandCommand}"
+                        HorizontalContentAlignment="Left" Padding="8,4" Background="{DynamicResource BgHover}"
+                        BorderThickness="0" Foreground="{DynamicResource TextSecondary}"
+                        AutomationProperties.Name="{Binding RowAutomationName}"
+                        IsVisible="{Binding IsOmitted}" />
+
+                <Grid IsVisible="{Binding !IsOmitted}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="{Binding DataContext.IsSideBySide, ElementName=Root,
+                                                  Converter={x:Static views:Converters.BoolToStarGridLength}}" />
+                    </Grid.ColumnDefinitions>
+                    <ContentControl Grid.Column="0" Content="{Binding Left}"
+                                    ContentTemplate="{StaticResource CellTemplate}" />
+                    <ContentControl Grid.Column="1" Content="{Binding Right}"
+                                    ContentTemplate="{StaticResource CellTemplate}"
+                                    IsVisible="{Binding DataContext.IsSideBySide, ElementName=Root}" />
+                </Grid>
+            </Grid>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <Grid Background="{DynamicResource BgSurface}" RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- ツールバー -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="{DynamicResource SpacingSmThickness}">
+            <RadioButton GroupName="DiffMode" Content="並列" Margin="0,0,8,0" VerticalAlignment="Center"
+                         IsChecked="{Binding IsSideBySide}" AutomationProperties.Name="並列表示に切り替え" />
+            <RadioButton GroupName="DiffMode" Content="統合" Margin="0,0,16,0" VerticalAlignment="Center"
+                         IsChecked="{Binding !IsSideBySide}"
+                         AutomationProperties.Name="統合表示に切り替え" />
+            <ToggleButton Content="折り返し" Margin="0,0,8,0" IsChecked="{Binding WordWrap}"
+                          AutomationProperties.Name="長い行の折り返しを切り替え" />
+            <ToggleButton Content="空白を表示" Margin="0,0,8,0" IsChecked="{Binding ShowWhitespace}"
+                          AutomationProperties.Name="空白文字の可視化を切り替え" />
+            <ToggleButton Content="すべて展開" Margin="0,0,16,0" IsChecked="{Binding IsFullyExpanded}"
+                          AutomationProperties.Name="省略範囲をすべて展開" />
+            <TextBlock Text="表示行数が多いためシンタックスハイライトを無効化しました"
+                       Foreground="{DynamicResource StateWarn}" VerticalAlignment="Center"
+                       IsVisible="{Binding SyntaxHighlightDisabled}" />
+        </StackPanel>
+
+        <!-- 8.7: 段階5（要確認）の強調バナー -->
+        <Border Grid.Row="1" Background="{DynamicResource BgElevated}" BorderBrush="{DynamicResource StateWarn}"
+                BorderThickness="0,0,0,1" Padding="{DynamicResource SpacingSmThickness}"
+                IsVisible="{Binding NeedsConfirmation}">
+            <StackPanel Orientation="Horizontal">
+                <Path Classes="icon" Data="{DynamicResource IconAlertTriangleGeometry}"
+                      Stroke="{DynamicResource StateWarn}" Margin="0,0,8,0" />
+                <TextBlock Text="要確認: 類似度に基づく一致です。内容を確認し、適用に含めるかを選んでください。"
+                           VerticalAlignment="Center" Margin="0,0,16,0" />
+                <CheckBox Content="この変更を適用に含める" IsChecked="{Binding IsIncluded}"
+                          IsEnabled="{Binding CanToggleInclusion}"
+                          AutomationProperties.Name="この変更を適用に含める" />
+            </StackPanel>
+        </Border>
+
+        <!-- diff本体（表示範囲のみレンダリング） -->
+        <ListBox Grid.Row="2" ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource RowTemplate}"
+                 Background="Transparent" BorderThickness="0"
+                 FontFamily="{DynamicResource CodeFontFamily}" FontSize="{Binding CodeFontSize}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="差分表示">
+            <ListBox.Styles>
+                <Style Selector="ListBoxItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="AutomationProperties.Name" Value="{Binding RowAutomationName}" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Template">
+                        <ControlTemplate>
+                            <ContentPresenter Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}" />
+                        </ControlTemplate>
+                    </Setter>
+                </Style>
+            </ListBox.Styles>
+        </ListBox>
+
+        <!-- 8.7: マッチ失敗ブロックのインライン編集（SEARCH/REPLACEペア単位） -->
+        <ItemsControl Grid.Row="3" ItemsSource="{Binding InlineEdits}"
+                      IsVisible="{Binding HasInlineEdits}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:InlineEditViewModel">
+                    <views:InlineEditPanel DataContext="{Binding}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </Grid>
+</UserControl>
