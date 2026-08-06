@@ -13,6 +13,10 @@
     -->
     <Application.Styles>
         <FluentTheme />
+        <!-- AvaloniaEditの既定テーマ。TextEditorの内部テンプレート（TextArea・
+             行番号マージン・スクロールビューア）はここが提供する。色や書体は
+             Themes/Editor.axamlのControlThemeで9.3のトークンへ上書きする。 -->
+        <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
         <StyleInclude Source="avares://Graft/Themes/Icons.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Controls.Base.axaml" />
     </Application.Styles>
@@ -24,6 +28,7 @@
                 <ResourceInclude Source="avares://Graft/Themes/Controls.axaml" />
                 <ResourceInclude Source="avares://Graft/Themes/Controls.Input.axaml" />
                 <ResourceInclude Source="avares://Graft/Themes/Controls.Layout.axaml" />
+                <ResourceInclude Source="avares://Graft/Themes/Editor.axaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

@@ -50,6 +50,21 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "エクスプローラビューを構築して描画できる")]
     public void エクスプローラビューを描画できる() => RenderInWindow(new ExplorerView());
 
+    [AvaloniaFact(DisplayName = "検索ビューを構築して描画できる")]
+    public void 検索ビューを描画できる() => RenderInWindow(new SearchView());
+
+    [AvaloniaFact(DisplayName = "エディタ内検索オーバーレイを構築して描画できる")]
+    public void 検索オーバーレイを描画できる() => RenderInWindow(new SearchOverlay());
+
+    [AvaloniaFact(DisplayName = "差分ビューを構築して描画できる")]
+    public void 差分ビューを描画できる() => RenderInWindow(new DiffView());
+
+    [AvaloniaFact(DisplayName = "インライン編集パネルを構築して描画できる")]
+    public void インライン編集パネルを描画できる() => RenderInWindow(new InlineEditPanel());
+
+    [AvaloniaFact(DisplayName = "エディタペインを構築して描画できる")]
+    public void エディタペインを描画できる() => RenderInWindow(new EditorPane());
+
     /// <summary>
     /// コントロールをウィンドウに載せて実際に描画する。UserControl単体では描画パスに
     /// 乗らずリソース解決の失敗を検出できないため、必ずウィンドウ経由で確認する。

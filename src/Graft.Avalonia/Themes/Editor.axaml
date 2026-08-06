@@ -1,0 +1,98 @@
+<!--
+  4.1: AvaloniaEditのテーマ適用。既定配色を一切残さず、9.3のカラートークンへ完全に
+  追従させる。App.axamlのMergedDictionariesから読み込まれ、アプリ全体で1つだけロードされる。
+  WPF版 Themes/Editor.xaml の移植（20章L3）。
+
+  TextArea.SelectionBrush・TextView.CurrentLineBackground等はTextEditorの
+  Setterからは設定できない（TextEditor自身ではなく子要素が持つプロパティ）ため、
+  それらはViews/EditorPane.axaml.csから設定する。このファイルはControlThemeとして
+  表現できる範囲を担当する。
+
+  【WPF版からの構文差分】
+  - WPF版はキー無しのStyle（TargetType="ae:TextEditor"）で暗黙適用していたが、
+    Avaloniaでは x:Key="{x:Type ae:TextEditor}" のControlThemeとして登録する。
+    TextEditorの内部テンプレートはAvaloniaEditの既定をそのまま使い、Setterのみ与える。
+  - IsMouseOver/IsSelectedのTriggerは :pointerover / :selected 疑似クラスへ。
+  - StrokeStartLineCap/StrokeEndLineCap は StrokeLineCap 1つに、StrokeLineJoin は
+    StrokeJoin という名前になる（値は変えていない）。
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit">
+
+    <!-- ========== AvaloniaEdit TextEditor 本体 ========== -->
+    <ControlTheme x:Key="{x:Type ae:TextEditor}" TargetType="ae:TextEditor"
+                  BasedOn="{StaticResource {x:Type ae:TextEditor}}">
+        <Setter Property="Background" Value="{DynamicResource BgBase}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="FontFamily" Value="{DynamicResource CodeFontFamily}" />
+        <Setter Property="LineNumbersForeground" Value="{DynamicResource TextDisabled}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="4" />
+    </ControlTheme>
+
+    <!-- ========== エディタタブの見出し部 ========== -->
+    <ControlTheme x:Key="EditorTabStripTheme" TargetType="ListBox"
+                  BasedOn="{StaticResource {x:Type ListBox}}">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ItemsPanel">
+            <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+        </Setter>
+    </ControlTheme>
+
+    <!-- タブ1件のコンテナ。選択中は下線と背景で示す（色だけに依存しない: 太字化も併用）。 -->
+    <ControlTheme x:Key="EditorTabItemTheme" TargetType="ListBoxItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="AutomationProperties.Name" Value="{Binding ToolTipText}" />
+        <Setter Property="ToolTip.Tip" Value="{Binding ToolTipText}" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Root" Background="Transparent"
+                        BorderBrush="Transparent" BorderThickness="0,0,0,2">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      Margin="10,6" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:selected /template/ Border#PART_Root">
+            <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+            <Setter Property="Background" Value="{DynamicResource BgBase}" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_Root">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+    </ControlTheme>
+
+    <!-- タブを閉じるボタン（9.4のxアイコンを使用）。 -->
+    <ControlTheme x:Key="EditorTabCloseButtonTheme" TargetType="Button">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="18" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Bg" Background="{TemplateBinding Background}" CornerRadius="3">
+                    <Path Data="{DynamicResource IconXGeometry}"
+                          Width="12" Height="12" Stretch="Uniform"
+                          Stroke="{DynamicResource TextSecondary}"
+                          StrokeThickness="{DynamicResource IconStrokeThickness}"
+                          StrokeLineCap="Round" StrokeJoin="Round"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+    </ControlTheme>
+
+</ResourceDictionary>
