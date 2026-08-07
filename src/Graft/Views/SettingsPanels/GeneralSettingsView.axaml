@@ -8,8 +8,15 @@
         書式（fieldLabel/fieldRow/sectionHeading）は Themes/Settings.axaml のクラス。
         DataContextはTabItem経由でSettingsViewModelを継承する。
     -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
-        <StackPanel>
+    <!--
+        AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
+        Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
+        下端で見切れる（実機で確認済みの不具合）。ScrollViewer自身にはPaddingを
+        持たせず、内側のStackPanelのMarginへ移すことでExtentに余白を含める。
+        下端はスクロールバー等との干渉を避けるため他辺よりやや広めに取る。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,8,16,16">
             <TextBlock Text="一般" Classes="sectionHeading first" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="テーマ" Classes="fieldLabel" />

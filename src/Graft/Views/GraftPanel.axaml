@@ -28,19 +28,19 @@
                         Background="Transparent" BorderThickness="0" Padding="4"
                         AutomationProperties.Name="接ぎ木パネルの開閉">
                     <Panel>
-                        <Path Classes="icon" Width="14" Height="14"
-                              Data="{DynamicResource IconChevronRightGeometry}"
-                              IsVisible="{Binding !DataContext.IsGraftPanelOpen, ElementName=Root}" />
-                        <Path Classes="icon" Width="14" Height="14"
-                              Data="{DynamicResource IconChevronDownGeometry}"
-                              IsVisible="{Binding DataContext.IsGraftPanelOpen, ElementName=Root}" />
+                        <views:IconGlyph Width="14" Height="14"
+                                         Data="{DynamicResource IconChevronRightGeometry}"
+                                         IsVisible="{Binding !DataContext.IsGraftPanelOpen, ElementName=Root}" />
+                        <views:IconGlyph Width="14" Height="14"
+                                         Data="{DynamicResource IconChevronDownGeometry}"
+                                         IsVisible="{Binding DataContext.IsGraftPanelOpen, ElementName=Root}" />
                     </Panel>
                 </Button>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="4,0,12,0">
-                    <Path Classes="icon" Width="14" Height="14"
-                          Data="{DynamicResource IconPanelBottomGeometry}"
-                          Stroke="{DynamicResource TextSecondary}" Margin="0,0,4,0" />
+                    <views:IconGlyph Width="14" Height="14"
+                                     Data="{DynamicResource IconPanelBottomGeometry}"
+                                     Stroke="{DynamicResource TextSecondary}" Margin="0,0,4,0" />
                     <TextBlock Text="接ぎ木" VerticalAlignment="Center"
                                FontSize="{DynamicResource PaneHeadingFontSize}"
                                FontWeight="{DynamicResource PaneHeadingFontWeight}"
@@ -65,8 +65,8 @@
                 <Button Grid.Column="4" Margin="4,0" Command="{Binding PreviewCommand}"
                         AutomationProperties.Name="プレビューを再実行">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="{DynamicResource IconEyeGeometry}" Classes="icon"
-                              Width="14" Height="14" Margin="0,0,4,0" />
+                        <views:IconGlyph Data="{DynamicResource IconEyeGeometry}"
+                                         Width="14" Height="14" Margin="0,0,4,0" />
                         <TextBlock Text="プレビュー" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
@@ -75,8 +75,8 @@
                 <Button x:Name="ApplyButtonElement" Grid.Column="5" Command="{Binding ApplyCommand}"
                         AutomationProperties.Name="適用を実行">
                     <StackPanel Orientation="Horizontal">
-                        <Path Data="{DynamicResource IconPlayGeometry}" Classes="icon"
-                              Width="14" Height="14" Margin="0,0,4,0" />
+                        <views:IconGlyph Data="{DynamicResource IconPlayGeometry}"
+                                         Width="14" Height="14" Margin="0,0,4,0" />
                         <TextBlock Text="適用" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
@@ -116,18 +116,18 @@
 
                                 <!-- 8.5: 状態は色と形状の両方で区別する（check / alert-triangle / x-circle）。 -->
                                 <Panel Grid.Column="1" VerticalAlignment="Top" Margin="0,2,6,0">
-                                    <Path Classes="icon" Width="16" Height="16"
-                                          Data="{DynamicResource IconCheckGeometry}"
-                                          Stroke="{DynamicResource StateOk}"
-                                          IsVisible="{Binding IsOk}" />
-                                    <Path Classes="icon" Width="16" Height="16"
-                                          Data="{DynamicResource IconAlertTriangleGeometry}"
-                                          Stroke="{DynamicResource StateWarn}"
-                                          IsVisible="{Binding IsWarn}" />
-                                    <Path Classes="icon" Width="16" Height="16"
-                                          Data="{DynamicResource IconXCircleGeometry}"
-                                          Stroke="{DynamicResource StateError}"
-                                          IsVisible="{Binding IsError}" />
+                                    <views:IconGlyph Width="16" Height="16"
+                                                     Data="{DynamicResource IconCheckGeometry}"
+                                                     Stroke="{DynamicResource StateOk}"
+                                                     IsVisible="{Binding IsOk}" />
+                                    <views:IconGlyph Width="16" Height="16"
+                                                     Data="{DynamicResource IconAlertTriangleGeometry}"
+                                                     Stroke="{DynamicResource StateWarn}"
+                                                     IsVisible="{Binding IsWarn}" />
+                                    <views:IconGlyph Width="16" Height="16"
+                                                     Data="{DynamicResource IconXCircleGeometry}"
+                                                     Stroke="{DynamicResource StateError}"
+                                                     IsVisible="{Binding IsError}" />
                                 </Panel>
 
                                 <StackPanel Grid.Column="2">
@@ -153,9 +153,9 @@
                                         Command="{Binding DataContext.OpenBlockInEditorCommand, ElementName=Root}"
                                         CommandParameter="{Binding}"
                                         AutomationProperties.Name="エディタで開く">
-                                    <Path Classes="icon" Width="14" Height="14"
-                                          Data="{DynamicResource IconFileCodeGeometry}"
-                                          Stroke="{DynamicResource TextSecondary}" />
+                                    <views:IconGlyph Width="14" Height="14"
+                                                     Data="{DynamicResource IconFileCodeGeometry}"
+                                                     Stroke="{DynamicResource TextSecondary}" />
                                 </Button>
                             </Grid>
                         </DataTemplate>

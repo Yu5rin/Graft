@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SideBar"
              Focusable="False">
     <!--
@@ -34,32 +35,36 @@
                     Classes.active="{Binding IsExplorerActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.Explorer}"
+                    ToolTip.Tip="ファイル一覧。プロジェクト内のファイルを開いて編集します。"
                     AutomationProperties.Name="エクスプローラビューを切り替え">
-                <Path Data="{DynamicResource IconFolderGeometry}" Classes="icon" />
+                <views:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
             </Button>
 
             <Button Classes="sideBarIcon"
                     Classes.active="{Binding IsProjectActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.Project}"
+                    ToolTip.Tip="プロジェクト一覧。登録したフォルダを切り替えます。"
                     AutomationProperties.Name="プロジェクトビューを切り替え">
-                <Path Data="{DynamicResource IconLayersGeometry}" Classes="icon" />
+                <views:IconGlyph Data="{DynamicResource IconLayersGeometry}" />
             </Button>
 
             <Button Classes="sideBarIcon"
                     Classes.active="{Binding IsHistoryActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.History}"
+                    ToolTip.Tip="適用の履歴。過去の変更を確認して元に戻せます。"
                     AutomationProperties.Name="履歴ビューを切り替え">
-                <Path Data="{DynamicResource IconHistoryGeometry}" Classes="icon" />
+                <views:IconGlyph Data="{DynamicResource IconHistoryGeometry}" />
             </Button>
 
             <Button Classes="sideBarIcon"
                     Classes.active="{Binding IsSearchActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.Search}"
+                    ToolTip.Tip="横断検索。プロジェクト全体の文字列を検索・置換します。"
                     AutomationProperties.Name="検索ビューを切り替え">
-                <Path Data="{DynamicResource IconSearchGeometry}" Classes="icon" />
+                <views:IconGlyph Data="{DynamicResource IconSearchGeometry}" />
             </Button>
 
         </StackPanel>

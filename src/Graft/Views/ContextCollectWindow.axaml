@@ -75,14 +75,14 @@
                                                     Margin="{Binding IndentLevel,
                                                              Converter={x:Static local:Converters.IndentToMargin}}"
                                                     AutomationProperties.Name="{Binding AutomationLabel}">
-                                            <Path Data="{DynamicResource IconFolderGeometry}" Classes="icon"
-                                                  Width="14" Height="14" Margin="0,0,4,0"
-                                                  IsVisible="{Binding IsDirectory}" />
-                                            <Path Data="{DynamicResource IconAlertTriangleGeometry}" Classes="icon"
-                                                  Width="14" Height="14" Margin="0,0,4,0"
-                                                  Stroke="{DynamicResource StateWarn}"
-                                                  ToolTip.Tip="{Binding ExcludeReason}"
-                                                  IsVisible="{Binding IsExcluded}" />
+                                            <local:IconGlyph Data="{DynamicResource IconFolderGeometry}"
+                                                             Width="14" Height="14" Margin="0,0,4,0"
+                                                             IsVisible="{Binding IsDirectory}" />
+                                            <local:IconGlyph Data="{DynamicResource IconAlertTriangleGeometry}"
+                                                             Width="14" Height="14" Margin="0,0,4,0"
+                                                             Stroke="{DynamicResource StateWarn}"
+                                                             ToolTip.Tip="{Binding ExcludeReason}"
+                                                             IsVisible="{Binding IsExcluded}" />
                                             <CheckBox Content="{Binding DisplayName}" IsChecked="{Binding IsChecked}"
                                                       AutomationProperties.Name="{Binding AutomationLabel}"
                                                       IsVisible="{Binding !IsDirectory}">
@@ -101,8 +101,8 @@
                             </ListBox>
                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                                         IsVisible="{Binding IsEmpty}">
-                                <Path Data="{DynamicResource IconFolderGeometry}" Classes="icon"
-                                      Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
+                                <local:IconGlyph Data="{DynamicResource IconFolderGeometry}"
+                                                 Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
                                 <TextBlock Text="対象ファイルがありません" Margin="0,8,0,0"
                                            Foreground="{DynamicResource TextSecondary}" />
                             </StackPanel>
@@ -170,8 +170,8 @@
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                                 IsVisible="{Binding PreviewLines,
                                             Converter={x:Static local:Converters.IsEmptyCollection}}">
-                        <Path Data="{DynamicResource IconEyeGeometry}" Classes="icon"
-                              Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
+                        <local:IconGlyph Data="{DynamicResource IconEyeGeometry}"
+                                         Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
                         <TextBlock Text="「プレビュー」または「コピー」を押すと出力内容を表示します"
                                    Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" />
                     </StackPanel>

@@ -28,18 +28,17 @@
                     BorderThickness="0"
                     ToolTip.Tip="選択したリビジョン直前の状態へ復元"
                     AutomationProperties.Name="選択したリビジョンへ復元">
-                <Path Data="{DynamicResource IconRotateCcwGeometry}" Classes="icon" />
+                <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
             </Button>
         </Grid>
 
         <!-- 全文検索（Ctrl+F） -->
         <Grid Grid.Row="1" Margin="8,0,8,4" ColumnDefinitions="Auto,*">
-            <Path Grid.Column="0"
-                  Data="{DynamicResource IconSearchGeometry}"
-                  Classes="icon"
-                  Width="14" Height="14"
-                  Margin="4,0,4,0"
-                  Stroke="{DynamicResource TextSecondary}" />
+            <local:IconGlyph Grid.Column="0"
+                             Data="{DynamicResource IconSearchGeometry}"
+                             Width="14" Height="14"
+                             Margin="4,0,4,0"
+                             Stroke="{DynamicResource TextSecondary}" />
             <TextBox x:Name="KeywordBox"
                      Grid.Column="1"
                      Text="{Binding Keyword}"
