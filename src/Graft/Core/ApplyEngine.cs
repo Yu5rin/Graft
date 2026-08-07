@@ -285,7 +285,11 @@ public sealed partial class ApplyEngine
 
         var seen = new HashSet<PatchBlock>(ReferenceEqualityComparer.Instance);
         var blocks = plansForFile.Select(p => p.Block).Where(seen.Add).ToList();
-        var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher);
+        // SR形式は1ペア=1件のBlockPlanになる。同一ブロックの別ペアが選択されていても、このファイル
+        // グループに含まれないペア（＝ユーザーが選択を外した成功ペア）は再解決の対象から除く。
+        var includedPairs = new HashSet<SearchReplacePair>(
+            plansForFile.Where(p => p.Pair is not null).Select(p => p.Pair!), ReferenceEqualityComparer.Instance);
+        var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher, includedPairs);
         var finalText = ComposeFinalText(resolution.FinalLines, originalWithTerminators, shape);
 
         var clearedReadOnly = ClearReadOnlyIfNeeded(fullPath, ctx);

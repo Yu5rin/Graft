@@ -5,8 +5,11 @@ namespace Graft.Core;
 /// <summary>ブロック1件のドライラン結果。UI のブロック一覧に対応する。</summary>
 public sealed record BlockPlan
 {
-    /// <summary>元のブロック。</summary>
+    /// <summary>元のブロック。SR形式では複数の BlockPlan が同じ Block を共有しうる（ペア単位で1件）。</summary>
     public required PatchBlock Block { get; init; }
+
+    /// <summary>SR形式で、このユニットに対応する個別のペア。SR形式以外・ファイル単位の失敗では null。</summary>
+    public SearchReplacePair? Pair { get; init; }
 
     /// <summary>操作対象のプロジェクト相対パス。RENAME では移動先。</summary>
     public required string Path { get; init; }
