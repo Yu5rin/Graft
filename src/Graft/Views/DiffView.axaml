@@ -124,8 +124,8 @@
                 BorderThickness="0,0,0,1" Padding="{DynamicResource SpacingSmThickness}"
                 IsVisible="{Binding NeedsConfirmation}">
             <StackPanel Orientation="Horizontal">
-                <Path Classes="icon" Data="{DynamicResource IconAlertTriangleGeometry}"
-                      Stroke="{DynamicResource StateWarn}" Margin="0,0,8,0" />
+                <views:IconGlyph Data="{DynamicResource IconAlertTriangleGeometry}"
+                                 Stroke="{DynamicResource StateWarn}" Margin="0,0,8,0" />
                 <TextBlock Text="要確認: 類似度に基づく一致です。内容を確認し、適用に含めるかを選んでください。"
                            VerticalAlignment="Center" Margin="0,0,16,0" />
                 <CheckBox Content="この変更を適用に含める" IsChecked="{Binding IsIncluded}"
