@@ -137,6 +137,13 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     public ICommand OpenBlockInEditorCommand { get; }
 
     /// <summary>
+    /// 4.4: 検索ビューを表示したとき（サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも
+    /// <see cref="SelectSideView"/>を経由するため、ここで一括して発火する）、検索テキストボックスへ
+    /// フォーカスするようViewへ要求する。
+    /// </summary>
+    public event EventHandler? RequestFocusSearchView;
+
+    /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
     /// 再クリックした場合はサイドビューを折りたたむ。それ以外は該当ビューへ切り替えて展開する。
     /// </summary>
@@ -149,6 +156,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
         SelectedSideView = kind;
         IsSideViewCollapsed = false;
+        if (kind == SideViewKind.Search) RequestFocusSearchView?.Invoke(this, EventArgs.Empty);
     }
 
     private bool IsSideViewActive(SideViewKind kind) => !IsSideViewCollapsed && SelectedSideView == kind;

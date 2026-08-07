@@ -14,9 +14,16 @@ public partial class SearchView : UserControl
     {
         InitializeComponent();
 
-        // AvaloniaのTreeViewにはMouseDoubleClickに相当するイベントが無いためDoubleTappedを使う。
+        // 仕様書4.4「クリックで該当行へジャンプ」。単一クリック・キーボードの上下移動は
+        // いずれもTreeViewの選択変更として届くため、SelectionChangedで一括してジャンプする
+        // （VS Code同等の挙動）。ダブルクリックは選択変更の後に届くため自然に内包されるが、
+        // 挙動を明示するためDoubleTappedのハンドラも維持する。
+        ResultTree.SelectionChanged += (_, _) => TryJumpToSelected();
         ResultTree.DoubleTapped += (_, _) => TryJumpToSelected();
     }
+
+    /// <summary>ShellWindowが検索ビュー表示時にフォーカスを合わせる対象（仕様書4.4）。</summary>
+    public TextBox QueryBoxElement => QueryBox;
 
     private void OnQueryBoxKeyDown(object? sender, KeyEventArgs e)
     {

@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using FluentAssertions;
 using Graft.Core;
 using Graft.Features;
@@ -99,6 +100,25 @@ public class StartupTests : IDisposable
         shell.IsSideViewCollapsed.Should().BeTrue();
 
         window.CaptureRenderedFrame().Should().NotBeNull();
+    }
+
+    [AvaloniaFact(DisplayName = "検索ビューを表示すると検索テキストボックスへ自動でフォーカスする")]
+    public void 検索ビュー表示時に検索欄へ自動フォーカスする()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+
+        var searchView = window.GetControl<SearchView>("SearchViewControl");
+
+        // サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも SelectSideView(Search) を経由する。
+        shell.SelectSideView(SideViewKind.Search);
+        shell.SelectedSideView.Should().Be(SideViewKind.Search);
+
+        // フォーカスはレイアウト確定後まで遅延されるため、保留中のディスパッチャジョブを流す。
+        Dispatcher.UIThread.RunJobs();
+
+        searchView.QueryBoxElement.IsFocused.Should().BeTrue("4.4: 検索ビュー表示時は検索欄へ自動フォーカスする必要がある");
     }
 
     [AvaloniaFact(DisplayName = "接ぎ木パネルの開閉でレイアウトが破綻しない")]
