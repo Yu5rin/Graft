@@ -191,6 +191,54 @@ public sealed class SettingsViewModel : ObservableObject
         await Hooks.InitializeAsync(ct).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 「閉じる」ボタン・Escapeキー・ウィンドウの×（Closing）のすべてから共通で呼び出す
+    /// クローズ処理。バグ2の対応: <see cref="SelectedTheme"/> は変更と同時に
+    /// <see cref="ThemeManager.SetTheme"/> で即時プレビュー反映されるが、保存せずに閉じた場合は
+    /// そのプレビューを取り消し、最後に保存された状態へ戻す。あわせて未保存の変更がある場合は
+    /// 「保存する／破棄して閉じる／キャンセル」を確認する（3択の意味は
+    /// <see cref="IDialogService.ConfirmThreeWayAsync"/>のyes/no/nullに対応）。
+    /// </summary>
+    /// <returns>ウィンドウを閉じてよいならtrue、ユーザーがキャンセルしたならfalse。</returns>
+    public async Task<bool> RequestCloseAsync()
+    {
+        if (!HasUnsavedChanges()) return true;
+
+        var choice = await _dialogService.ConfirmThreeWayAsync(
+            "未保存の変更があります",
+            "設定に保存されていない変更があります。保存せずに閉じますか?",
+            "保存する", "破棄して閉じる").ConfigureAwait(true);
+
+        switch (choice)
+        {
+            case true:
+                await SaveAsync().ConfigureAwait(true);
+                return true;
+            case false:
+                // テーマ等の即時プレビューを、最後に保存された_settingsの内容へ戻す。
+                // SelectedThemeのsetterはThemeManager.SetTheme経由でウィンドウの見た目自体を
+                // 変えるため、フィールドを入れ直すだけでプレビューが取り消される。
+                PopulateEditableFields(_settings);
+                return true;
+            default:
+                return false; // キャンセル：閉じずに編集を続けさせる
+        }
+    }
+
+    /// <summary>
+    /// 読み込み直後（または直近の保存直後）の設定と、現在の入力欄から組み立てた設定を比較し、
+    /// 未保存の変更があるかどうかを判定する。<see cref="Settings"/>はrecordだが
+    /// <see cref="SafetySettings.AllowedExtensions"/>のList&lt;string&gt;など既定の構造的等価性が
+    /// 効かないフィールドを含むため、record同士の==ではなく、JsonTextと同じ手段
+    /// （JSONへ直列化した文字列）で比較する。
+    /// </summary>
+    private bool HasUnsavedChanges()
+    {
+        var current = JsonSerializer.Serialize(BuildSettingsFromFields(), JsonFileStore.DefaultOptions);
+        var saved = JsonSerializer.Serialize(_settings, JsonFileStore.DefaultOptions);
+        return current != saved;
+    }
+
     private async Task LoadAsync(CancellationToken ct)
     {
         await RunBusyAsync(async () =>

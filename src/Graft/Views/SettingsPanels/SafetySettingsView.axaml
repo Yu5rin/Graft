@@ -3,8 +3,13 @@
              x:Class="Graft.Views.SettingsPanels.SafetySettingsView"
              AutomationProperties.Name="安全機構設定">
     <!-- 14章「safety」区分（13章 安全機構）。 -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
-        <StackPanel>
+    <!--
+        AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
+        Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
+        下端で見切れる（実機で確認済みの不具合。GeneralSettingsView参照）。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,8,16,16">
             <TextBlock Text="安全機構" Classes="sectionHeading first" />
             <TextBlock Text="許可する拡張子（カンマ区切り）" Margin="0,0,0,4"
                        Foreground="{DynamicResource TextSecondary}"
