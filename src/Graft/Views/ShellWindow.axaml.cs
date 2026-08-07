@@ -50,6 +50,7 @@ public partial class ShellWindow : Window
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
+        viewModel.QuickOpen.Opened += OnQuickOpenOpened;
     }
 
     private ShellViewModel ViewModel => (ShellViewModel)DataContext!;
@@ -86,6 +87,15 @@ public partial class ShellWindow : Window
     private void OnRequestFocusSearchView(object? sender, EventArgs e)
     {
         Dispatcher.UIThread.Post(() => SearchViewControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// クイックオープン（Ctrl+P）を開いた瞬間に検索欄へフォーカスする。
+    /// オーバーレイが直前まで非表示だったため、検索ビュー表示時と同様レイアウト確定後まで遅延させる。
+    /// </summary>
+    private void OnQuickOpenOpened(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() => QuickOpenOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
     }
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
@@ -181,6 +191,10 @@ public partial class ShellWindow : Window
             layout.Width = Width;
             layout.Height = Height;
         }
+        // WindowState.Normalへ一度もならずに終了した場合（初回起動→最大化のまま終了等）は
+        // Left/Topを更新しない。既定値はnull（未保存）のままなので、次回起動時は
+        // ResolveWindowBoundsがプライマリモニタ中央へ補正する（バグ1: NaNのままSaveAsyncして
+        // 例外になっていた不具合の修正）。
 
         if (!ViewModel.IsSideViewCollapsed)
         {

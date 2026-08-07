@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Windows.Input;
 using Graft.Features;
@@ -54,12 +55,24 @@ public sealed class SearchFileGroupViewModel : ObservableObject
 
 /// <summary>
 /// サイドビュー「検索」（4.4節・Ctrl+Shift+F）のViewModel。<see cref="CrossFileSearchEngine"/>
-/// （WPF非依存）を呼び出し、結果をファイル→行のツリーとして<see cref="Groups"/>へ逐次追加する。
+/// （WPF非依存）を呼び出し、結果をファイル→行のツリーとして<see cref="Groups"/>へ反映する。
 /// ジャンプ要求はエディタへの直接依存を避けるため<see cref="JumpRequested"/>イベントとして外へ出す
 /// （接続は統合担当が行う）。
+///
+/// 性能上の注意（hardening-perf）: エンジン自体は数百件のヒットを1秒未満で列挙できるほど
+/// 高速だが、ヒット1件ごとに<see cref="ObservableCollection{T}"/>へAddすると、そのたびに
+/// 結果ツリー（TreeView）側のレイアウト・描画が走り、実機（発行バイナリ）では
+/// 869ファイルのヒットで検索完了まで6秒超かかっていた。そのため<see cref="RunSearchAsync"/>は
+/// ヒットを一旦バッファへ溜め、一定間隔（<see cref="BatchFlushIntervalMs"/>）ごとにまとめて
+/// <see cref="Groups"/>へ反映する。中止ボタン（<see cref="CancelCommand"/>）は従来どおり
+/// <see cref="CancellationTokenSource"/>を介して効く（バッファリングは表示反映のみに影響し、
+/// 検索そのものの中断可否には関与しない）。
 /// </summary>
 public sealed class SearchViewModel : ObservableObject
 {
+    /// <summary>結果反映のバッチ間隔（ミリ秒）。この間隔ごとにバッファをまとめて<see cref="Groups"/>へ反映する。</summary>
+    private const int BatchFlushIntervalMs = 100;
+
     private readonly CrossFileSearchEngine _engine;
     private readonly IDialogService _dialogs;
 
@@ -142,18 +155,21 @@ public sealed class SearchViewModel : ObservableObject
         StatusText = "検索中...";
         var state = new SearchRunState();
         var byPath = new Dictionary<string, SearchFileGroupViewModel>(StringComparer.Ordinal);
+        var pending = new List<SearchHit>();
+        var sinceFlush = Stopwatch.StartNew();
         try
         {
             var options = BuildOptions();
             await foreach (var hit in _engine.SearchAsync(_project, _settings, options, state, cts.Token).ConfigureAwait(true))
             {
-                if (!byPath.TryGetValue(hit.FullPath, out var group))
+                pending.Add(hit);
+                // 1件ごとにツリーへ反映すると、そのたびにレイアウト・描画が走り体感速度を
+                // 大きく損なうため、一定間隔でまとめて反映する（クラスコメント参照）。
+                if (sinceFlush.ElapsedMilliseconds >= BatchFlushIntervalMs)
                 {
-                    group = new SearchFileGroupViewModel(hit.FullPath, hit.RelativePath);
-                    byPath[hit.FullPath] = group;
-                    Groups.Add(group);
+                    FlushPending(pending, byPath);
+                    sinceFlush.Restart();
                 }
-                group.Hits.Add(new SearchHitViewModel(hit));
             }
         }
         catch (OperationCanceledException)
@@ -162,9 +178,29 @@ public sealed class SearchViewModel : ObservableObject
         }
         finally
         {
+            // 中止時も含め、未反映のヒットを最後に一括反映してから完了扱いにする。
+            FlushPending(pending, byPath);
             IsSearching = false;
             UpdateStatus(state);
         }
+    }
+
+    /// <summary>バッファ済みのヒットをまとめて結果ツリーへ反映する。</summary>
+    private void FlushPending(List<SearchHit> pending, Dictionary<string, SearchFileGroupViewModel> byPath)
+    {
+        if (pending.Count == 0) return;
+
+        foreach (var hit in pending)
+        {
+            if (!byPath.TryGetValue(hit.FullPath, out var group))
+            {
+                group = new SearchFileGroupViewModel(hit.FullPath, hit.RelativePath);
+                byPath[hit.FullPath] = group;
+                Groups.Add(group);
+            }
+            group.Hits.Add(new SearchHitViewModel(hit));
+        }
+        pending.Clear();
     }
 
     private async Task ReplaceAllAsync()

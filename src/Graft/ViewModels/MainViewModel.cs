@@ -26,10 +26,12 @@ public sealed partial class MainViewModel : ObservableObject
 {
     private readonly ApplyEngine _applyEngine;
     private readonly RevisionStore _revisionStore;
+    private readonly RevisionRestorer _revisionRestorer;
     private readonly SettingsStore _settingsStore;
     private readonly IDialogService _dialogs;
     private readonly IUiServices _ui;
     private readonly PatchParser _parser = new();
+    private readonly HookRunner _hookRunner = new();
     private readonly Action _openSettingsRequested;
 
     private Settings _settings = new();
@@ -59,6 +61,7 @@ public sealed partial class MainViewModel : ObservableObject
         _applyEngine = applyEngine ?? throw new ArgumentNullException(nameof(applyEngine));
         ArgumentNullException.ThrowIfNull(projectStore);
         _revisionStore = revisionStore ?? throw new ArgumentNullException(nameof(revisionStore));
+        _revisionRestorer = revisionRestorer ?? throw new ArgumentNullException(nameof(revisionRestorer));
         _settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
         LayoutStore = layoutStore ?? throw new ArgumentNullException(nameof(layoutStore));
         _dialogs = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
@@ -92,6 +95,7 @@ public sealed partial class MainViewModel : ObservableObject
         AddCurrentPatchToQueueCommand = new AsyncRelayCommand(AddCurrentPatchToQueueAsync, () => _currentPatch is not null);
         OpenQueueCommand = new RelayCommand(() => RequestOpenQueue?.Invoke(this, EventArgs.Empty));
         CopyRecoveryPromptCommand = new AsyncRelayCommand(CopyRecoveryPromptAsync, () => Blocks.Any(b => !b.Plan.CanApply));
+        ParseFromFileCommand = new AsyncRelayCommand(PickAndParseFileAsync); // 4.1（MainViewModel.FileParse.cs）。
 
         InitializePrompt(projectStore); // 4.8.4（MainViewModel.Prompt.cs）。
     }
@@ -149,6 +153,8 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public ICommand PasteAndParseCommand { get; }
+    /// <summary>4.1: ファイルを選んで解析する（MainViewModel.FileParse.cs）。</summary>
+    public ICommand ParseFromFileCommand { get; }
     public ICommand PreviewCommand { get; }
     public ICommand ApplyCommand { get; }
     public ICommand UndoCommand { get; }
@@ -171,8 +177,27 @@ public sealed partial class MainViewModel : ObservableObject
         Diff.WordWrap = _settings.Diff.WordWrap;
         Diff.ShowWhitespace = _settings.Diff.ShowWhitespace;
 
-        Layout = await LayoutStore.LoadAsync(ct).ConfigureAwait(true);
+        Layout = await LoadLayoutSafeAsync(ct).ConfigureAwait(true);
         await ProjectPane.LoadAsync(ct).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// レイアウト読み込みの防御層。JSON解析エラーは<see cref="WindowLayoutStore.LoadAsync"/>内で
+    /// 既に退避・再生成済みだが、ファイルI/O自体の失敗（アクセス権等）は例外として上がってくる。
+    /// レイアウトが読めない程度でプロジェクト一覧読み込み等まで中断させないよう既定値へ倒す
+    /// （設計目標5・附録A.4）。想定外の例外は<see cref="SafeHandler.OnUnexpected"/>でログへ記録する。
+    /// </summary>
+    private async Task<WindowLayoutState> LoadLayoutSafeAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await LayoutStore.LoadAsync(ct).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SafeHandler.OnUnexpected?.Invoke("レイアウトの読み込み", ex);
+            return new WindowLayoutState();
+        }
     }
 
     /// <summary>終了時に現在のレイアウトを保存する。</summary>
@@ -269,6 +294,15 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        await ParseTextAndLoadAsync(text).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// テキストを受け取って解析する内部経路。クリップボード（<see cref="PasteAndParseAsync"/>）と
+    /// ファイル選択・ドラッグ＆ドロップ（MainViewModel.FileParse.cs）の両方から共有する。
+    /// </summary>
+    private async Task ParseTextAndLoadAsync(string text)
+    {
         var parsed = _parser.Parse(text);
         if (!parsed.IsSuccess)
         {
@@ -335,49 +369,9 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(TargetSummaryText));
     }
 
-    private async Task ApplyAsync()
-    {
-        if (_dryRun is null || _lastContext is null) return;
-
-        var updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
-        var updatedDryRun = _dryRun with { Plans = updatedPlans };
-
-        if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
-        {
-            var input = await _dialogs.PromptAsync("要約を入力", "このリビジョンの概要を入力してください。", null).ConfigureAwait(true);
-            if (string.IsNullOrWhiteSpace(input)) return;
-            var patchWithSummary = updatedDryRun.Patch with { Meta = updatedDryRun.Patch.Meta with { Summary = input } };
-            updatedDryRun = updatedDryRun with { Patch = patchWithSummary };
-        }
-
-        var confirmed = await _dialogs
-            .ConfirmAsync("適用の確認", $"{updatedDryRun.ApplicableCount}件を適用します。よろしいですか？")
-            .ConfigureAwait(true);
-        if (!confirmed) return;
-
-        State = CenterPaneState.Loading;
-        var result = await _applyEngine.ApplyAsync(updatedDryRun, _lastContext).ConfigureAwait(true);
-        if (!result.IsSuccess)
-        {
-            CenterError = result.Errors.FirstOrDefault();
-            State = CenterPaneState.Error;
-            return;
-        }
-
-        await NotifyFilesRewrittenAsync(_lastContext.ProjectRoot, result.Value).ConfigureAwait(true); // 4.8/7章: 再読込フック。
-        await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
-        FinalizeApplyFromQueueIfNeeded(); // 4.10: キュー結合適用時はキューを空にする（MainViewModel.Queue.cs）。
-        DiscardCurrentPatch();
-        await ProjectPane.LoadAsync().ConfigureAwait(true);
-        var project = ProjectPane.SelectedItem?.Project;
-        if (project is not null) await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
-    }
-
-    private async Task UndoLastAsync()
-    {
-        var undone = await History.UndoLatestAsync().ConfigureAwait(true);
-        if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
-    }
+    // ApplyAsync/UndoLastAsync（適用の本体・Ctrl+Z）はMainViewModel.Apply.csへ分割している
+    // （1ファイル400行上限のため。6.5適用後フックのonFailure分岐からApplyAsyncを呼ぶ都合上、
+    // 同じ「適用」テーマのApply.csへまとめた）。
 
     private void DiscardCurrentPatch()
     {

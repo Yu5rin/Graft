@@ -136,7 +136,32 @@
                                WordWrap="{Binding WordWrap}"
                                HorizontalScrollBarVisibility="Auto"
                                VerticalScrollBarVisibility="Auto"
-                               AutomationProperties.Name="コードエディタ" />
+                               AutomationProperties.Name="コードエディタ">
+                    <!--
+                        本文の右クリックメニュー。標準操作（切り取り/コピー/貼り付け）はAvaloniaEditの
+                        TextEditor自身のメソッドを呼ぶだけに留める（EditorPane.SelectionPrompt.cs）。
+                        「選択範囲の修正依頼プロンプトをコピー」は選択が無いとき（差分タブ表示中は
+                        Editor自体が非表示になるため右クリックできない）は無効化する。
+                    -->
+                    <ae:TextEditor.ContextMenu>
+                        <ContextMenu Opening="OnEditorContextMenuOpening">
+                            <MenuItem Header="切り取り"
+                                      Click="OnCutClicked"
+                                      AutomationProperties.Name="選択範囲を切り取り" />
+                            <MenuItem Header="コピー"
+                                      Click="OnCopyClicked"
+                                      AutomationProperties.Name="選択範囲をコピー" />
+                            <MenuItem Header="貼り付け"
+                                      Click="OnPasteClicked"
+                                      AutomationProperties.Name="クリップボードの内容を貼り付け" />
+                            <Separator />
+                            <MenuItem x:Name="CopyFixRequestPromptMenuItem"
+                                      Header="選択範囲の修正依頼プロンプトをコピー"
+                                      Click="OnCopyFixRequestPromptClicked"
+                                      AutomationProperties.Name="選択範囲の修正依頼プロンプトをコピー" />
+                        </ContextMenu>
+                    </ae:TextEditor.ContextMenu>
+                </ae:TextEditor>
 
                 <!-- 9.2/4.8: diffはエディタ領域の専用タブとして開く。 -->
                 <local:DiffView x:Name="DiffHost"

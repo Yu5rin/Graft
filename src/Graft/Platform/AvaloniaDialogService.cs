@@ -124,6 +124,43 @@ public sealed class AvaloniaDialogService : IDialogService
         return folder?.TryGetLocalPath();
     }
 
+    /// <summary>
+    /// ファイル選択ダイアログを表示する（<see cref="PickFolderAsync"/>と同じ設計方針）。
+    /// パッチファイルの選択（4.1「ファイルからのパッチ解析」）で使う。
+    /// </summary>
+    public async Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null)
+    {
+        var owner = FindOwnerWindow();
+        var provider = owner is null ? null : TopLevel.GetTopLevel(owner)?.StorageProvider;
+        if (provider is null || !provider.CanOpen)
+        {
+            return null;
+        }
+
+        var options = new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false,
+            FileTypeFilter = BuildFileTypeFilter(extensions),
+        };
+        var picked = await provider.OpenFilePickerAsync(options).ConfigureAwait(true);
+        var file = picked.Count > 0 ? picked[0] : null;
+        return file?.TryGetLocalPath();
+    }
+
+    /// <summary>拡張子一覧から「対応するファイル」フィルタを組み立てる。未指定時はnull（フィルタ無し）。</summary>
+    private static IReadOnlyList<FilePickerFileType>? BuildFileTypeFilter(IReadOnlyList<string>? extensions)
+    {
+        if (extensions is null || extensions.Count == 0) return null;
+
+        var patterns = extensions.Select(ext => $"*{ext}").ToArray();
+        return new[]
+        {
+            new FilePickerFileType("対応するファイル") { Patterns = patterns },
+            FilePickerFileTypes.All,
+        };
+    }
+
     public Task ShowMessageAsync(string title, string message)
     {
         var window = BuildShell(title, out var body);

@@ -57,6 +57,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         Explorer = new ExplorerViewModel(Editor, _dialogs, settings, ui);
         Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs);
         Search.JumpRequested += OnSearchJumpRequested;
+        QuickOpen = new QuickOpenViewModel();
+        QuickOpen.FileOpenRequested += OnQuickOpenFileRequested;
         _settings = settings;
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
@@ -68,6 +70,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         SelectSideViewCommand = new RelayCommand<SideViewKind>(SelectSideView);
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
         OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
+        ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
     }
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>
@@ -87,6 +90,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>ファイル横断検索ビュー（仕様書4.4）。</summary>
     public SearchViewModel Search { get; }
+
+    /// <summary>クイックオープン（Ctrl+P、ファイル名あいまい検索）。</summary>
+    public QuickOpenViewModel QuickOpen { get; }
 
     /// <summary>現在表示中のサイドビュー。</summary>
     public SideViewKind SelectedSideView
@@ -135,6 +141,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>4.8: ブロック一覧の「エディタで開く」。マッチ位置をエディタで開く。</summary>
     public ICommand OpenBlockInEditorCommand { get; }
+
+    /// <summary>Ctrl+P。クイックオープンオーバーレイの開閉（トグル）。</summary>
+    public ICommand ToggleQuickOpenCommand { get; }
 
     /// <summary>
     /// 4.4: 検索ビューを表示したとき（サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも
@@ -270,6 +279,14 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         => await SafeHandler.RunAsync("検索結果からのジャンプ", () =>
             Editor.OpenFileAsync(target.FullPath, preview: true, line: target.Line)).ConfigureAwait(true);
 
+    /// <summary>クイックオープンでの確定（Enter・マウスクリック）。プレビュータブとして開く。</summary>
+    private async void OnQuickOpenFileRequested(object? sender, string fullPath)
+        => await SafeHandler.RunAsync("クイックオープンからのファイルを開く", () =>
+            Editor.OpenFileAsync(fullPath, preview: true)).ConfigureAwait(true);
+
+    /// <summary>Ctrl+P。プロジェクト未選択時は何もしない（QuickOpenViewModel.ToggleAsyncが判定する）。</summary>
+    private async Task ToggleQuickOpenAsync() => await QuickOpen.ToggleAsync().ConfigureAwait(true);
+
     private async void OnProjectSelected(object? sender, Project project)
         => await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
         {
@@ -279,6 +296,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             Editor.SetProject(project.Root);
             await Explorer.SetProjectAsync(project).ConfigureAwait(true);
             Search.SetContext(project, _settings);
+            QuickOpen.SetContext(project, _settings);
             await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
             _currentProjectId = project.Id;

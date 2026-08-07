@@ -11,7 +11,7 @@ namespace Graft.Core;
 /// フォルダが外部から削除・移動された場合にも履歴の記録自体を残すための補助索引（仕様書13.1）。
 /// 7.2「追加のデータ保持は不要」と13.1は仕様書内で競合するため、実害の大きい13.1を優先する。
 /// </summary>
-public sealed class RevisionStore
+public sealed partial class RevisionStore
 {
     private readonly AppPaths _paths;
     private readonly JsonFileStore _jsonStore = new();

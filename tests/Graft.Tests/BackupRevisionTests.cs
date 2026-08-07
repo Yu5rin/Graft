@@ -314,4 +314,47 @@ public class BackupRevisionTests
         result.IsSuccess.Should().BeFalse();
         result.Errors.Should().Contain(i => i.Code == ErrorCode.E405);
     }
+
+    // ------------------------------------------------------------------
+    // 6.5 適用後フックの実行結果をmanifest.jsonへ記録する（RecordHookResultsAsync）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "RecordHookResultsAsyncは確定済みmanifestのHooksを更新し、再読み込みで反映される")]
+    public async Task フック実行結果がmanifestに記録され再読み込みできる()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        await CreateRevisionAsync(harness, 5, "sha256:hookrecord");
+        var hooks = new[]
+        {
+            new HookResult { Name = "ビルド", ExitCode = 0, DurationMs = 120, TimedOut = false, Output = "ok" },
+            new HookResult { Name = "テスト", ExitCode = 1, DurationMs = 300, TimedOut = false, Output = "failed" },
+        };
+
+        var recorded = await harness.Revisions.RecordHookResultsAsync(harness.ProjectId, 5, hooks);
+        recorded.IsSuccess.Should().BeTrue();
+
+        var reread = await harness.Revisions.ReadAsync(harness.ProjectId, 5);
+        reread.IsSuccess.Should().BeTrue();
+        reread.Value.Manifest.Hooks.Should().HaveCount(2);
+        reread.Value.Manifest.Hooks[0].Name.Should().Be("ビルド");
+        reread.Value.Manifest.Hooks[0].ExitCode.Should().Be(0);
+        reread.Value.Manifest.Hooks[1].Name.Should().Be("テスト");
+        reread.Value.Manifest.Hooks[1].ExitCode.Should().Be(1);
+        // manifest.jsonの他の項目（Status等）は書き換えられていないはず。
+        reread.Value.Manifest.Status.Should().Be(RevisionStatus.Success);
+    }
+
+    [Fact(DisplayName = "RecordHookResultsAsyncは実体の無いリビジョンに対してE405で失敗する")]
+    public async Task フック実行結果の記録は実体が無ければE405になる()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+
+        var recorded = await harness.Revisions.RecordHookResultsAsync(
+            harness.ProjectId, 999, Array.Empty<HookResult>());
+
+        recorded.IsSuccess.Should().BeFalse();
+        recorded.Errors.Should().Contain(i => i.Code == ErrorCode.E405);
+    }
 }

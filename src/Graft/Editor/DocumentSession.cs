@@ -256,8 +256,10 @@ public sealed class DocumentSession : IDisposable
     /// NULバイトが1つでもあれば即バイナリ、それ以外はタブ・LF・CRを除く制御文字の比率が
     /// <see cref="BinaryControlRatioThreshold"/>を超えたらバイナリとみなす。ファイル全体を
     /// 読まないため巨大なバイナリファイルでも高速に判定できる。
+    /// internalなのは、ファイルからのパッチ解析（<see cref="Graft.ViewModels.MainViewModel"/>の
+    /// MainViewModel.FileParse.cs）が同じ判定をD&D・ファイル選択の両経路で再利用するため。
     /// </summary>
-    private static async Task<bool> LooksBinaryAsync(string fullPath, CancellationToken ct)
+    internal static async Task<bool> LooksBinaryAsync(string fullPath, CancellationToken ct)
     {
         var ioPath = LongPath.Extended(fullPath);
         await using var stream = new FileStream(

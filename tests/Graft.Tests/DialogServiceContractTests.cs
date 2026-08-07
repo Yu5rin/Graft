@@ -57,6 +57,16 @@ public class DialogServiceContractTests
         result.Should().BeNull();
     }
 
+    [Fact(DisplayName = "PickFileAsyncは既定でnull（キャンセル扱い）を返す")]
+    public async Task PickFileAsyncは既定でnullを返す()
+    {
+        var sut = new NullDialogService();
+
+        var result = await sut.PickFileAsync("ファイルを選択", new[] { ".txt" });
+
+        result.Should().BeNull();
+    }
+
     [Fact(DisplayName = "ShowMessageAsyncは例外を投げず完了する")]
     public async Task ShowMessageAsyncは例外を投げず完了する()
     {

@@ -87,6 +87,62 @@ public sealed class PromptTemplateStore
         return now - last <= TimeSpan.FromHours(1);
     }
 
+    /// <summary>
+    /// エディタの選択範囲から修正依頼プロンプトを組み立てる（右クリックメニュー
+    /// 「選択範囲の修正依頼プロンプトをコピー」）。「修正依頼」テンプレートの形式指示
+    /// （<see cref="FixRequestFormatInstruction"/>）に続けて、対象ファイルのプロジェクト相対パス・
+    /// 行範囲・選択コード（``` フェンス。拡張子から言語名を付けられれば付ける）を並べ、末尾に
+    /// 依頼内容を書き足すための誘導行を置く。10章のコンテキスト収集を介さない単発の依頼のため、
+    /// <c>{{standingContext}}</c>・<c>{{files}}</c> のようなプレースホルダは使わない。
+    /// UIに依存しない純粋メソッドとして置き、単体テストで検証できるようにする。
+    /// </summary>
+    /// <param name="relativePath">対象ファイルのプロジェクト相対パス。</param>
+    /// <param name="startLine">選択範囲の開始行（1始まり）。</param>
+    /// <param name="endLine">選択範囲の終了行（1始まり）。</param>
+    /// <param name="selectedCode">選択されたコード本文。</param>
+    /// <param name="fileExtension">対象ファイルの拡張子（先頭の <c>.</c> の有無は問わない）。</param>
+    public static string BuildSelectionFixRequestPrompt(
+        string relativePath, int startLine, int endLine, string selectedCode, string fileExtension)
+    {
+        ArgumentNullException.ThrowIfNull(relativePath);
+        ArgumentNullException.ThrowIfNull(selectedCode);
+        ArgumentNullException.ThrowIfNull(fileExtension);
+
+        var fenceLanguage = FenceLanguageForExtension(fileExtension);
+        var code = selectedCode.EndsWith('\n') ? selectedCode : selectedCode + "\n";
+
+        return FixRequestFormatInstruction +
+            $"\n\n対象: {relativePath}（{startLine}〜{endLine}行目）\n\n" +
+            $"```{fenceLanguage}\n{code}```\n\n" +
+            "このコードの修正を依頼します。修正内容: ";
+    }
+
+    /// <summary>
+    /// コードフェンスに付ける言語識別子。<see cref="Graft.Core.LanguageRule"/>の
+    /// シンタックスハイライト対応拡張子と合わせるが、フェンス表記はMarkdownで一般的な言語名
+    /// （<c>csharp</c>等）を使う。対応外の拡張子は言語名なしのフェンス（<c>```</c>のみ）にする。
+    /// </summary>
+    private static string FenceLanguageForExtension(string extension)
+    {
+        var normalized = (extension.StartsWith('.') ? extension[1..] : extension).Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "cs" => "csharp",
+            "py" => "python",
+            "js" or "jsx" => "javascript",
+            "ts" or "tsx" => "typescript",
+            "json" => "json",
+            "html" or "htm" => "html",
+            "xml" or "axaml" or "xaml" => "xml",
+            "css" => "css",
+            "md" => "markdown",
+            "sh" or "bash" => "bash",
+            "sql" => "sql",
+            "yaml" or "yml" => "yaml",
+            _ => string.Empty,
+        };
+    }
+
     private static IReadOnlyList<PromptTemplate> BuildBuiltIns() => new[]
     {
         new PromptTemplate { Id = "builtin-full", Name = "初回用（完全版）", Body = FullBody, IsBuiltIn = true },
@@ -133,8 +189,11 @@ public sealed class PromptTemplateStore
     /// <summary>仕様書4.8.1 継続用の短縮テンプレートの本文（一字一句そのまま）。</summary>
     private const string ContinuationBody = "先ほどと同じGraft形式（PATCHメタ + SEARCH/REPLACE）で出力してください。";
 
-    /// <summary>4.8.3「修正依頼」: 形式指示（SR優先）＋standingContext＋files。</summary>
-    private const string FixRequestBody =
+    /// <summary>
+    /// 4.8.3「修正依頼」の形式指示部分（standingContext/filesを含まない）。単体でも、
+    /// 選択範囲からの修正依頼プロンプト（<see cref="BuildSelectionFixRequestPrompt"/>）でも使う。
+    /// </summary>
+    private const string FixRequestFormatInstruction =
         "コードの修正を提案する際は、必ず以下の形式で出力してください。\n" +
         "\n" +
         "まずパッチ全体の要約を書きます。\n" +
@@ -155,8 +214,11 @@ public sealed class PromptTemplateStore
         "\n" +
         "説明文はブロックの外に書いてください。\n" +
         "\n" +
-        EscapeRuleNote +
-        "\n\n# 前提\n{{standingContext}}\n\n# 対象ファイル\n{{files}}";
+        EscapeRuleNote;
+
+    /// <summary>4.8.3「修正依頼」: 形式指示（SR優先）＋standingContext＋files。</summary>
+    private const string FixRequestBody =
+        FixRequestFormatInstruction + "\n\n# 前提\n{{standingContext}}\n\n# 対象ファイル\n{{files}}";
 
     /// <summary>4.8.3「新規実装」: 形式指示（FULL許可）＋standingContext＋tree。</summary>
     private const string NewFileBody =
