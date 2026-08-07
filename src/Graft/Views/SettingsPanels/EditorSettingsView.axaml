@@ -6,8 +6,13 @@
         15章 editorセクション（12項目）・4章 コードエディタの設定タブ。
         書式は Themes/Settings.axaml のクラス。DataContextはSettingsViewModelを継承する。
     -->
-    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,8">
-        <StackPanel>
+    <!--
+        AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
+        Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
+        下端で見切れる（実機で確認済みの不具合。GeneralSettingsView参照）。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,8,16,16">
             <TextBlock Text="表示" Classes="sectionHeading first" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="フォントサイズ" Classes="fieldLabel" />
