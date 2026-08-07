@@ -24,7 +24,7 @@ AIチャットで得たコードをコピー＆ペースト1回で反映し、�
 
 - Windows 10 (21H2 以降) / Windows 11、x64
 - Linux（X11 / Wayland）、x64。glibc ベースのディストリビューション
-- .NET 8 / Avalonia UI、self-contained の単一実行ファイル（約120MB、ランタイム事前導入は不要）
+- .NET 8 / Avalonia UI、self-contained のフォルダ形式（発行フォルダ一式で約105MB、ランタイム事前導入は不要）
 - インストーラ・管理者権限・レジストリ書き込みは不要
 - ネットワーク通信は一切行わない
 
@@ -72,21 +72,23 @@ headless 環境で実際に描画するため、画面のない CI 上でもレ�
 
 ```
 # Windows 向け
-dotnet publish src/Graft -c Release -r win-x64 --self-contained true \
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/win
+dotnet publish src/Graft -c Release -r win-x64 --self-contained true -o publish/win
 
 # Linux 向け
-dotnet publish src/Graft -c Release -r linux-x64 --self-contained true \
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/linux
+dotnet publish src/Graft -c Release -r linux-x64 --self-contained true -o publish/linux
 ```
 
-単一ファイルとして生成される。実行ファイルと同じ階層に
-`settings.json` / `projects.json` / `back/` / `logs/` を作るため、専用フォルダへ置くこと。
+実行ファイルと依存ライブラリ一式がフォルダにまとまって生成される（単一ファイルへは
+まとめない。理由は下記）。フォルダの中の実行ファイルと同じ階層に
+`settings.json` / `projects.json` / `back/` / `logs/` を作るため、フォルダごと専用の場所へ置くこと。
 
 起動時の JIT を減らすため ReadyToRun を有効にしている（Linux 実測で約1.85秒 → 約0.72秒）。
 
-ただし単一ファイル版は、初回起動時に限りネイティブライブラリの展開が入るため
-約2.2秒かかる。展開結果は再利用されるので、2回目以降は上記の値に落ち着く。
+以前は単一ファイル（PublishSingleFile）として発行していたが、実測の結果フォルダ形式へ
+変更した。単一ファイル版は起動のたびに自分自身をメモリ上に展開する処理が入るため、
+常駐メモリが約20MB多く、かつ初回起動時のみネイティブライブラリの自己展開が加わって
+約5.44秒かかっていた（2回目以降は展開結果を再利用するため約0.84秒）。フォルダ形式では
+この展開が要らないため、初回・2回目以降を問わず毎回 約0.85秒 で起動する。
 
 ## 仕様書
 
