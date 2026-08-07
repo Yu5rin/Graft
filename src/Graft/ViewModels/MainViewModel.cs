@@ -95,6 +95,7 @@ public sealed partial class MainViewModel : ObservableObject
         AddCurrentPatchToQueueCommand = new AsyncRelayCommand(AddCurrentPatchToQueueAsync, () => _currentPatch is not null);
         OpenQueueCommand = new RelayCommand(() => RequestOpenQueue?.Invoke(this, EventArgs.Empty));
         CopyRecoveryPromptCommand = new AsyncRelayCommand(CopyRecoveryPromptAsync, () => Blocks.Any(b => !b.Plan.CanApply));
+        ParseFromFileCommand = new AsyncRelayCommand(PickAndParseFileAsync); // 4.1（MainViewModel.FileParse.cs）。
 
         InitializePrompt(projectStore); // 4.8.4（MainViewModel.Prompt.cs）。
     }
@@ -152,6 +153,8 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     public ICommand PasteAndParseCommand { get; }
+    /// <summary>4.1: ファイルを選んで解析する（MainViewModel.FileParse.cs）。</summary>
+    public ICommand ParseFromFileCommand { get; }
     public ICommand PreviewCommand { get; }
     public ICommand ApplyCommand { get; }
     public ICommand UndoCommand { get; }
@@ -272,6 +275,15 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        await ParseTextAndLoadAsync(text).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// テキストを受け取って解析する内部経路。クリップボード（<see cref="PasteAndParseAsync"/>）と
+    /// ファイル選択・ドラッグ＆ドロップ（MainViewModel.FileParse.cs）の両方から共有する。
+    /// </summary>
+    private async Task ParseTextAndLoadAsync(string text)
+    {
         var parsed = _parser.Parse(text);
         if (!parsed.IsSuccess)
         {

@@ -35,6 +35,15 @@ public interface IDialogService
     /// </summary>
     Task<string?> PickFolderAsync(string title);
 
+    /// <summary>
+    /// ファイル選択ダイアログを表示する。キャンセル時はnullを返す。
+    /// <paramref name="extensions"/>（先頭ドット付き。例: ".txt"）を指定すると、その拡張子を
+    /// 既定のフィルタとして提示する（「すべてのファイル」も併記する）。未指定または空なら
+    /// フィルタ無しですべてのファイルを表示する。<see cref="PickFolderAsync"/>と同じ理由で
+    /// 非同期シグネチャにしている。
+    /// </summary>
+    Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null);
+
     /// <summary>OKボタンのみの通知ダイアログを表示する。</summary>
     Task ShowMessageAsync(string title, string message);
 }

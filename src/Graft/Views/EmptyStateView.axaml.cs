@@ -43,6 +43,12 @@ public partial class EmptyStateView : UserControl
     public static readonly StyledProperty<ICommand?> ActionCommandProperty =
         AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(ActionCommand));
 
+    public static readonly StyledProperty<string> SecondaryActionTextProperty =
+        AvaloniaProperty.Register<EmptyStateView, string>(nameof(SecondaryActionText), string.Empty);
+
+    public static readonly StyledProperty<ICommand?> SecondaryActionCommandProperty =
+        AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(SecondaryActionCommand));
+
     public static readonly StyledProperty<GraftIssue?> IssueProperty =
         AvaloniaProperty.Register<EmptyStateView, GraftIssue?>(nameof(Issue));
 
@@ -61,6 +67,7 @@ public partial class EmptyStateView : UserControl
 
         ApplyState(State);
         ApplyActionText(ActionText);
+        ApplySecondaryActionText(SecondaryActionText);
         ApplyIssue(Issue);
     }
 
@@ -99,6 +106,23 @@ public partial class EmptyStateView : UserControl
         set => SetValue(ActionCommandProperty, value);
     }
 
+    /// <summary>
+    /// 空状態の副次アクションのラベル（4.1「ファイルから解析」等）。未指定（空文字）なら
+    /// ボタンごと非表示にする。主要アクションと違い、無くても空状態として成立する用途向け。
+    /// </summary>
+    public string SecondaryActionText
+    {
+        get => GetValue(SecondaryActionTextProperty);
+        set => SetValue(SecondaryActionTextProperty, value);
+    }
+
+    /// <summary>空状態の副次アクションのコマンド。</summary>
+    public ICommand? SecondaryActionCommand
+    {
+        get => GetValue(SecondaryActionCommandProperty);
+        set => SetValue(SecondaryActionCommandProperty, value);
+    }
+
     /// <summary>エラー状態で表示する問題。エラーコードと対処方法を併記する（8.8）。</summary>
     public GraftIssue? Issue
     {
@@ -112,6 +136,7 @@ public partial class EmptyStateView : UserControl
 
         if (change.Property == StateProperty) ApplyState(change.GetNewValue<EmptyStateMode>());
         else if (change.Property == ActionTextProperty) ApplyActionText(change.GetNewValue<string>());
+        else if (change.Property == SecondaryActionTextProperty) ApplySecondaryActionText(change.GetNewValue<string>());
         else if (change.Property == IssueProperty) ApplyIssue(change.GetNewValue<GraftIssue?>());
     }
 
@@ -119,6 +144,12 @@ public partial class EmptyStateView : UserControl
     {
         ActionButton.IsVisible = !string.IsNullOrEmpty(text);
         AutomationProperties.SetName(ActionButton, text);
+    }
+
+    private void ApplySecondaryActionText(string text)
+    {
+        SecondaryActionButton.IsVisible = !string.IsNullOrEmpty(text);
+        AutomationProperties.SetName(SecondaryActionButton, text);
     }
 
     private void ApplyIssue(GraftIssue? issue)

@@ -168,6 +168,8 @@
                                       Message="AIの出力をコピーして Ctrl+Shift+V"
                                       ActionText="解析"
                                       ActionCommand="{Binding PasteAndParseCommand}"
+                                      SecondaryActionText="ファイルから解析"
+                                      SecondaryActionCommand="{Binding ParseFromFileCommand}"
                                       Issue="{Binding CenterError}" />
             </Grid>
         </Grid>
