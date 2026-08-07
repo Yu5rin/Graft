@@ -81,6 +81,10 @@
                 <settings:TemplateSettingsView />
             </TabItem>
 
+            <TabItem Header="適用後フック" AutomationProperties.Name="適用後フック設定タブ">
+                <settings:HookSettingsView />
+            </TabItem>
+
             <TabItem Header="トークン統計" AutomationProperties.Name="トークン統計タブ">
                 <Grid DataContext="{Binding TokenStats}" Margin="16,8" RowDefinitions="2,Auto,Auto,*,Auto">
 
