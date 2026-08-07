@@ -48,6 +48,16 @@
                     Margin="0,16,0,0"
                     HorizontalAlignment="Center"
                     IsVisible="False" />
+
+            <!-- 副次アクション（例: 4.1「ファイルから解析」）。主要アクションの下に控えめに置く。 -->
+            <Button x:Name="SecondaryActionButton"
+                    Content="{Binding SecondaryActionText, ElementName=Root}"
+                    AutomationProperties.Name="{Binding SecondaryActionText, ElementName=Root}"
+                    Command="{Binding SecondaryActionCommand, ElementName=Root}"
+                    Background="Transparent"
+                    Margin="0,8,0,0"
+                    HorizontalAlignment="Center"
+                    IsVisible="False" />
         </StackPanel>
 
         <!--
