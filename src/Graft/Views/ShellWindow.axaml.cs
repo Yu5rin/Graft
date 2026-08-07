@@ -50,6 +50,7 @@ public partial class ShellWindow : Window
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
+        viewModel.QuickOpen.Opened += OnQuickOpenOpened;
     }
 
     private ShellViewModel ViewModel => (ShellViewModel)DataContext!;
@@ -86,6 +87,15 @@ public partial class ShellWindow : Window
     private void OnRequestFocusSearchView(object? sender, EventArgs e)
     {
         Dispatcher.UIThread.Post(() => SearchViewControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// クイックオープン（Ctrl+P）を開いた瞬間に検索欄へフォーカスする。
+    /// オーバーレイが直前まで非表示だったため、検索ビュー表示時と同様レイアウト確定後まで遅延させる。
+    /// </summary>
+    private void OnQuickOpenOpened(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() => QuickOpenOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
     }
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)

@@ -209,6 +209,11 @@
                     <views:EditorPane DataContext="{Binding Editor}" />
                 </Border>
 
+                <!-- クイックオープン（Ctrl+P）。エディタ領域の上部中央に浮かせて重ねる。 -->
+                <views:QuickOpenOverlay Grid.Row="0"
+                                        x:Name="QuickOpenOverlayControl"
+                                        DataContext="{Binding QuickOpen}" />
+
                 <GridSplitter x:Name="GraftSplitter"
                               Grid.Row="1"
                               Height="4"
