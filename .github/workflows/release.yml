@@ -33,22 +33,29 @@ jobs:
       - name: テスト
         run: dotnet test -c Release
 
+      # 発行先を配布物の名前と同じフォルダにしておく。こうしておくと書庫の中に
+      # 「Graft-v1.0.0-win-x64/」という単一のフォルダだけが入るので、利用者が
+      # ダウンロードフォルダ等でそのまま展開しても数百個のファイルが散らばらない
+      # （フォルダ形式は単一実行ファイルと違い中身が多数のファイルになるため、
+      # 書庫のトップに必ずフォルダを1つ挟むことが重要になる）。
       - name: Windows 向けに発行
         run: |
           dotnet publish src/Graft -c Release -r win-x64 --self-contained true \
-            -p:DebugType=none -o publish/win
+            -p:DebugType=none -o publish/Graft-${{ github.ref_name }}-win-x64
 
       - name: Linux 向けに発行
         run: |
           dotnet publish src/Graft -c Release -r linux-x64 --self-contained true \
-            -p:DebugType=none -o publish/linux
+            -p:DebugType=none -o publish/Graft-${{ github.ref_name }}-linux-x64
 
-      # 発行フォルダの中身一式（実行ファイル・ランタイム・依存ライブラリ）をまとめて圧縮する。
+      # 発行フォルダ一式（実行ファイル・ランタイム・依存ライブラリ）をまとめて圧縮する。
       # Linux 版は zip では実行権限が失われるので tar.gz を使う。
       - name: 配布物をまとめる
         run: |
-          cd publish/win && zip -9 -r ../../Graft-${{ github.ref_name }}-win-x64.zip . && cd ../..
-          tar -czf Graft-${{ github.ref_name }}-linux-x64.tar.gz -C publish/linux .
+          cd publish && zip -9 -r ../Graft-${{ github.ref_name }}-win-x64.zip \
+            Graft-${{ github.ref_name }}-win-x64 && cd ..
+          tar -czf Graft-${{ github.ref_name }}-linux-x64.tar.gz \
+            -C publish Graft-${{ github.ref_name }}-linux-x64
 
       - name: リリースを作成
         uses: softprops/action-gh-release@v2
