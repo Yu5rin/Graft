@@ -254,6 +254,17 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     /// 閉じてエディタ・エクスプローラの対象プロジェクトを切り替え、新しいプロジェクトの
     /// タブ構成・展開状態を復元する。保存確認等はEditorPaneViewModel側の責務。
     /// </summary>
+    /// <summary>
+    /// 3章: アプリ終了時に呼び出し、現在選択中のプロジェクトのタブ構成・アクティブタブ・
+    /// エクスプローラの展開状態をProjectPaneLayoutへ取り込む。プロジェクト未選択
+    /// （_currentProjectIdがnull）の場合は何もしない。実際のlayout.jsonへの永続化は
+    /// 呼び出し元（ShellWindow.OnClosing）のSaveLayoutAsyncが担う。
+    /// </summary>
+    public void CaptureCurrentProjectState()
+    {
+        if (_currentProjectId is { } projectId) CaptureProjectState(projectId);
+    }
+
     /// <summary>横断検索の結果クリックで、該当ファイルの該当行をエディタで開く（仕様書4.4）。</summary>
     private async void OnSearchJumpRequested(object? sender, (string FullPath, int Line) target)
         => await SafeHandler.RunAsync("検索結果からのジャンプ", () =>

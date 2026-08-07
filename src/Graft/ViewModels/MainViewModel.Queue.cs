@@ -43,13 +43,25 @@ public sealed partial class MainViewModel
         TrySetClipboardText(continuation);
 
         var duplicateCount = addResult.Issues.Count(i => i.Code == ErrorCode.E007);
-        var message = $"パッチが途中で切れていたため、解析できた{addResult.Value.Count}件をキューへ追加し、" +
-                      "続きを依頼するプロンプトをクリップボードへコピーしました。";
+        var message = BuildTruncatedPatchMessage(addResult.Value.Count, duplicateCount);
+        await _dialogs.ShowMessageAsync("パッチの続きを依頼します", message).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 4.10: パッチが途中で切れていた場合の通知文言を組み立てる。解析できたブロックが0件の
+    /// ときは「解析できた0件をキューへ追加し」が不自然（実際には何も追加されていない）ため、
+    /// 「解析できたブロックは無かった」旨の文言に分岐する。1件以上のときは従来どおり件数を示す。
+    /// </summary>
+    public static string BuildTruncatedPatchMessage(int addedCount, int duplicateCount)
+    {
+        var message = addedCount == 0
+            ? "パッチが途中で切れていました。解析できたブロックは無かったため、続きを依頼するプロンプトをクリップボードへコピーしました。"
+            : $"パッチが途中で切れていたため、解析できた{addedCount}件をキューへ追加し、続きを依頼するプロンプトをクリップボードへコピーしました。";
         if (duplicateCount > 0)
         {
             message += $" 同一ファイルへの重複ブロックが{duplicateCount}件あります（キュー画面で確認してください）。";
         }
-        await _dialogs.ShowMessageAsync("パッチの続きを依頼します", message).ConfigureAwait(true);
+        return message;
     }
 
     /// <summary>4.10: 現在解析中のパッチを手動でキューへ追加する。</summary>
