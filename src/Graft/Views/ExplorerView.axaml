@@ -23,12 +23,12 @@
         - Visibility は IsVisible（bool）へ。
     -->
     <UserControl.Styles>
-        <Style Selector="Path.treeIcon">
+        <Style Selector="local|IconGlyph.treeIcon">
             <Setter Property="Width" Value="14" />
             <Setter Property="Height" Value="14" />
             <Setter Property="Margin" Value="0,0,4,0" />
         </Style>
-        <Style Selector="Path.treeIcon.excluded">
+        <Style Selector="local|IconGlyph.treeIcon.excluded">
             <Setter Property="Stroke" Value="{DynamicResource TextDisabled}" />
         </Style>
         <Style Selector="TextBlock.nodeName">
@@ -77,15 +77,15 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button Command="{Binding NewFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
                         ToolTip.Tip="新規ファイル" AutomationProperties.Name="新規ファイルを作成">
-                    <Path Data="{DynamicResource IconFileGeometry}" Classes="icon" />
+                    <local:IconGlyph Data="{DynamicResource IconFileGeometry}" />
                 </Button>
                 <Button Command="{Binding NewFolderCommand}" Padding="4" Background="Transparent" BorderThickness="0"
                         ToolTip.Tip="新規フォルダ" AutomationProperties.Name="新規フォルダを作成">
-                    <Path Data="{DynamicResource IconFolderGeometry}" Classes="icon" />
+                    <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
                 </Button>
                 <Button Command="{Binding RefreshCommand}" Padding="4" Background="Transparent" BorderThickness="0"
                         ToolTip.Tip="更新" AutomationProperties.Name="ツリーを更新">
-                    <Path Data="{DynamicResource IconRotateCcwGeometry}" Classes="icon" />
+                    <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
                 </Button>
             </StackPanel>
         </Grid>
@@ -140,15 +140,15 @@
                 <TreeView.ItemTemplate>
                     <TreeDataTemplate DataType="vm:FileNodeViewModel" ItemsSource="{Binding Children}">
                         <StackPanel Orientation="Horizontal" Margin="2,2">
-                            <Path Data="{DynamicResource IconFolderGeometry}"
-                                  Classes="icon treeIcon" Classes.excluded="{Binding IsExcluded}"
-                                  IsVisible="{Binding ShowFolderIcon}" />
-                            <Path Data="{DynamicResource IconFileCodeGeometry}"
-                                  Classes="icon treeIcon" Classes.excluded="{Binding IsExcluded}"
-                                  IsVisible="{Binding ShowCodeIcon}" />
-                            <Path Data="{DynamicResource IconFileGeometry}"
-                                  Classes="icon treeIcon" Classes.excluded="{Binding IsExcluded}"
-                                  IsVisible="{Binding ShowPlainFileIcon}" />
+                            <local:IconGlyph Data="{DynamicResource IconFolderGeometry}"
+                                             Classes="treeIcon" Classes.excluded="{Binding IsExcluded}"
+                                             IsVisible="{Binding ShowFolderIcon}" />
+                            <local:IconGlyph Data="{DynamicResource IconFileCodeGeometry}"
+                                             Classes="treeIcon" Classes.excluded="{Binding IsExcluded}"
+                                             IsVisible="{Binding ShowCodeIcon}" />
+                            <local:IconGlyph Data="{DynamicResource IconFileGeometry}"
+                                             Classes="treeIcon" Classes.excluded="{Binding IsExcluded}"
+                                             IsVisible="{Binding ShowPlainFileIcon}" />
                             <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
                                        Classes="nodeName"
                                        Classes.excluded="{Binding IsExcluded}"

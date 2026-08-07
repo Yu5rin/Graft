@@ -18,7 +18,8 @@
 -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                     xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit">
+                     xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+                     xmlns:views="clr-namespace:Graft.Views">
 
     <!-- ========== AvaloniaEdit TextEditor 本体 ========== -->
     <ControlTheme x:Key="{x:Type ae:TextEditor}" TargetType="ae:TextEditor"
@@ -81,12 +82,10 @@
         <Setter Property="Template">
             <ControlTemplate>
                 <Border Name="PART_Bg" Background="{TemplateBinding Background}" CornerRadius="3">
-                    <Path Data="{DynamicResource IconXGeometry}"
-                          Width="12" Height="12" Stretch="Uniform"
-                          Stroke="{DynamicResource TextSecondary}"
-                          StrokeThickness="{DynamicResource IconStrokeThickness}"
-                          StrokeLineCap="Round" StrokeJoin="Round"
-                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <views:IconGlyph Data="{DynamicResource IconXGeometry}"
+                                     Width="12" Height="12"
+                                     Stroke="{DynamicResource TextSecondary}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
             </ControlTemplate>
         </Setter>

@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.EmptyStateView"
              x:Name="Root"
              Focusable="False">
@@ -29,12 +30,11 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     MaxWidth="280">
-            <Path Data="{Binding IconGeometry, ElementName=Root}"
-                  Classes="icon"
-                  Width="32" Height="32"
-                  Opacity="0.45"
-                  Stroke="{DynamicResource TextSecondary}"
-                  HorizontalAlignment="Center" />
+            <views:IconGlyph Data="{Binding IconGeometry, ElementName=Root}"
+                             Width="32" Height="32"
+                             Opacity="0.45"
+                             Stroke="{DynamicResource TextSecondary}"
+                             HorizontalAlignment="Center" />
             <TextBlock Text="{Binding Message, ElementName=Root}"
                        Margin="0,12,0,0"
                        TextAlignment="Center"
@@ -69,11 +69,10 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     MaxWidth="360">
-            <Path Data="{DynamicResource IconXCircleGeometry}"
-                  Classes="icon"
-                  Width="28" Height="28"
-                  Stroke="{DynamicResource StateError}"
-                  HorizontalAlignment="Center" />
+            <views:IconGlyph Data="{DynamicResource IconXCircleGeometry}"
+                             Width="28" Height="28"
+                             Stroke="{DynamicResource StateError}"
+                             HorizontalAlignment="Center" />
             <TextBlock x:Name="ErrorSummaryText"
                        Margin="0,12,0,0"
                        TextAlignment="Center"
