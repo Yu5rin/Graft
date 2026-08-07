@@ -64,7 +64,7 @@ public sealed class EditorTabManager
     {
         if (tab.Session.IsModified)
         {
-            var message = $"「{tab.Title}」には保存されていない変更があります。保存しますか?";
+            var message = $"「{tab.Title}」には保存されていない変更があります。保存しますか？";
             var choice = await _dialogs.ConfirmThreeWayAsync("変更の保存", message, "保存", "破棄").ConfigureAwait(true);
             if (choice is null) return false; // キャンセル
             if (choice == true)

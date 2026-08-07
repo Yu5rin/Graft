@@ -9,7 +9,8 @@
   リング）で新規に定義する。値の由来はv2.0のWPF版のトークンであり、独自の色は導入しない。
 -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
-                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     xmlns:views="clr-namespace:Graft.Views">
 
     <!-- ========== TabControl / TabItem（設定画面） ========== -->
     <ControlTheme x:Key="{x:Type TabItem}" TargetType="TabItem">
@@ -148,13 +149,13 @@
                                                           ContentTemplate="{TemplateBinding ContentTemplate}"
                                                           VerticalAlignment="Center" />
                                         <Panel Grid.Column="1" Margin="8,0,0,0">
-                                            <Path Name="PART_ChevronRight" Classes="icon"
-                                                  Width="12" Height="12"
-                                                  Data="{DynamicResource IconChevronRightGeometry}" />
-                                            <Path Name="PART_ChevronDown" Classes="icon"
-                                                  Width="12" Height="12"
-                                                  IsVisible="False"
-                                                  Data="{DynamicResource IconChevronDownGeometry}" />
+                                            <views:IconGlyph Name="PART_ChevronRight"
+                                                              Width="12" Height="12"
+                                                              Data="{DynamicResource IconChevronRightGeometry}" />
+                                            <views:IconGlyph Name="PART_ChevronDown"
+                                                              Width="12" Height="12"
+                                                              IsVisible="False"
+                                                              Data="{DynamicResource IconChevronDownGeometry}" />
                                         </Panel>
                                     </Grid>
                                 </Border>
@@ -164,10 +165,10 @@
                             <Style Selector="ToggleButton:pointerover /template/ Border#PART_Bg">
                                 <Setter Property="Background" Value="{DynamicResource BgHover}" />
                             </Style>
-                            <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronRight">
+                            <Style Selector="ToggleButton:checked /template/ views|IconGlyph#PART_ChevronRight">
                                 <Setter Property="IsVisible" Value="False" />
                             </Style>
-                            <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronDown">
+                            <Style Selector="ToggleButton:checked /template/ views|IconGlyph#PART_ChevronDown">
                                 <Setter Property="IsVisible" Value="True" />
                             </Style>
                         </ToggleButton.Styles>
@@ -215,21 +216,21 @@
                                 <ToggleButton.Template>
                                     <ControlTemplate>
                                         <Panel Background="Transparent">
-                                            <Path Name="PART_ChevronRight" Classes="icon"
-                                                  Width="9" Height="9"
-                                                  Data="{DynamicResource IconChevronRightGeometry}" />
-                                            <Path Name="PART_ChevronDown" Classes="icon"
-                                                  Width="9" Height="9"
-                                                  IsVisible="False"
-                                                  Data="{DynamicResource IconChevronDownGeometry}" />
+                                            <views:IconGlyph Name="PART_ChevronRight"
+                                                              Width="9" Height="9"
+                                                              Data="{DynamicResource IconChevronRightGeometry}" />
+                                            <views:IconGlyph Name="PART_ChevronDown"
+                                                              Width="9" Height="9"
+                                                              IsVisible="False"
+                                                              Data="{DynamicResource IconChevronDownGeometry}" />
                                         </Panel>
                                     </ControlTemplate>
                                 </ToggleButton.Template>
                                 <ToggleButton.Styles>
-                                    <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronRight">
+                                    <Style Selector="ToggleButton:checked /template/ views|IconGlyph#PART_ChevronRight">
                                         <Setter Property="IsVisible" Value="False" />
                                     </Style>
-                                    <Style Selector="ToggleButton:checked /template/ Path#PART_ChevronDown">
+                                    <Style Selector="ToggleButton:checked /template/ views|IconGlyph#PART_ChevronDown">
                                         <Setter Property="IsVisible" Value="True" />
                                     </Style>
                                 </ToggleButton.Styles>

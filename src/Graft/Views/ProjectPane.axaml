@@ -42,7 +42,7 @@
                     BorderThickness="0"
                     ToolTip.Tip="プロジェクトを追加"
                     AutomationProperties.Name="プロジェクトを追加（フォルダ選択）">
-                <Path Data="{DynamicResource IconFolderGeometry}" Classes="icon" />
+                <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
             </Button>
         </Grid>
 

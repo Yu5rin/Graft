@@ -137,8 +137,8 @@
                         </ListBox>
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                                     IsVisible="{Binding IsEmpty}">
-                            <Path Data="{DynamicResource IconHistoryGeometry}" Classes="icon"
-                                  Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
+                            <local:IconGlyph Data="{DynamicResource IconHistoryGeometry}"
+                                             Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
                             <TextBlock Text="このプロジェクトのリビジョンがまだありません" Margin="0,8,0,0"
                                        Foreground="{DynamicResource TextSecondary}" />
                         </StackPanel>
