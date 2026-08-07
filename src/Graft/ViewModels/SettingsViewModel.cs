@@ -206,7 +206,7 @@ public sealed class SettingsViewModel : ObservableObject
 
         var choice = await _dialogService.ConfirmThreeWayAsync(
             "未保存の変更があります",
-            "設定に保存されていない変更があります。保存せずに閉じますか?",
+            "設定に保存されていない変更があります。保存せずに閉じますか？",
             "保存する", "破棄して閉じる").ConfigureAwait(true);
 
         switch (choice)
