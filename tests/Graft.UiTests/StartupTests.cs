@@ -135,6 +135,50 @@ public class StartupTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
     }
 
+    [AvaloniaFact(DisplayName = "CaptureCurrentProjectStateで開いていたタブがProjectPaneLayoutへ記憶される（アプリ終了時の保存経路）")]
+    public async Task 終了時にタブ構成が取り込まれる()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+
+        var pathA = Path.Combine(_baseDirectory, "project", "a.txt");
+        var pathB = Path.Combine(_baseDirectory, "project", "b.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(pathA)!);
+        await File.WriteAllTextAsync(pathA, "A\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(pathB, "B\n").ConfigureAwait(true);
+
+        var projectDirectory = Path.GetDirectoryName(pathA)!;
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectDirectory).ConfigureAwait(true);
+        var project = shell.Graft.ProjectPane.SelectedItem!.Project;
+
+        await shell.Editor.OpenFileAsync(pathA).ConfigureAwait(true);
+        var tabB = (await shell.Editor.OpenFileAsync(pathB).ConfigureAwait(true)).Value;
+        shell.Editor.ActiveTab = tabB;
+
+        // アプリ終了時（ShellWindow.OnClosing）が SaveLayoutAsync の直前に呼ぶ経路そのもの。
+        // これがないと、プロジェクト切替を挟まずに終了した場合にタブ構成が記憶されない。
+        shell.CaptureCurrentProjectState();
+
+        var paneLayout = WindowLayoutStore.GetOrCreatePaneLayout(shell.Graft.Layout, project.Id);
+        paneLayout.OpenTabs.Should().HaveCount(2, "開いていた2枚のタブが記憶される必要がある");
+        paneLayout.OpenTabs.Select(t => t.RelativePath).Should().Contain(new[] { "a.txt", "b.txt" });
+        paneLayout.ActiveTabPath.Should().Be("b.txt", "アクティブタブも記憶される必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "プロジェクト未選択のときCaptureCurrentProjectStateを呼んでも何も起きない")]
+    public void プロジェクト未選択時のCaptureは何もしない()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+
+        var act = () => shell.CaptureCurrentProjectState();
+
+        act.Should().NotThrow();
+    }
+
     private ShellViewModel BuildShell()
     {
         var appPaths = new AppPaths(_baseDirectory);

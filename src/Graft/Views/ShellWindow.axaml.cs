@@ -195,6 +195,11 @@ public partial class ShellWindow : Window
         paneLayout.SideViewWidth = _sideViewWidth;
         paneLayout.GraftPanelHeight = _graftPanelHeight;
 
+        // 3章: 終了時点で選択中のプロジェクトのタブ構成・展開状態を取り込んでから保存する
+        // （プロジェクト切替時にしか取り込まれず、最後に使っていたプロジェクトのタブが
+        // 復元されない不具合の修正）。
+        ViewModel.CaptureCurrentProjectState();
+
         ViewModel.Graft.SaveLayoutAsync().GetAwaiter().GetResult();
     }
 
