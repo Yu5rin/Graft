@@ -14,6 +14,12 @@ namespace Graft.Platform.Linux;
 ///
 /// パッチらしさの判定は <see cref="PatchTextDetector"/> をWindows実装と共用し、
 /// OS間で挙動が食い違わないようにする。
+///
+/// 読み取り自体はここでは行わず、コンストラクタで受け取った<see cref="IClipboardAccess"/>へ
+/// 委譲する（<see cref="ReadClipboardTextAsync"/>）。<see cref="PlatformServices.Create"/>が
+/// 配線する実装（<see cref="AvaloniaClipboardAccess"/>）はLinuxでは<see cref="X11ClipboardReader"/>を
+/// 使うため、このポーリングもAvaloniaのX11クリップボード実装が持つ「一度詰まると以後恒久的に
+/// 失敗し続ける」不具合の影響を受けない。
 /// </summary>
 public sealed class LinuxClipboardMonitor : IClipboardMonitor
 {
