@@ -215,8 +215,9 @@ public sealed partial class DiffViewModel : ObservableObject
         };
         var fileText = plan.BeforeText ?? string.Empty;
         var engine = new MatchEngine(options);
-
-        foreach (var pair in srBlock.Pairs)
+        // SR形式は1ペア=1件のBlockPlanのため、対応ペアのみ対象にする（無ければ全ペア対象。ファイル単位の失敗など）。
+        var targetPairs = plan.Pair is { } single ? new[] { single } : srBlock.Pairs;
+        foreach (var pair in targetPairs)
         {
             var result = engine.Match(fileText, pair, srBlock.Occurrence);
             if (result.IsSuccess) continue;
