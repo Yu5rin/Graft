@@ -1,8 +1,9 @@
-# v で始まるタグを push すると、Windows と Linux 向けの実行ファイルを生成し、
+# v で始まるタグを push すると、Windows と Linux 向けの発行フォルダ一式を生成し、
 # GitHub Release として公開する。
 #
-# 発行は README「発行」節と同じコマンドを使う。単一ファイルの自己完結型のため、
-# 利用者側に .NET ランタイムの導入は要らない。
+# 発行は README「発行」節と同じコマンドを使う。フォルダ形式の自己完結型のため、
+# 利用者側に .NET ランタイムの導入は要らない。単一ファイル化（PublishSingleFile）は
+# 常駐メモリと初回起動時間の両方で不利なため使わない（README「発行」節参照）。
 # Windows 向けもLinuxランナー上で生成する。.NET はクロスOSの発行に対応しており、
 # ReadyToRun のプリコンパイルも対象OS向けに正しく行われる。
 name: リリース
@@ -32,24 +33,29 @@ jobs:
       - name: テスト
         run: dotnet test -c Release
 
+      # 発行先を配布物の名前と同じフォルダにしておく。こうしておくと書庫の中に
+      # 「Graft-v1.0.0-win-x64/」という単一のフォルダだけが入るので、利用者が
+      # ダウンロードフォルダ等でそのまま展開しても数百個のファイルが散らばらない
+      # （フォルダ形式は単一実行ファイルと違い中身が多数のファイルになるため、
+      # 書庫のトップに必ずフォルダを1つ挟むことが重要になる）。
       - name: Windows 向けに発行
         run: |
           dotnet publish src/Graft -c Release -r win-x64 --self-contained true \
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:DebugType=none -o publish/win
+            -p:DebugType=none -o publish/Graft-${{ github.ref_name }}-win-x64
 
       - name: Linux 向けに発行
         run: |
           dotnet publish src/Graft -c Release -r linux-x64 --self-contained true \
-            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:DebugType=none -o publish/linux
+            -p:DebugType=none -o publish/Graft-${{ github.ref_name }}-linux-x64
 
-      # 実行ファイルはそのままだと100MBを超えるため圧縮して添付する。
+      # 発行フォルダ一式（実行ファイル・ランタイム・依存ライブラリ）をまとめて圧縮する。
       # Linux 版は zip では実行権限が失われるので tar.gz を使う。
       - name: 配布物をまとめる
         run: |
-          cd publish/win && zip -9 ../../Graft-${{ github.ref_name }}-win-x64.zip Graft.exe && cd ../..
-          tar -czf Graft-${{ github.ref_name }}-linux-x64.tar.gz -C publish/linux Graft
+          cd publish && zip -9 -r ../Graft-${{ github.ref_name }}-win-x64.zip \
+            Graft-${{ github.ref_name }}-win-x64 && cd ..
+          tar -czf Graft-${{ github.ref_name }}-linux-x64.tar.gz \
+            -C publish Graft-${{ github.ref_name }}-linux-x64
 
       - name: リリースを作成
         uses: softprops/action-gh-release@v2
@@ -62,8 +68,13 @@ jobs:
           body: |
             ## 導入
 
-            お使いのOS向けの書庫を展開し、実行ファイルを専用のフォルダへ置いてください。
-            実行ファイルと同じ階層に `settings.json` / `projects.json` / `back/` / `logs/` を作ります。
+            お使いのOS向けの書庫を、展開したフォルダごと専用の場所（他のアプリと混ざらない
+            場所）へ置いてください。フォルダの中の実行ファイル（Windowsは `Graft.exe`、
+            Linuxは `Graft`）を起動します。実行ファイルと同じ階層に
+            `settings.json` / `projects.json` / `back/` / `logs/` を作ります。
+
+            Windowsでは、実行ファイルのショートカットをデスクトップやスタートメニューへ
+            作っておくと起動が楽になります。
 
             Linux では実行権限の付与が必要な場合があります。
 
@@ -71,7 +82,7 @@ jobs:
             chmod +x Graft
             ```
 
-            .NET ランタイムの導入は要りません（自己完結型の単一ファイル）。
+            .NET ランタイムの導入は要りません（自己完結型）。
 
             ## 動作環境
 

@@ -15,7 +15,7 @@ namespace Graft.Platform.Windows;
 public sealed class WindowsPlatformServices : IPlatformServices
 {
     // AvaloniaのTrayIconにはバルーン通知に相当するAPIが無い。Windowsではトースト通知に
-    // AppUserModelIDの登録（＝インストーラの用意）が要るため、単一実行ファイルでの配布
+    // AppUserModelIDの登録（＝インストーラの用意）が要るため、インストーラを持たない配布
     // （2.1）と両立しない。ここでは通知を出さない実装を渡し、機能として縮退させる。
     public ITrayIcon Tray { get; } = new AvaloniaTrayIcon(new NullDesktopNotifier());
 
