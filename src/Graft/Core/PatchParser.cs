@@ -10,6 +10,11 @@ public sealed class PatchParser
     /// <summary>パッチ全文を解析する。</summary>
     public GraftResult<Patch> Parse(string patchText)
     {
+        // Graft形式のマーカーが1つも無く、unified diff として解釈できる場合はアダプタへ委譲する。
+        // Graft形式のマーカーが混在する場合は従来どおりこのメソッドで解析する（マーカー優先）。
+        if (!PatchTextDetector.HasGraftMarker(patchText) && UnifiedDiffAdapter.IsUnifiedDiff(patchText))
+            return UnifiedDiffAdapter.Parse(patchText);
+
         var scanner = PatchScanner.Create(patchText);
         var blocks = new List<PatchBlock>();
         var meta = new PatchMeta();

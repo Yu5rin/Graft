@@ -34,6 +34,15 @@ public class PatchTextDetectorTests
     [InlineData("")]
     [InlineData("ふつうの文章")]
     [InlineData("var x = 1;")]
+    [InlineData("---\n見出し\n---")]
     public void 通常のテキストは検知しない(string text)
         => PatchTextDetector.LooksLikePatch(text).Should().BeFalse();
+
+    [Fact(DisplayName = "unified diffもパッチとみなす")]
+    public void unified_diffもパッチとみなす()
+    {
+        var diff = "--- a/src/a.py\n+++ b/src/a.py\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+        PatchTextDetector.LooksLikePatch(diff).Should().BeTrue();
+        PatchTextDetector.HasGraftMarker(diff).Should().BeFalse("Graft形式のマーカーは含まれないはず");
+    }
 }
