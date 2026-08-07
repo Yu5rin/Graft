@@ -18,8 +18,8 @@
 
             <!-- ヘッダー -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-                <Path Classes="icon" Data="{DynamicResource IconXCircleGeometry}"
-                      Stroke="{DynamicResource StateError}" Margin="0,0,8,0" />
+                <views:IconGlyph Data="{DynamicResource IconXCircleGeometry}"
+                                 Stroke="{DynamicResource StateError}" Margin="0,0,8,0" />
                 <TextBlock Text="マッチ失敗: SEARCH部を編集して再判定できます"
                            FontWeight="{DynamicResource PaneHeadingFontWeight}" />
                 <TextBlock Text="{Binding Description}" Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
@@ -28,12 +28,12 @@
             <!-- 再判定結果 -->
             <Border Grid.Row="1" Margin="0,0,0,8" Padding="8,4" Background="{DynamicResource BgSurface}">
                 <StackPanel Orientation="Horizontal">
-                    <Path Classes="icon" Data="{DynamicResource IconCheckGeometry}"
-                          Stroke="{DynamicResource StateOk}" Margin="0,0,8,0"
-                          IsVisible="{Binding IsMatchSuccessful}" />
-                    <Path Classes="icon" Data="{DynamicResource IconXCircleGeometry}"
-                          Stroke="{DynamicResource StateError}" Margin="0,0,8,0"
-                          IsVisible="{Binding !IsMatchSuccessful}" />
+                    <views:IconGlyph Data="{DynamicResource IconCheckGeometry}"
+                                     Stroke="{DynamicResource StateOk}" Margin="0,0,8,0"
+                                     IsVisible="{Binding IsMatchSuccessful}" />
+                    <views:IconGlyph Data="{DynamicResource IconXCircleGeometry}"
+                                     Stroke="{DynamicResource StateError}" Margin="0,0,8,0"
+                                     IsVisible="{Binding !IsMatchSuccessful}" />
                     <TextBlock Text="{Binding ResultSummary}" VerticalAlignment="Center"
                                AutomationProperties.Name="再判定結果" />
                 </StackPanel>

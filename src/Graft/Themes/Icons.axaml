@@ -2,21 +2,43 @@
   9.5 アイコン。v2.0のWPF版 Themes/Icons.xaml の移植（附録A・20章L2）。
   24×24のビューボックス、ストローク幅1.5px、線端・結合は丸め、塗りなしの
   Geometryとして21種類を定義する。ラスタ画像は一切使わない。パスデータ（Data）は
-  v2.0のWPF版と完全に同一の値を流用する（値は変えない。9.5）。
+  原則としてv2.0のWPF版と同一の値を流用する（9.5）。
+
+  【利用者からの指摘によるアイコン品質改善（意図的な変更・値を変えた箇所あり）】
+  以前は各アイコンをPathのStretch="Uniform"で表示していたが、これは「ジオメトリ自身の
+  バウンディングボックス」を表示枠へフィットさせるため、24×24というビューボックスの
+  前提が無視され、図形ごとに拡大率・線の太さの見え方・視覚的な中心がバラバラになって
+  いた（例: IconXGeometryのbboxは12×12、IconCheckGeometryは14×10で、それぞれ別倍率で
+  引き伸ばされる）。これが「アイコンの中央がズレていて大きさが不揃い」の原因だった。
+
+  対策として、表示はPath直書きではなくIconGlyph（Views/IconGlyph.cs、
+  TemplatedControl）を介するようにした。IconGlyphは内部にIconViewboxSize（24）四方の
+  固定Canvasを持ち、その中にStretch="None"のPathを1枚描く。Canvasのサイズが常に24×24で
+  固定されているため、外側のViewbox（正方形につき縦横同倍率）は個々のジオメトリのbboxに
+  関係なく常に「表示サイズ÷24」という同じ倍率で縮小する。利用側は
+  <![CDATA[<views:IconGlyph Data="{DynamicResource IconXxxGeometry}" />]]>と書けばよく、
+  以前の<![CDATA[<Path Data="..." Classes="icon" />]]>と同程度に簡潔。
+
+  これに伴い、次の2点はパスデータ自体を意図的に変更した（他の19種は値を変えていない）。
+  - IconHistoryGeometry: 円弧＋反時計矢印＋針を1つの図形に詰め込んだ結果、小サイズでは
+    三日月のように潰れて見えるとの指摘を受け、単純な「円＋短針・長針」の時計へ描き直した
+    （円の描き方はIconXCircleGeometryと同じ2本の半円弧に揃えた）。
+  - IconXGeometry: 24×24に対してbboxが12×12しかなく、他のアイコンより明らかに小さく
+    見えたため、原点(6,6)-(18,18)を中心のまま少し拡げてbboxを14×14に広げた。
 
   各アイコンは StreamGeometry（x:Key="IconXxxGeometry"）として持ち、実際の表示は
-  Path に Data="{StaticResource IconXxxGeometry}" Classes="icon" で割り当てる。
-  Strokeはテーマトークンへ DynamicResource でバインドしており、テーマ切り替えに
+  IconGlyph に Data="{DynamicResource IconXxxGeometry}" で割り当てる。Strokeは既定で
+  テーマトークン（TextPrimary）へ DynamicResource でバインドしており、テーマ切り替えに
   自動追従する。状態アイコン（check/x-circle等）はv2.0のWPF版と同様、利用側で
   StateOk / StateError / StateWarn へ Stroke を上書きすることを想定する。
 
-  【v2.0のWPF版からの構文差分（値は変えていない）】
+  【v2.0のWPF版からの構文差分（ジオメトリの値自体は上記2点以外変えていない）】
   - このファイルのルートはAvaloniaの<Styles>とする。AvaloniaのControlはWPFのような
     「x:Keyで登録した単体のStyleオブジェクトをStyleプロパティへ直接代入する」機構を
     持たず、Styleはセレクタで暗黙適用する方式に一本化されているため
-    （Selector="Path.icon"）。ジオメトリ（StreamGeometry）自体はStyles.Resourcesに
-    キー付きリソースとして置き、v2.0のWPF版と同じ x:Key・DynamicResource で参照できる
-    ようにする。
+    （IconGlyphのControlThemeも同様にキー付きリソースとして持つ）。ジオメトリ
+    （StreamGeometry）自体はStyles.Resourcesにキー付きリソースとして置き、
+    v2.0のWPF版と同じ x:Key・DynamicResource で参照できるようにする。
   - Strokeの線端指定は、WPFがStrokeStartLineCap/StrokeEndLineCapの2プロパティを
     持つのに対し、AvaloniaのShapeはStrokeLineCap 1つで両端をまとめて指定する
     （プロパティ名の差のみで、見た目の指定内容（丸め）は同一）。同様にWPFの
@@ -25,7 +47,8 @@
     存在しないため持たない（Avalonia側のレンダリングパイプラインが別途担う）。
 -->
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Graft.Views">
 
     <Styles.Resources>
 
@@ -69,10 +92,11 @@
             M12,15 L20,19 L12,23 L4,19 Z
         </StreamGeometry>
 
-        <!-- history: リビジョン履歴（時計＋反時計矢印） -->
+        <!-- history: リビジョン履歴（時計。円弧＋反時計矢印を詰め込んだ旧図形は小サイズで
+             三日月のように潰れて見えるとの指摘を受け、単純な円＋短針・長針へ描き直した。
+             円の描き方はIconXCircleGeometryと同じ2本の半円弧に揃えている。） -->
         <StreamGeometry x:Key="IconHistoryGeometry">
-            M7.5,4.2 A9,9 0 1,0 21,12 M7.5,4.2 L7,8 M7.5,4.2 L11.3,6
-            M12,7 L12,12 L16,14
+            M12,3 A9,9 0 1,0 12,21 A9,9 0 1,0 12,3 M12,7 L12,12 L16,14
         </StreamGeometry>
 
         <!-- settings: 設定（歯車） -->
@@ -110,8 +134,9 @@
             M4,4 L16,4 L20,8 L20,20 L4,20 Z M7,4 L7,9 L15,9 L15,4 M7,20 L7,14 L17,14 L17,20
         </StreamGeometry>
 
-        <!-- x: タブを閉じる -->
-        <StreamGeometry x:Key="IconXGeometry">M6,6 L18,18 M18,6 L6,18</StreamGeometry>
+        <!-- x: タブを閉じる（bboxが12×12しかなく他のアイコンより小さく見えたため、
+             中心(12,12)は変えず一回り拡げてbboxを14×14にした） -->
+        <StreamGeometry x:Key="IconXGeometry">M5,5 L19,19 M19,5 L5,19</StreamGeometry>
 
         <!-- chevron-right: ツリー・パネルの折りたたみ（閉） -->
         <StreamGeometry x:Key="IconChevronRightGeometry">M9,5 L16,12 L9,19</StreamGeometry>
@@ -134,21 +159,34 @@
             M3,4 L21,4 L21,20 L3,20 Z M3,15 L21,15
         </StreamGeometry>
 
-    </Styles.Resources>
+        <!-- アイコン共通テーマ（IconGlyph、Views/IconGlyph.cs）。塗りなし・線端/結合は丸め・
+             ストローク幅はTokens.axamlのIconStrokeThicknessに準拠。Strokeは既定でTextPrimaryを
+             参照し、状態アイコンは利用側でStateOk等に上書きする。内部のCanvasは常に
+             IconViewboxSize（24）四方に固定し、その中でPathをStretch="None"のまま描くことで、
+             ジオメトリごとのbboxに関係なく同じ倍率（表示サイズ÷24）で縮小する（ファイル冒頭の
+             コメント参照）。利用側では
+             <![CDATA[<views:IconGlyph Data="{DynamicResource IconXxxGeometry}" />]]> と書く。 -->
+        <ControlTheme x:Key="{x:Type views:IconGlyph}" TargetType="views:IconGlyph">
+            <Setter Property="Width" Value="{DynamicResource IconDisplaySize}" />
+            <Setter Property="Height" Value="{DynamicResource IconDisplaySize}" />
+            <Setter Property="Stroke" Value="{DynamicResource TextPrimary}" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Viewbox Stretch="Uniform">
+                        <Canvas Width="{DynamicResource IconViewboxSize}" Height="{DynamicResource IconViewboxSize}">
+                            <Path Data="{TemplateBinding Data}"
+                                  Stretch="None"
+                                  Fill="{x:Null}"
+                                  Stroke="{TemplateBinding Stroke}"
+                                  StrokeThickness="{DynamicResource IconStrokeThickness}"
+                                  StrokeLineCap="Round"
+                                  StrokeJoin="Round" />
+                        </Canvas>
+                    </Viewbox>
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
 
-    <!-- アイコン共通スタイル。塗りなし・線端/結合は丸め・ストローク幅は
-         Tokens.axamlのIconStrokeThicknessに準拠。Strokeは既定でTextPrimaryを
-         参照し、状態アイコンは利用側でStateOk等に上書きする。
-         利用側では <Path Classes="icon" Data="{StaticResource IconXxxGeometry}" /> と書く。 -->
-    <Style Selector="Path.icon">
-        <Setter Property="Width" Value="{DynamicResource IconDisplaySize}" />
-        <Setter Property="Height" Value="{DynamicResource IconDisplaySize}" />
-        <Setter Property="Stretch" Value="Uniform" />
-        <Setter Property="Fill" Value="{x:Null}" />
-        <Setter Property="Stroke" Value="{DynamicResource TextPrimary}" />
-        <Setter Property="StrokeThickness" Value="{DynamicResource IconStrokeThickness}" />
-        <Setter Property="StrokeLineCap" Value="Round" />
-        <Setter Property="StrokeJoin" Value="Round" />
-    </Style>
+    </Styles.Resources>
 
 </Styles>
