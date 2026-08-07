@@ -261,7 +261,7 @@ public sealed partial class MainViewModel : ObservableObject
             // 黙って戻ると「解析を押しても何も起きない」という状態になり、
             // 利用者は原因を知る手がかりを得られない。理由を中央ペインへ出す。
             CenterError = GraftIssue.Of(
-                ErrorCode.E001,
+                ErrorCode.E708,
                 text is null
                     ? "クリップボードの内容を取得できませんでした。他のアプリがクリップボードを保持したままの可能性があります。AIの出力をコピーし直してから、もう一度お試しください。"
                     : "クリップボードが空です。AIの出力をコピーしてから、もう一度お試しください。");

@@ -156,7 +156,7 @@ public sealed class DryRunPlanner
 
         return new BlockPlan
         {
-            Block = unit.SourceBlock, Path = path, Operation = operation, Stage = unit.Stage,
+            Block = unit.SourceBlock, Pair = unit.SourcePair, Path = path, Operation = operation, Stage = unit.Stage,
             CanApply = canApply, NeedsConfirmation = unit.NeedsConfirmation, IsSelected = canApply,
             Issues = issues, BeforeText = unit.BeforeText, AfterText = unit.AfterText, Shape = shape,
             Diff = diff, Description = unit.Description, Added = diff?.Added ?? 0, Removed = diff?.Removed ?? 0,

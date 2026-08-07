@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
@@ -126,7 +127,107 @@ public class ScenarioTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
     }
 
-    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync()
+    [AvaloniaFact(DisplayName = "検索結果の選択変更（単一クリック・キーボード移動）で該当行へジャンプする")]
+    public void 検索結果を選択するとジャンプ要求が発火する()
+    {
+        var vm = new SearchViewModel(new CrossFileSearchEngine(), new AutoConfirmDialogService());
+        var group = new SearchFileGroupViewModel("/proj/a.txt", "a.txt");
+        var hit = new SearchHitViewModel(new SearchHit
+        {
+            FullPath = "/proj/a.txt",
+            RelativePath = "a.txt",
+            LineNumber = 3,
+            LineText = "hello world",
+            ColumnStart = 0,
+            MatchLength = 5,
+        });
+        group.Hits.Add(hit);
+        vm.Groups.Add(group);
+
+        var view = new SearchView { DataContext = vm };
+        var window = new Window { Width = 400, Height = 400, Content = view };
+        window.Show();
+
+        (string FullPath, int Line)? requested = null;
+        vm.JumpRequested += (_, target) => requested = target;
+
+        var tree = view.GetControl<TreeView>("ResultTree");
+        tree.SelectedItem = hit; // 単一クリック・キーボードの上下移動と同じ「選択変更」を模擬する。
+
+        requested.Should().Be(("/proj/a.txt", 3), "ヒット行の選択でジャンプが要求される必要がある");
+
+        requested = null;
+        tree.SelectedItem = group; // ファイル見出し（ヒット行以外）の選択では何もしない。
+        requested.Should().BeNull("ファイル見出しの選択ではジャンプしてはならない");
+    }
+
+    [AvaloniaFact(DisplayName = "タブ見出し右クリックの「他のタブを閉じる」で対象以外が閉じる")]
+    public async Task 他のタブを閉じるで対象以外が閉じる()
+    {
+        var pathA = Path.Combine(_projectDirectory, "a.txt");
+        var pathB = Path.Combine(_projectDirectory, "b.txt");
+        var pathC = Path.Combine(_projectDirectory, "c.txt");
+        await File.WriteAllTextAsync(pathA, "A\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(pathB, "B\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(pathC, "C\n").ConfigureAwait(true);
+
+        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+
+        await shell.Editor.OpenFileAsync(pathA).ConfigureAwait(true);
+        var keep = (await shell.Editor.OpenFileAsync(pathB).ConfigureAwait(true)).Value;
+        await shell.Editor.OpenFileAsync(pathC).ConfigureAwait(true);
+        shell.Editor.Tabs.Should().HaveCount(3);
+
+        var closed = await shell.Editor.CloseOthersAsync(keep).ConfigureAwait(true);
+
+        closed.Should().BeTrue();
+        shell.Editor.Tabs.Should().ContainSingle().Which.Should().BeSameAs(keep);
+    }
+
+    [AvaloniaFact(DisplayName = "タブ見出し右クリックの「すべてのタブを閉じる」で開いているタブが空になる")]
+    public async Task すべてのタブを閉じるで空になる()
+    {
+        var pathA = Path.Combine(_projectDirectory, "a.txt");
+        var pathB = Path.Combine(_projectDirectory, "b.txt");
+        await File.WriteAllTextAsync(pathA, "A\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(pathB, "B\n").ConfigureAwait(true);
+
+        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        await shell.Editor.OpenFileAsync(pathA).ConfigureAwait(true);
+        await shell.Editor.OpenFileAsync(pathB).ConfigureAwait(true);
+        shell.Editor.Tabs.Should().HaveCount(2);
+
+        var closed = await shell.Editor.CloseAllAsync().ConfigureAwait(true);
+
+        closed.Should().BeTrue();
+        shell.Editor.Tabs.Should().BeEmpty();
+    }
+
+    [AvaloniaFact(DisplayName = "「他のタブを閉じる」は保存確認でキャンセルされると中断する")]
+    public async Task 他のタブを閉じるは保存確認でキャンセルされると中断する()
+    {
+        var pathA = Path.Combine(_projectDirectory, "a.txt");
+        var pathB = Path.Combine(_projectDirectory, "b.txt");
+        await File.WriteAllTextAsync(pathA, "A\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(pathB, "B\n").ConfigureAwait(true);
+
+        var (shell, _) = await OpenShellAsync(new CancelSaveDialogService()).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        var tabA = (await shell.Editor.OpenFileAsync(pathA).ConfigureAwait(true)).Value;
+        var tabB = (await shell.Editor.OpenFileAsync(pathB).ConfigureAwait(true)).Value;
+
+        // aを未保存の変更ありにしておく。保存確認で「キャンセル」を選んだ想定。
+        tabA.Session.Document.Insert(0, "編集");
+
+        var closed = await shell.Editor.CloseOthersAsync(tabB).ConfigureAwait(true);
+
+        closed.Should().BeFalse("保存確認でキャンセルされたら中断する必要がある");
+        shell.Editor.Tabs.Should().Contain(tabA, "キャンセルされたタブは閉じずに残す必要がある");
+    }
+
+    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(IDialogService? dialogs = null)
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -139,7 +240,7 @@ public class ScenarioTests : IDisposable
             new ProjectStore(appPaths),
             new RevisionStore(appPaths),
             new RevisionRestorer(appPaths),
-            new AutoConfirmDialogService(),
+            dialogs ?? new AutoConfirmDialogService(),
             new FakeUiServices(_clipboard),
             openSettings: () => { });
 
@@ -188,6 +289,25 @@ public class ScenarioTests : IDisposable
 
         public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
             => Task.FromResult<bool?>(true);
+
+        public Task<string?> PromptAsync(string title, string message, string? initial = null)
+            => Task.FromResult<string?>(initial ?? "テスト");
+
+        public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
+
+        public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 未保存変更の保存確認で常に「キャンセル」を選ぶダイアログ（<see cref="CloseOthersAsync"/>等の
+    /// 中断挙動の検証用）。それ以外の確認は承諾する。
+    /// </summary>
+    private sealed class CancelSaveDialogService : IDialogService
+    {
+        public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(true);
+
+        public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
+            => Task.FromResult<bool?>(null);
 
         public Task<string?> PromptAsync(string title, string message, string? initial = null)
             => Task.FromResult<string?>(initial ?? "テスト");

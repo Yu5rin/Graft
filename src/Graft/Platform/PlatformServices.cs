@@ -21,7 +21,13 @@ public static class PlatformServices
     public static IPlatformServices Create()
     {
         if (OperatingSystem.IsWindows()) return CreateWindows();
-        if (OperatingSystem.IsLinux()) return new LinuxPlatformServices(new AvaloniaClipboardAccess());
+        if (OperatingSystem.IsLinux())
+        {
+            // AvaloniaUiServicesが対話的な読み取りに使うのと同じ共有インスタンス
+            // （X11ClipboardReader.Shared）を渡す。詰まりの影響を一箇所の接続に閉じ込め、
+            // クリップボード監視（LinuxClipboardMonitor）側もこの修正の恩恵を受けられるようにする。
+            return new LinuxPlatformServices(new AvaloniaClipboardAccess(X11ClipboardReader.Shared));
+        }
         return new NullPlatformServices();
     }
 
