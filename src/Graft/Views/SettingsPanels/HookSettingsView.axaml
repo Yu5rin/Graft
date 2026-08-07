@@ -1,0 +1,75 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.SettingsPanels.HookSettingsView"
+             x:Name="Root"
+             AutomationProperties.Name="適用後フック設定">
+    <!--
+        仕様書6.5・3.1 適用後フック管理。プロジェクトごとにフック（名前・コマンド・失敗時挙動）を
+        追加・編集・削除し、projects.json へ保存する。レイアウトは「プロンプトテンプレート」タブ
+        （TemplateSettingsView）と同じ、プロジェクト選択＋一覧＋編集フォームの構成に合わせる。
+        このUserControl自身のDataContextは（TabItem経由で）SettingsViewModelを継承するため、
+        内側のGridで {Binding Hooks}（HookSettingsViewModel）へ明示的に設定し直す。
+    -->
+    <Grid DataContext="{Binding Hooks}" Margin="16,8" RowDefinitions="Auto,*,Auto">
+
+        <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="対象プロジェクト" Classes="fieldLabel" />
+            <ComboBox ItemsSource="{Binding Projects}"
+                      ItemTemplate="{StaticResource NameItemTemplate}"
+                      SelectedItem="{Binding SelectedProject}"
+                      AutomationProperties.Name="フックの対象プロジェクト" />
+        </WrapPanel>
+
+        <Grid Grid.Row="1" ColumnDefinitions="280,Auto,*">
+
+            <ListBox Grid.Column="0" ItemsSource="{Binding Hooks}" SelectedItem="{Binding SelectedHook}"
+                     AutomationProperties.Name="適用後フック一覧">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="vm:HookEntry">
+                        <Grid AutomationProperties.Name="{Binding Name}" ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Foreground="{DynamicResource TextSecondary}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Text="{Binding OnFailure}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" Background="Transparent" />
+
+            <Grid Grid.Column="2" DataContext="{Binding SelectedHook}" Margin="8,0,0,0"
+                  IsVisible="{Binding Converter={x:Static views:Converters.NotNull}}"
+                  RowDefinitions="Auto,Auto,Auto,Auto">
+                <TextBox Grid.Row="0" Text="{Binding Name}" Margin="0,0,0,8"
+                         AutomationProperties.Name="フック名" />
+                <TextBox Grid.Row="1" Text="{Binding Command}" Margin="0,0,0,8"
+                         FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
+                         AutomationProperties.Name="実行コマンド" />
+                <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="失敗時の挙動" Classes="fieldLabel" />
+                    <ComboBox ItemsSource="{Binding DataContext.Hooks.OnFailureOptions, ElementName=Root}"
+                              ItemTemplate="{StaticResource LabelItemTemplate}"
+                              SelectedValueBinding="{Binding Value}" SelectedValue="{Binding OnFailure}"
+                              AutomationProperties.Name="失敗時の挙動" />
+                </WrapPanel>
+                <TextBlock Grid.Row="3" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
+                           FontSize="{DynamicResource CaptionFontSize}"
+                           Text="コマンドはプロジェクトルートを作業ディレクトリとして実行します。タイムアウト秒は「一般」タブの設定に従います。" />
+            </Grid>
+        </Grid>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button Content="フックを追加" Command="{Binding AddCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="フックを追加" />
+            <Button Content="フックを削除" Command="{Binding DeleteCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="フックを削除" />
+            <Button Content="保存" Command="{Binding SaveCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="適用後フックを保存" />
+            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
+        </StackPanel>
+    </Grid>
+</UserControl>
