@@ -26,6 +26,15 @@ public partial class ShellWindow
     {
         if (DataContext is not ShellViewModel) return;
 
+        // クイックオープン（Ctrl+P）が開いている間は、上下キー・Enter・Escapeを
+        // フォーカス位置に関わらずここで処理する。検索ボックス（TextBox）へフォーカスが
+        // あってもトンネリング段階のこのハンドラが先に届くため、他の分岐より前に判定する。
+        if (ViewModel.QuickOpen.IsOpen && HandleQuickOpenKey(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
             ViewModel.Graft.DiscardCommand.Execute(null);
@@ -123,6 +132,22 @@ public partial class ShellWindow
             case Key.J: ViewModel.ToggleGraftPanelCommand.Execute(null); return true;
             case Key.S: _ = ViewModel.Editor.SaveActiveAsync(); return true;
             case Key.Enter: ViewModel.Graft.ApplyCommand.Execute(null); return true;
+            // クイックオープン: AvaloniaEdit標準のキーバインドと衝突しないため、
+            // エディタ内フォーカス時も含め常に反応させる（他の素のCtrl+*と同じ扱い）。
+            case Key.P: ViewModel.ToggleQuickOpenCommand.Execute(null); return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>クイックオープンが開いている間の上下キー・Enter・Escape。</summary>
+    private bool HandleQuickOpenKey(Key key)
+    {
+        switch (key)
+        {
+            case Key.Escape: ViewModel.QuickOpen.Close(); return true;
+            case Key.Down: ViewModel.QuickOpen.MoveSelection(1); return true;
+            case Key.Up: ViewModel.QuickOpen.MoveSelection(-1); return true;
+            case Key.Enter: ViewModel.QuickOpen.ConfirmSelection(); return true;
             default: return false;
         }
     }
