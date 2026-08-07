@@ -88,6 +88,8 @@ public class ScenarioTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
     }
 
+    // 適用後フック（仕様書6.5）の通しシナリオはHookScenarioTests.cs（1ファイル400行上限のため分割）。
+
     [AvaloniaFact(DisplayName = "エクスプローラからファイルを開くとエディタのタブになる")]
     public async Task エクスプローラからファイルを開ける()
     {

@@ -74,6 +74,7 @@ public sealed class SettingsViewModel : ObservableObject
 
         Templates = new PromptTemplateViewModel(appPaths, projectStore, dialogService, _settings, ui);
         TokenStats = new TokenStatisticsViewModel(appPaths, projectStore);
+        Hooks = new HookSettingsViewModel(projectStore, dialogService);
         ValidationIssues = new ObservableCollection<GraftIssue>();
 
         SaveCommand = new AsyncRelayCommand(SaveAsync);
@@ -84,6 +85,7 @@ public sealed class SettingsViewModel : ObservableObject
 
     public PromptTemplateViewModel Templates { get; }
     public TokenStatisticsViewModel TokenStats { get; }
+    public HookSettingsViewModel Hooks { get; }
     public ObservableCollection<GraftIssue> ValidationIssues { get; }
 
     public AsyncRelayCommand SaveCommand { get; }
@@ -186,6 +188,7 @@ public sealed class SettingsViewModel : ObservableObject
         await LoadAsync(ct).ConfigureAwait(true);
         await Templates.InitializeAsync(ct).ConfigureAwait(true);
         await TokenStats.LoadProjectsAsync(ct).ConfigureAwait(true);
+        await Hooks.InitializeAsync(ct).ConfigureAwait(true);
     }
 
     private async Task LoadAsync(CancellationToken ct)
