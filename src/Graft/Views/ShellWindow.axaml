@@ -177,7 +177,7 @@
                 <Border IsVisible="{Binding SelectedSideView,
                                     Converter={x:Static views:Converters.SideViewIs},
                                     ConverterParameter=Search}">
-                    <views:SearchView DataContext="{Binding Search}" />
+                    <views:SearchView x:Name="SearchViewControl" DataContext="{Binding Search}" />
                 </Border>
             </Grid>
 

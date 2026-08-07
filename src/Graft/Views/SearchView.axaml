@@ -60,6 +60,7 @@
             <TextBox x:Name="QueryBox"
                      Grid.Column="0"
                      Text="{Binding Query}"
+                     Watermark="検索する文字列"
                      KeyDown="OnQueryBoxKeyDown"
                      AutomationProperties.Name="検索文字列（ファイル横断）" />
 
@@ -88,6 +89,7 @@
         <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
             <TextBox Grid.Column="0"
                      Text="{Binding ReplaceText}"
+                     Watermark="置換後の文字列"
                      AutomationProperties.Name="置換文字列（ファイル横断）" />
             <Button Grid.Column="1" Content="すべて置換" Command="{Binding ReplaceAllCommand}"
                     Margin="4,0,0,0" AutomationProperties.Name="ファイル横断ですべて置換" />
