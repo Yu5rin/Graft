@@ -57,8 +57,8 @@ public partial class AboutView : UserControl
             await LoadLicenseTextAsync("Graft.Assets.AvalonEdit-LICENSE.txt").ConfigureAwait(true);
     }
 
-    // 単一実行ファイルで配布するため、ライセンス全文は埋め込みリソースとして持つ
-    // （外部ファイルに置くと発行物が1つに収まらない）。
+    // 発行フォルダに含めるファイルを増やさないよう、ライセンス全文は埋め込みリソースとして持つ
+    // （外部ファイルにすると同梱漏れや配置ミスで参照できなくなる恐れがある）。
     private static async Task<string> LoadLicenseTextAsync(string resourceName)
     {
         try
@@ -76,8 +76,9 @@ public partial class AboutView : UserControl
     }
 
     /// <summary>
-    /// ビルド日時を返す。単一実行ファイルでは <c>Assembly.Location</c> が空になるため、
-    /// 実行中のプロセスイメージの最終更新日時を近似として使う。
+    /// ビルド日時を返す。単一ファイル発行では <c>Assembly.Location</c> が空になる問題があり、
+    /// フォルダ形式に変わった現在も実行中のプロセスイメージの最終更新日時を
+    /// 近似として使い続ける（どちらの発行形式でも安定して取得できるため）。
     /// </summary>
     private static DateTime? TryGetBuildDate()
     {
