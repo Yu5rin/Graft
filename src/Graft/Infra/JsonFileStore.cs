@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Graft.Core;
 
 namespace Graft.Infra;
@@ -21,6 +22,11 @@ public sealed class JsonFileStore
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         PropertyNameCaseInsensitive = true,
+        // NaN/Infinity等の名前付き浮動小数点リテラルを読み書き両方で受け付ける。
+        // WindowLayoutState.Left/Top のような「未保存」を表す値でJSON直列化が
+        // 例外にならないようにするための設定（バグ1対応）。旧形式（"NaN"文字列）の
+        // layout.jsonも読めるよう、書き込みだけでなく読み込み側にも対称に効かせる。
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
     };
 
     /// <summary>

@@ -191,6 +191,10 @@ public partial class ShellWindow : Window
             layout.Width = Width;
             layout.Height = Height;
         }
+        // WindowState.Normalへ一度もならずに終了した場合（初回起動→最大化のまま終了等）は
+        // Left/Topを更新しない。既定値はnull（未保存）のままなので、次回起動時は
+        // ResolveWindowBoundsがプライマリモニタ中央へ補正する（バグ1: NaNのままSaveAsyncして
+        // 例外になっていた不具合の修正）。
 
         if (!ViewModel.IsSideViewCollapsed)
         {

@@ -177,8 +177,27 @@ public sealed partial class MainViewModel : ObservableObject
         Diff.WordWrap = _settings.Diff.WordWrap;
         Diff.ShowWhitespace = _settings.Diff.ShowWhitespace;
 
-        Layout = await LayoutStore.LoadAsync(ct).ConfigureAwait(true);
+        Layout = await LoadLayoutSafeAsync(ct).ConfigureAwait(true);
         await ProjectPane.LoadAsync(ct).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// レイアウト読み込みの防御層。JSON解析エラーは<see cref="WindowLayoutStore.LoadAsync"/>内で
+    /// 既に退避・再生成済みだが、ファイルI/O自体の失敗（アクセス権等）は例外として上がってくる。
+    /// レイアウトが読めない程度でプロジェクト一覧読み込み等まで中断させないよう既定値へ倒す
+    /// （設計目標5・附録A.4）。想定外の例外は<see cref="SafeHandler.OnUnexpected"/>でログへ記録する。
+    /// </summary>
+    private async Task<WindowLayoutState> LoadLayoutSafeAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await LayoutStore.LoadAsync(ct).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SafeHandler.OnUnexpected?.Invoke("レイアウトの読み込み", ex);
+            return new WindowLayoutState();
+        }
     }
 
     /// <summary>終了時に現在のレイアウトを保存する。</summary>
