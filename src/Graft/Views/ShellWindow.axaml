@@ -51,42 +51,54 @@
                           AutomationProperties.Name="プロジェクトを選択" />
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <!-- 10章: プロジェクトのフォルダ構成・ファイル内容を確認するコンテキスト収集画面。 -->
+                    <!-- 10章: プロジェクトのフォルダ構成・ファイル内容を確認するコンテキスト収集画面。
+                         ツールチップは「このボタンが何をするものか」を初見で分かる言葉で書く。
+                         ボタン名（ファイル・解析・キュー）だけでは機能が伝わらないという
+                         利用者からの指摘への対応で、AutomationProperties.Name（読み上げ用の
+                         短い操作名）とは別に、目的と使いどころを1〜2文で添える。 -->
                     <Button Content="ファイル"
                             Command="{Binding Graft.OpenContextCollectCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="プロジェクトのファイルを選んで、AIに渡すコード一式をまとめてコピーします。AIに質問する前の準備に使います。"
                             AutomationProperties.Name="プロジェクトのファイル一覧とコンテキスト収集を開く" />
                     <Button Content="解析"
                             Command="{Binding Graft.PasteAndParseCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です。"
                             AutomationProperties.Name="クリップボードのパッチを解析" />
                     <!-- 4.10: 分割パッチの受け取り。キューへ追加／キュー一覧を開く。 -->
                     <Button Content="キューへ追加"
                             Command="{Binding Graft.AddCurrentPatchToQueueCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="解析した変更をすぐ適用せず、順番待ちに溜めます。AIが変更を数回に分けて出してきたときに使います。"
                             AutomationProperties.Name="現在の解析結果をパッチキューへ追加" />
                     <Button Content="{Binding Graft.Queue.Items.Count, StringFormat=キュー（{0}）}"
                             Command="{Binding Graft.OpenQueueCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="順番待ちにしてある変更の一覧を開きます。括弧内は現在の待ち件数です。まとめて適用できます。"
                             AutomationProperties.Name="パッチキューを開く" />
                     <Button Content="適用"
                             Command="{Binding Graft.ApplyCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
                             AutomationProperties.Name="適用を実行" />
                     <!-- 4.8.4 コピー操作: テンプレート選択ドロップダウン。Ctrl+Shift+Cでも同じ操作。 -->
                     <Button x:Name="PromptButton"
                             Content="プロンプト"
                             Command="{Binding Graft.OpenPromptDropdownCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="AIへの依頼文をコピーします。Graftが読み取れる形式で回答するよう指示する文面です（Ctrl+Shift+C）。"
                             AutomationProperties.Name="プロンプトテンプレートを選んでコピー" />
                     <!-- 9.2: サイドバーの履歴ビューを開く動作にする。 -->
                     <Button Content="履歴"
                             Command="{Binding Graft.ShowHistoryCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
                             AutomationProperties.Name="履歴ビューを開く" />
                     <Button Content="設定"
                             Command="{Binding Graft.OpenSettingsCommand}"
                             Margin="4,0"
+                            ToolTip.Tip="テーマ・エディタ・安全機構などの設定を開きます。"
                             AutomationProperties.Name="設定を開く" />
                 </StackPanel>
 
