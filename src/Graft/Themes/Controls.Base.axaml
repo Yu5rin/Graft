@@ -47,6 +47,17 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <!--
+            hardening-perf: 明示しないとFluentThemeの既定パネルに依存してしまい、
+            大量件数（ファイル横断検索の結果等）で仮想化が効かず描画が線形に遅くなる
+            事例が実測で確認された。可視範囲だけをコンテナ化するVirtualizingStackPanelを
+            明示することで、件数に依存しない体感速度を保証する。
+        -->
+        <Setter Property="ItemsPanel">
+            <ItemsPanelTemplate>
+                <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+        </Setter>
     </Style>
 
 </Styles>

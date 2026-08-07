@@ -62,11 +62,11 @@ public sealed class ProjectPaneLayout
 /// </summary>
 public sealed class WindowLayoutState
 {
-    /// <summary>ウィンドウ左端。未保存時は <see cref="double.NaN"/>（初回起動を示す）。</summary>
-    public double Left { get; set; } = double.NaN;
+    /// <summary>ウィンドウ左端。未保存時は null（初回起動を示す）。</summary>
+    public double? Left { get; set; }
 
-    /// <summary>ウィンドウ上端。未保存時は <see cref="double.NaN"/>。</summary>
-    public double Top { get; set; } = double.NaN;
+    /// <summary>ウィンドウ上端。未保存時は null。</summary>
+    public double? Top { get; set; }
 
     public double Width { get; set; } = 1280;
 
@@ -123,12 +123,12 @@ public sealed class WindowLayoutStore
         var width = Math.Max(state.Width, minWidth);
         var height = Math.Max(state.Height, minHeight);
 
-        if (double.IsNaN(state.Left) || double.IsNaN(state.Top) || !IsReachable(state.Left, state.Top, width, screens))
+        if (state.Left is not { } left || state.Top is not { } top || !IsReachable(left, top, width, screens))
         {
             return CenterOnPrimary(width, height, screens);
         }
 
-        return new UiRect(state.Left, state.Top, width, height);
+        return new UiRect(left, top, width, height);
     }
 
     /// <summary>

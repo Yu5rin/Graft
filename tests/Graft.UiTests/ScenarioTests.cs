@@ -88,6 +88,9 @@ public class ScenarioTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
     }
 
+    // 適用後フック（仕様書6.5）の通しシナリオはHookScenarioTests.cs（1ファイル400行上限のため分割）。
+    // 4.1 ファイルからのパッチ解析の通しシナリオはFileParseScenarioTests.cs（同じく400行上限のため分割）。
+
     [AvaloniaFact(DisplayName = "エクスプローラからファイルを開くとエディタのタブになる")]
     public async Task エクスプローラからファイルを開ける()
     {
@@ -295,6 +298,8 @@ public class ScenarioTests : IDisposable
 
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 
+        public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
+
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }
 
@@ -313,6 +318,8 @@ public class ScenarioTests : IDisposable
             => Task.FromResult<string?>(initial ?? "テスト");
 
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
+
+        public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }

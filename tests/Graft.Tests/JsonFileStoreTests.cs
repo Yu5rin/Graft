@@ -43,13 +43,19 @@ public class JsonFileStoreTests
         // 先に退避した側がファイルを移動し終えた後で File.Move を呼ぶと、対象が無く
         // 例外になる。待ち受けない呼び出し元では未観測例外として遅れて表面化するため、
         // 退避済みは成功として扱う必要がある（実機の起動ログで発生を確認した不具合）。
+        //
+        // 並行数を8→32へ強化: 元の8並行では、候補名の存在確認（File.Exists）と
+        // File.Moveの実行の間のTOCTOUレースがまれにしか起きず、全体テスト実行時にだけ
+        // 低頻度で失敗が再現していた（QuarantineAsyncの移動先衝突IOExceptionが吸収されて
+        // いなかった不具合）。並行数を増やすことでこのレースを本テスト単体でも
+        // 高確率で踏むようにする。
         using var ws = new TempWorkspace();
         var path = Path.Combine(ws.CreateDirectory("app"), "data.json");
         await File.WriteAllTextAsync(path, "壊れている");
 
         var store = new JsonFileStore();
         var results = await Task.WhenAll(
-            Enumerable.Range(0, 8).Select(_ =>
+            Enumerable.Range(0, 32).Select(_ =>
                 store.ReadWithRecoveryAsync(path, () => new Box { Value = "既定" })));
 
         results.Should().OnlyContain(r => r.IsSuccess, "どの経路も既定値で復旧できる必要がある");

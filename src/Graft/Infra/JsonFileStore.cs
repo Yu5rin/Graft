@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Graft.Core;
 
 namespace Graft.Infra;
@@ -21,6 +22,11 @@ public sealed class JsonFileStore
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         PropertyNameCaseInsensitive = true,
+        // NaN/Infinity等の名前付き浮動小数点リテラルを読み書き両方で受け付ける。
+        // WindowLayoutState.Left/Top のような「未保存」を表す値でJSON直列化が
+        // 例外にならないようにするための設定（バグ1対応）。旧形式（"NaN"文字列）の
+        // layout.jsonも読めるよう、書き込みだけでなく読み込み側にも対称に効かせる。
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
     };
 
     /// <summary>
@@ -100,40 +106,52 @@ public sealed class JsonFileStore
         }
     }
 
+    /// <summary>同時に同じファイルの退避を試みるタスクが競合し続けた場合に諦めるまでの最大試行回数。</summary>
+    private const int MaxQuarantineAttempts = 50;
+
     /// <summary>
-    /// ファイルを <c>.corrupt.&lt;yyyyMMdd_HHmmss&gt;</c> へ退避する（上書きしない）。
-    /// 退避先の絶対パスを返す。すでに他の処理が退避を終えていた場合は
-    /// <see langword="null"/> を返す。
+    /// 破損ファイルを <c>&lt;path&gt;.corrupt.&lt;日時&gt;[_連番]</c> へ退避する。
     ///
-    /// 起動時は複数の経路が同じファイルをほぼ同時に読むため、破損の検出も同時に起きうる。
-    /// 先に退避した側が移動を終えた後で File.Move を呼ぶと、対象が無く例外になる。
-    /// 退避の目的は「壊れたファイルを残しつつ退かす」ことなので、既に退いていれば成功と見なす。
+    /// 複数タスクが同じ破損ファイルを同時に読み込んだ場合、それぞれがここへ到達しうる。
+    /// 移動先candidateの存在確認（File.Exists）とFile.Moveの実行の間には隙間があるため、
+    /// 確認時点では空いていた名前へ別タスクが先に移動してしまい、自分のFile.MoveがIOException
+    /// （移動先が既に存在する）で失敗することがある（TOCTOU）。File.Existsによる事前確認は
+    /// 衝突を減らす軽い最適化として残しつつ、実際の衝突検出と再試行はFile.Move自体が投げる
+    /// IOExceptionの捕捉で行う。連番を進めながら<see cref="MaxQuarantineAttempts"/>回まで再試行し、
+    /// それでも解決しない場合は退避を諦めてnullを返す（呼び出し側は「退避済み扱い」で続行する。
+    /// <see cref="ReadWithRecoveryAsync{T}"/>参照）。
     /// </summary>
     public async Task<string?> QuarantineAsync(string path, CancellationToken ct = default)
     {
         var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var candidate = $"{path}.corrupt.{stamp}";
-        var suffix = 1;
-        while (File.Exists(candidate))
+
+        for (var attempt = 0; attempt < MaxQuarantineAttempts; attempt++)
         {
-            candidate = $"{path}.corrupt.{stamp}_{suffix}";
-            suffix++;
+            var candidate = attempt == 0 ? $"{path}.corrupt.{stamp}" : $"{path}.corrupt.{stamp}_{attempt}";
+            if (File.Exists(candidate)) continue;
+
+            try
+            {
+                await Task.Run(() => File.Move(path, candidate), ct).ConfigureAwait(false);
+                return candidate;
+            }
+            catch (FileNotFoundException)
+            {
+                // 元ファイルが既に無い（別タスクが退避・削除済み）。退避済み扱いへ倒す。
+                return null;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return null;
+            }
+            catch (IOException)
+            {
+                // 移動先が競合して既に存在する（他タスクが同名で先に退避した）。連番を進めて再試行する。
+            }
         }
 
-        try
-        {
-            await Task.Run(() => File.Move(path, candidate), ct).ConfigureAwait(false);
-        }
-        catch (FileNotFoundException)
-        {
-            return null;
-        }
-        catch (DirectoryNotFoundException)
-        {
-            return null;
-        }
-
-        return candidate;
+        // 上限まで衝突が続いた場合は退避を諦める。呼び出し側の「退避済み扱い」へ倒す。
+        return null;
     }
 
     /// <summary>

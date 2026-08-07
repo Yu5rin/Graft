@@ -20,7 +20,7 @@ public sealed class AvaloniaUiServices : IUiServices
 {
     public AvaloniaUiServices()
     {
-        Clipboard = new AvaloniaClipboardAccess(ResolveLinuxReader());
+        Clipboard = new AvaloniaClipboardAccess(ResolveLinuxReader(), ResolveLinuxWriter());
         Screens = new AvaloniaScreenInfo();
     }
 
@@ -39,6 +39,14 @@ public sealed class AvaloniaUiServices : IUiServices
     /// </summary>
     private static X11ClipboardReader? ResolveLinuxReader()
         => OperatingSystem.IsLinux() ? X11ClipboardReader.Shared : null;
+
+    /// <summary>
+    /// Linux環境でのみ、自前のX11クリップボードライター（プロセス内で共有する既定インスタンス、
+    /// <see cref="X11ClipboardWriter.Shared"/>）を返す。読み取りと同様、接続できない環境では
+    /// nullを返し、書き込みは従来どおりAvalonia経由へ静かにフォールバックする。
+    /// </summary>
+    private static X11ClipboardWriter? ResolveLinuxWriter()
+        => OperatingSystem.IsLinux() ? X11ClipboardWriter.Shared : null;
 
     /// <summary>
     /// デスクトップライフタイムのメインウィンドウを起点に<see cref="TopLevel"/>を解決する。
@@ -64,35 +72,49 @@ public sealed class AvaloniaUiServices : IUiServices
 /// 読み取りは<see cref="IClipboardAccess.GetTextAsync"/>のとおり非同期のまま扱う。
 /// 同期的に待つとX11では取得に失敗する（応答を処理するイベントループごと止まるため）。
 ///
-/// Linuxでは読み取りをAvalonia経由にせず、可能な限り<see cref="X11ClipboardReader"/>を使う。
-/// AvaloniaのX11クリップボード実装は内部で要求を直列に処理しており、一度でも要求が完了しない
-/// まま残ると（所有アプリが応答しない瞬間に読んだ場合等）以後のすべての読み取りが永久に
-/// 失敗し続ける不具合が実機で確認された（呼び出し側でタイムアウトさせても内部の詰まりは
-/// 解消されない）。<see cref="X11ClipboardReader"/>は専用の接続・スレッドで読み取りを行い、
-/// 1回の失敗・タイムアウトが次回以降に影響しないよう作られている。
+/// Linuxでは読み取り・書き込みともAvalonia経由にせず、可能な限り自前のX11実装
+/// （<see cref="X11ClipboardReader"/>・<see cref="X11ClipboardWriter"/>）を使う。実機検証の結果、
+/// AvaloniaのX11クリップボード実装には次の不具合が確認された（Avalonia内部の環境依存動作と
+/// 推定されるが原因は特定できていない）。
+/// - 読み取り: 内部で要求を直列に処理しており、一度でも要求が完了しないまま残ると
+///   （所有アプリが応答しない瞬間に読んだ場合等）以後のすべての読み取りが永久に失敗し続ける
+///   （呼び出し側でタイムアウトさせても内部の詰まりは解消されない）。
+/// - 書き込み: SetTextAsyncは例外なく完了するにもかかわらず、Xサーバー上でCLIPBOARDセレクション
+///   の所有者が一度も現れない（他アプリから貼り付けできない）。
+/// 自前実装はそれぞれ専用の接続・スレッドで処理を行い、1回の失敗・タイムアウトが
+/// 次回以降に影響しないよう作られている。
 /// </summary>
 public sealed class AvaloniaClipboardAccess : IClipboardAccess
 {
-    // 使う自前リーダー。<see cref="LinuxPlatformServices"/>や<see cref="AvaloniaUiServices"/>から
-    // 配線時に注入される。nullの場合（Windows等、またはLinuxでもX11に接続できない環境）は
-    // 従来どおりAvalonia経由で読み取る。
+    // 使う自前リーダー／ライター。<see cref="LinuxPlatformServices"/>や<see cref="AvaloniaUiServices"/>
+    // から配線時に注入される。nullの場合（Windows等、またはLinuxでもX11に接続できない環境）は
+    // 従来どおりAvalonia経由で読み書きする。
     private readonly X11ClipboardReader? _linuxReader;
+    private readonly X11ClipboardWriter? _linuxWriter;
 
-    public AvaloniaClipboardAccess(X11ClipboardReader? linuxReader = null)
+    public AvaloniaClipboardAccess(X11ClipboardReader? linuxReader = null, X11ClipboardWriter? linuxWriter = null)
     {
         _linuxReader = linuxReader;
+        _linuxWriter = linuxWriter;
     }
 
     public void SetText(string text)
     {
+        if (_linuxWriter is not null)
+        {
+            _ = _linuxWriter.SetTextAsync(text, WriteTimeout);
+            return;
+        }
+
         var clipboard = AvaloniaUiServices.ResolveTopLevel()?.Clipboard;
         if (clipboard is null) return;
         _ = SetTextAndSwallowAsync(clipboard, text);
     }
 
     // クリップボードの所有アプリが応答しない場合、要求は完了しないまま残りうる。
-    // 待ち続けると操作が戻らなくなるため、上限を設けて「取得できなかった」に倒す。
+    // 待ち続けると操作が戻らなくなるため、上限を設けて「取得できなかった」「書き込めなかった」に倒す。
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
 
     public async Task<string?> GetTextAsync()
     {
