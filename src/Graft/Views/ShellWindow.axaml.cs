@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -48,6 +49,7 @@ public partial class ShellWindow : Window
         viewModel.Graft.RequestOpenQueue += OnRequestOpenQueue;
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
+        viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
     }
 
     private ShellViewModel ViewModel => (ShellViewModel)DataContext!;
@@ -73,6 +75,17 @@ public partial class ShellWindow : Window
     {
         ViewModel.SelectSideView(SideViewKind.History);
         HistoryPaneControl.ListBoxElement.Focus();
+    }
+
+    /// <summary>
+    /// 4.4: 検索ビュー（サイドバーの虫眼鏡アイコン・Ctrl+Shift+F）表示時に検索欄へフォーカスする。
+    /// 折りたたみ/非表示から表示へ切り替わった直後はレイアウトが未確定のため、Focus()を
+    /// 即座に呼んでも取れない（EditorPane.axaml.csのスクロール位置復元と同じ事情）。
+    /// レイアウト確定後まで遅延させる。
+    /// </summary>
+    private void OnRequestFocusSearchView(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() => SearchViewControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
     }
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
@@ -181,6 +194,11 @@ public partial class ShellWindow : Window
         var paneLayout = ViewModel.Graft.GetCurrentPaneLayout();
         paneLayout.SideViewWidth = _sideViewWidth;
         paneLayout.GraftPanelHeight = _graftPanelHeight;
+
+        // 3章: 終了時点で選択中のプロジェクトのタブ構成・展開状態を取り込んでから保存する
+        // （プロジェクト切替時にしか取り込まれず、最後に使っていたプロジェクトのタブが
+        // 復元されない不具合の修正）。
+        ViewModel.CaptureCurrentProjectState();
 
         ViewModel.Graft.SaveLayoutAsync().GetAwaiter().GetResult();
     }

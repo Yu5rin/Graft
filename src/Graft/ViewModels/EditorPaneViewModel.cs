@@ -17,8 +17,9 @@ namespace Graft.ViewModels;
 /// 保存確認等のドキュメント前提のロジックへ一切渡さず、本クラスが直接開閉する
 /// （<see cref="EditorTabViewModel.Session"/>は差分タブでは利用できないため）。
 /// 15章 editor設定は<see cref="Settings.Editor"/>（<see cref="EditorSettings"/>）から読み取る。
+/// タブ右クリックメニュー用コマンドは<c>EditorPaneViewModel.TabActions.cs</c>で定義する。
 /// </summary>
-public sealed class EditorPaneViewModel : ObservableObject
+public sealed partial class EditorPaneViewModel : ObservableObject
 {
     // SettingsStoreの検証範囲（editor.fontSize: 6〜72）と合わせる。Ctrl+マウスホイールでの
     // 変更時にもこの範囲を超えないようにする。
@@ -47,6 +48,7 @@ public sealed class EditorPaneViewModel : ObservableObject
 
         ToggleWordWrapCommand = new RelayCommand(() => WordWrap = !WordWrap);
         ToggleShowWhitespaceCommand = new RelayCommand(() => ShowWhitespace = !ShowWhitespace);
+        InitializeTabActionCommands(); // タブ見出し右クリックメニュー（TabActions.cs）。
     }
 
     /// <summary>開いているタブの一覧（ドキュメント＋差分タブ、9.2）。</summary>

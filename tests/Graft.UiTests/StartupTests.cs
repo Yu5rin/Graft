@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using FluentAssertions;
 using Graft.Core;
 using Graft.Features;
@@ -101,6 +102,25 @@ public class StartupTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
     }
 
+    [AvaloniaFact(DisplayName = "検索ビューを表示すると検索テキストボックスへ自動でフォーカスする")]
+    public void 検索ビュー表示時に検索欄へ自動フォーカスする()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+
+        var searchView = window.GetControl<SearchView>("SearchViewControl");
+
+        // サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも SelectSideView(Search) を経由する。
+        shell.SelectSideView(SideViewKind.Search);
+        shell.SelectedSideView.Should().Be(SideViewKind.Search);
+
+        // フォーカスはレイアウト確定後まで遅延されるため、保留中のディスパッチャジョブを流す。
+        Dispatcher.UIThread.RunJobs();
+
+        searchView.QueryBoxElement.IsFocused.Should().BeTrue("4.4: 検索ビュー表示時は検索欄へ自動フォーカスする必要がある");
+    }
+
     [AvaloniaFact(DisplayName = "接ぎ木パネルの開閉でレイアウトが破綻しない")]
     public void 接ぎ木パネルを開閉できる()
     {
@@ -113,6 +133,50 @@ public class StartupTests : IDisposable
 
         shell.IsGraftPanelOpen = false;
         window.CaptureRenderedFrame().Should().NotBeNull();
+    }
+
+    [AvaloniaFact(DisplayName = "CaptureCurrentProjectStateで開いていたタブがProjectPaneLayoutへ記憶される（アプリ終了時の保存経路）")]
+    public async Task 終了時にタブ構成が取り込まれる()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+
+        var pathA = Path.Combine(_baseDirectory, "project", "a.txt");
+        var pathB = Path.Combine(_baseDirectory, "project", "b.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(pathA)!);
+        await File.WriteAllTextAsync(pathA, "A\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(pathB, "B\n").ConfigureAwait(true);
+
+        var projectDirectory = Path.GetDirectoryName(pathA)!;
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectDirectory).ConfigureAwait(true);
+        var project = shell.Graft.ProjectPane.SelectedItem!.Project;
+
+        await shell.Editor.OpenFileAsync(pathA).ConfigureAwait(true);
+        var tabB = (await shell.Editor.OpenFileAsync(pathB).ConfigureAwait(true)).Value;
+        shell.Editor.ActiveTab = tabB;
+
+        // アプリ終了時（ShellWindow.OnClosing）が SaveLayoutAsync の直前に呼ぶ経路そのもの。
+        // これがないと、プロジェクト切替を挟まずに終了した場合にタブ構成が記憶されない。
+        shell.CaptureCurrentProjectState();
+
+        var paneLayout = WindowLayoutStore.GetOrCreatePaneLayout(shell.Graft.Layout, project.Id);
+        paneLayout.OpenTabs.Should().HaveCount(2, "開いていた2枚のタブが記憶される必要がある");
+        paneLayout.OpenTabs.Select(t => t.RelativePath).Should().Contain(new[] { "a.txt", "b.txt" });
+        paneLayout.ActiveTabPath.Should().Be("b.txt", "アクティブタブも記憶される必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "プロジェクト未選択のときCaptureCurrentProjectStateを呼んでも何も起きない")]
+    public void プロジェクト未選択時のCaptureは何もしない()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+
+        var act = () => shell.CaptureCurrentProjectState();
+
+        act.Should().NotThrow();
     }
 
     private ShellViewModel BuildShell()

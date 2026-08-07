@@ -3,6 +3,7 @@
              xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
              xmlns:local="clr-namespace:Graft.Views"
              x:Class="Graft.Views.EditorPane"
+             x:Name="Root"
              Background="{DynamicResource BgBase}">
     <!--
         エディタ領域（4章）。単一のAvaloniaEdit TextEditor を複数タブで使い回す。
@@ -40,7 +41,36 @@
                  AutomationProperties.Name="開いているファイルのタブ一覧">
             <ListBox.ItemTemplate>
                 <DataTemplate>
+                    <!-- タブ見出しの右クリックメニュー。Command先はEditorPaneViewModel（Rootの
+                         DataContext）、CommandParameterはこの項目自身（タブ）。ContextMenuは
+                         配置対象（Border）の論理ツリーを共有するため、ElementName=Rootでの
+                         参照はExplorerView.axamlのContextMenuと同様に機能する。 -->
                     <Border Background="Transparent">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="閉じる"
+                                          Command="{Binding CloseCommand}"
+                                          AutomationProperties.Name="このタブを閉じる" />
+                                <MenuItem Header="他のタブを閉じる"
+                                          Command="{Binding DataContext.CloseOtherTabsCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          AutomationProperties.Name="他のタブをすべて閉じる" />
+                                <MenuItem Header="すべてのタブを閉じる"
+                                          Command="{Binding DataContext.CloseAllTabsCommand, ElementName=Root}"
+                                          AutomationProperties.Name="開いているタブをすべて閉じる" />
+                                <Separator />
+                                <MenuItem Header="フルパスをコピー"
+                                          Command="{Binding DataContext.CopyFullPathCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          IsEnabled="{Binding IsDocument}"
+                                          AutomationProperties.Name="このタブのフルパスをコピー" />
+                                <MenuItem Header="ファイルマネージャで表示"
+                                          Command="{Binding DataContext.RevealInFileManagerCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          IsEnabled="{Binding IsDocument}"
+                                          AutomationProperties.Name="このタブをファイルマネージャで表示" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Classes="tabTitle"
                                        Classes.preview="{Binding IsPreview}"

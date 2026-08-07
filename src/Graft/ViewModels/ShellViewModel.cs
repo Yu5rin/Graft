@@ -137,6 +137,13 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     public ICommand OpenBlockInEditorCommand { get; }
 
     /// <summary>
+    /// 4.4: 検索ビューを表示したとき（サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも
+    /// <see cref="SelectSideView"/>を経由するため、ここで一括して発火する）、検索テキストボックスへ
+    /// フォーカスするようViewへ要求する。
+    /// </summary>
+    public event EventHandler? RequestFocusSearchView;
+
+    /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
     /// 再クリックした場合はサイドビューを折りたたむ。それ以外は該当ビューへ切り替えて展開する。
     /// </summary>
@@ -149,6 +156,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         }
         SelectedSideView = kind;
         IsSideViewCollapsed = false;
+        if (kind == SideViewKind.Search) RequestFocusSearchView?.Invoke(this, EventArgs.Empty);
     }
 
     private bool IsSideViewActive(SideViewKind kind) => !IsSideViewCollapsed && SelectedSideView == kind;
@@ -246,6 +254,17 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     /// 閉じてエディタ・エクスプローラの対象プロジェクトを切り替え、新しいプロジェクトの
     /// タブ構成・展開状態を復元する。保存確認等はEditorPaneViewModel側の責務。
     /// </summary>
+    /// <summary>
+    /// 3章: アプリ終了時に呼び出し、現在選択中のプロジェクトのタブ構成・アクティブタブ・
+    /// エクスプローラの展開状態をProjectPaneLayoutへ取り込む。プロジェクト未選択
+    /// （_currentProjectIdがnull）の場合は何もしない。実際のlayout.jsonへの永続化は
+    /// 呼び出し元（ShellWindow.OnClosing）のSaveLayoutAsyncが担う。
+    /// </summary>
+    public void CaptureCurrentProjectState()
+    {
+        if (_currentProjectId is { } projectId) CaptureProjectState(projectId);
+    }
+
     /// <summary>横断検索の結果クリックで、該当ファイルの該当行をエディタで開く（仕様書4.4）。</summary>
     private async void OnSearchJumpRequested(object? sender, (string FullPath, int Line) target)
         => await SafeHandler.RunAsync("検索結果からのジャンプ", () =>
