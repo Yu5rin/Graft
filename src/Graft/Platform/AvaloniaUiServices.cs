@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input.Platform;
 using Avalonia.Threading;
+using Graft.Platform.Linux;
 
 namespace Graft.Platform;
 
@@ -19,7 +20,7 @@ public sealed class AvaloniaUiServices : IUiServices
 {
     public AvaloniaUiServices()
     {
-        Clipboard = new AvaloniaClipboardAccess();
+        Clipboard = new AvaloniaClipboardAccess(ResolveLinuxReader());
         Screens = new AvaloniaScreenInfo();
     }
 
@@ -28,6 +29,16 @@ public sealed class AvaloniaUiServices : IUiServices
     public IScreenInfo Screens { get; }
 
     public IUiTimer CreateTimer(TimeSpan interval, Action onTick) => new AvaloniaUiTimer(interval, onTick);
+
+    /// <summary>
+    /// Linux環境でのみ、自前のX11クリップボードリーダー（プロセス内で共有する既定インスタンス、
+    /// <see cref="X11ClipboardReader.Shared"/>）を返す。<see cref="PlatformServices.Create"/>が
+    /// 生成する<see cref="Linux.LinuxPlatformServices"/>のクリップボード監視とも同じ接続を共有する
+    /// （AvaloniaUiServicesクラスの説明を参照）。それ以外のOS、またはX11に接続できない環境では
+    /// nullを返し、読み取りは従来どおりAvalonia経由（タイムアウト付き）へ静かにフォールバックする。
+    /// </summary>
+    private static X11ClipboardReader? ResolveLinuxReader()
+        => OperatingSystem.IsLinux() ? X11ClipboardReader.Shared : null;
 
     /// <summary>
     /// デスクトップライフタイムのメインウィンドウを起点に<see cref="TopLevel"/>を解決する。
@@ -52,9 +63,26 @@ public sealed class AvaloniaUiServices : IUiServices
 /// 書き込みは完了を待たない（失敗しても呼び出し側へは伝えない契約のため待つ必要がない）。
 /// 読み取りは<see cref="IClipboardAccess.GetTextAsync"/>のとおり非同期のまま扱う。
 /// 同期的に待つとX11では取得に失敗する（応答を処理するイベントループごと止まるため）。
+///
+/// Linuxでは読み取りをAvalonia経由にせず、可能な限り<see cref="X11ClipboardReader"/>を使う。
+/// AvaloniaのX11クリップボード実装は内部で要求を直列に処理しており、一度でも要求が完了しない
+/// まま残ると（所有アプリが応答しない瞬間に読んだ場合等）以後のすべての読み取りが永久に
+/// 失敗し続ける不具合が実機で確認された（呼び出し側でタイムアウトさせても内部の詰まりは
+/// 解消されない）。<see cref="X11ClipboardReader"/>は専用の接続・スレッドで読み取りを行い、
+/// 1回の失敗・タイムアウトが次回以降に影響しないよう作られている。
 /// </summary>
 public sealed class AvaloniaClipboardAccess : IClipboardAccess
 {
+    // 使う自前リーダー。<see cref="LinuxPlatformServices"/>や<see cref="AvaloniaUiServices"/>から
+    // 配線時に注入される。nullの場合（Windows等、またはLinuxでもX11に接続できない環境）は
+    // 従来どおりAvalonia経由で読み取る。
+    private readonly X11ClipboardReader? _linuxReader;
+
+    public AvaloniaClipboardAccess(X11ClipboardReader? linuxReader = null)
+    {
+        _linuxReader = linuxReader;
+    }
+
     public void SetText(string text)
     {
         var clipboard = AvaloniaUiServices.ResolveTopLevel()?.Clipboard;
@@ -68,6 +96,11 @@ public sealed class AvaloniaClipboardAccess : IClipboardAccess
 
     public async Task<string?> GetTextAsync()
     {
+        if (_linuxReader is not null)
+        {
+            return await _linuxReader.ReadTextAsync(ReadTimeout).ConfigureAwait(true);
+        }
+
         var clipboard = AvaloniaUiServices.ResolveTopLevel()?.Clipboard;
         if (clipboard is null) return null;
 
