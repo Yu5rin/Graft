@@ -1,9 +1,12 @@
-# v で始まるタグを push すると、Windows と Linux 向けの発行フォルダ一式を生成し、
+# v で始まるタグを push すると、Windows と Linux 向けの発行物一式を生成し、
 # GitHub Release として公開する。
 #
-# 発行は README「発行」節と同じコマンドを使う。フォルダ形式の自己完結型のため、
-# 利用者側に .NET ランタイムの導入は要らない。単一ファイル化（PublishSingleFile）は
-# 常駐メモリと初回起動時間の両方で不利なため使わない（README「発行」節参照）。
+# 発行は README「発行」節と同じコマンドを使う。単一ファイル形式の自己完結型のため、
+# 利用者側に .NET ランタイムの導入は要らない。PublishSingleFile / EnableCompressionInSingleFile
+# の各種設定は Graft.csproj に既定値として書いてあるため、ここでは -p: 指定を重ねない
+# （README「発行」節参照）。ネイティブライブラリの自己展開（IncludeNativeLibrariesForSelfExtract）
+# はcsproj側で明示的にfalseにしており、これがtrueだと初回起動が約5.44秒に悪化することが
+# 実測で分かっている。発行物は実行ファイル＋ネイティブDLL3つの計4ファイル。
 # Windows 向けもLinuxランナー上で生成する。.NET はクロスOSの発行に対応しており、
 # ReadyToRun のプリコンパイルも対象OS向けに正しく行われる。
 name: リリース
@@ -35,9 +38,10 @@ jobs:
 
       # 発行先を配布物の名前と同じフォルダにしておく。こうしておくと書庫の中に
       # 「Graft-v1.0.0-win-x64/」という単一のフォルダだけが入るので、利用者が
-      # ダウンロードフォルダ等でそのまま展開しても数百個のファイルが散らばらない
-      # （フォルダ形式は単一実行ファイルと違い中身が多数のファイルになるため、
-      # 書庫のトップに必ずフォルダを1つ挟むことが重要になる）。
+      # ダウンロードフォルダ等でそのまま展開してもファイルが散らばらない
+      # （単一ファイル形式でも実行ファイル＋ネイティブDLL3つの計4ファイルが同梱される
+      # ため、書庫のトップに必ずフォルダを1つ挟むことが重要になる。実行ファイルだけを
+      # 取り出すと起動できない）。
       - name: Windows 向けに発行
         run: |
           dotnet publish src/Graft -c Release -r win-x64 --self-contained true \
@@ -48,7 +52,7 @@ jobs:
           dotnet publish src/Graft -c Release -r linux-x64 --self-contained true \
             -p:DebugType=none -o publish/Graft-${{ github.ref_name }}-linux-x64
 
-      # 発行フォルダ一式（実行ファイル・ランタイム・依存ライブラリ）をまとめて圧縮する。
+      # 発行物一式（実行ファイル＋ネイティブDLL3つの計4ファイル）をまとめて圧縮する。
       # Linux 版は zip では実行権限が失われるので tar.gz を使う。
       - name: 配布物をまとめる
         run: |
@@ -69,9 +73,11 @@ jobs:
             ## 導入
 
             お使いのOS向けの書庫を、展開したフォルダごと専用の場所（他のアプリと混ざらない
-            場所）へ置いてください。フォルダの中の実行ファイル（Windowsは `Graft.exe`、
-            Linuxは `Graft`）を起動します。実行ファイルと同じ階層に
-            `settings.json` / `projects.json` / `back/` / `logs/` を作ります。
+            場所）へ置いてください。フォルダの中には実行ファイル（Windowsは `Graft.exe`、
+            Linuxは `Graft`）とネイティブDLLが3つ入っています。**実行ファイルだけを
+            取り出さず、フォルダごと扱ってください**（同梱のDLLがないと起動できません）。
+            実行ファイルと同じ階層に `settings.json` / `projects.json` / `back/` / `logs/`
+            を作ります。
 
             Windowsでは、実行ファイルのショートカットをデスクトップやスタートメニューへ
             作っておくと起動が楽になります。
