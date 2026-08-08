@@ -7,6 +7,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Themes;
+using Graft.Views;
 
 namespace Graft.ViewModels;
 
@@ -61,6 +62,7 @@ public sealed class SettingsViewModel : ObservableObject
     private bool _isApplyingLoadedSettings;
 
     private string _selectedTheme = "system";
+    private string _selectedTooltipDetail = "standard";
     private string _selectedApplyMode = "allOrNothing";
     private bool _showPreview; private bool _requireSummary;
     private string _hotkey = string.Empty;
@@ -160,6 +162,15 @@ public sealed class SettingsViewModel : ObservableObject
         new ChoiceOption("ダーク", "dark"), new ChoiceOption("ライト", "light"), new ChoiceOption("システム追従", "system"),
     };
 
+    /// <summary>
+    /// 「操作の説明」（ツールチップ）の表示レベル選択肢。テーマのすぐ下に置く（利用者からの
+    /// 要望）。「表示しない」「標準の説明（既定）」「くわしい説明」の3段階（<see cref="HelpTip"/>）。
+    /// </summary>
+    public IReadOnlyList<ChoiceOption> TooltipDetailOptions { get; } = new[]
+    {
+        new ChoiceOption("表示しない", "off"), new ChoiceOption("標準の説明", "standard"), new ChoiceOption("くわしい説明", "detailed"),
+    };
+
     public IReadOnlyList<ChoiceOption> ApplyModeOptions { get; } = new[]
     {
         new ChoiceOption("全件適用（All or Nothing）", "allOrNothing"), new ChoiceOption("部分適用可", "partial"),
@@ -187,6 +198,21 @@ public sealed class SettingsViewModel : ObservableObject
         {
             if (!SetEditableProperty(ref _selectedTheme, value)) return;
             ThemeManager.SetTheme(ParseTheme(value));
+        }
+    }
+
+    /// <summary>
+    /// 「操作の説明」の表示レベル。テーマと同じく、ComboBoxの選択が変わった瞬間に
+    /// <see cref="HelpTip.SetLevel"/>経由で即時反映する（開いている全ウィンドウのツールチップが
+    /// 再起動なしで切り替わる）。保存の予約自体はSetEditablePropertyへ委ねる。
+    /// </summary>
+    public string SelectedTooltipDetail
+    {
+        get => _selectedTooltipDetail;
+        set
+        {
+            if (!SetEditableProperty(ref _selectedTooltipDetail, value)) return;
+            HelpTip.SetLevel(HelpTip.ParseLevel(value));
         }
     }
 
@@ -533,7 +559,7 @@ public sealed class SettingsViewModel : ObservableObject
 
     private void PopulateEditableFieldsCore(Settings s)
     {
-        SelectedTheme = s.Theme; SelectedApplyMode = s.ApplyMode; ShowPreview = s.ShowPreview;
+        SelectedTheme = s.Theme; SelectedTooltipDetail = s.TooltipDetail; SelectedApplyMode = s.ApplyMode; ShowPreview = s.ShowPreview;
         RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; SelectedLogLevel = s.LogLevel;
         ClipboardWatchEnabled = s.ClipboardWatch.Enabled; SelectedClipboardAction = s.ClipboardWatch.Action;
         MaxRevisionsText = s.Backup.MaxRevisions.ToString(CultureInfo.InvariantCulture);
@@ -570,6 +596,7 @@ public sealed class SettingsViewModel : ObservableObject
     private Settings BuildSettingsFromFields() => new()
     {
         Theme = _selectedTheme,
+        TooltipDetail = _selectedTooltipDetail,
         ApplyMode = _selectedApplyMode,
         ShowPreview = _showPreview,
         RequireSummary = _requireSummary,

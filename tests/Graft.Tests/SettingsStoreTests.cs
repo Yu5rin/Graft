@@ -250,6 +250,64 @@ public class SettingsStoreTests
     }
 
     // ------------------------------------------------------------------
+    // バグ2: E406（保存前検証）の文言が実態と矛盾していた不具合の回帰テスト。
+    //
+    // 以前はValidateOnlyのDetailがLoadAsyncと同じ「既定値Xを使用します」という文言のまま
+    // コードだけE406へ差し替わっていたため、「入力値が保存条件を満たしていない: …は0以上
+    // である必要があるため既定値100を使用します。（対処: 値を修正すると自動的に保存されます）」
+    // という、Detail（既定値100を使う）とRemedy（保存されず修正を待つ）が矛盾した表示になって
+    // いた。実際には何も保存されず直前の値のままなので、Detailも「保存されない」という
+    // 事実に合わせる必要がある。一方でLoadAsync（起動時に不正値を実際に既定値へ差し替える
+    // 文脈）では「既定値を使用します」のままが正確であるため、文脈で文言を分けたことも
+    // あわせて検証する（両方が同じ検証ロジック=Validate()を共有しているため、
+    // 一律に変えると片方が不正確になる）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ValidateOnly（保存前検証）のDetailは『既定値を使用します』と言わず、保存されない旨を伝える")]
+    public void ValidateOnlyのDetailは保存されない旨を伝える()
+    {
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = -5 } });
+
+        var issue = result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E406
+            && i.Detail != null && i.Detail.Contains("maxRevisions")).Subject;
+
+        issue.Detail.Should().NotContain("既定値", "保存前検証では既定値へ差し替わらないため、既定値を使うという表現は誤り");
+        issue.Detail.Should().NotContain("100を使用", "実際には直前の正しい値のまま保存されず、100になるわけではない");
+        issue.Detail.Should().Contain("保存されて", "保存されなかった（保留された）ことが伝わる文言である必要がある");
+    }
+
+    [Fact(DisplayName = "LoadAsync（起動時の読み込み）のDetailは、実際に既定値へ差し替わるため『既定値を使用します』のままでよい")]
+    public async Task LoadAsyncのDetailは既定値を使用する旨のままでよい()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "backup": { "maxRevisions": -5 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Backup.MaxRevisions.Should().Be(100, "起動時の読み込みでは実際に既定値へ差し替わる");
+        var issue = result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E404
+            && i.Detail != null && i.Detail.Contains("maxRevisions")).Subject;
+        issue.Detail.Should().Contain("既定値", "この文脈では実際に既定値が使われるため、その旨を伝える文言のままでよい");
+    }
+
+    [Fact(DisplayName = "E406の対処方法（Remedy）は『値を修正すると自動的に保存されます』のまま変わらない")]
+    public void E406のRemedyは保存される旨のままである()
+    {
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = -5 } });
+
+        var issue = result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E406).Subject;
+        issue.Remedy.Should().Be("値を修正すると自動的に保存されます");
+        issue.Summary.Should().Be("入力値が保存条件を満たしていない");
+
+        // Detail・Remedyを組み合わせた表示（ToDisplayText + Remedy）全体で見ても、
+        // 「既定値を使用する」という矛盾した記述が残っていないことを確認する。
+        var displayText = $"{issue.ToDisplayText()}（対処: {issue.Remedy}）";
+        displayText.Should().NotContain("既定値100を使用");
+    }
+
+    // ------------------------------------------------------------------
     // 13.1 破損時の復旧
     // ------------------------------------------------------------------
 

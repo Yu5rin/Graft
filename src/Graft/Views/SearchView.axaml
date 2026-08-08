@@ -67,20 +67,28 @@
             <ToggleButton Grid.Column="1" Classes="searchOption"
                           IsChecked="{Binding UseRegex, Mode=OneWay}"
                           Command="{Binding ToggleRegexCommand}" Content=".*"
-                          ToolTip.Tip="正規表現を使用" AutomationProperties.Name="正規表現を使用" />
+                          local:HelpTip.Standard="正規表現を使用"
+                          local:HelpTip.Detailed="検索文字列を正規表現（パターンで文字列を指定する記法）として解釈します。オンにすると「\d+」で数字の連続を探す、といった柔軟な検索ができます。使い方が分からない場合はオフのままで構いません（入力した文字列そのままを検索します）。"
+                          AutomationProperties.Name="正規表現を使用" />
             <ToggleButton Grid.Column="2" Classes="searchOption"
                           IsChecked="{Binding CaseSensitive, Mode=OneWay}"
                           Command="{Binding ToggleCaseCommand}" Content="Aa"
-                          ToolTip.Tip="大文字と小文字を区別" AutomationProperties.Name="大文字と小文字を区別" />
+                          local:HelpTip.Standard="大文字と小文字を区別"
+                          local:HelpTip.Detailed="オンにすると、検索文字列の大文字・小文字を区別して探します（例: 「Name」と「name」を別の文字列として扱う）。オフのとき（既定）は大文字・小文字を区別せずに探します。"
+                          AutomationProperties.Name="大文字と小文字を区別" />
             <ToggleButton Grid.Column="3" Classes="searchOption"
                           IsChecked="{Binding WholeWord, Mode=OneWay}"
                           Command="{Binding ToggleWholeWordCommand}" Content="ab"
-                          ToolTip.Tip="単語単位で検索" AutomationProperties.Name="単語単位で検索" />
+                          local:HelpTip.Standard="単語単位で検索"
+                          local:HelpTip.Detailed="オンにすると、検索文字列が単語として独立している箇所だけを探します（例: 「cat」で検索したとき「category」の一部には一致しません）。他の単語の一部を誤ってヒットさせたくないときに使います。"
+                          AutomationProperties.Name="単語単位で検索" />
 
             <Button Grid.Column="4" Command="{Binding SearchCommand}"
                     Width="26" Height="26" Margin="2,0,0,0" Padding="0"
                     Background="Transparent"
-                    ToolTip.Tip="検索" AutomationProperties.Name="ファイル横断検索を実行">
+                    local:HelpTip.Standard="検索"
+                    local:HelpTip.Detailed="上の欄に入力した文字列で、プロジェクト内のすべてのファイルを横断的に検索します。結果は下に、ファイルごと・行ごとのツリーとして表示されます。Enterキーを押しても同じように検索できます。"
+                    AutomationProperties.Name="ファイル横断検索を実行">
                 <local:IconGlyph Data="{DynamicResource IconSearchGeometry}" Width="14" Height="14" />
             </Button>
         </Grid>
