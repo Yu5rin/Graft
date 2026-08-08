@@ -48,6 +48,27 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "履歴ペインを構築して描画できる")]
     public void 履歴ペインを描画できる() => RenderInWindow(new HistoryPane());
 
+    // 課題2-2回帰テスト: 種別絞り込みが未選択のとき、空欄ではなく「すべての種別」が
+    // 選択済みの状態で表示されることを確認する（DataContextはHistoryPaneViewModelそのもの、
+    // TypeFilterは一切設定しない既定状態のまま検証）。
+    [AvaloniaFact(DisplayName = "履歴の種別絞り込みは未選択時に「すべての種別」を選択済みで表示する")]
+    public void 履歴の種別絞り込みは未選択時にすべての種別が選択済みになる()
+    {
+        var pane = new HistoryPane
+        {
+            DataContext = new Graft.ViewModels.HistoryPaneViewModel(
+                new Graft.Core.RevisionStore(new Graft.Infra.AppPaths(
+                    Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
+                new Graft.Core.RevisionRestorer(new Graft.Infra.AppPaths(
+                    Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
+                new Graft.Platform.Null.NullDialogService()),
+        };
+        RenderInWindow(pane);
+
+        pane.TypeComboElement.SelectedItem.Should().Be(Graft.ViewModels.HistoryPaneViewModel.AllTypesOption,
+            "未選択時に空欄のままでは何を選ぶドロップダウンか分からないため、既定で「すべての種別」を選択済みにする");
+    }
+
     [AvaloniaFact(DisplayName = "エクスプローラビューを構築して描画できる")]
     public void エクスプローラビューを描画できる() => RenderInWindow(new ExplorerView());
 
@@ -71,6 +92,11 @@ public class ViewTests
 
     [AvaloniaFact(DisplayName = "パッチキュー画面を構築して描画できる")]
     public void パッチキュー画面を描画できる() => RenderWindow(new QueueWindow());
+
+    // 課題1: 適用前プレビュー画面（ShowPreview有効時）。DataContextを与えず構造だけ確認する
+    // （QueueWindow等と同じ、パラメータ無しコンストラクタでのXAML描画スモークテスト）。
+    [AvaloniaFact(DisplayName = "適用前プレビュー画面を構築して描画できる")]
+    public void 適用前プレビュー画面を描画できる() => RenderWindow(new ApplyPreviewWindow());
 
     [AvaloniaFact(DisplayName = "コンテキスト収集画面を構築して描画できる")]
     public void コンテキスト収集画面を描画できる() => RenderWindow(new ContextCollectWindow());

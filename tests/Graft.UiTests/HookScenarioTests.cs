@@ -122,10 +122,20 @@ public class HookScenarioTests : IDisposable
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
 
+        // ShowPreview（課題1）はこのテストの対象外（適用後フックの検証）なので明示的にfalseにし、
+        // ApplyCommandが素通りする従来どおりの挙動のまま検証できるようにする。
+        // MainViewModel.InitializeAsync内でSettingsStore.LoadAsyncが改めて読み直すため、
+        // BuildShellViewModelへ渡すSettingsは初期値の仮置きに過ぎない。先にsettings.jsonへ
+        // 書いておかないと既定値（ShowPreview=true）に戻ってしまい、このテストは本物の
+        // ShellWindowを使う（誰も閉じないApplyPreviewWindowのShowDialogで無限に固まる）ため、
+        // 他のシナリオテストと同じくここで明示的に保存する。
+        var settingsStore = new SettingsStore(appPaths);
+        await settingsStore.SaveAsync(new Settings { ShowPreview = false }).ConfigureAwait(true);
+
         var shell = StartupCoordinator.BuildShellViewModel(
             appPaths,
-            new Settings(),
-            new SettingsStore(appPaths),
+            new Settings { ShowPreview = false },
+            settingsStore,
             new PatchQueue(appPaths),
             new ProjectStore(appPaths),
             new RevisionStore(appPaths),

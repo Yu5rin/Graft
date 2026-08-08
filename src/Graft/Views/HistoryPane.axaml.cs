@@ -19,5 +19,18 @@ public partial class HistoryPane : UserControl
     /// <summary>Ctrl+F でのフォーカス移動先として、外部（ShellWindow）から参照する。</summary>
     public TextBox SearchBoxElement => KeywordBox;
 
-    private void OnClearTypeFilter(object? sender, RoutedEventArgs e) => TypeCombo.SelectedItem = null;
+    /// <summary>課題2-2: 種別絞り込みの既定表示（「すべての種別」）をテストから確認できるよう公開する。</summary>
+    public ComboBox TypeComboElement => TypeCombo;
+
+    /// <summary>
+    /// 課題2-2: 絞り込み解除ボタン。ViewModel側のTypeFilter（絞り込みの実体、null＝解除）を
+    /// 直接nullへ戻す。TypeFilterのsetterがSelectedTypeOptionの変更通知も出すため、
+    /// ドロップダウンの表示は自動的に「すべての種別」へ戻る（ComboBox.SelectedItemを
+    /// 直接操作しないのは、AllTypesOptionという表示専用の値をコードビハインドにも
+    /// 持たせる二重管理を避けるため）。
+    /// </summary>
+    private void OnClearTypeFilter(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is HistoryPaneViewModel vm) vm.TypeFilter = null;
+    }
 }

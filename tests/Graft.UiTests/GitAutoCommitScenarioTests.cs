@@ -223,9 +223,12 @@ public class GitAutoCommitScenarioTests : IDisposable
 
         // MainViewModel.InitializeAsyncはSettingsStore.LoadAsyncで読み直すため、
         // コンストラクタへnew Settings()を渡すのではなく、あらかじめsettings.jsonへ
-        // Git.AutoCommitを書き込んでおく必要がある。
+        // Git.AutoCommitを書き込んでおく必要がある。ShowPreviewはこのテストの対象外
+        // （課題1の適用前プレビュー確認）なので明示的にfalseにし、ApplyCommandが
+        // 素通りする従来どおりの挙動のまま検証できるようにする。
         var settingsStore = new SettingsStore(appPaths);
-        await settingsStore.SaveAsync(new Settings { Git = new GitSettings { AutoCommit = autoCommit } }).ConfigureAwait(true);
+        await settingsStore.SaveAsync(
+            new Settings { Git = new GitSettings { AutoCommit = autoCommit }, ShowPreview = false }).ConfigureAwait(true);
 
         var shell = StartupCoordinator.BuildShellViewModel(
             appPaths,
