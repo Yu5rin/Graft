@@ -32,7 +32,9 @@
             <ListBox x:Name="QueueListBox"
                      ItemsSource="{Binding Items}"
                      Background="{DynamicResource BgSurface}"
-                     AutomationProperties.Name="キュー内のブロック一覧">
+                     AutomationProperties.Name="キュー内のブロック一覧"
+                     views:HelpTip.Standard="「キューへ追加」で溜めておいた変更の一覧です。まだファイルには反映されていません。"
+                     views:HelpTip.Detailed="コマンドバーの「キューへ追加」で順番待ちに溜めておいた変更の一覧です。AIの回答が複数回に分けて送られてきたときに使う仕組みで、ここに並んでいる間はまだファイルへ反映されていません。不要な項目は各行の「削除」で個別に取り除け、すべて揃ったら下の「結合して適用へ進む」でまとめて確認・適用できます。">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />

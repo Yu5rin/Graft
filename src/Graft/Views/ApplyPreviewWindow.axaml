@@ -37,7 +37,9 @@
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                      Background="{DynamicResource BgSurface}"
-                     AutomationProperties.Name="適用対象の一覧">
+                     AutomationProperties.Name="適用対象の一覧"
+                     views:HelpTip.Standard="これから書き込まれるファイルの一覧です。選ぶと右側にそのファイルの差分が表示されます。"
+                     views:HelpTip.Detailed="下の「適用」を押した場合に、実際に書き込まれる予定のファイルの一覧です。1件選ぶと右側にそのファイルの変更前・変更後の差分が表示されるので、書き込む前に内容をよく確認してください。ここではまだ何もファイルへ書き込まれていません。">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />

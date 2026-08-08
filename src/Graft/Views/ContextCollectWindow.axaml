@@ -37,14 +37,18 @@
                           SelectedValueBinding="{Binding Mode}"
                           ItemTemplate="{StaticResource LabelItemTemplate}"
                           MaxWidth="220" HorizontalAlignment="Left"
-                          AutomationProperties.Name="収集モード" TabIndex="0" />
+                          AutomationProperties.Name="収集モード" TabIndex="0"
+                          local:HelpTip.Standard="AIへ渡す内容の集め方を選びます。「ツリーのみ」はファイル構成だけ、「選択ファイル」は中身も含める、「差分のみ」は前回からの変更点だけです。"
+                          local:HelpTip.Detailed="下のファイル一覧・出力プレビューに何を含めるかを選びます。「ツリーのみ」はフォルダ構成だけを伝え中身は含めません。「選択ファイル」は左のファイル一覧でチェックした内容も含めます（通常はこれを使います）。「ツリー＋選択」はフォルダ構成全体を見せつつ、選んだファイルだけ中身も含めます。「差分のみ」は右側で選ぶ過去のリビジョンから今までの変更点だけを抜き出します（大きなプロジェクトで変更箇所だけをAIに伝えたいときに使います）。" />
                 <TextBlock Grid.Column="2" Text="対象リビジョン" VerticalAlignment="Center" Margin="16,0,8,0"
                            IsVisible="{Binding ShowRevisionPicker}" />
                 <ComboBox Grid.Column="3" ItemsSource="{Binding Revisions}" SelectedItem="{Binding SelectedRevision}"
                           ItemTemplate="{StaticResource DisplayTextItemTemplate}"
                           MaxWidth="260" HorizontalAlignment="Left"
                           AutomationProperties.Name="差分の基準リビジョン" TabIndex="1"
-                          IsVisible="{Binding ShowRevisionPicker}" />
+                          IsVisible="{Binding ShowRevisionPicker}"
+                          local:HelpTip.Standard="「差分のみ」モードで、どの時点から今までの変更を集めるかを選びます。"
+                          local:HelpTip.Detailed="収集モードが「差分のみ」のとき、履歴（バックアップ）の中からどのリビジョンを基準にするかを選びます。ここで選んだ時点から現在までに変更されたファイルの差分だけが、AIへ渡す内容に含まれます。" />
             </Grid>
 
             <Border Margin="0,10,0,0" BorderBrush="{DynamicResource StateError}" BorderThickness="1" Padding="8"
@@ -67,7 +71,9 @@
                             <ListBox x:Name="FileListBox" ItemsSource="{Binding Files}"
                                      SelectedItem="{Binding SelectedFile}"
                                      AutomationProperties.Name="ファイル一覧" TabIndex="2"
-                                     IsVisible="{Binding !IsEmpty}">
+                                     IsVisible="{Binding !IsEmpty}"
+                                     local:HelpTip.Standard="プロジェクト内のファイル構成です。各行のアイコンをクリックすると「内容も出す／構成だけ／出さない」を切り替えられます。"
+                                     local:HelpTip.Detailed="プロジェクトのフォルダ構成を一覧表示しています。各行のアイコンをクリック（またはSpaceキー）すると、そのファイル・フォルダの扱いを「内容も出す／構成だけ／出さない」の3状態で切り替えられます（詳細は上の見出しのツールチップ参照）。ここではまだ何もコピー・保存されておらず、選び終えたら下の「プレビュー」「コピー」「ファイルへ保存」のいずれかで実際の出力を作成します。">
                                 <ListBox.KeyBindings>
                                     <KeyBinding Gesture="Space" Command="{Binding CycleSelectedStateCommand}" />
                                 </ListBox.KeyBindings>
@@ -134,14 +140,18 @@
                                    TextWrapping="Wrap" Margin="0,0,0,4" />
                         <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0" ColumnDefinitions="*,Auto">
                             <TextBox Grid.Column="0" Text="{Binding NewExcludePattern}"
-                                     AutomationProperties.Name="追加する除外パターン" TabIndex="3" />
+                                     AutomationProperties.Name="追加する除外パターン" TabIndex="3"
+                                     local:HelpTip.Standard="AIへ渡す内容から除外したいファイル・フォルダのパターンを入力します（例: *.log、node_modules/）。"
+                                     local:HelpTip.Detailed="ここに入力したパターンに一致するファイル・フォルダを、このプロジェクトでは常にファイル一覧・出力から除外できます（例: *.log で全てのログファイル、node_modules/ でそのフォルダ全体）。.gitignoreと似た書き方です。入力したら右の「追加」ボタンで確定します。" />
                             <Button Grid.Column="1" Content="追加" Command="{Binding AddExcludeCommand}" Margin="6,0,0,0"
                                     local:HelpTip.Standard="入力した除外パターンをこのプロジェクト専用の除外リストへ追加します。次回以降のファイル一覧・収集結果から外れます。"
                                     local:HelpTip.Detailed="左のテキストボックスに入力したパターン（例: *.log や node_modules/）を、このプロジェクト専用の除外リストへ追加します。追加すると、左側のファイル一覧やAIへ渡す内容から、パターンに一致するファイルが除かれるようになります。AIに読ませたくない大きなファイルや秘密情報を含むファイルを外すのに使います。"
                                     AutomationProperties.Name="除外パターンを追加" TabIndex="4" />
                         </Grid>
                         <ListBox ItemsSource="{Binding ExtraExcludes}"
-                                 AutomationProperties.Name="プロジェクト単位の除外パターン一覧" TabIndex="5">
+                                 AutomationProperties.Name="プロジェクト単位の除外パターン一覧" TabIndex="5"
+                                 local:HelpTip.Standard="このプロジェクトに登録済みの除外パターンの一覧です。各行の「削除」で取り除けます。"
+                                 local:HelpTip.Detailed="上で追加した除外パターンの一覧です。このプロジェクトを開いている間はずっと有効で、ファイル一覧・出力プレビューに反映されます。不要になったパターンは各行の「削除」ボタンで取り除けます。">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <Grid ColumnDefinitions="*,Auto">
@@ -166,7 +176,9 @@
                              FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              AutomationProperties.Name="出力プレビュー"
-                             IsVisible="{Binding PreviewLines, Converter={x:Static local:Converters.HasItems}}">
+                             IsVisible="{Binding PreviewLines, Converter={x:Static local:Converters.HasItems}}"
+                             local:HelpTip.Standard="「プレビュー」または「コピー」を押すと、実際にAIへ渡される文章がここに表示されます。"
+                             local:HelpTip.Detailed="「ファイル選択」タブで選んだ内容から実際に組み立てられた、AIへ渡す文章そのものです。「コピー」ボタンでクリップボードへコピーされる内容と同じものがここで確認できます。この画面を見ているだけではまだ何も送信・コピーされていません。">
                         <ListBox.Styles>
                             <Style Selector="ListBoxItem">
                                 <Setter Property="Padding" Value="0" />

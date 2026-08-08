@@ -57,35 +57,51 @@
         <TabControl Grid.Row="2" Margin="16,12,16,12" TabStripPlacement="Left"
                     Background="Transparent" BorderThickness="0">
 
-            <TabItem Header="一般" AutomationProperties.Name="一般設定タブ">
+            <TabItem Header="一般" AutomationProperties.Name="一般設定タブ"
+                     local:HelpTip.Standard="テーマ・適用モード・バックアップなど、アプリ全体に関わる基本設定です。"
+                     local:HelpTip.Detailed="見た目のテーマ、パッチ適用の厳しさ、バックアップの保持数、Git連携、設定のエクスポート／インポートなど、他のタブに含まれない全般的な設定をまとめています。迷ったらまずここを確認してください。">
                 <settings:GeneralSettingsView />
             </TabItem>
 
-            <TabItem Header="エディタ" AutomationProperties.Name="エディタ設定タブ">
+            <TabItem Header="エディタ" AutomationProperties.Name="エディタ設定タブ"
+                     local:HelpTip.Standard="中央のコード編集領域の見た目・インデント・編集支援の設定です。"
+                     local:HelpTip.Detailed="ファイルを開いたときの中央のエディタ領域について、文字サイズや行番号などの表示、タブ幅などのインデント、括弧の自動閉じや折りたたみなどの編集支援を調整します。">
                 <settings:EditorSettingsView />
             </TabItem>
 
-            <TabItem Header="マッチング" AutomationProperties.Name="マッチング設定タブ">
+            <TabItem Header="マッチング" AutomationProperties.Name="マッチング設定タブ"
+                     local:HelpTip.Standard="AIが示した変更を実際のコードのどこへ当てはめるかを決める、内部エンジンの調整です。通常は変更不要です。"
+                     local:HelpTip.Detailed="Graftが「変更前のコード」を実際のファイルのどこに対応させるかを判定する仕組み（マッチングエンジン）の厳しさを調整します。専門的な項目で、既定値のままでもほとんどの場合問題なく動作します。">
                 <settings:MatchingSettingsView />
             </TabItem>
 
-            <TabItem Header="安全機構" AutomationProperties.Name="安全機構設定タブ">
+            <TabItem Header="安全機構" AutomationProperties.Name="安全機構設定タブ"
+                     local:HelpTip.Standard="適用できるファイルの種類・サイズ・件数の上限を決める、事故防止のための歯止めです。"
+                     local:HelpTip.Detailed="意図しない大量の書き換えや対象外のファイルへの適用を防ぐための上限値（許可する拡張子、1ファイルの上限サイズ、1回に書き換えられるファイル数）を設定します。ゆるめるとAIの誤った回答による被害の範囲が広がりやすくなるため、変更する際は内容をよく理解した上で行ってください。">
                 <settings:SafetySettingsView />
             </TabItem>
 
-            <TabItem Header="表示・コンテキスト" AutomationProperties.Name="表示・コンテキスト設定タブ">
+            <TabItem Header="表示・コンテキスト" AutomationProperties.Name="表示・コンテキスト設定タブ"
+                     local:HelpTip.Standard="シンタックスハイライト・差分表示・コンテキスト収集・クリップボード監視の設定です。"
+                     local:HelpTip.Detailed="コードの色分け表示、適用前プレビューなどの差分表示、「ファイル」画面でAIへ渡す内容を集める際の挙動、クリップボード監視の反応方法などをまとめています。">
                 <settings:DiffSettingsView />
             </TabItem>
 
-            <TabItem Header="プロンプトテンプレート" AutomationProperties.Name="プロンプトテンプレート設定タブ">
+            <TabItem Header="プロンプトテンプレート" AutomationProperties.Name="プロンプトテンプレート設定タブ"
+                     local:HelpTip.Standard="AIへの依頼文（プロンプト）のひな形を追加・編集します。コマンドバーの「プロンプト」ボタンで使われます。"
+                     local:HelpTip.Detailed="コマンドバーの「プロンプト」ボタンでコピーされる、AIへの依頼文のひな形を管理します。Graftが読み取れる形式で回答するよう指示する文面で、プロジェクトごとに既定のテンプレートを分けることもできます。">
                 <settings:TemplateSettingsView />
             </TabItem>
 
-            <TabItem Header="適用後フック" AutomationProperties.Name="適用後フック設定タブ">
+            <TabItem Header="適用後フック" AutomationProperties.Name="適用後フック設定タブ"
+                     local:HelpTip.Standard="パッチの適用が成功した直後に、リンターなどのコマンドを自動実行する設定です。"
+                     local:HelpTip.Detailed="適用が成功するたびに自動実行したいコマンド（リンター・フォーマッタなど）を、プロジェクトごとに登録します。コマンドは実際にファイルを書き換えられるため、内容をよく確認してから登録してください。">
                 <settings:HookSettingsView />
             </TabItem>
 
-            <TabItem Header="トークン統計" AutomationProperties.Name="トークン統計タブ">
+            <TabItem Header="トークン統計" AutomationProperties.Name="トークン統計タブ"
+                     local:HelpTip.Standard="これまでAIとのやり取りで使ったおおよそのトークン数を、期間ごとに確認できます。"
+                     local:HelpTip.Detailed="コンテキスト収集やパッチ適用でやり取りした内容から見積もった、AIのトークン消費量の推移を確認できます。実際にAIへ送って数えた値ではなく、文字数からの概算です（見積もり方法は「表示・コンテキスト」タブの「トークン概算比率」）。AIの利用量を把握したいときの目安として使ってください。">
                 <Grid DataContext="{Binding TokenStats}" Margin="16,8" RowDefinitions="2,Auto,Auto,*,Auto">
 
                     <ProgressBar Grid.Row="0" Height="2" IsIndeterminate="True"
@@ -98,14 +114,20 @@
                         <ComboBox ItemsSource="{Binding Projects}"
                                   ItemTemplate="{StaticResource NameItemTemplate}"
                                   SelectedItem="{Binding SelectedProject}"
-                                  AutomationProperties.Name="集計対象プロジェクト" />
+                                  AutomationProperties.Name="集計対象プロジェクト"
+                                  local:HelpTip.Standard="集計するプロジェクトを選びます。"
+                                  local:HelpTip.Detailed="下の表・合計に表示する集計対象のプロジェクトを選びます。プロジェクトごとに履歴（リビジョン）が別々に記録されているため、複数プロジェクトの合計は表示されません。" />
                         <TextBlock Text="集計単位" Classes="fieldLabel" Margin="24,0,0,0" />
                         <ComboBox ItemsSource="{Binding Granularities}"
                                   ItemTemplate="{StaticResource LabelItemTemplate}"
                                   SelectedValueBinding="{Binding Value}" SelectedValue="{Binding Granularity}"
-                                  AutomationProperties.Name="集計単位" />
+                                  AutomationProperties.Name="集計単位"
+                                  local:HelpTip.Standard="下の表を日ごと・週ごと・月ごとのどれで区切って表示するかです。"
+                                  local:HelpTip.Detailed="下の表の「期間」列を、日単位・週単位・月単位のどの粒度でまとめるかを選びます。選び直すと表がその場で更新されます。" />
                         <Button Content="更新" Command="{Binding RefreshCommand}" Margin="24,0,0,0"
-                                AutomationProperties.Name="トークン統計を更新" />
+                                AutomationProperties.Name="トークン統計を更新"
+                                local:HelpTip.Standard="履歴から最新の集計を読み直します。"
+                                local:HelpTip.Detailed="このプロジェクトの履歴（リビジョン）を読み直し、下の表と合計を最新の内容に更新します。この画面を開いたあとに別の操作でパッチを適用した場合など、表示が古いと感じたら押してください。" />
                     </StackPanel>
 
                     <!-- 表の見出し行。桁幅は各行のテンプレートと合わせる。 -->
@@ -123,7 +145,9 @@
                     <Grid Grid.Row="3">
                         <ListBox ItemsSource="{Binding Buckets}" AutomationProperties.Name="期間別トークン統計"
                                  Background="{DynamicResource BgSurface}" BorderThickness="0"
-                                 IsVisible="{Binding !IsEmpty}">
+                                 IsVisible="{Binding !IsEmpty}"
+                                 local:HelpTip.Standard="選んだ期間ごとの、推定トークン数・削減できた推定トークン数・リビジョン数の一覧です。"
+                                 local:HelpTip.Detailed="上で選んだプロジェクト・集計単位に応じて、期間ごとの推定トークン数を一覧表示します。「削減できた推定トークン数」は、コンテキスト収集で無駄なファイルを含めずに済んだ分などの目安です。実際にAIへ送って数えた正確な値ではなく、文字数からの概算であることに注意してください。">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
@@ -159,11 +183,15 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="JSON編集" AutomationProperties.Name="設定JSON直接編集タブ">
+            <TabItem Header="JSON編集" AutomationProperties.Name="設定JSON直接編集タブ"
+                     local:HelpTip.Standard="設定ファイル（settings.json）の中身を直接テキストとして編集する、上級者向けの画面です。"
+                     local:HelpTip.Detailed="他のタブで用意されていない細かい設定を調整したいときのための、settings.jsonの直接編集画面です。通常はここを使わなくても他のタブだけで設定できます。">
                 <settings:RawJsonSettingsView />
             </TabItem>
 
-            <TabItem Header="バージョン情報" AutomationProperties.Name="バージョン情報タブ">
+            <TabItem Header="バージョン情報" AutomationProperties.Name="バージョン情報タブ"
+                     local:HelpTip.Standard="Graftのバージョン番号などを確認できます。"
+                     local:HelpTip.Detailed="現在使っているGraftのバージョン番号や、関連情報を確認できます。不具合を報告する際にバージョンを聞かれたら、ここで確認してください。">
                 <local:AboutView />
             </TabItem>
         </TabControl>
@@ -178,9 +206,13 @@
             <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" />
             <Button Grid.Column="1" Content="既定に戻す" Command="{Binding ResetToDefaultsCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="設定を既定値に戻す" />
+                    AutomationProperties.Name="設定を既定値に戻す"
+                    local:HelpTip.Standard="この画面の設定をすべて既定値に戻します。確認のうえ元に戻せません。プロジェクトの登録や履歴は消えません。"
+                    local:HelpTip.Detailed="設定は変更した瞬間に自動で保存され「保存しない」を選べないため、いろいろ触って分からなくなったときの逃げ道としてこのボタンを用意しています。押すと確認のダイアログが出て、OKするとテーマ・エディタ・安全機構など、この設定画面（settings.json）の内容だけがすべて既定値に戻ります。登録済みのプロジェクト一覧、適用後フック、プロンプトテンプレート、これまでの適用履歴（バックアップ）は対象外で消えません。設定を戻した後にもう一度カスタマイズし直したい場合は、事前に「一般」タブの「エクスポート」で今の内容を書き出しておくと安心です。" />
             <Button Grid.Column="2" Content="閉じる" Click="OnCloseClicked"
-                    AutomationProperties.Name="設定を閉じる" />
+                    AutomationProperties.Name="設定を閉じる"
+                    local:HelpTip.Standard="この設定画面を閉じます。ここまでの変更はすでに自動で保存済みです。"
+                    local:HelpTip.Detailed="設定画面を閉じます。この画面の変更は操作した瞬間ごとに自動で保存されているため、閉じる前に別途保存する必要はありません。" />
         </Grid>
     </Grid>
 </Window>

@@ -52,7 +52,9 @@
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                      Background="Transparent"
-                     AutomationProperties.Name="プロジェクト一覧">
+                     AutomationProperties.Name="プロジェクト一覧"
+                     local:HelpTip.Standard="登録済みのプロジェクトの一覧です。選ぶとエディタ・履歴・検索の対象がそのプロジェクトに切り替わります。"
+                     local:HelpTip.Detailed="これまでに登録したプロジェクト（フォルダ）の一覧です。1件選ぶと、エディタで開くファイル・履歴・検索の対象がすべてそのプロジェクトへ切り替わります。上位9件には番号バッジが付き、Ctrl+Alt+1〜9のショートカットキーでも切り替えられます。">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />

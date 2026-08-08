@@ -43,7 +43,9 @@
             <TextBox x:Name="KeywordBox"
                      Grid.Column="1"
                      Text="{Binding Keyword}"
-                     AutomationProperties.Name="リビジョンの要約を検索" />
+                     AutomationProperties.Name="リビジョンの要約を検索"
+                     local:HelpTip.Standard="下の履歴一覧を、summary（変更のひとこと要約）に含まれる文字で絞り込みます。"
+                     local:HelpTip.Detailed="適用した変更につけられたひとこと要約（summary）の文字列で、下の履歴一覧を絞り込みます。入力すると即座に一覧が絞られ、空にすると全件表示に戻ります。過去にどんな変更を適用したか、キーワードで思い出しながら探したいときに使います。" />
         </Grid>
 
         <!-- type絞り込み -->
@@ -60,7 +62,9 @@
                       Grid.Column="0"
                       ItemsSource="{Binding AvailableTypes}"
                       SelectedItem="{Binding SelectedTypeOption, Mode=TwoWay}"
-                      AutomationProperties.Name="種別で絞り込み" />
+                      AutomationProperties.Name="種別で絞り込み"
+                      local:HelpTip.Standard="下の履歴一覧を、リビジョンの種類（適用・復元など）で絞り込みます。"
+                      local:HelpTip.Detailed="下の履歴一覧を、そのリビジョンがどんな操作で作られたか（パッチの適用、以前の状態への復元、など）で絞り込みます。既定は「すべての種別」で絞り込みなしです。右の「×」ボタンでいつでも解除できます。" />
             <Button Grid.Column="1"
                     Content="×"
                     Click="OnClearTypeFilter"
@@ -82,7 +86,9 @@
                       ItemsSource="{Binding AvailableDatePresets}"
                       SelectedItem="{Binding DatePreset, Mode=TwoWay}"
                       HorizontalAlignment="Stretch"
-                      AutomationProperties.Name="期間のプリセットで絞り込み">
+                      AutomationProperties.Name="期間のプリセットで絞り込み"
+                      local:HelpTip.Standard="「今日」「今週」など、よく使う期間をワンタッチで選べます。選ぶと下の開始日・終了日にも反映されます。"
+                      local:HelpTip.Detailed="下の履歴一覧を期間で絞り込む際の、よく使う範囲（今日・今週・今月など）をまとめて選べるショートカットです。選ぶと下の「期間」欄の開始日・終了日が自動的に書き換わります。任意の日付範囲を指定したい場合は、下の欄へ直接入力してください。">
                 <ComboBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Converter={x:Static local:Converters.HistoryDatePresetToLabel}}" />
@@ -104,12 +110,16 @@
                        Foreground="{DynamicResource TextSecondary}" />
             <TextBox Grid.Column="1" Text="{Binding DateFromText}"
                      Watermark="2026-01-01"
-                     AutomationProperties.Name="開始日（年-月-日）" />
+                     AutomationProperties.Name="開始日（年-月-日）"
+                     local:HelpTip.Standard="この日以降に適用されたリビジョンだけを一覧に表示します（年-月-日の形式）。"
+                     local:HelpTip.Detailed="下の履歴一覧を絞り込む期間の開始日です。「2026-01-01」のように年-月-日の形式で入力してください。空にすると開始日側の制限は無くなります。上のプリセットを選ぶと自動で入力されます。" />
             <TextBlock Grid.Column="2" Text="〜" VerticalAlignment="Center" Margin="4,0"
                        Foreground="{DynamicResource TextSecondary}" />
             <TextBox Grid.Column="3" Text="{Binding DateToText}"
                      Watermark="2026-12-31"
-                     AutomationProperties.Name="終了日（年-月-日）" />
+                     AutomationProperties.Name="終了日（年-月-日）"
+                     local:HelpTip.Standard="この日以前に適用されたリビジョンだけを一覧に表示します（年-月-日の形式）。"
+                     local:HelpTip.Detailed="下の履歴一覧を絞り込む期間の終了日です。「2026-12-31」のように年-月-日の形式で入力してください。空にすると終了日側の制限は無くなります。上のプリセットを選ぶと自動で入力されます。" />
         </Grid>
 
         <Grid Grid.Row="5">
@@ -117,7 +127,9 @@
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                      Background="Transparent"
-                     AutomationProperties.Name="リビジョン履歴一覧">
+                     AutomationProperties.Name="リビジョン履歴一覧"
+                     local:HelpTip.Standard="これまでに適用・復元した変更の一覧です。選んで上の復元ボタンを押すと、その時点の直前の状態に戻せます。"
+                     local:HelpTip.Detailed="これまでGraftで行った変更（パッチの適用や、以前の状態への復元）が新しい順に並びます。1件選ぶと、上の「復元」ボタンでその変更を適用する直前の状態へファイルを戻せます。オレンジ色の注意文が付いている項目は、何らかの理由で復元できない（元のファイルが既に大きく変わっている等）ことを示します。">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />

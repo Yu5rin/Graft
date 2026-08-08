@@ -99,7 +99,9 @@
         <!-- 除外ファイルの表示トグル -->
         <CheckBox Grid.Row="2" Content="除外ファイルを表示" Margin="12,0,8,6"
                   IsChecked="{Binding ShowExcludedFiles, Mode=TwoWay}"
-                  AutomationProperties.Name="除外ファイルを表示する" />
+                  AutomationProperties.Name="除外ファイルを表示する"
+                  local:HelpTip.Standard="node_modulesなど、通常は隠しているファイル・フォルダも一覧に表示します。既定はオフです。"
+                  local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイル」画面）には影響しません。既定はオフです。" />
 
         <Grid Grid.Row="3">
             <TreeView x:Name="FileTreeView"

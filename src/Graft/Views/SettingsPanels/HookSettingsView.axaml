@@ -14,18 +14,26 @@
     -->
     <Grid DataContext="{Binding Hooks}" Margin="16,8" RowDefinitions="Auto,*,Auto">
 
-        <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="対象プロジェクト" Classes="fieldLabel" />
-            <ComboBox ItemsSource="{Binding Projects}"
-                      ItemTemplate="{StaticResource NameItemTemplate}"
-                      SelectedItem="{Binding SelectedProject}"
-                      AutomationProperties.Name="フックの対象プロジェクト" />
-        </WrapPanel>
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <WrapPanel Orientation="Horizontal">
+                <TextBlock Text="対象プロジェクト" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding Projects}"
+                          ItemTemplate="{StaticResource NameItemTemplate}"
+                          SelectedItem="{Binding SelectedProject}"
+                          AutomationProperties.Name="フックの対象プロジェクト"
+                          views:HelpTip.Standard="どのプロジェクトのフック一覧を編集するかを選びます。フックはプロジェクトごとに登録します。"
+                          views:HelpTip.Detailed="適用後フック（パッチ適用が成功した直後に自動実行するコマンド）は、プロジェクトごとに別々に登録されます。ここで選んだプロジェクトの一覧が下に表示され、追加・編集した内容もそのプロジェクトへ保存されます。" />
+            </WrapPanel>
+            <TextBlock Text="適用が成功した直後に、指定したコマンド（リンターやフォーマッタなど）を自動実行できます。コマンドは実際にファイルを書き換えられるため、内容をよく確認してから登録してください。"
+                       Classes="fieldHint" TextWrapping="Wrap" Margin="0,4,0,0" />
+        </StackPanel>
 
         <Grid Grid.Row="1" ColumnDefinitions="280,Auto,*">
 
             <ListBox Grid.Column="0" ItemsSource="{Binding Hooks}" SelectedItem="{Binding SelectedHook}"
-                     AutomationProperties.Name="適用後フック一覧">
+                     AutomationProperties.Name="適用後フック一覧"
+                     views:HelpTip.Standard="登録済みの適用後フックの一覧です。選ぶと右側に内容が表示され、編集できます。"
+                     views:HelpTip.Detailed="このプロジェクトに登録されている適用後フックの一覧です。右側の文字は、失敗したときの挙動（下の「失敗時の挙動」参照）です。クリックすると右側に詳細が表示され、名前・コマンド・失敗時の挙動を編集できます。">
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="vm:HookEntry">
                         <Grid AutomationProperties.Name="{Binding Name}" ColumnDefinitions="*,Auto">
@@ -44,16 +52,22 @@
                   IsVisible="{Binding Converter={x:Static views:Converters.NotNull}}"
                   RowDefinitions="Auto,Auto,Auto,Auto">
                 <TextBox Grid.Row="0" Text="{Binding Name}" Margin="0,0,0,8"
-                         AutomationProperties.Name="フック名" />
+                         AutomationProperties.Name="フック名"
+                         views:HelpTip.Standard="このフックの名前です。一覧に表示するための、自分が分かればよい名前です。"
+                         views:HelpTip.Detailed="このフックを一覧上で見分けるための名前です（例:「ESLintを実行」）。実行するコマンドの内容には影響せず、単なる表示用のラベルです。" />
                 <TextBox Grid.Row="1" Text="{Binding Command}" Margin="0,0,0,8"
                          FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
-                         AutomationProperties.Name="実行コマンド" />
+                         AutomationProperties.Name="実行コマンド"
+                         views:HelpTip.Standard="適用成功後に実行するコマンドです。プロジェクトのルートフォルダを作業ディレクトリとして実行されます。"
+                         views:HelpTip.Detailed="パッチの適用が成功した直後に、シェル（コマンドプロンプトやターミナルと同じ仕組み）で実行されるコマンドです。プロジェクトのルートフォルダを作業ディレクトリとして実行されます（例:「npm run lint」「dotnet format」）。ここに書いたコマンドは実際にファイルを書き換えたり削除したりできてしまうため、内容をよく理解しているコマンドだけを登録してください。実行に失敗した場合の扱いは、下の「失敗時の挙動」で選べます。" />
                 <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
                     <TextBlock Text="失敗時の挙動" Classes="fieldLabel" />
                     <ComboBox ItemsSource="{Binding DataContext.Hooks.OnFailureOptions, ElementName=Root}"
                               ItemTemplate="{StaticResource LabelItemTemplate}"
                               SelectedValueBinding="{Binding Value}" SelectedValue="{Binding OnFailure}"
-                              AutomationProperties.Name="失敗時の挙動" />
+                              AutomationProperties.Name="失敗時の挙動"
+                              views:HelpTip.Standard="上のコマンドが失敗（0以外の終了コードやタイムアウト）したときに、どう扱うかを選びます。"
+                              views:HelpTip.Detailed="上のコマンドがエラー終了したり、「一般」タブの「フックのタイムアウト」を超えて応答が無かったりした場合の扱いを選びます。いずれの場合も、既に成功しているファイルへの適用結果そのものが取り消されることはありません（フックはあくまで適用後のおまけの処理です）。選択肢の詳細は一覧の並び順・文言を確認してください。" />
                 </WrapPanel>
                 <TextBlock Grid.Row="3" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
                            FontSize="{DynamicResource CaptionFontSize}"
@@ -63,11 +77,17 @@
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
             <Button Content="フックを追加" Command="{Binding AddCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="フックを追加" />
+                    AutomationProperties.Name="フックを追加"
+                    views:HelpTip.Standard="新しい適用後フックを1件、空の内容で追加します。"
+                    views:HelpTip.Detailed="名前・コマンドが空の新しいフックを一覧に追加し、右側の編集欄で内容を書けるようにします。書いたら「保存」を押すまでprojects.jsonへは確定しません。" />
             <Button Content="フックを削除" Command="{Binding DeleteCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="フックを削除" />
+                    AutomationProperties.Name="フックを削除"
+                    views:HelpTip.Standard="選んだフックを一覧から削除します。"
+                    views:HelpTip.Detailed="選択中のフックを一覧から削除します。「保存」を押すまでは取り消せますが、保存すると元に戻せません。過去に実行されたコマンドの結果（フックによる変更）自体には影響しません。" />
             <Button Content="保存" Command="{Binding SaveCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="適用後フックを保存" />
+                    AutomationProperties.Name="適用後フックを保存"
+                    views:HelpTip.Standard="ここまでの追加・編集・削除をprojects.jsonへ書き込みます。"
+                    views:HelpTip.Detailed="このタブでのフックの追加・編集・削除は、このボタンを押すまで確定しません（他のタブの即時反映方式とは異なります）。押すとprojects.jsonへ保存され、以降このプロジェクトを適用するたびに反映されます。" />
             <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
         </StackPanel>

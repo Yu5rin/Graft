@@ -13,10 +13,14 @@
                  FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                 AutomationProperties.Name="settings.jsonの内容" />
+                 AutomationProperties.Name="settings.jsonの内容"
+                 views:HelpTip.Standard="他のタブの設定項目をまとめて保持しているJSONファイルの中身です。ここを直接書き換えて「検証して保存」で反映できます。"
+                 views:HelpTip.Detailed="このアプリの全設定（テーマ・エディタ・安全機構など、他のタブで見られる項目すべて）は settings.json というファイルに保存されており、ここではその中身をテキストとして直接編集できます。「一般」タブなどで用意されていない細かい項目を調整したいときの上級者向けの手段です。編集してもこの場では確定せず、下の「検証して保存」を押した時点で初めて反映されます。誤った形式のまま保存しようとした場合は、下にエラーが表示され保存されません（設定ファイルが壊れることはありません）。ファイルの内容（コード）には影響しません。" />
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
             <Button Content="検証して保存" Command="{Binding SaveJsonCommand}"
-                    AutomationProperties.Name="JSONを検証して保存" />
+                    AutomationProperties.Name="JSONを検証して保存"
+                    views:HelpTip.Standard="上のJSONの形式を確認してから設定へ反映します。不正な形式なら保存されずエラーが表示されます。"
+                    views:HelpTip.Detailed="上のテキストがJSONとして正しい形式かどうかを確認し、正しければその内容を実際の設定として保存します。不正な形式（カンマの付け忘れなど）の場合は保存されず、下にエラー内容が表示されるので、修正してから再度押してください。保存に成功すると、他のタブの表示もその内容に合わせて更新されます。" />
             <TextBlock Text="{Binding JsonParseError}" Foreground="{DynamicResource StateError}"
                        VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
                        IsVisible="{Binding JsonParseError, Converter={x:Static views:Converters.NotNull}}" />
