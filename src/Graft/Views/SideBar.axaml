@@ -38,7 +38,8 @@
                     Classes.active="{Binding IsProjectActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.Project}"
-                    ToolTip.Tip="プロジェクト一覧。登録したフォルダを切り替えます。"
+                    views:HelpTip.Standard="プロジェクト一覧。登録したフォルダを切り替えます。"
+                    views:HelpTip.Detailed="Graftで開いているプロジェクト（登録済みのフォルダ）の一覧を表示します。複数のプロジェクトを登録している場合、ここでクリックすると作業対象を切り替えられます。同じアイコンをもう一度押すと、このサイドビューを閉じて元の広さに戻せます。"
                     AutomationProperties.Name="プロジェクトビューを切り替え">
                 <views:IconGlyph Data="{DynamicResource IconLayersGeometry}" />
             </Button>
@@ -47,7 +48,8 @@
                     Classes.active="{Binding IsExplorerActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.Explorer}"
-                    ToolTip.Tip="ファイル一覧。プロジェクト内のファイルを開いて編集します。"
+                    views:HelpTip.Standard="ファイル一覧。プロジェクト内のファイルを開いて編集します。"
+                    views:HelpTip.Detailed="今選んでいるプロジェクトのフォルダ・ファイルをツリー表示します。ファイルをクリックすると右側のエディタで開いて、直接手で編集することもできます。AIに頼らず自分で細かく直したいときや、AIが適用した結果を見比べたいときに使います。"
                     AutomationProperties.Name="エクスプローラビューを切り替え">
                 <views:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
             </Button>
@@ -56,7 +58,8 @@
                     Classes.active="{Binding IsHistoryActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.History}"
-                    ToolTip.Tip="適用の履歴。過去の変更を確認して元に戻せます。"
+                    views:HelpTip.Standard="適用の履歴。過去の変更を確認して元に戻せます。"
+                    views:HelpTip.Detailed="これまでに「適用」した変更が、新しい順に一覧表示されます。それぞれの変更内容を確認できるほか、選んでその時点の状態へ復元（元に戻す）することもできます。適用した結果に問題があったときの、やり直し手段です。"
                     AutomationProperties.Name="履歴ビューを切り替え">
                 <views:IconGlyph Data="{DynamicResource IconHistoryGeometry}" />
             </Button>
@@ -65,7 +68,8 @@
                     Classes.active="{Binding IsSearchActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.Search}"
-                    ToolTip.Tip="横断検索。プロジェクト全体の文字列を検索・置換します。"
+                    views:HelpTip.Standard="横断検索。プロジェクト全体の文字列を検索・置換します。"
+                    views:HelpTip.Detailed="今のプロジェクト内のすべてのファイルを対象に、文字列を検索します。見つかった箇所をまとめて別の文字列へ置き換えることもできます。特定のファイル名が分からず、どのファイルに何が書いてあるかを横断的に探したいときに使います。"
                     AutomationProperties.Name="検索ビューを切り替え">
                 <views:IconGlyph Data="{DynamicResource IconSearchGeometry}" />
             </Button>

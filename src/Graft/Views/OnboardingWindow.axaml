@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Graft.Views"
         x:Class="Graft.Views.OnboardingWindow"
         Title="Graftへようこそ"
         Width="560" Height="420" MinWidth="560" MinHeight="420"
@@ -72,7 +73,8 @@
                     IsEnabled="False" AutomationProperties.Name="前の画面に戻る" />
             <Button x:Name="SkipButton" Grid.Column="3" Content="スキップ" Click="OnSkipClicked" Margin="0,0,8,0"
                     AutomationProperties.Name="ガイドをスキップ"
-                    ToolTip.Tip="チュートリアルを終了します。プロジェクトの登録はあとから設定画面でいつでも行えます。" />
+                    views:HelpTip.Standard="チュートリアルを終了します。プロジェクトの登録はあとから設定画面でいつでも行えます。"
+                    views:HelpTip.Detailed="この初回起動ガイドをここで終了し、いつものGraftの画面に進みます。まだプロジェクト（作業対象のフォルダ）を登録していなくても大丈夫です。あとから設定画面や画面左のプロジェクト一覧から、いつでもフォルダを追加登録できます。" />
             <Button x:Name="NextButton" Grid.Column="4" Content="次へ" Click="OnNextClicked" IsDefault="True"
                     AutomationProperties.Name="次の画面へ" />
         </Grid>

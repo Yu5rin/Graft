@@ -10,6 +10,12 @@ public sealed record Settings
     /// <summary>テーマ。"dark" / "light" / "system" のいずれか。</summary>
     public string Theme { get; init; } = "system";
 
+    /// <summary>
+    /// 「操作の説明」（ツールチップ）の表示レベル。"off"（表示しない） / "standard"（標準の説明、
+    /// 既定） / "detailed"（くわしい説明）のいずれか。<see cref="Graft.Views.HelpTip"/>参照。
+    /// </summary>
+    public string TooltipDetail { get; init; } = "standard";
+
     /// <summary>適用モード。"allOrNothing" / "partial" のいずれか。</summary>
     public string ApplyMode { get; init; } = "allOrNothing";
 
