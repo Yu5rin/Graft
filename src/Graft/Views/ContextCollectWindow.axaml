@@ -60,14 +60,16 @@
 
                     <DockPanel Grid.Column="0">
                         <TextBlock DockPanel.Dock="Top" Text="ファイル" FontSize="{DynamicResource CaptionFontSize}"
-                                   Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,4" />
+                                   Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,4"
+                                   local:HelpTip.Standard="行のアイコンをクリック（またはSpaceキー）すると「内容も出す→構成だけ→出さない」の3状態を切り替えられます。フォルダなら配下へまとめて適用されます。"
+                                   local:HelpTip.Detailed="ファイル名の左のアイコンをクリックする、またはその行を選んでSpaceキーを押すと、「内容も出す」（チェックのアイコン。出力にファイル構成も中身も含める）「構成だけ」（ファイルのアイコン。ファイル構成には載るが中身は出力しない。lib/やnode_modules/のような、存在は知らせたいが中身は不要なフォルダを一括で切り替えるのに使う）「出さない」（×のアイコン。ファイル構成にも出力にも一切含めない）の3状態を順に切り替えられます。フォルダのアイコンをクリックすると、配下のファイル・サブフォルダすべてへ同じ状態がまとめて適用されます。配下の状態が一致していないフォルダは「混在」を示す重なったアイコンで表示され、この状態でクリックすると配下すべてが「内容も出す」に揃います。既定では全ファイルが「内容も出す」です。" />
                         <Grid>
                             <ListBox x:Name="FileListBox" ItemsSource="{Binding Files}"
                                      SelectedItem="{Binding SelectedFile}"
                                      AutomationProperties.Name="ファイル一覧" TabIndex="2"
                                      IsVisible="{Binding !IsEmpty}">
                                 <ListBox.KeyBindings>
-                                    <KeyBinding Gesture="Space" Command="{Binding ToggleSelectedCommand}" />
+                                    <KeyBinding Gesture="Space" Command="{Binding CycleSelectedStateCommand}" />
                                 </ListBox.KeyBindings>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="vm:ContextFileNodeViewModel">
@@ -83,18 +85,32 @@
                                                              Stroke="{DynamicResource StateWarn}"
                                                              ToolTip.Tip="{Binding ExcludeReason}"
                                                              IsVisible="{Binding IsExcluded}" />
-                                            <CheckBox Content="{Binding DisplayName}" IsChecked="{Binding IsChecked}"
-                                                      AutomationProperties.Name="{Binding AutomationLabel}"
-                                                      IsVisible="{Binding !IsDirectory}">
-                                                <CheckBox.IsEnabled>
+                                            <!--
+                                                課題2: 3状態選択。素のCheckBox.IsThreeStateは「未選択／選択／中間」の
+                                                3値しか表せず、ここで必要な「内容も出す／構成だけ／出さない」という
+                                                3つの実値と、フォルダ集計専用の「混在」という第4の表示状態を両立できない
+                                                （中間＝構成だけと誤読される）。そのため、クリックで3状態を巡回する
+                                                Buttonに、状態ごとに異なるアイコン・色を割り当てる方式にした
+                                                （一目で見分けられることを優先）。
+                                            -->
+                                            <Button Classes="stateToggle" IsVisible="{Binding !IsExcluded}"
+                                                    Command="{Binding DataContext.CycleStateCommand, ElementName=Root}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip.Tip="{Binding StateLabel}"
+                                                    AutomationProperties.Name="{Binding AutomationLabel}">
+                                                <Button.IsEnabled>
                                                     <MultiBinding Converter="{x:Static local:Converters.FileCheckEnabled}">
                                                         <Binding Path="IsExcluded" />
                                                         <Binding Path="DataContext.ShowFileTree" ElementName="Root" />
                                                     </MultiBinding>
-                                                </CheckBox.IsEnabled>
-                                            </CheckBox>
-                                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
-                                                       IsVisible="{Binding IsDirectory}" />
+                                                </Button.IsEnabled>
+                                                <local:IconGlyph Width="14" Height="14"
+                                                                 Classes.stateFull="{Binding IsFull}"
+                                                                 Classes.stateStructureOnly="{Binding IsStructureOnly}"
+                                                                 Classes.stateHidden="{Binding IsHidden}"
+                                                                 Classes.stateMixed="{Binding IsMixed}" />
+                                            </Button>
+                                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
@@ -183,7 +199,7 @@
             </TabItem>
         </TabControl>
 
-        <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto">
+        <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto,Auto">
             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"
                            Classes="statusMessage"
@@ -196,10 +212,14 @@
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、プレビュータブと推定トークン数で確認します。クリップボードへはコピーしません。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、実際にAIへ渡す文章としてどう組み立てられるかを「プレビュー」タブで確認できます。おおよそのトークン数（AIへの負荷の目安）もここで分かります。この操作ではクリップボードには何もコピーされないため、内容を確認するだけのときに使ってください。"
                     AutomationProperties.Name="推定トークン数をプレビュー" TabIndex="6" />
-            <Button Grid.Column="2" Content="コピー" Command="{Binding CopyCommand}"
+            <Button Grid.Column="2" Content="コピー" Command="{Binding CopyCommand}" Margin="0,0,8,0"
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、クリップボードへコピーします。推定トークン数が上限を超えている場合はコピーされず警告のみ表示します。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、AIへ渡す文章としてクリップボードへコピーします。コピーしたら、そのままChatGPTやClaudeなどのAIとの会話に貼り付けて質問してください。推定トークン数が設定の上限を超えている場合は、コピーされずに警告だけが表示されます（内容が大きすぎるため、除外パターンでファイルを減らすなどの調整が必要です）。"
                     AutomationProperties.Name="コンテキストをクリップボードへコピー" TabIndex="7" />
+            <Button Grid.Column="3" Content="ファイルへ保存" Command="{Binding SaveToFileCommand}"
+                    local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、名前を付けてMarkdownファイルへ保存します。"
+                    local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、Markdown形式のテキストファイルとして好きな場所へ保存します。既定のファイル名はプロジェクト名と保存日時から自動で組み立てます（例: デモ_20260808_1530.md）。保存したファイルはそのままAIチャットへ添付・貼り付けして使えます。推定トークン数が上限を超えている場合でも保存自体は行いますが、内容が大きすぎる可能性があるため見直しを促す表示が出ます。"
+                    AutomationProperties.Name="コンテキストをファイルへ保存" TabIndex="8" />
         </Grid>
     </Grid>
 
@@ -209,6 +229,38 @@
         </Style>
         <Style Selector="TextBlock.statusMessage.warn">
             <Setter Property="Foreground" Value="{DynamicResource StateWarn}" />
+        </Style>
+
+        <!-- 課題2: 3状態切替ボタンの見た目。透明・枠無しの小さなボタンにアイコンだけを乗せる。 -->
+        <Style Selector="Button.stateToggle">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="2" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="MinWidth" Value="20" />
+            <Setter Property="MinHeight" Value="20" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <!-- 内容も出す: チェック（アクセント色）。 -->
+        <Style Selector="local|IconGlyph.stateFull">
+            <Setter Property="Data" Value="{DynamicResource IconCheckGeometry}" />
+            <Setter Property="Stroke" Value="{DynamicResource Accent}" />
+        </Style>
+        <!-- 構成だけ: ファイルの輪郭のみ（中身が無いことを表す）。 -->
+        <Style Selector="local|IconGlyph.stateStructureOnly">
+            <Setter Property="Data" Value="{DynamicResource IconFileGeometry}" />
+            <Setter Property="Stroke" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <!-- 出さない: ×（警告色）。 -->
+        <Style Selector="local|IconGlyph.stateHidden">
+            <Setter Property="Data" Value="{DynamicResource IconXGeometry}" />
+            <Setter Property="Stroke" Value="{DynamicResource StateError}" />
+        </Style>
+        <!-- 混在（フォルダの集計専用。ユーザーが選べる値ではない）: 重なった層。 -->
+        <Style Selector="local|IconGlyph.stateMixed">
+            <Setter Property="Data" Value="{DynamicResource IconLayersGeometry}" />
+            <Setter Property="Stroke" Value="{DynamicResource TextSecondary}" />
         </Style>
     </Window.Styles>
 </Window>

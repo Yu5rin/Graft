@@ -20,7 +20,24 @@ public static class TokenEstimator
             return 0;
         }
 
+        return EstimateLength(text.Length, ratio);
+    }
+
+    /// <summary>
+    /// 文字数（の近似）から概算トークン数を計算する。コンテキスト収集画面で、ファイルを
+    /// 実際に読まずに<see cref="Graft.Features.ContextFileNode.SizeBytes"/>から素早く概算を
+    /// 出したい場合（3状態を切り替えるたびに全ファイルを読み直すと大規模プロジェクトで
+    /// 重くなるため）に使う。バイト数をそのまま文字数の近似として渡しても、ASCII主体の
+    /// コードであれば十分近い値になる。
+    /// </summary>
+    public static int EstimateLength(long length, double ratio = DefaultRatio)
+    {
+        if (length <= 0)
+        {
+            return 0;
+        }
+
         var effectiveRatio = ratio > 0 ? ratio : DefaultRatio;
-        return (int)Math.Ceiling(text.Length / effectiveRatio);
+        return (int)Math.Ceiling(length / effectiveRatio);
     }
 }
