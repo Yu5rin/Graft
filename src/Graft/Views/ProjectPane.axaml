@@ -81,7 +81,9 @@
                                            Classes.pinned="{Binding IsPinned}"
                                            Classes.disconnected="{Binding IsDisconnected}"
                                            FontSize="{DynamicResource BodyFontSize}"
-                                           Text="{Binding Name}" />
+                                           Text="{Binding DisplayName}"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding DisplayName}" />
                                 <TextBlock Text="{Binding TagsText}"
                                            FontSize="{DynamicResource CaptionFontSize}"
                                            Foreground="{DynamicResource TextSecondary}"

@@ -40,9 +40,10 @@
                 Background="{DynamicResource BgSurface}"
                 BorderBrush="{DynamicResource BorderSubtle}"
                 BorderThickness="0,0,0,1">
-            <Grid Margin="12,0" ColumnDefinitions="Auto,*,Auto">
+            <Panel>
+            <DockPanel Margin="12,0" LastChildFill="True">
 
-                <ComboBox Grid.Column="0"
+                <ComboBox DockPanel.Dock="Left"
                           MinWidth="180"
                           VerticalAlignment="Center"
                           ItemsSource="{Binding Graft.ProjectPane.Items}"
@@ -50,7 +51,30 @@
                           ItemTemplate="{StaticResource NameItemTemplate}"
                           AutomationProperties.Name="プロジェクトを選択" />
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <!--
+                    不具合5対応: layout.jsonの極端な値からの復元でウィンドウがMinWidth
+                    （960px）まで縮んだ場合、このボタン列は幅がAuto（内容に合わせて伸びる）の
+                    ため、右端のボタン（設定など）が画面外へはみ出し押せなくなっていた
+                    （実機で確認）。ツールバーの構造自体（ボタンの並び・個数）は変えず、
+                    ScrollViewerで包んで収まらない分を横スクロールできるようにするだけに留める。
+                    ComboBoxをDockPanel.Dock="Left"、ScrollViewerを残りを埋める最後の子にする
+                    ことで見た目の並び自体は保つが、DockPanel（またはGridのAuto/*列）に
+                    「残り幅」の計算をScrollViewerへ委ねる方式は、実機検証でウィンドウが
+                    最小幅まで縮んだ場合に機能しないことを確認した（ScrollViewerが実際の
+                    残り幅を受け取れず、内容が画面外へクリップされずにあふれる）。そのため
+                    MaxWidthはウィンドウ幅（ClientSize.Width）から直接計算する
+                    （Converters.WindowWidthToToolbarButtonsMaxWidth参照）。
+                    Popupは行内レイアウトに参加しない特殊要素のため、DockPanelの最後の子に
+                    してしまうとLastChildFillの対象がPopupへ奪われる。そのためPopupは
+                    DockPanelの外（Panelの兄弟）に出す。
+                -->
+                <ScrollViewer x:Name="ToolbarButtonsScroll"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              MaxWidth="{Binding $parent[Window].ClientSize.Width,
+                                         Converter={x:Static views:Converters.WindowWidthToToolbarButtonsMaxWidth}}"
+                              VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- 10章: プロジェクトのフォルダ構成・ファイル内容を確認するコンテキスト収集画面。
                          ツールチップは「このボタンが何をするものか」を初見で分かる言葉で書く。
                          ボタン名（ファイル・解析・キュー）だけでは機能が伝わらないという
@@ -95,12 +119,15 @@
                             Margin="4,0"
                             ToolTip.Tip="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
                             AutomationProperties.Name="履歴ビューを開く" />
-                    <Button Content="設定"
+                    <Button x:Name="SettingsButton"
+                            Content="設定"
                             Command="{Binding Graft.OpenSettingsCommand}"
                             Margin="4,0"
                             ToolTip.Tip="テーマ・エディタ・安全機構などの設定を開きます。"
                             AutomationProperties.Name="設定を開く" />
                 </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
 
                 <!-- 4.8.4: テンプレート選択ドロップダウン。名称の右に展開後の推定トークン数を表示する。 -->
                 <Popup x:Name="PromptPopup"
@@ -150,7 +177,7 @@
                         </StackPanel>
                     </Border>
                 </Popup>
-            </Grid>
+            </Panel>
         </Border>
 
         <!-- ============== 本体: サイドバー／サイドビュー／エディタ＋接ぎ木パネル ============== -->
