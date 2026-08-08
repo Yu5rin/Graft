@@ -70,10 +70,19 @@ public sealed partial class MainViewModel
         if (project is not null) await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
 
         // 6.5: 適用後フック。実行とonFailure（ignore/warn/offerRollback/autoRollback）の分岐は
-        // MainViewModel.Hooks.cs（同ファイルグループ）へ委譲する。
+        // MainViewModel.Hooks.cs（同ファイルグループ）へ委譲する。戻り値はロールバックを
+        // 実際に試みたかどうか（下のGit自動コミットの可否判断に使う。MainViewModel.Git.cs参照）。
+        var rolledBack = false;
         if (project is not null && project.PostApplyHooks.Count > 0)
         {
-            await RunPostApplyHooksAsync(project, result.Value.Revision).ConfigureAwait(true);
+            rolledBack = await RunPostApplyHooksAsync(project, result.Value.Revision).ConfigureAwait(true);
+        }
+
+        // 7.5: Git自動コミット。ロールバックされた変更をコミットしてしまわないよう、
+        // 必ずフックの結果を確認した後に行う（MainViewModel.Git.csのコメント参照）。
+        if (project is not null && !rolledBack)
+        {
+            await TryAutoCommitAfterApplyAsync(project, result.Value).ConfigureAwait(true);
         }
 
         await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
