@@ -146,7 +146,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
         if (!OnboardingWindow.HasCompleted(_appPaths))
         {
-            await new OnboardingWindow().ShowDialog(window).ConfigureAwait(true);
+            // シェルの左ペイン・上部ドロップダウンが参照しているProjectPaneViewModelと同じ
+            // インスタンスを渡す（バグ修正: チュートリアルで登録したプロジェクトが一覧に
+            // 反映されない不具合。詳細はOnboardingWindowのコンストラクタのコメントを参照）。
+            await new OnboardingWindow(_appPaths, mainViewModel.ProjectPane).ShowDialog(window).ConfigureAwait(true);
         }
 
         // 起動を待たせたくないので完了を待たない。ただし投げっぱなしにすると失敗が

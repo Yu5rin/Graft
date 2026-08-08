@@ -54,6 +54,15 @@
                     HorizontalAlignment="Left"
                     AutomationProperties.Name="プロンプトをクリップボードにコピー" />
             <TextBlock x:Name="CopyResultText" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" />
+            <!--
+                課題2: コピーだけではこのあと何をすればいいか分からず終わってしまうため、
+                次の一歩（AIへ貼り付け→AIの回答をコピー→ツールバーの「解析」）を短く案内する。
+                文言はGraftPanel.axamlの空状態メッセージ（「AIの出力をコピーして Ctrl+Shift+V」）や
+                コマンドバーの「解析」ボタン（ShellWindow.axaml）と食い違わないようにする。
+            -->
+            <TextBlock TextWrapping="Wrap" Margin="0,16,0,0" Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Text="このあとAIに貼り付けて変更を依頼し、AIの回答をコピーしてツールバーの「解析」を押してください。" />
         </StackPanel>
 
         <Grid Grid.Row="1" Margin="0,16,0,0" ColumnDefinitions="Auto,*,Auto,Auto,Auto">
@@ -62,7 +71,8 @@
             <Button x:Name="BackButton" Grid.Column="2" Content="戻る" Click="OnBackClicked" Margin="0,0,8,0"
                     IsEnabled="False" AutomationProperties.Name="前の画面に戻る" />
             <Button x:Name="SkipButton" Grid.Column="3" Content="スキップ" Click="OnSkipClicked" Margin="0,0,8,0"
-                    AutomationProperties.Name="ガイドをスキップ" />
+                    AutomationProperties.Name="ガイドをスキップ"
+                    ToolTip.Tip="チュートリアルを終了します。プロジェクトの登録はあとから設定画面でいつでも行えます。" />
             <Button x:Name="NextButton" Grid.Column="4" Content="次へ" Click="OnNextClicked" IsDefault="True"
                     AutomationProperties.Name="次の画面へ" />
         </Grid>
