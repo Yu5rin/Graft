@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using Graft.Core;
 using Graft.Infra;
@@ -91,7 +92,13 @@ public sealed partial class MainViewModel
         var project = ProjectPane.SelectedItem?.Project;
 
         State = CenterPaneState.Loading;
+        // 実機不具合対応: 適用処理（書き込み失敗を含む）がログに一切残っていなかったため、
+        // 成否・所要時間・付随する警告（SafeFileWriterが検出した退避方式の使用や検証やり直し
+        // 等）を必ずlogs/へ記録する。ApplyEngine.ApplyAsync自体はUIに依存しないためLoggerを
+        // 引き回せず、呼び出し元であるここで記録する（MainViewModel.Git.csのLogger運用に倣う）。
+        var stopwatch = Stopwatch.StartNew();
         var result = await _applyEngine.ApplyAsync(updatedDryRun, context).ConfigureAwait(true);
+        stopwatch.Stop();
 
         // 不具合2対応: 適用を試みた直後に、成功・失敗を問わずnextRevisionを消費して
         // projects.jsonへ永続化する（消費しないと次回も同じ番号が付与され続ける）。
@@ -102,10 +109,13 @@ public sealed partial class MainViewModel
         if (!result.IsSuccess)
         {
             CenterError = result.Errors.FirstOrDefault();
+            Logger?.Error("apply", CenterError?.ToDisplayText() ?? "不明なエラーで適用に失敗しました",
+                revision: context.Revision, durationMs: stopwatch.ElapsedMilliseconds);
             State = CenterPaneState.Error;
             return;
         }
 
+        LogApplySuccess(result.Value, result.Issues, stopwatch.ElapsedMilliseconds);
         await NotifyFilesRewrittenAsync(context.ProjectRoot, result.Value).ConfigureAwait(true); // 4.8/7章: 再読込フック。
         FinalizeApplyFromQueueIfNeeded(); // 4.10: キュー結合適用時はキューを空にする（MainViewModel.Queue.cs）。
         DiscardCurrentPatch();
@@ -129,6 +139,30 @@ public sealed partial class MainViewModel
         }
 
         await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 実機不具合対応: 適用成功時にlogs/へ記録する。SafeFileWriter・世代整理・history.jsonl追記
+    /// 等が返したWarning/Info（例: 退避方式を使った、書き込み直後の検証でやり直した）は、
+    /// 適用そのものは成功しているためダイアログでは出さないが、後から原因を追えるよう
+    /// ログには必ず残す。
+    /// </summary>
+    private void LogApplySuccess(RevisionManifest manifest, IReadOnlyList<GraftIssue> issues, long durationMs)
+    {
+        Logger?.Info("apply", $"r{manifest.Revision} として記録しました（{manifest.Entries.Count}件）",
+            revision: manifest.Revision, durationMs: durationMs);
+
+        foreach (var issue in issues)
+        {
+            if (issue.Severity == Severity.Warning)
+            {
+                Logger?.Warn("apply", issue.ToDisplayText(), revision: manifest.Revision, targetPath: issue.Path);
+            }
+            else if (issue.Severity == Severity.Info)
+            {
+                Logger?.Info("apply", issue.ToDisplayText(), revision: manifest.Revision, targetPath: issue.Path);
+            }
+        }
     }
 
     /// <summary>

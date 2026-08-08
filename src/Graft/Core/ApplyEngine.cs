@@ -103,7 +103,7 @@ public sealed partial class ApplyEngine
         // ついでの修正: CompleteAsync自身が返すissues（history.jsonl追記失敗時のWarning等）が
         // これまで呼び出し元へ一切伝わっていなかった（このメソッドの戻り値に含めていなかった）
         // ため、あわせて合流させる。適用が成功したこと自体には影響しない付随情報。
-        var mergedIssues = dupIssues.Issues.Concat(completed.Issues).Concat(retention.Issues).ToList();
+        var mergedIssues = dupIssues.Issues.Concat(executed.Issues).Concat(completed.Issues).Concat(retention.Issues).ToList();
         return GraftResult<RevisionManifest>.Ok(finalManifest, mergedIssues);
     }
 
@@ -195,7 +195,7 @@ public sealed partial class ApplyEngine
         var deleteResult = ExecuteDeletes(eligible, ctx, entries);
         if (!deleteResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(deleteResult.Issues);
 
-        return GraftResult<List<RevisionEntry>>.Ok(entries);
+        return GraftResult<List<RevisionEntry>>.Ok(entries, textResult.Issues);
     }
 
     private static GraftResult<bool> ExecuteMkdirs(List<BlockPlan> eligible, ApplyContext ctx, List<RevisionEntry> entries)
@@ -259,11 +259,17 @@ public sealed partial class ApplyEngine
             .Where(p => p.Operation is EntryOperation.Modify or EntryOperation.Create)
             .GroupBy(p => p.Path, StringComparer.OrdinalIgnoreCase);
 
+        var writeIssues = new List<GraftIssue>();
         foreach (var group in groups)
         {
             var plansForFile = group.ToList();
             var written = await ApplyFileGroupAsync(group.Key, plansForFile, ctx, ct).ConfigureAwait(false);
             if (!written.IsSuccess) return GraftResult<bool>.Fail(written.Issues);
+
+            // SafeFileWriterが検出した警告・情報（退避方式を使った／書き込み直後の検証で
+            // やり直した等）は、以前は捨てられて呼び出し元へ一切伝わっていなかった。
+            // ApplyAsyncの戻り値まで合流させ、ログや画面へ出せるようにする。
+            writeIssues.AddRange(written.Issues);
 
             var (existedBefore, hashBefore, hashAfter) = written.Value;
             if (!existedBefore) session.TrackCreated(group.Key);
@@ -275,7 +281,7 @@ public sealed partial class ApplyEngine
                 Desc = plansForFile[0].Description, MatchStage = (int)stage, HashBefore = hashBefore, HashAfter = hashAfter,
             });
         }
-        return GraftResult<bool>.Ok(true);
+        return GraftResult<bool>.Ok(true, writeIssues);
     }
 
     /// <summary>
@@ -339,6 +345,20 @@ public sealed partial class ApplyEngine
         RestoreReadOnlyIfNeeded(fullPath, clearedReadOnly);
         if (!written.IsSuccess) return GraftResult<(bool, string?, string)>.Fail(written.Issues);
 
-        return GraftResult<(bool, string?, string)>.Ok((existed, hashBefore, FileTextIO.ComputeHash(finalText)));
+        // 実機不具合対応: hashAfterはメモリ上のfinalTextからではなく、書き込み直後にディスクを
+        // 読み直した実測値から計算する。SafeFileWriterは既にバイト列レベルでの検証を済ませて
+        // 「成功」を返しているが、manifest.jsonに記録するhashAfterは「本当にディスク上にある
+        // 内容」を表すべきであり、メモリ上の値をそのまま信用しない。読み直しに失敗した場合
+        // （検証をすり抜けたのちに何らかの理由で消えた等、極めて稀なケース）は書き込み自体を
+        // 失敗として扱う。
+        var verifyRead = await FileTextIO.ReadAsync(fullPath, ct).ConfigureAwait(false);
+        if (!verifyRead.IsSuccess)
+        {
+            return GraftResult<(bool, string?, string)>.Fail(
+                ErrorCode.E402, "書き込み後の確認読み込みに失敗しました。ファイルが見つからないか読み取れません", path: path);
+        }
+
+        return GraftResult<(bool, string?, string)>.Ok(
+            (existed, hashBefore, FileTextIO.ComputeHash(verifyRead.Value.Text)), written.Issues);
     }
 }
