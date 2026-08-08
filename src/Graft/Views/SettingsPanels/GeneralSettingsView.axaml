@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.GeneralSettingsView"
              AutomationProperties.Name="一般設定">
     <!--
@@ -7,6 +8,12 @@
         世代管理・Git連携・適用後フック・エクスポート/インポートをまとめる。
         書式（fieldLabel/fieldRow/sectionHeading）は Themes/Settings.axaml のクラス。
         DataContextはTabItem経由でSettingsViewModelを継承する。
+
+        即時反映方式（14章）: ComboBox/CheckBoxは既定のバインディングのまま（選択・切替の
+        瞬間にViewModelへ届き、そのまま保存される）。TextBoxはUpdateSourceTrigger=LostFocusを
+        明示し、フォーカスを外すまで確定させない（「100」を「50」に打ち替える途中の
+        「10」や空文字が確定してしまうのを防ぐ）。Enterキーでも確定できるよう
+        views:TextBoxCommitBehavior.CommitOnEnterを添付する。
     -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
@@ -36,7 +43,8 @@
                       AutomationProperties.Name="パッチメタデータのsummaryを必須にする" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="グローバルホットキー" Classes="fieldLabel" />
-                <TextBox Text="{Binding Hotkey}" Width="220"
+                <TextBox Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}" Width="220"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="グローバルホットキー" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
@@ -49,12 +57,14 @@
             <TextBlock Text="バックアップ・世代管理" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />
-                <TextBox Text="{Binding MaxRevisionsText}" Width="120"
+                <TextBox Text="{Binding MaxRevisionsText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="最大保持リビジョン数" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="バックアップ合計上限（MB、0で無制限）" Classes="fieldLabel" />
-                <TextBox Text="{Binding MaxTotalMBText}" Width="120"
+                <TextBox Text="{Binding MaxTotalMBText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="バックアップ合計上限" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="世代整理でごみ箱を使用する" IsChecked="{Binding UseRecycleBin}"
@@ -65,7 +75,8 @@
                       AutomationProperties.Name="適用後に自動コミットする" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="フックのタイムアウト（秒）" Classes="fieldLabel" />
-                <TextBox Text="{Binding HooksTimeoutSecText}" Width="120"
+                <TextBox Text="{Binding HooksTimeoutSecText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="フックのタイムアウト秒数" />
             </StackPanel>
 

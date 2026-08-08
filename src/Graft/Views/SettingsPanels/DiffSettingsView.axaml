@@ -1,10 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.DiffSettingsView"
              AutomationProperties.Name="表示・コンテキスト設定">
     <!--
         14章「syntax」「diff」「context」「encoding」「clipboardWatch」区分をまとめる
         （8.6シンタックス・8.13 diff表示制御・10章コンテキスト収集の各設定）。
+        即時反映方式（14章）の確定タイミングの理屈はGeneralSettingsView参照。
     -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
@@ -22,7 +24,8 @@
             <TextBlock Text="diff表示" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="前後のコンテキスト行数" Classes="fieldLabel" />
-                <TextBox Text="{Binding ContextLinesText}" Width="120"
+                <TextBox Text="{Binding ContextLinesText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="前後のコンテキスト行数" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="長い行を折り返す" IsChecked="{Binding WordWrap}"
@@ -35,19 +38,22 @@
                       AutomationProperties.Name="gitignoreを尊重する" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="トークン概算比率（文字数÷この値）" Classes="fieldLabel" />
-                <TextBox Text="{Binding TokenRatioText}" Width="120"
+                <TextBox Text="{Binding TokenRatioText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="トークン概算比率" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="トークン数の警告閾値" Classes="fieldLabel" />
-                <TextBox Text="{Binding TokenWarnThresholdText}" Width="120"
+                <TextBox Text="{Binding TokenWarnThresholdText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="トークン数の警告閾値" />
             </StackPanel>
 
             <TextBlock Text="新規ファイル" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="エンコーディング" Classes="fieldLabel" />
-                <TextBox Text="{Binding NewFileEncoding}" Width="160"
+                <TextBox Text="{Binding NewFileEncoding, UpdateSourceTrigger=LostFocus}" Width="160"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="新規ファイルのエンコーディング" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="BOMを付与する" IsChecked="{Binding NewFileBom}"

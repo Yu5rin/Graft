@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Graft.Core;
 using Graft.Features;
@@ -11,13 +12,53 @@ namespace Graft.ViewModels;
 
 /// <summary>
 /// 14章の設定画面を担う。settings.json の全項目編集、json直接編集タブ、
-/// 不正値のフォールバック通知（<see cref="SettingsStore"/> が返す Issue の表示）、
+/// 不正値の検証結果通知（<see cref="SettingsStore"/> が返す Issue の表示）、
 /// エクスポート／インポート、テーマの即時反映（<see cref="Graft.Themes.ThemeManager"/> 経由）を行う。
+///
+/// 【即時反映方式（保存ボタンの廃止）】
+/// 以前は「保存」ボタンを押すまでどの設定も反映されない方式だったが、テーマだけは
+/// setterから<see cref="Graft.Themes.ThemeManager.SetTheme"/>を呼んで即時プレビューしていた。
+/// この不統一が「保存せずに閉じるとテーマだけプレビューのまま残り、次に開くと巻き戻る」
+/// 不具合の真因だったため、全項目を即時反映方式へ揃えた。ただし種別によって
+/// 「値が確定した」とみなすタイミングが異なるため、確定タイミングの違いはXAML側の
+/// バインディングトリガーだけで表現し、ViewModel側は「setterへ値が届いた＝確定」という
+/// 単純なルール1本にまとめている。
+///   - CheckBox・ComboBox: バインディングの既定（PropertyChanged）のまま。選択・切替の
+///     瞬間にsetterへ届くので、それがそのまま「変更した瞬間に反映」になる。
+///   - TextBox（数値・テキスト入力）: XAML側で<c>UpdateSourceTrigger=LostFocus</c>を明示し、
+///     フォーカスを外すまでsetterを呼ばせない。既定のPropertyChangedのままだと「100」を
+///     「50」に打ち替える途中の「10」や空文字が確定してしまうため。Enterキーでも確定でき
+///     るよう<see cref="Graft.Views.TextBoxCommitBehavior"/>を添付する。
+///   - JSON直接編集タブ（<see cref="JsonText"/>）: 唯一の例外として明示保存のまま
+///     （<see cref="SaveJsonCommand"/>）。テキスト全体で1つの値であり、フォーカスが
+///     外れた時点のテキストが有効なJSONとは限らない（括弧を打ち終える前など）ため、
+///     「フォーカスを外したら確定」という他の入力欄と同じ規則を適用できない。
+///
+/// setterへ値が届くたび<see cref="ScheduleSave"/>で短いデバウンス（300ms）を挟んで保存する。
+/// ドロップダウンを連続で切り替えたときに毎回ディスクへ書き込むのを避けるためで、
+/// デバウンス中に新しい変更が来たら古い方は打ち切って合流させる。保存直前に
+/// <see cref="SettingsStore.ValidateOnly"/>で検証し、1件でも問題があれば保存自体を行わない
+/// （不正な値を黙って既定値へ差し替えて保存する＝見えている値と保存された値が食い違う事故も、
+/// 不正なまま保存することも避けたいため）。
 /// </summary>
 public sealed class SettingsViewModel : ObservableObject
 {
+    /// <summary>設定変更から実際の保存までの合流待ち時間。</summary>
+    private static readonly TimeSpan SaveDebounceInterval = TimeSpan.FromMilliseconds(300);
+
     private readonly SettingsStore _settingsStore; private readonly IDialogService _dialogService;
     private Settings _settings = new();
+
+    // デバウンス中の保存予約。ウィンドウを閉じる直前にFlushPendingSaveAsyncで
+    // 待たずに確定させるため、予約の有無と取り消し用のCancellationTokenSourceを保持する。
+    private CancellationTokenSource? _saveDebounceCts;
+    private bool _hasPendingSave;
+
+    // PopulateEditableFields実行中はtrueにする。読み込み・インポート・既定値への復元は
+    // 「保存済みの値をそのまま画面へ映すだけ」の操作であり、ここで各プロパティのsetterが
+    // 反応してScheduleSaveを呼ぶと、読み込んだ直後に無意味な保存が走ってしまう
+    // （既定値復元は専用のResetToDefaultsAsyncが明示的に保存するため、なおさら不要）。
+    private bool _isApplyingLoadedSettings;
 
     private string _selectedTheme = "system";
     private string _selectedApplyMode = "allOrNothing";
@@ -77,10 +118,23 @@ public sealed class SettingsViewModel : ObservableObject
         Hooks = new HookSettingsViewModel(projectStore, dialogService);
         ValidationIssues = new ObservableCollection<GraftIssue>();
 
-        SaveCommand = new AsyncRelayCommand(SaveAsync);
+        // SettingsWindow.axamlの警告表示は IsVisible="{Binding ValidationIssues,
+        // Converter=...HasItems}" という、コレクション「への参照」を対象にした値バインディングで
+        // ある。この形のバインディングはAvaloniaのINotifyPropertyChanged経由の再評価に乗るため、
+        // ValidationIssuesプロパティ自体が別のインスタンスへ差し変わる（PropertyChangedが飛ぶ）
+        // ときにしか再評価されない。しかしClear()/Add()はコレクションの中身だけを書き換え、
+        // プロパティの参照自体は変えない（INotifyCollectionChangedで通知するのみ）ため、
+        // このままでは警告欄が最初の（空の）評価のまま固まってしまい、値を確定するたびに
+        // 検証結果が変わっても画面に警告が一切表示されない（実機で確認済みの不具合）。
+        // 即時反映方式では「不正な値は保存しない」ことを利用者に気づかせるのがこの欄の役目そのもの
+        // なので、CollectionChangedのたびにValidationIssues自体のPropertyChangedを代わりに
+        // 発火させ、バインディングを強制的に再評価させる。
+        ValidationIssues.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ValidationIssues));
+
         SaveJsonCommand = new AsyncRelayCommand(SaveJsonAsync);
         ExportCommand = new AsyncRelayCommand(ExportAsync);
         ImportCommand = new AsyncRelayCommand(ImportAsync);
+        ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
     }
 
     public PromptTemplateViewModel Templates { get; }
@@ -88,10 +142,18 @@ public sealed class SettingsViewModel : ObservableObject
     public HookSettingsViewModel Hooks { get; }
     public ObservableCollection<GraftIssue> ValidationIssues { get; }
 
-    public AsyncRelayCommand SaveCommand { get; }
     public AsyncRelayCommand SaveJsonCommand { get; }
     public AsyncRelayCommand ExportCommand { get; }
     public AsyncRelayCommand ImportCommand { get; }
+
+    /// <summary>
+    /// 「既定に戻す」。触りすぎて分からなくなったときの逃げ道として用意する。即時反映方式では
+    /// 「保存しない」という選択肢が無いため、代わりにこのボタンが唯一の後戻り手段になる。
+    /// 対象は設定（settings.json）のみで、プロジェクト定義（projects.json）・適用後フック・
+    /// プロンプトテンプレート・リビジョン履歴は対象外（別ファイルであり、意図せず消えると
+    /// 実害が大きいため）。破壊的操作なので<see cref="ResetToDefaultsAsync"/>内で必ず確認する。
+    /// </summary>
+    public AsyncRelayCommand ResetToDefaultsCommand { get; }
 
     public IReadOnlyList<ChoiceOption> ThemeOptions { get; } = new[]
     {
@@ -114,61 +176,68 @@ public sealed class SettingsViewModel : ObservableObject
         new ChoiceOption("トレイ通知のみ", "notify"), new ChoiceOption("非アクティブ表示", "passive"), new ChoiceOption("アクティブ表示", "active"),
     };
 
-    /// <summary>テーマ。設定変更と同時に <see cref="ThemeManager"/> 経由で即時反映する（再起動不要）。</summary>
+    /// <summary>
+    /// テーマ。ComboBoxの選択が変わった瞬間にsetterへ届き、<see cref="ThemeManager"/> 経由で
+    /// 即時プレビュー反映しつつ、他の項目と同じ経路で保存もスケジュールする。
+    /// </summary>
     public string SelectedTheme
     {
         get => _selectedTheme;
         set
         {
-            if (!SetProperty(ref _selectedTheme, value)) return;
+            if (!SetEditableProperty(ref _selectedTheme, value)) return;
             ThemeManager.SetTheme(ParseTheme(value));
         }
     }
 
-    public string SelectedApplyMode { get => _selectedApplyMode; set => SetProperty(ref _selectedApplyMode, value); }
-    public bool ShowPreview { get => _showPreview; set => SetProperty(ref _showPreview, value); }
-    public bool RequireSummary { get => _requireSummary; set => SetProperty(ref _requireSummary, value); }
-    public string Hotkey { get => _hotkey; set => SetProperty(ref _hotkey, value); }
-    public string SelectedLogLevel { get => _selectedLogLevel; set => SetProperty(ref _selectedLogLevel, value); }
-    public bool ClipboardWatchEnabled { get => _clipboardWatchEnabled; set => SetProperty(ref _clipboardWatchEnabled, value); }
-    public string SelectedClipboardAction { get => _selectedClipboardAction; set => SetProperty(ref _selectedClipboardAction, value); }
-    public string MaxRevisionsText { get => _maxRevisionsText; set => SetProperty(ref _maxRevisionsText, value); }
-    public string MaxTotalMBText { get => _maxTotalMbText; set => SetProperty(ref _maxTotalMbText, value); }
-    public bool UseRecycleBin { get => _useRecycleBin; set => SetProperty(ref _useRecycleBin, value); }
-    public string SimilarityThresholdText { get => _similarityThresholdText; set => SetProperty(ref _similarityThresholdText, value); }
-    public bool AllowSimilarityMatch { get => _allowSimilarityMatch; set => SetProperty(ref _allowSimilarityMatch, value); }
-    public string RangeWarningLinesText { get => _rangeWarningLinesText; set => SetProperty(ref _rangeWarningLinesText, value); }
-    public string NewFileEncoding { get => _newFileEncoding; set => SetProperty(ref _newFileEncoding, value); }
-    public bool NewFileBom { get => _newFileBom; set => SetProperty(ref _newFileBom, value); }
-    public bool SyntaxEnabled { get => _syntaxEnabled; set => SetProperty(ref _syntaxEnabled, value); }
-    public bool ShowLineNumbers { get => _showLineNumbers; set => SetProperty(ref _showLineNumbers, value); }
-    public string ContextLinesText { get => _contextLinesText; set => SetProperty(ref _contextLinesText, value); }
-    public bool WordWrap { get => _wordWrap; set => SetProperty(ref _wordWrap, value); }
-    public bool ShowWhitespace { get => _showWhitespace; set => SetProperty(ref _showWhitespace, value); }
-    public string AllowedExtensionsText { get => _allowedExtensionsText; set => SetProperty(ref _allowedExtensionsText, value); }
-    public string MaxFileSizeMBText { get => _maxFileSizeMbText; set => SetProperty(ref _maxFileSizeMbText, value); }
-    public string MaxFilesPerRevisionText { get => _maxFilesPerRevisionText; set => SetProperty(ref _maxFilesPerRevisionText, value); }
-    public bool RespectGitignore { get => _respectGitignore; set => SetProperty(ref _respectGitignore, value); }
-    public string TokenRatioText { get => _tokenRatioText; set => SetProperty(ref _tokenRatioText, value); }
-    public string TokenWarnThresholdText { get => _tokenWarnThresholdText; set => SetProperty(ref _tokenWarnThresholdText, value); }
-    public string HooksTimeoutSecText { get => _hooksTimeoutSecText; set => SetProperty(ref _hooksTimeoutSecText, value); }
-    public bool AutoCommit { get => _autoCommit; set => SetProperty(ref _autoCommit, value); }
+    public string SelectedApplyMode { get => _selectedApplyMode; set => SetEditableProperty(ref _selectedApplyMode, value); }
+    public bool ShowPreview { get => _showPreview; set => SetEditableProperty(ref _showPreview, value); }
+    public bool RequireSummary { get => _requireSummary; set => SetEditableProperty(ref _requireSummary, value); }
+    public string Hotkey { get => _hotkey; set => SetEditableProperty(ref _hotkey, value); }
+    public string SelectedLogLevel { get => _selectedLogLevel; set => SetEditableProperty(ref _selectedLogLevel, value); }
+    public bool ClipboardWatchEnabled { get => _clipboardWatchEnabled; set => SetEditableProperty(ref _clipboardWatchEnabled, value); }
+    public string SelectedClipboardAction { get => _selectedClipboardAction; set => SetEditableProperty(ref _selectedClipboardAction, value); }
+    public string MaxRevisionsText { get => _maxRevisionsText; set => SetEditableProperty(ref _maxRevisionsText, value); }
+    public string MaxTotalMBText { get => _maxTotalMbText; set => SetEditableProperty(ref _maxTotalMbText, value); }
+    public bool UseRecycleBin { get => _useRecycleBin; set => SetEditableProperty(ref _useRecycleBin, value); }
+    public string SimilarityThresholdText { get => _similarityThresholdText; set => SetEditableProperty(ref _similarityThresholdText, value); }
+    public bool AllowSimilarityMatch { get => _allowSimilarityMatch; set => SetEditableProperty(ref _allowSimilarityMatch, value); }
+    public string RangeWarningLinesText { get => _rangeWarningLinesText; set => SetEditableProperty(ref _rangeWarningLinesText, value); }
+    public string NewFileEncoding { get => _newFileEncoding; set => SetEditableProperty(ref _newFileEncoding, value); }
+    public bool NewFileBom { get => _newFileBom; set => SetEditableProperty(ref _newFileBom, value); }
+    public bool SyntaxEnabled { get => _syntaxEnabled; set => SetEditableProperty(ref _syntaxEnabled, value); }
+    public bool ShowLineNumbers { get => _showLineNumbers; set => SetEditableProperty(ref _showLineNumbers, value); }
+    public string ContextLinesText { get => _contextLinesText; set => SetEditableProperty(ref _contextLinesText, value); }
+    public bool WordWrap { get => _wordWrap; set => SetEditableProperty(ref _wordWrap, value); }
+    public bool ShowWhitespace { get => _showWhitespace; set => SetEditableProperty(ref _showWhitespace, value); }
+    public string AllowedExtensionsText { get => _allowedExtensionsText; set => SetEditableProperty(ref _allowedExtensionsText, value); }
+    public string MaxFileSizeMBText { get => _maxFileSizeMbText; set => SetEditableProperty(ref _maxFileSizeMbText, value); }
+    public string MaxFilesPerRevisionText { get => _maxFilesPerRevisionText; set => SetEditableProperty(ref _maxFilesPerRevisionText, value); }
+    public bool RespectGitignore { get => _respectGitignore; set => SetEditableProperty(ref _respectGitignore, value); }
+    public string TokenRatioText { get => _tokenRatioText; set => SetEditableProperty(ref _tokenRatioText, value); }
+    public string TokenWarnThresholdText { get => _tokenWarnThresholdText; set => SetEditableProperty(ref _tokenWarnThresholdText, value); }
+    public string HooksTimeoutSecText { get => _hooksTimeoutSecText; set => SetEditableProperty(ref _hooksTimeoutSecText, value); }
+    public bool AutoCommit { get => _autoCommit; set => SetEditableProperty(ref _autoCommit, value); }
 
     /// <summary>15章・4章 エディタ設定（12項目）。設定画面の「エディタ」タブが編集する。</summary>
-    public string EditorFontSizeText { get => _editorFontSizeText; set => SetProperty(ref _editorFontSizeText, value); }
-    public bool EditorWordWrap { get => _editorWordWrap; set => SetProperty(ref _editorWordWrap, value); }
-    public bool EditorShowWhitespace { get => _editorShowWhitespace; set => SetProperty(ref _editorShowWhitespace, value); }
-    public bool EditorShowLineNumbers { get => _editorShowLineNumbers; set => SetProperty(ref _editorShowLineNumbers, value); }
-    public bool EditorHighlightCurrentLine { get => _editorHighlightCurrentLine; set => SetProperty(ref _editorHighlightCurrentLine, value); }
-    public string EditorTabSizeText { get => _editorTabSizeText; set => SetProperty(ref _editorTabSizeText, value); }
-    public bool EditorInsertSpaces { get => _editorInsertSpaces; set => SetProperty(ref _editorInsertSpaces, value); }
-    public bool EditorDetectIndent { get => _editorDetectIndent; set => SetProperty(ref _editorDetectIndent, value); }
-    public bool EditorAutoClosingBrackets { get => _editorAutoClosingBrackets; set => SetProperty(ref _editorAutoClosingBrackets, value); }
-    public bool EditorFolding { get => _editorFolding; set => SetProperty(ref _editorFolding, value); }
-    public bool EditorCompletion { get => _editorCompletion; set => SetProperty(ref _editorCompletion, value); }
-    public bool EditorGitGutter { get => _editorGitGutter; set => SetProperty(ref _editorGitGutter, value); }
+    public string EditorFontSizeText { get => _editorFontSizeText; set => SetEditableProperty(ref _editorFontSizeText, value); }
+    public bool EditorWordWrap { get => _editorWordWrap; set => SetEditableProperty(ref _editorWordWrap, value); }
+    public bool EditorShowWhitespace { get => _editorShowWhitespace; set => SetEditableProperty(ref _editorShowWhitespace, value); }
+    public bool EditorShowLineNumbers { get => _editorShowLineNumbers; set => SetEditableProperty(ref _editorShowLineNumbers, value); }
+    public bool EditorHighlightCurrentLine { get => _editorHighlightCurrentLine; set => SetEditableProperty(ref _editorHighlightCurrentLine, value); }
+    public string EditorTabSizeText { get => _editorTabSizeText; set => SetEditableProperty(ref _editorTabSizeText, value); }
+    public bool EditorInsertSpaces { get => _editorInsertSpaces; set => SetEditableProperty(ref _editorInsertSpaces, value); }
+    public bool EditorDetectIndent { get => _editorDetectIndent; set => SetEditableProperty(ref _editorDetectIndent, value); }
+    public bool EditorAutoClosingBrackets { get => _editorAutoClosingBrackets; set => SetEditableProperty(ref _editorAutoClosingBrackets, value); }
+    public bool EditorFolding { get => _editorFolding; set => SetEditableProperty(ref _editorFolding, value); }
+    public bool EditorCompletion { get => _editorCompletion; set => SetEditableProperty(ref _editorCompletion, value); }
+    public bool EditorGitGutter { get => _editorGitGutter; set => SetEditableProperty(ref _editorGitGutter, value); }
 
-    /// <summary>エクスポート／インポートの範囲。trueなら設定のみ（プロジェクト定義を除外）。</summary>
+    /// <summary>
+    /// エクスポート／インポートの範囲。trueなら設定のみ（プロジェクト定義を除外）。
+    /// settings.jsonの項目ではなく画面だけのオプションなので、他の項目と違い変更しても
+    /// 自動保存はスケジュールしない（<see cref="SetProperty{T}(ref T, T, string?)"/>のまま）。
+    /// </summary>
     public bool ExportSettingsOnly { get => _exportSettingsOnly; set => SetProperty(ref _exportSettingsOnly, value); }
 
     /// <summary>settings.json のjson直接編集タブの内容。</summary>
@@ -192,51 +261,20 @@ public sealed class SettingsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 「閉じる」ボタン・Escapeキー・ウィンドウの×（Closing）のすべてから共通で呼び出す
-    /// クローズ処理。バグ2の対応: <see cref="SelectedTheme"/> は変更と同時に
-    /// <see cref="ThemeManager.SetTheme"/> で即時プレビュー反映されるが、保存せずに閉じた場合は
-    /// そのプレビューを取り消し、最後に保存された状態へ戻す。あわせて未保存の変更がある場合は
-    /// 「保存する／破棄して閉じる／キャンセル」を確認する（3択の意味は
-    /// <see cref="IDialogService.ConfirmThreeWayAsync"/>のyes/no/nullに対応）。
+    /// ウィンドウを閉じる直前に呼ぶ。即時反映方式では基本的に「閉じた時点で既にディスクへ
+    /// 保存済み」だが、直前の変更がまだ<see cref="SaveDebounceInterval"/>のデバウンス待ちに
+    /// 積まれている可能性があるため、待たずに今すぐ確定させてから閉じる
+    /// （デバウンスは「連続変更の合流」が目的であり、ウィンドウを閉じる操作自体を
+    /// 遅らせてよい理由にはならない）。以前あった「保存する／破棄して閉じる／キャンセル」の
+    /// 確認ダイアログは、即時反映方式では「未保存の変更」という状態自体が存在しなくなった
+    /// ため撤去した。
     /// </summary>
-    /// <returns>ウィンドウを閉じてよいならtrue、ユーザーがキャンセルしたならfalse。</returns>
-    public async Task<bool> RequestCloseAsync()
+    public async Task FlushPendingSaveAsync()
     {
-        if (!HasUnsavedChanges()) return true;
+        if (!_hasPendingSave) return;
 
-        var choice = await _dialogService.ConfirmThreeWayAsync(
-            "未保存の変更があります",
-            "設定に保存されていない変更があります。保存せずに閉じますか？",
-            "保存する", "破棄して閉じる").ConfigureAwait(true);
-
-        switch (choice)
-        {
-            case true:
-                await SaveAsync().ConfigureAwait(true);
-                return true;
-            case false:
-                // テーマ等の即時プレビューを、最後に保存された_settingsの内容へ戻す。
-                // SelectedThemeのsetterはThemeManager.SetTheme経由でウィンドウの見た目自体を
-                // 変えるため、フィールドを入れ直すだけでプレビューが取り消される。
-                PopulateEditableFields(_settings);
-                return true;
-            default:
-                return false; // キャンセル：閉じずに編集を続けさせる
-        }
-    }
-
-    /// <summary>
-    /// 読み込み直後（または直近の保存直後）の設定と、現在の入力欄から組み立てた設定を比較し、
-    /// 未保存の変更があるかどうかを判定する。<see cref="Settings"/>はrecordだが
-    /// <see cref="SafetySettings.AllowedExtensions"/>のList&lt;string&gt;など既定の構造的等価性が
-    /// 効かないフィールドを含むため、record同士の==ではなく、JsonTextと同じ手段
-    /// （JSONへ直列化した文字列）で比較する。
-    /// </summary>
-    private bool HasUnsavedChanges()
-    {
-        var current = JsonSerializer.Serialize(BuildSettingsFromFields(), JsonFileStore.DefaultOptions);
-        var saved = JsonSerializer.Serialize(_settings, JsonFileStore.DefaultOptions);
-        return current != saved;
+        _saveDebounceCts?.Cancel();
+        await CommitPendingSaveAsync().ConfigureAwait(true);
     }
 
     private async Task LoadAsync(CancellationToken ct)
@@ -248,14 +286,111 @@ public sealed class SettingsViewModel : ObservableObject
         }).ConfigureAwait(true);
     }
 
-    private async Task SaveAsync()
+    /// <summary>
+    /// CheckBox/ComboBoxの変更・TextBoxの確定（LostFocus/Enter）から共通で辿り着く保存予約。
+    /// 短いデバウンス（<see cref="SaveDebounceInterval"/>）を挟み、その間に新しい変更が来たら
+    /// 古い予約を打ち切って合流させる。ドロップダウンを連続で切り替えたときや、複数の項目を
+    /// 立て続けに変更したときに毎回ディスクへ書き込むのを避けるため（ファイルI/Oはキー入力や
+    /// クリックに比べて重く、UIの応答性に影響しうる）。
+    /// </summary>
+    private void ScheduleSave()
     {
+        _hasPendingSave = true;
+        _saveDebounceCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _saveDebounceCts = cts;
+        _ = RunDebouncedSaveAsync(cts.Token);
+    }
+
+    private async Task RunDebouncedSaveAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(SaveDebounceInterval, ct).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // より新しい変更にすぐ合流させるための打ち切りであり、異常ではない。
+            // この回の保存は行わず、後から積まれた予約（またはFlushPendingSaveAsync）に委ねる。
+            return;
+        }
+
+        await CommitPendingSaveAsync().ConfigureAwait(true);
+    }
+
+    private async Task CommitPendingSaveAsync()
+    {
+        _hasPendingSave = false;
+
+        // ここはAsyncRelayCommand経由の実行と違い、プロパティのsetterやタイマーから発火する
+        // fire-and-forgetなタスクである。捕まえ損ねた例外は観測されない例外として静かに
+        // 失われてしまう（「保存に失敗しても黙って失敗しないこと」という要件に反する）ため、
+        // 必ずSafeHandler経由で捕捉し、GraftIssueと同じ通知経路（ダイアログ＋ログ）へ乗せる。
+        await SafeHandler.RunAsync("設定の保存", CommitAndSaveAsync).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 保留中の自動保存があれば、今すぐ確定させずに取り消す。settings.json全体を明示的に
+    /// 上書きする操作（JSON直接編集タブの保存・インポート・既定値への復元）の直前に呼ぶ。
+    /// これらは「今の入力欄の値」より新しい・別の内容でファイル全体を置き換えるので、
+    /// 古いフィールド値に基づく自動保存予約が後から発火して上書きしてしまう競合を防ぐ。
+    /// </summary>
+    private void CancelPendingAutoSave()
+    {
+        _saveDebounceCts?.Cancel();
+        _hasPendingSave = false;
+    }
+
+    /// <summary>
+    /// 現在の入力欄から組み立てた設定を検証し、問題が無ければ保存する。
+    ///
+    /// <see cref="SettingsStore.ValidateOnly"/>が1件でも問題を返した場合は保存しない。
+    /// <see cref="SettingsStore.LoadAsync"/>が使う検証（不正値を既定値へ差し替えて延命する）を
+    /// そのまま保存前にも適用してしまうと、「画面に入力されている値」と「実際にディスクへ
+    /// 保存された値」が黙って食い違う事故になる（不正な値を黙って捨てるのも、不正なまま
+    /// 保存するのも避けたい、という要件のため）。直すまで保存を保留し、既存の
+    /// <see cref="ValidationIssues"/>表示の仕組みでどこが悪いかを伝える。
+    ///
+    /// 【実質的に変化が無ければ書き込みを省略する】
+    /// AvaloniaのComboBoxはTwoWayバインディングを使うと、コントロール自身のテンプレート適用・
+    /// ItemsSourceの解決といった内部初期化の過程で、ユーザー操作とは無関係にSelectedValueを
+    /// 一時的にViewModelへ書き戻すことがある（実機で確認済み: 設定画面を開いただけで
+    /// テーマが一度別の値を経由して結局同じ値へ戻り、その結果<see cref="ScheduleSave"/>が
+    /// 呼ばれてしまう）。この手の「setterには届いたが実質的には何も変わっていない」書き戻しで
+    /// 毎回ディスクへ書き込むと、開いただけで（何も変更していないのに）settings.jsonの
+    /// 更新日時が変わってしまう。ディスクへ書き込む直前に最後に確定した内容
+    /// （<see cref="_settings"/>）と比較し、一致するなら書き込み自体を省略する。
+    /// </summary>
+    private async Task CommitAndSaveAsync()
+    {
+        var candidate = BuildSettingsFromFields();
+        if (SettingsContentEquals(candidate, _settings))
+        {
+            return;
+        }
+
+        var validated = SettingsStore.ValidateOnly(candidate);
+
+        ValidationIssues.Clear();
+        if (validated.Issues.Count > 0)
+        {
+            foreach (var issue in validated.Issues)
+            {
+                ValidationIssues.Add(issue);
+            }
+            StatusMessage = "入力値に誤りがあるため、保存していません。";
+            return;
+        }
+
         await RunBusyAsync(async () =>
         {
-            var built = BuildSettingsFromFields();
-            await _settingsStore.SaveAsync(built).ConfigureAwait(true);
-            var result = await _settingsStore.LoadAsync().ConfigureAwait(true);
-            await ApplyLoadedResultAsync(result).ConfigureAwait(true);
+            await _settingsStore.SaveAsync(candidate).ConfigureAwait(true);
+
+            // candidateは検証済みでそのままディスクの内容と一致するため、改めて
+            // LoadAsyncで読み直す必要はない。そのままGraftResult.Okで包み、明示保存
+            // （SaveJsonAsync）と同じApplyLoadedResultAsyncへ渡して、_settings・
+            // ValidationIssues・JsonText（JSONタブへの反映）・Templatesへの反映を1本化する。
+            await ApplyLoadedResultAsync(GraftResult<Settings>.Ok(candidate)).ConfigureAwait(true);
         }).ConfigureAwait(true);
         StatusMessage = "設定を保存しました。";
     }
@@ -280,6 +415,13 @@ public sealed class SettingsViewModel : ObservableObject
         }
 
         JsonParseError = null;
+
+        // JSONタブは唯一の明示保存の例外だが、他タブでの変更が積んだ自動保存の予約とは
+        // 同じsettings.jsonを取り合う関係にある。ここで先に打ち切っておかないと、
+        // 数百ms後に発火する古い自動保存が（このJSON保存より前の）フィールドの値で
+        // 上書きし、いま保存したJSONの内容を意図せず消してしまう恐れがある。
+        CancelPendingAutoSave();
+
         await RunBusyAsync(async () =>
         {
             await _settingsStore.SaveAsync(parsed).ConfigureAwait(true);
@@ -312,6 +454,10 @@ public sealed class SettingsViewModel : ObservableObject
             .ConfigureAwait(true);
         if (!confirmed) return;
 
+        // 明示保存（SaveJsonAsync）と同じ理由: これから読み込む内容全体で上書きするので、
+        // 古いフィールド値に基づく自動保存予約が後から発火して上書きしてしまう競合を防ぐ。
+        CancelPendingAutoSave();
+
         var scope = _exportSettingsOnly ? SettingsExportScope.SettingsOnly : SettingsExportScope.IncludeProjects;
         var result = await _settingsStore.ImportAsync(folder, scope).ConfigureAwait(true);
         if (result.IsSuccess)
@@ -321,6 +467,35 @@ public sealed class SettingsViewModel : ObservableObject
 
         var message = result.IsSuccess ? "設定を取り込みました。" : "インポートに失敗しました。";
         await _dialogService.ShowMessageAsync("インポート", message).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 「既定に戻す」の実処理。破壊的操作なので必ず確認し、確認文言には対象が設定
+    /// （settings.json）のみでプロジェクト定義・適用後フック・プロンプトテンプレート・
+    /// リビジョン履歴には触れないことを明示する。
+    /// </summary>
+    private async Task ResetToDefaultsAsync()
+    {
+        var confirmed = await _dialogService.ConfirmAsync(
+            "既定値に戻す",
+            "すべての設定を既定値に戻します。よろしいですか？" +
+            "\n対象は設定（テーマ・マッチング・安全機構などsettings.jsonの内容）のみです。" +
+            "プロジェクト定義・適用後フック・プロンプトテンプレート・リビジョン履歴は変更されません。")
+            .ConfigureAwait(true);
+        if (!confirmed) return;
+
+        // インポート・JSON保存と同じ理由: これから書く既定値全体で上書きするので、
+        // 直前の入力に基づく自動保存予約が後から発火して上書きしてしまう競合を防ぐ。
+        CancelPendingAutoSave();
+
+        await RunBusyAsync(async () =>
+        {
+            var defaults = new Settings();
+            await _settingsStore.SaveAsync(defaults).ConfigureAwait(true);
+            var result = await _settingsStore.LoadAsync().ConfigureAwait(true);
+            await ApplyLoadedResultAsync(result).ConfigureAwait(true);
+        }).ConfigureAwait(true);
+        StatusMessage = "設定を既定値に戻しました。";
     }
 
     private async Task ApplyLoadedResultAsync(GraftResult<Settings> result)
@@ -336,7 +511,27 @@ public sealed class SettingsViewModel : ObservableObject
         await Templates.UpdateSettingsAsync(_settings).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 読み込み・インポート・既定値への復元のいずれからも呼ばれる、保存済みの値を画面へ
+    /// 映すだけの処理。<see cref="_isApplyingLoadedSettings"/>を立てている間は各プロパティの
+    /// setterが自動保存をスケジュールしない（読み込んだ直後に無意味な保存が走るのを防ぐ）。
+    /// なお<see cref="SelectedTheme"/>のsetterが行う<see cref="ThemeManager.SetTheme"/>呼び出し
+    /// 自体はこのフラグに関わらず常に実行されるため、テーマのプレビュー反映はここでも正しく働く。
+    /// </summary>
     private void PopulateEditableFields(Settings s)
+    {
+        _isApplyingLoadedSettings = true;
+        try
+        {
+            PopulateEditableFieldsCore(s);
+        }
+        finally
+        {
+            _isApplyingLoadedSettings = false;
+        }
+    }
+
+    private void PopulateEditableFieldsCore(Settings s)
     {
         SelectedTheme = s.Theme; SelectedApplyMode = s.ApplyMode; ShowPreview = s.ShowPreview;
         RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; SelectedLogLevel = s.LogLevel;
@@ -431,8 +626,12 @@ public sealed class SettingsViewModel : ObservableObject
     // 対応表は ThemeManager 側に集約する（起動時の反映と同じ規則を使うため）。
     private static AppTheme ParseTheme(string value) => ThemeManager.ParseTheme(value);
 
-    // 解析に失敗した場合はあえてどの許容範囲にも収まらない値を返し、SettingsStore側の
-    // 検証（NormalizeMin/NormalizeRange）による既定値フォールバックと通知に一本化する。
+    // 解析に失敗した場合はあえてどの許容範囲にも収まらない値を返す。SettingsStore側の
+    // 検証（NormalizeMin/NormalizeRange）がこれを「範囲外」として検出することで、
+    // 数字として読めない入力（空文字・記号など）も他の不正値と同じ1つの経路
+    // （CommitAndSaveAsync内のValidateOnly）で「保存しない＋ValidationIssuesへ表示」に
+    // 一本化できる。かつてのLoadAsync専用だった頃は「既定値へのフォールバック」の
+    // トリガーだったが、即時反映方式では「保存を保留する」トリガーとして使う。
     private static int ParseInt(string text) => int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : int.MinValue;
 
     private static double ParseDouble(string text) => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : double.MinValue;
@@ -440,6 +639,31 @@ public sealed class SettingsViewModel : ObservableObject
     private static List<string> ParseExtensions(string text) => text
         .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .ToList();
+
+    /// <summary>
+    /// 2つのSettingsが内容として同じかどうかを比較する。<see cref="Settings"/>はrecordだが
+    /// <see cref="SafetySettings.AllowedExtensions"/>のList&lt;string&gt;など既定の構造的等価性が
+    /// 効かないフィールドを含むため、record同士の==ではなく、JsonTextと同じ手段
+    /// （JSONへ直列化した文字列）で比較する。
+    /// </summary>
+    private static bool SettingsContentEquals(Settings a, Settings b)
+        => JsonSerializer.Serialize(a, JsonFileStore.DefaultOptions)
+            == JsonSerializer.Serialize(b, JsonFileStore.DefaultOptions);
+
+    /// <summary>
+    /// 即時反映方式の対象になっている入力欄（CheckBox/ComboBox/TextBox）が共通で使う
+    /// フィールドセッター。値が実際に変わった場合のみ<see cref="ScheduleSave"/>で保存を
+    /// 予約する。種別ごとの確定タイミングの違い（変更した瞬間か、フォーカスを外した瞬間か）
+    /// はXAML側のバインディングトリガーだけが担い、ここでは「setterに値が届いた＝確定」
+    /// という単純な規則1本に統一している。読み込み・インポート・既定値への復元の最中
+    /// （<see cref="_isApplyingLoadedSettings"/>）は保存を予約しない。
+    /// </summary>
+    private bool SetEditableProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    {
+        if (!SetProperty(ref field, value, propertyName)) return false;
+        if (!_isApplyingLoadedSettings) ScheduleSave();
+        return true;
+    }
 
     /// <summary>選択肢1件（表示ラベルと設定値の組）。</summary>
     public sealed record ChoiceOption(string Label, string Value);

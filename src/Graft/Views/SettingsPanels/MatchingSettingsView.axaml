@@ -1,8 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.MatchingSettingsView"
              AutomationProperties.Name="マッチング設定">
-    <!-- 14章「matching」区分（5章マッチングエンジンの挙動）。 -->
+    <!--
+        14章「matching」区分（5章マッチングエンジンの挙動）。
+        即時反映方式（14章）の確定タイミングの理屈はGeneralSettingsView参照。
+    -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
         Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
@@ -13,14 +17,16 @@
             <TextBlock Text="マッチングエンジン" Classes="sectionHeading first" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="類似度マッチの閾値（0〜1）" Classes="fieldLabel" />
-                <TextBox Text="{Binding SimilarityThresholdText}" Width="120"
+                <TextBox Text="{Binding SimilarityThresholdText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="類似度マッチの閾値" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="類似度マッチ（段階5）を許可する"
                       IsChecked="{Binding AllowSimilarityMatch}" AutomationProperties.Name="類似度マッチを許可する" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="アンカー範囲の警告閾値（行）" Classes="fieldLabel" />
-                <TextBox Text="{Binding RangeWarningLinesText}" Width="120"
+                <TextBox Text="{Binding RangeWarningLinesText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="アンカー範囲の警告閾値" />
             </StackPanel>
         </StackPanel>
