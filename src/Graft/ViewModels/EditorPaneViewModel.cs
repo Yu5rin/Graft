@@ -290,6 +290,9 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     public string NewLineText => ActiveTab is { Kind: EditorTabKind.Document } t ? NewLineLabel(t.Session.Shape.NewLine) : string.Empty;
     public string LanguageText => ActiveTab is { Kind: EditorTabKind.Document } t ? LanguageLabel(t.Session.FileName) : string.Empty;
 
+    /// <summary>課題3: アクティブなタブに極端に長い行があり構文強調等を自動無効化しているか（ステータスバー通知用、実際の無効化はEditorPane.axaml.cs）。</summary>
+    public bool ActiveTabHasLongLineWarning => ActiveTab is { Kind: EditorTabKind.Document } t && t.Session.HasExtremelyLongLine;
+
     private IEnumerable<EditorTabViewModel> DocumentTabs => _tabs.Where(t => t.Kind == EditorTabKind.Document);
 
     private void CloseDiffTab(EditorTabViewModel tab)
@@ -367,6 +370,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         OnPropertyChanged(nameof(EncodingText));
         OnPropertyChanged(nameof(NewLineText));
         OnPropertyChanged(nameof(LanguageText));
+        OnPropertyChanged(nameof(ActiveTabHasLongLineWarning));
     }
 
     private static string EncodingLabel(TextShape shape)

@@ -55,7 +55,9 @@ public partial class App : Application
         if (!_coordinator.TryAcquireSingleInstance())
         {
             // 既に起動中の場合は既存ウィンドウを前面へ表示済み（StartupCoordinator側）。
-            // このプロセスはウィンドウを一切表示せずに終了する。
+            // このプロセスはウィンドウを一切表示せずに終了する。課題1: この経路は
+            // StartAsyncを呼ばないため通常のロガーが存在せず、使い捨てのロガーで記録する。
+            await _coordinator.LogSingleInstanceExitAsync().ConfigureAwait(true);
             desktop.Shutdown();
             return;
         }
