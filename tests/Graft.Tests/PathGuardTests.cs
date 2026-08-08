@@ -124,6 +124,12 @@ public class PathGuardTests
             result.Value.IsReadOnly.Should().BeTrue();
             var warning = result.Issues.Single(i => i.Code == ErrorCode.E205);
             warning.Severity.Should().Be(Severity.Warning);
+
+            // 課題2-1回帰テスト: 「確認のうえ属性を解除できます」は誰が何をするか曖昧だった。
+            // ApplyContext.AllowReadOnlyOverrideは常にfalse（Graftが自動で解除することはない）
+            // ため、利用者自身が解除する必要があることを明示した文言になっているか確認する。
+            warning.Remedy.Should().Contain("解除してから", "Graftが自動で解除するわけではなく、利用者が解除する必要があることを明示するため");
+            warning.Remedy.Should().NotBe("確認のうえ属性を解除できます", "誰が何をするか分からない旧文言に戻っていないこと");
         }
         finally
         {

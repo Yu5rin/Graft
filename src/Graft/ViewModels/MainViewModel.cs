@@ -182,6 +182,18 @@ public sealed partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 課題1関連: 設定画面での変更を、実行中のこの画面へ反映する。ApplyAsync等が参照する
+    /// <see cref="_settings"/>はInitializeAsync時点の読み込み結果をキャッシュしたままのため、
+    /// これを呼ばない限り、設定画面で値を変えても（保存自体は即時反映方式で行われるにも
+    /// かかわらず）このセッション中は反映されず次回起動まで気づけない。StartupCoordinatorの
+    /// 設定即時反映（ApplyLiveSettingsChange）から、保存成功のたびに呼ばれる。
+    /// </summary>
+    public void UpdateSettings(Settings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+    }
+
+    /// <summary>
     /// レイアウト読み込みの防御層。JSON解析エラーは<see cref="WindowLayoutStore.LoadAsync"/>内で
     /// 既に退避・再生成済みだが、ファイルI/O自体の失敗（アクセス権等）は例外として上がってくる。
     /// レイアウトが読めない程度でプロジェクト一覧読み込み等まで中断させないよう既定値へ倒す
