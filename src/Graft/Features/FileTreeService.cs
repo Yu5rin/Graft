@@ -80,7 +80,7 @@ public sealed class FileTreeService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return Task.FromResult(GraftResult<IReadOnlyList<FileTreeEntry>>.Fail(
-                ErrorCode.E204, ex.Message, path: relativeDir));
+                ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativeDir));
         }
     }
 
@@ -174,7 +174,7 @@ public sealed class FileTreeService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E204, ex.Message, path: relativePath));
+            return Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativePath));
         }
     }
 
@@ -213,7 +213,7 @@ public sealed class FileTreeService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<string>.Fail(ErrorCode.E204, ex.Message, path: errorPath);
+            return GraftResult<string>.Fail(ErrorCode.E204, ExceptionMessages.Describe(ex), path: errorPath);
         }
     }
 

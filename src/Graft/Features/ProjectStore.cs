@@ -110,7 +110,7 @@ public sealed class ProjectStore
             {
                 issues.Add(GraftIssue.Of(
                     ErrorCode.E404,
-                    detail: $"プロジェクト「{project.Name}」のルート（{project.Root}）が見つからないため未接続にしました。",
+                    detail: $"プロジェクト「{project.DisplayName}」のルート（{project.Root}）が見つからないため未接続にしました。",
                     path: project.Root,
                     severity: Severity.Warning));
             }

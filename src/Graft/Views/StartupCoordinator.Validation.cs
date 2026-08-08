@@ -24,13 +24,15 @@ public sealed partial class StartupCoordinator
 
     private async Task RunStartupValidationAsync(
         ProjectStore projectStore, RevisionStore revisionStore, IDialogService dialogService,
-        RevisionRestorer revisionRestorer, List<GraftIssue> issues)
+        RevisionRestorer revisionRestorer, List<GraftIssue> issues, Task initialWatchSignal)
     {
         var loaded = await projectStore.LoadAsync().ConfigureAwait(false);
-        issues.AddRange(loaded.Issues);
+        // issuesはUIスレッド側（ExplorerViewModel.WatchStartCompletedHandler、不具合4対応）からも
+        // 追加されうる共有リストのため、ここでの追加もロックで保護する。
+        lock (issues) issues.AddRange(loaded.Issues);
 
         var validated = await projectStore.ValidateAsync(loaded.Value).ConfigureAwait(false);
-        issues.AddRange(validated.Issues);
+        lock (issues) issues.AddRange(validated.Issues);
 
         var reconciled = await ReconcileRevisionsAsync(projectStore, revisionStore, validated.Value)
             .ConfigureAwait(false);
@@ -42,20 +44,46 @@ public sealed partial class StartupCoordinator
         }
         if (_patchQueue is not null)
         {
-            issues.AddRange((await _patchQueue.LoadAsync().ConfigureAwait(false)).Issues);
+            var queueIssues = (await _patchQueue.LoadAsync().ConfigureAwait(false)).Issues;
+            lock (issues) issues.AddRange(queueIssues);
         }
 
-        var report = new StartupReport
+        // 不具合4対応: プロジェクトが1件以上あれば、起動直後の自動選択でExplorerViewModelが
+        // ファイル監視の開始を試みるはず。その結果（成功・失敗）が届くまでレポート確定を待つ。
+        // ここで待たずに確定すると、この検証（back/配下の走査等で重い）より先に監視開始の
+        // 試行が終わっているとは限らず、タイミング次第で監視失敗の警告を取りこぼす
+        // （実機検証で実際に発生を確認したレース。ExplorerViewModel.WatchStartCompletedHandler
+        // のコメント参照）。5秒のタイムアウトは、何らかの理由でOnLoaded経由の初期化が
+        // ここまで辿り着かない場合に起動時レポート自体が出せなくなるのを防ぐための保険。
+        if (loaded.Value.Count > 0)
         {
-            Issues = issues,
-            InProgressRevisions = inProgress,
-            IsFirstLaunch = !OnboardingWindow.HasCompleted(_appPaths),
-        };
+            await Task.WhenAny(initialWatchSignal, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+        }
+
+        StartupReport report;
+        lock (issues)
+        {
+            report = new StartupReport
+            {
+                Issues = new List<GraftIssue>(issues),
+                InProgressRevisions = inProgress,
+                IsFirstLaunch = !OnboardingWindow.HasCompleted(_appPaths),
+            };
+        }
         _logger?.Info("startup", "起動時検証を完了しました");
 
-        await Dispatcher.UIThread
-            .InvokeAsync(() => PresentReportAsync(report, dialogService, revisionRestorer))
-            .ConfigureAwait(false);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            // ここまでで起動時に検出した問題を集め終えたとみなし、以降のファイル監視失敗は
+            // ExplorerViewModel自身の即時ダイアログへ戻す（不具合4対応。StartAsync参照）。
+            // WatchStartCompletedHandlerの読み書きはUIスレッドに閉じるよう、ここ（UIスレッドへの
+            // 復帰後）でリセットする。
+            if (_shellViewModel is not null)
+            {
+                _shellViewModel.Explorer.WatchStartCompletedHandler = null;
+            }
+            return PresentReportAsync(report, dialogService, revisionRestorer);
+        }).ConfigureAwait(false);
     }
 
     private static async Task<IReadOnlyList<Project>> ReconcileRevisionsAsync(
@@ -90,7 +118,7 @@ public sealed partial class StartupCoordinator
                 result.Add(new InProgressRevisionIssue
                 {
                     ProjectId = project.Id,
-                    ProjectName = project.Name,
+                    ProjectName = project.DisplayName,
                     ProjectRoot = project.Root,
                     Revisions = found.Value,
                 });

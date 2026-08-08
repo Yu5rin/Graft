@@ -55,10 +55,32 @@ public partial class App : Application
         if (!_coordinator.TryAcquireSingleInstance())
         {
             // 既に起動中の場合は既存ウィンドウを前面へ表示済み（StartupCoordinator側）。
-            // このプロセスはウィンドウを一切表示せずに終了する。課題1: この経路は
-            // StartAsyncを呼ばないため通常のロガーが存在せず、使い捨てのロガーで記録する。
-            await _coordinator.LogSingleInstanceExitAsync().ConfigureAwait(true);
-            desktop.Shutdown();
+            // このプロセスはウィンドウを一切表示せずに終了する。
+            //
+            // 6.8のLinux版実機検証（Global\プレフィックス修正）で判明した追加の不具合の修正:
+            // ここは OnFrameworkInitializationCompleted（AppBuilder.StartWithClassicDesktopLifetime内、
+            // ClassicDesktopStyleApplicationLifetime.StartCoreがDispatcher.MainLoopを開始する
+            // *前*）から同期的に呼ばれる。この時点で desktop.Shutdown() を呼ぶと、
+            // まだ回り始めてすらいないDispatcherへ「シャットダウン済み」の状態を刻んでしまい、
+            // 直後に開始されるMainLoop側のPushFrameが
+            // 「Cannot perform requested operation because the Dispatcher shut down」という
+            // InvalidOperationExceptionを投げて未処理のまま落ちる（実機のXvfb環境で、
+            // 2つ目のGraftを起動して確認した）。以前はLinuxで多重起動検知そのものが機能して
+            // いなかった（Global\プレフィックス欠落）ためこの経路を誰も通っておらず、
+            // 気付かれていなかった。
+            // このプロセスはまだ何も（設定読み込み・ウィンドウ生成・Mutex取得のいずれも）
+            // 開始していないため後始末は不要で、Avaloniaのシャットダウン手順に頼らず
+            // Environment.Exit(0)で即座にプロセスを終了させれば十分（かつ安全）。
+            //
+            // 課題1: この経路はStartAsyncを呼ばないため通常のロガーが存在せず、そのままでは
+            // 終了ログが一切残らない（診断上の欠陥）。使い捨てのロガーで1行だけ記録するが、
+            // Environment.Exit(0)は書き込み中のファイルI/Oも問答無用で打ち切るため、
+            // 必ずログ書き込みの完了を待ってから呼ぶ順序にする。ログ書き込み自体が
+            // （ディスク障害等で）ハングした場合にこのプロセスが二度と終了できなくなっては
+            // 本末転倒なので、タイムアウトで諦める（多重起動検知・既存ウィンドウの前面化は
+            // 既に完了しているため、ログが書けなくても実害は無い）。
+            await LogSingleInstanceExitWithTimeoutAsync().ConfigureAwait(true);
+            Environment.Exit(0);
             return;
         }
 
@@ -66,6 +88,33 @@ public partial class App : Application
 
         await _coordinator.StartAsync().ConfigureAwait(true);
         desktop.MainWindow = _coordinator.MainWindow;
+    }
+
+    /// <summary>
+    /// 課題1: 多重起動検出時のログ記録を、一定時間で諦めるようにする。呼び出し元は
+    /// この直後に<c>Environment.Exit(0)</c>を呼ぶため、ここでハングするとプロセスが
+    /// 二度と終了できなくなってしまう（「終了できない」という課題1の症状そのものを、
+    /// 直し方自身が生みかねない）。失敗・タイムアウトのいずれも黙って諦めてよい
+    /// （多重起動検知・既存ウィンドウの前面化は呼び出し前に完了済みのため、
+    /// ログが1行残らなくても機能上の実害は無い）。
+    /// </summary>
+    private async Task LogSingleInstanceExitWithTimeoutAsync()
+    {
+        if (_coordinator is null) return;
+
+        try
+        {
+            var logTask = _coordinator.LogSingleInstanceExitAsync();
+            var completed = await Task.WhenAny(logTask, Task.Delay(TimeSpan.FromSeconds(3))).ConfigureAwait(true);
+            if (completed == logTask)
+            {
+                await logTask.ConfigureAwait(true); // 例外を観測する（UnobservedTaskException化を防ぐ）。
+            }
+        }
+        catch
+        {
+            // ログ記録の失敗でプロセスが終了できなくなってはならない（附録A.4と同じ方針）。
+        }
     }
 
     /// <summary>

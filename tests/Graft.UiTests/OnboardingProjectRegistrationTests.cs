@@ -71,9 +71,9 @@ public class OnboardingProjectRegistrationTests : IDisposable
 
         // シェル側のドロップダウン・左ペインが参照しているのと同じコレクションに、
         // ガイドを閉じる前の時点で既に反映されている必要がある（バグ修正の核心）。
-        shell.Graft.ProjectPane.Items.Should().ContainSingle(i => i.Name == "MyProject");
+        shell.Graft.ProjectPane.Items.Should().ContainSingle(i => i.DisplayName == "MyProject");
         shell.Graft.ProjectPane.SelectedItem.Should().NotBeNull("登録したプロジェクトが選択された状態になっているべき");
-        shell.Graft.ProjectPane.SelectedItem!.Name.Should().Be("MyProject");
+        shell.Graft.ProjectPane.SelectedItem!.DisplayName.Should().Be("MyProject");
 
         // 画面2 → 画面3 → 完了。完了操作そのものが一覧を巻き戻さないことも確認する。
         RaiseClick(onboarding, "次へ");
@@ -81,8 +81,8 @@ public class OnboardingProjectRegistrationTests : IDisposable
         RaiseClick(onboarding, "完了");
         await SettleAsync().ConfigureAwait(true);
 
-        shell.Graft.ProjectPane.Items.Should().ContainSingle(i => i.Name == "MyProject");
-        shell.Graft.ProjectPane.SelectedItem?.Name.Should().Be("MyProject");
+        shell.Graft.ProjectPane.Items.Should().ContainSingle(i => i.DisplayName == "MyProject");
+        shell.Graft.ProjectPane.SelectedItem?.DisplayName.Should().Be("MyProject");
         OnboardingWindow.HasCompleted(new AppPaths(_baseDirectory)).Should().BeTrue("完了操作で表示済みフラグが書き出される必要がある");
     }
 
