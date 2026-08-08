@@ -109,7 +109,20 @@ dotnet publish src/Graft -c Release -r linux-x64 --self-contained true -o publis
 `tools/generate-icon.py` が同じ定義から `src/Graft/Assets/Graft.ico` を生成する。
 UI 内のアイコンとトレイアイコンはすべてベクターで描画する。
 
-## 使用ライブラリ
+## ライセンス
+
+本ソフトウェア自体は MIT License で公開している。
+
+```
+Copyright (c) 2026 YUGO
+```
+
+全文はリポジトリ直下の [`LICENSE`](./LICENSE) を参照。
+
+## 使用ライブラリのライセンス
+
+Graft が依存する各ライブラリは、それぞれ以下のライセンスの下で配布されている
+（上記の「本ソフトウェアのライセンス」とは別）。
 
 - [Avalonia UI](https://github.com/AvaloniaUI/Avalonia) — MIT License
 - [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) — MIT License
