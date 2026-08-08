@@ -91,7 +91,7 @@
                         local:HelpTip.Standard="更新"
                         local:HelpTip.Detailed="このファイルツリーの表示を、ディスク上の最新の状態に読み込み直します。Graftの外（他のアプリやAIの適用結果）でファイルが追加・削除されたのに一覧へ反映されていないときに使います。"
                         AutomationProperties.Name="ツリーを更新">
-                    <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
+                    <local:IconGlyph Data="{DynamicResource IconRefreshGeometry}" />
                 </Button>
             </StackPanel>
         </Grid>
