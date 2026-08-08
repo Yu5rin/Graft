@@ -13,7 +13,10 @@ namespace Graft.ViewModels;
 public sealed partial class MainViewModel
 {
     private readonly AppPaths _appPaths = new();
-    private ProjectStore _projectStoreForPrompt = null!;
+    // プロンプトコピー機能用に保持していたが、不具合2対応（MainViewModel.Apply.cs の
+    // リビジョン番号消費）でも同じ ProjectStore を使うようになったため、用途を限定しない
+    // 名前に変更した（保持自体はコンストラクタ経由でここが初出のため、このファイルに残す）。
+    private ProjectStore _projectStore = null!;
     private PromptTemplateStore _promptTemplateStore = null!;
     private PromptTemplateRenderer _promptTemplateRenderer = null!;
 
@@ -45,7 +48,7 @@ public sealed partial class MainViewModel
     /// <summary>MainViewModelのコンストラクタから呼び出す初期化。</summary>
     private void InitializePrompt(ProjectStore projectStore)
     {
-        _projectStoreForPrompt = projectStore;
+        _projectStore = projectStore;
         _promptTemplateStore = new PromptTemplateStore(_appPaths);
         _promptTemplateRenderer = new PromptTemplateRenderer(new ContextCollector(_appPaths));
 
@@ -65,7 +68,7 @@ public sealed partial class MainViewModel
     /// <summary>プロジェクトが切り替わるたびに、コンテキスト収集・プロンプトコピーの両ViewModelを作り直す。</summary>
     private void RebuildPromptContext(Project project)
     {
-        ContextCollect = new ContextCollectViewModel(_appPaths, _projectStoreForPrompt, project, _settings, _ui);
+        ContextCollect = new ContextCollectViewModel(_appPaths, _projectStore, project, _settings, _ui);
         PromptCopy = new PromptCopyViewModel(
             _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings, _ui);
         OnPropertyChanged(nameof(ContextCollect));
