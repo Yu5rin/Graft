@@ -25,8 +25,23 @@
     <DataTemplate x:Key="LabelItemTemplate">
         <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
     </DataTemplate>
+    <!--
+        実機検証で発見した不具合1: 500文字級の異常に長いプロジェクト名があると、
+        このテンプレートを共有するComboBox（コマンドバーのプロジェクト選択・設定画面の
+        プロジェクト選択等）を開いたとき、項目が1行で画面幅を超えて伸び、他の項目が
+        見えなくなっていた。Controls.Input.axaml内のComboBoxテーマは、この不可視の
+        ItemsControl（「幅の確保」コメント参照）でも同じItemTemplateを使って閉じた状態の
+        幅を計測するため、ここでMaxWidth＋TextTrimmingを掛けるだけで、開いた状態の
+        ドロップダウン項目・閉じた状態の選択表示の両方が一緒に収まる。
+        Name（生の値）ではなく DisplayName（Graft.Features.ProjectNameFormatterで正規化済み。
+        不具合2対応）を見るのは、空・改行混じりの異常な名前でも一覧が壊れないようにするため。
+    -->
     <DataTemplate x:Key="NameItemTemplate">
-        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+        <TextBlock Text="{Binding DisplayName}"
+                   VerticalAlignment="Center"
+                   MaxWidth="320"
+                   TextTrimming="CharacterEllipsis"
+                   ToolTip.Tip="{Binding DisplayName}" />
     </DataTemplate>
     <DataTemplate x:Key="DisplayTextItemTemplate">
         <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center" />
