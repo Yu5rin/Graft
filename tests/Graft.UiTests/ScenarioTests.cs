@@ -130,6 +130,59 @@ public class ScenarioTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
     }
 
+    /// <summary>
+    /// 不具合1の回帰テスト（実機のスクリーンショットで見つかった「1ファイルに複数のエラーが
+    /// あるとき、エラー行が同じ位置に重なって描画される」現象）。
+    /// ピクセル単位の重なり自体をheadlessテストで安定して検証するのは難しい
+    /// （実際にheadlessで幅・折り返し・スクロール・仮想化・実機同等のX11環境まで幅広く
+    /// 再現を試みたが、いずれも重ならずに描画された）ため、ここでは検証可能な形へ
+    /// 目的を落とし込む: 同一ファイルに対する複数のSEARCH失敗が、1つに丸められたり
+    /// 互いを上書きしたりせず、それぞれ独立したブロック（BlockItemViewModel）として
+    /// 保持されることを確認する。取り違えて重ね描きされていれば、ここでBlocksの件数や
+    /// 行番号の対応がずれて検出できる。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "不具合1: 同一ファイルの複数のSEARCH失敗が個別のブロックとして保持される")]
+    public async Task 同一ファイルの複数のSEARCH失敗が個別のブロックとして保持される()
+    {
+        var targetPath = Path.Combine(_projectDirectory, "utf8bom-sample.txt");
+        await File.WriteAllTextAsync(targetPath, string.Concat(Enumerable.Range(1, 15).Select(n => $"{n}行目\n")))
+            .ConfigureAwait(true);
+
+        var (shell, window) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+
+        // 同一FILEセクションに、ファイル内に存在しないSEARCH部を2つ含める。
+        _clipboard.Text = """
+            <<<< FILE: utf8bom-sample.txt
+            summary: 不具合1回帰テスト
+            <<<<<<< SEARCH
+            存在しない行A
+            =======
+            置換後A
+            >>>>>>> REPLACE
+            <<<<<<< SEARCH
+            存在しない行B
+            =======
+            置換後B
+            >>>>>>> REPLACE
+            >>>> END
+
+            """;
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+
+        // 2件とも取り違え・重ね描きされず、別々のブロックとして残っていること。
+        shell.Graft.Blocks.Should().HaveCount(2, "2つのSEARCH失敗はそれぞれ独立したブロックになる必要がある");
+        shell.Graft.Blocks.Should().OnlyContain(b => b.IsError, "SEARCH不一致のブロックはすべて失敗として示される必要がある");
+        shell.Graft.Blocks.Select(b => b.PathText).Should().AllBeEquivalentTo("utf8bom-sample.txt");
+
+        // 各ブロックのエラー文が互いを上書きしていないこと（同一の文字列に潰れていないこと）。
+        var issueTexts = shell.Graft.Blocks.Select(b => b.IssueText).ToList();
+        issueTexts.Should().OnlyHaveUniqueItems("2件のエラー文が同じ内容に潰れていれば重ね描きと見分けが付かない");
+        issueTexts.Should().AllSatisfy(t => t.Should().Contain("E101"));
+
+        window.CaptureRenderedFrame().Should().NotBeNull();
+    }
+
     [AvaloniaFact(DisplayName = "検索結果の選択変更（単一クリック・キーボード移動）で該当行へジャンプする")]
     public void 検索結果を選択するとジャンプ要求が発火する()
     {

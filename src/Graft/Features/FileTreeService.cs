@@ -1,5 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
 using Graft.Core;
@@ -189,20 +187,6 @@ public sealed class FileTreeService
             MaxFileSizeMB = safety.MaxFileSizeMB,
             MaxFilesPerRevision = safety.MaxFilesPerRevision,
         };
-    }
-
-    /// <summary>Windowsのエクスプローラで対象を選択表示する。Windows以外では何もしない（仕様書4.2）。</summary>
-    public static void RevealInFileExplorer(string fullPath)
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        try
-        {
-            Process.Start("explorer.exe", $"/select,\"{fullPath}\"");
-        }
-        catch (Exception ex) when (ex is Win32Exception or IOException)
-        {
-            // エクスプローラの起動失敗は致命的ではないため無視する。
-        }
     }
 
     private static GraftResult<string> TryRun(Func<string> action, string errorPath)
