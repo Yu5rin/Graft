@@ -35,7 +35,7 @@ public enum LegacyKey
 /// 追加する。依存はすべてコンストラクタ引数で受け取り、生成は起動処理担当（StartupCoordinator）
 /// が手動で行う（附録A.3・DIコンテナ禁止）。
 /// </summary>
-public sealed class ShellViewModel : ObservableObject, IDisposable
+public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly IDialogService _dialogs;
     private readonly Graft.Infra.Settings _settings;
@@ -66,6 +66,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
         Graft.BeforeApplyAsync = EnsureTargetsSavedAsync; // 4.8: ドライラン開始前の未保存確認。
         Graft.AfterApplyAsync = files => Editor.ReloadIfOpenAsync(files); // 4.8: 適用後の自動再読込。
+        WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
 
         SelectSideViewCommand = new RelayCommand<SideViewKind>(SelectSideView);
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
@@ -204,6 +205,12 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         {
             if (Graft.SelectedBlock is not null) Editor.ShowDiffTab(Graft.Diff);
             else Editor.CloseDiffTabIfOpen();
+        }
+        else if (e.PropertyName == nameof(MainViewModel.IsDataDirectoryReadOnly))
+        {
+            // ShellViewModel.StatusBarWarning.cs参照。書き込み不可警告もステータスバーの
+            // 統合警告表示の対象のため、変化をここから中継する。
+            NotifyStatusBarWarningChanged();
         }
     }
 

@@ -4,8 +4,10 @@
              Focusable="False">
     <!--
         9.2/9.9 ステータスバー（24px）。行:列・選択文字数・エンコーディング・改行コード・言語は
-        ShellViewModel.Editor、接ぎ木状態・シンタックス無効化通知は ShellViewModel.Graft を
-        参照する。DataContextはShellWindowから継承する（上書きしない）。
+        ShellViewModel.Editor、接ぎ木状態は ShellViewModel.Graft を参照する。警告表示
+        （書き込み不可・シンタックス無効化・長い行）はShellViewModel自身が複数の警告源を
+        集約して公開する（ShellViewModel.StatusBarWarning.cs参照）。DataContextはShellWindow
+        から継承する（上書きしない）。
 
         v2.0のWPF版からの差分: Visibilityが無いためIsVisibleへ直接boolをバインドする
         （BoolToVisibilityコンバータが不要になる）。
@@ -26,34 +28,26 @@
                 <TextBlock Text="{Binding Editor.LanguageText}" Margin="12,0,0,0"
                            FontSize="{DynamicResource StatusBarFontSize}" />
                 <!--
-                    ステータスバーの警告表示の並び順について: このStackPanelは折り返しをしない
-                    横並びのため、複数の警告が同時に立つと右端（Grid.Column="1"の接ぎ木状態表示）
-                    へ食い込む・はみ出すおそれがある（例: 書き込み不可のフォルダで、極端に長い行を
-                    含むファイルを開いた場合。実機のXvfb環境で実際に両方を同時に表示させ、
-                    右側の接ぎ木状態表示と重ならず、ウィンドウ幅内に収まることを確認済み）。
-                    ここでは表示順を「深刻さ・影響範囲が大きい警告ほど左（先頭）」に統一し、
-                    仮に将来さらに警告が増えて右側が見切れる状況になっても、最も重要な警告だけは
-                    残るようにしている。書き込み不可（課題1）はアプリ全体・設定やバックアップの
-                    喪失に関わる警告であり、以降に続くシンタックスハイライト・長い行の警告
-                    （いずれもアクティブな1タブの表示上の制約に留まる）より優先度を高くしたいため、
-                    あえてこの2つより前に置く。
+                    ステータスバーの警告表示について: 書き込み不可（課題1）・シンタックス
+                    ハイライト無効化（8.6）・極端に長い行の無効化（課題3）は、もとはそれぞれ
+                    独立したTextBlockとして横並びに置かれていた。しかし複数の警告が同時に
+                    成立する組み合わせ（例: 書き込み不可のフォルダで、極端に長い行を含む
+                    ファイルを開いた場合）を実機のXvfb環境で検証したところ、ウィンドウの
+                    最小幅（960px）では警告文どうし・右側の接ぎ木状態表示
+                    （Grid.Column="1"）と文字が重なって判読できなくなることを確認した。
+                    そのため表示スロットを1つに統合し、複数成立時は最優先の1件＋「ほかN件」に
+                    要約する（詳細はShellViewModel.StatusBarWarning.csのコメント参照。全文は
+                    ToolTipで確認できる）。TextTrimmingとMaxWidthは、要約後もなお収まりきらない
+                    極端に狭いウィンドウに備えた最終防御。
                 -->
-                <TextBlock Text="書き込み不可のため設定・履歴・バックアップは保存されません"
+                <TextBlock Text="{Binding StatusBarWarningText}"
                            Margin="12,0,0,0"
+                           MaxWidth="420"
+                           TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource StateWarn}"
                            FontSize="{DynamicResource StatusBarFontSize}"
-                           IsVisible="{Binding Graft.IsDataDirectoryReadOnly}"
-                           ToolTip.Tip="実行ファイルと同じフォルダへ書き込む権限がありません。書き込み権限のあるフォルダへGraftのフォルダ一式を移動してから起動し直してください。" />
-                <!-- 8.6: シンタックスハイライトが性能基準を満たさず無効化された場合の通知。 -->
-                <TextBlock Text="シンタックスハイライトを無効化しました" Margin="12,0,0,0"
-                           Foreground="{DynamicResource StateWarn}"
-                           FontSize="{DynamicResource StatusBarFontSize}"
-                           IsVisible="{Binding Graft.Diff.SyntaxHighlightDisabled}" />
-                <!-- 課題3: 1行が極端に長いファイルで構文強調・折り返し・括弧の対応付けを自動的に無効化した場合の通知。 -->
-                <TextBlock Text="極端に長い行があるため構文強調・折り返しを無効化しました" Margin="12,0,0,0"
-                           Foreground="{DynamicResource StateWarn}"
-                           FontSize="{DynamicResource StatusBarFontSize}"
-                           IsVisible="{Binding Editor.ActiveTabHasLongLineWarning}" />
+                           IsVisible="{Binding HasStatusBarWarning}"
+                           ToolTip.Tip="{Binding StatusBarWarningTooltip}" />
             </StackPanel>
 
             <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->
