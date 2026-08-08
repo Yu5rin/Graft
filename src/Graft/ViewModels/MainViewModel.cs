@@ -40,6 +40,12 @@ public sealed partial class MainViewModel : ObservableObject
     private ApplyContext? _lastContext;
     private bool _dryRunFromQueue;
 
+    // 課題1: 適用処理（ApplyAsync）が実行中かどうか。実行中はUpdateSettingsからの反映を
+    // 保留する（MainViewModel.Apply.cs参照）。_pendingSettingsは保留中の最新値を1件だけ
+    // 保持し、適用完了時にまとめて反映する（複数回変更されても最後の1回で十分なため）。
+    private bool _isApplyInProgress;
+    private Settings? _pendingSettings;
+
     private CenterPaneState _state = CenterPaneState.Empty;
     private GraftIssue? _centerError;
     private BlockItemViewModel? _selectedBlock;
@@ -174,11 +180,73 @@ public sealed partial class MainViewModel : ObservableObject
     {
         var settingsResult = await _settingsStore.LoadAsync(ct).ConfigureAwait(true);
         _settings = settingsResult.Value;
-        Diff.WordWrap = _settings.Diff.WordWrap;
-        Diff.ShowWhitespace = _settings.Diff.ShowWhitespace;
+        // DiffはMainViewModelのコンストラクタで既定値のSettingsを仮に渡して構築済み（Diffの
+        // コンストラクタ引数コメント参照）。ここで読み込み済みの実際の設定を反映し直す
+        // （WordWrap/ShowWhitespaceだけでなくシンタックス・マッチング設定も含めて丸ごと。
+        // DiffViewModel.UpdateSettings参照）。
+        Diff.UpdateSettings(_settings);
 
         Layout = await LoadLayoutSafeAsync(ct).ConfigureAwait(true);
         await ProjectPane.LoadAsync(ct).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 課題1: 設定画面での変更（即時反映方式で保存が確定した内容）を実行中のアプリへ伝播させる。
+    /// StartupCoordinatorがSettingsViewModelへ渡すコールバック経由で、保存成功のたびに呼ばれる
+    /// （デバウンス中の中途半端な値がここへ届くことはない。SettingsViewModel.CommitAndSaveAsync
+    /// 参照）。
+    ///
+    /// 差分表示の折り返し・空白表示は、既に開いているdiff画面の見た目そのものであり、適用処理の
+    /// 正しさには一切関わらないため、適用処理の実行中かどうかに関わらず常にその場で反映する
+    /// （要件: 既に開いている画面への反映。DiffViewModel.UpdateSettings参照）。
+    ///
+    /// それ以外（安全機構・マッチング・バックアップ・Git連携・適用後フックのタイムアウト・
+    /// 適用モード等、ApplyAsyncの一連の処理が参照する設定）は、適用処理の実行中は反映を保留し、
+    /// 完了後にまとめて反映する（<see cref="_isApplyInProgress"/>）。理由: 安全機構の閾値・
+    /// 対象ファイル一覧はドライラン開始時に<see cref="ApplyContext"/>へ固定で焼き込まれ、
+    /// 実際の書き込み（<see cref="ApplyEngine.ApplyAsync"/>）はそのコンテキストだけを見て動く
+    /// ため直接の影響は無いが、マッチングしきい値は<see cref="ApplyEngine"/>内部の
+    /// <see cref="MatchEngine"/>が構築時に固定で保持する値であり、書き込み中の
+    /// ファイルごとの再解決（BlockResolver.ResolveFile）で都度参照される。ここへ書き込み中に
+    /// 差し替えが割り込むと、同一リビジョン内で前半と後半のファイルが異なるしきい値で
+    /// 処理されてしまいかねない。また適用後フックのタイムアウトやGit自動コミットの可否は
+    /// <see cref="_settings"/>を適用完了の直前まで直接参照するため、フィールドごと差し替えを
+    /// 保留し、「1回の適用操作は開始時点の設定のまま最後まで一貫して動く」ことを保証する。
+    /// </summary>
+    public void UpdateSettings(Settings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        Diff.UpdateSettings(settings);
+
+        if (_isApplyInProgress)
+        {
+            _pendingSettings = settings;
+            return;
+        }
+
+        ApplySettingsNow(settings);
+    }
+
+    /// <summary>
+    /// _settingsフィールドと、それに連動する<see cref="ApplyEngine"/>のマッチング設定を実際に
+    /// 差し替える。<see cref="UpdateSettings"/>（適用処理が実行中でない場合）と、
+    /// MainViewModel.Apply.csのApplyAsync完了直後（保留していた場合の反映）の両方から呼ぶ。
+    /// </summary>
+    private void ApplySettingsNow(Settings settings)
+    {
+        _settings = settings;
+
+        // マッチング（類似度しきい値・あいまい一致の可否・範囲警告行数）はApplyEngine内部の
+        // MatchEngineが構築時に固定で受け取る値のため、_settingsを差し替えるだけでは
+        // 次のドライランにも反映されない（DryRunPlanner/BlockResolverはApplyContext経由ではなく
+        // このMatchEngineインスタンスを直接参照する。ApplyEngine.UpdateMatchOptions参照）。
+        _applyEngine.UpdateMatchOptions(new MatchOptions
+        {
+            SimilarityThreshold = settings.Matching.SimilarityThreshold,
+            AllowSimilarityMatch = settings.Matching.AllowSimilarityMatch,
+            RangeWarningLines = settings.Matching.RangeWarningLines,
+        });
     }
 
     /// <summary>
@@ -217,19 +285,19 @@ public sealed partial class MainViewModel : ObservableObject
         Diff.CodeFontSize = GetCurrentPaneLayout().CodeFontSize;
         RebuildPromptContext(project); // 4.8.4（MainViewModel.Prompt.cs）。
         await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
-        await CheckInProgressAsync(project).ConfigureAwait(true);
+        // 課題2対応: 以前はここでも6.3のin_progress検出（CheckInProgressAsync）を独自に行い、
+        // 「r1が完了しないまま終了した可能性があります。バックアップフォルダを確認してください」
+        // という対処不能な曖昧な通知を出していた。StartupCoordinator.RunStartupValidationAsyncが
+        // 起動時に接続済み全プロジェクトを対象に同じ検出（RevisionStore.FindInProgressAsync）を
+        // 行い、具体的なプロジェクト名・リビジョン番号を示したうえでロールバックを提案する
+        // StartupReport経由の通知（StartupCoordinator.Validation.cs・OfferRollbackAsync）へ
+        // 既に集約済みだったため、この経路は同じ事象について2枚目の重複ダイアログを出す
+        // だけの死んだ経路になっていた（実機確認済み。1枚目でロールバックした後もこちらは
+        // 状態を知らないまま「確認してください」と言い続ける）。起動時に検出された分は
+        // 起動時の集約通知だけで十分カバーされる（起動時検証は接続済み全プロジェクトを
+        // 走査するため、後からこのプロジェクトへ切り替えても取りこぼしは起きない）ため、
+        // この呼び出しごと削除した。
         OnPropertyChanged(nameof(CurrentProjectName));
-    }
-
-    /// <summary>6.3: in_progressのまま残るリビジョンを検出し通知する（自動ロールバックは非対応）。</summary>
-    private async Task CheckInProgressAsync(Project project)
-    {
-        var result = await _revisionStore.FindInProgressAsync(project.Id).ConfigureAwait(true);
-        if (!result.IsSuccess || result.Value.Count == 0) return;
-
-        var revisions = string.Join("、", result.Value.Select(r => $"r{r.Manifest.Revision}"));
-        await _dialogs.ConfirmAsync("前回の適用が未完了です",
-            $"{revisions} が完了しないまま終了した可能性があります。バックアップフォルダを確認してください。").ConfigureAwait(true);
     }
 
     private async void OnRevisionSelected(object? sender, RevisionRowViewModel? row)

@@ -20,7 +20,10 @@ public sealed partial class DiffViewModel : ObservableObject
     private const double MinCodeFontSize = 8;
     private const double MaxCodeFontSize = 32;
 
-    private readonly Settings _settings;
+    // 課題1: 構築時に固定するとMainViewModelのDiff構築（設定読み込み前）で渡した既定値の
+    // ままになってしまうため（従来はWordWrap/ShowWhitespaceだけ個別に上書きしていた）、
+    // readonlyにせずUpdateSettings経由で差し替え可能にしておく。
+    private Settings _settings;
     private readonly IUiServices _ui;
 
     private BlockPlan? _plan;
@@ -57,6 +60,24 @@ public sealed partial class DiffViewModel : ObservableObject
 
     /// <summary>空白文字（タブ・行末空白）を可視化するかどうか（8.13）。</summary>
     public bool ShowWhitespace { get => _showWhitespace; set => SetProperty(ref _showWhitespace, value); }
+
+    /// <summary>
+    /// 課題1: 設定画面での変更（MainViewModel.UpdateSettings経由）・起動時の初回読み込みの
+    /// 両方から呼ぶ。折り返し・空白表示・行番号表示は、いま画面に表示中のdiffの見た目
+    /// そのものなので、再読み込みなしにその場で反映する（要件: 既に開いている画面への反映）。
+    /// シンタックスハイライトの有効可否（PrepareSyntaxが使う）・マッチング設定
+    /// （BuildInlineEditsが使う）は、いま表示中の内容を裏で作り直すことはせず、次に
+    /// <see cref="Load"/>されるブロックから新しい値が効く（どちらも1ブロックぶんの表示を
+    /// 組み立てる際に一度だけ参照する値のため、都度作り直すコストを払ってまで
+    /// 表示中のものを即座に再構築する必要は無い）。
+    /// </summary>
+    public void UpdateSettings(Settings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        WordWrap = settings.Diff.WordWrap;
+        ShowWhitespace = settings.Diff.ShowWhitespace;
+        OnPropertyChanged(nameof(ShowLineNumbers));
+    }
 
     /// <summary>すべての省略範囲を展開するトグル（8.13）。</summary>
     public bool IsFullyExpanded { get => _isFullyExpanded; set { if (SetProperty(ref _isFullyExpanded, value)) RebuildRows(); } }
