@@ -26,6 +26,7 @@
                 <Button Grid.Column="0"
                         Command="{Binding DataContext.ToggleGraftPanelCommand, ElementName=Root}"
                         Background="Transparent" BorderThickness="0" Padding="4"
+                        ToolTip.Tip="接ぎ木パネルを開閉します。パッチを解析すると自動的に開きます（Ctrl+J）。"
                         AutomationProperties.Name="接ぎ木パネルの開閉">
                     <Panel>
                         <views:IconGlyph Width="14" Height="14"
@@ -60,9 +61,11 @@
                 <!-- 11章 失敗時リカバリ支援: 失敗ブロックがある場合のみ有効になる。 -->
                 <Button Grid.Column="3" Content="失敗を再依頼" Margin="4,0"
                         Command="{Binding CopyRecoveryPromptCommand}"
+                        ToolTip.Tip="適用できなかったブロックについて、現在のファイルの内容を添えた修正依頼文をクリップボードへコピーします。AIへ再度質問するときに使います。失敗したブロックがあるときだけ有効になります。"
                         AutomationProperties.Name="失敗ブロックの再依頼プロンプトをコピー" />
 
                 <Button Grid.Column="4" Margin="4,0" Command="{Binding PreviewCommand}"
+                        ToolTip.Tip="解析した変更をもう一度ドライラン（試し適用）し、各ブロックの適用可否と差分を最新の状態に更新します。対象ファイルを編集した後に使います。"
                         AutomationProperties.Name="プレビューを再実行">
                     <StackPanel Orientation="Horizontal">
                         <views:IconGlyph Data="{DynamicResource IconEyeGeometry}"
@@ -73,6 +76,7 @@
 
                 <!-- F6ペイン巡回の最後の停留先（GraftPanel.axaml.cs: DiffHost）。 -->
                 <Button x:Name="ApplyButtonElement" Grid.Column="5" Command="{Binding ApplyCommand}"
+                        ToolTip.Tip="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます（Ctrl+Enter）。"
                         AutomationProperties.Name="適用を実行">
                     <StackPanel Orientation="Horizontal">
                         <views:IconGlyph Data="{DynamicResource IconPlayGeometry}"
@@ -152,6 +156,7 @@
                                         Background="Transparent" BorderThickness="0"
                                         Command="{Binding DataContext.OpenBlockInEditorCommand, ElementName=Root}"
                                         CommandParameter="{Binding}"
+                                        ToolTip.Tip="このブロックが変更する対象ファイルを、変更箇所の行へジャンプしてエディタで開きます。"
                                         AutomationProperties.Name="エディタで開く">
                                     <views:IconGlyph Width="14" Height="14"
                                                      Data="{DynamicResource IconFileCodeGeometry}"
@@ -168,8 +173,10 @@
                                       Message="AIの出力をコピーして Ctrl+Shift+V"
                                       ActionText="解析"
                                       ActionCommand="{Binding PasteAndParseCommand}"
+                                      ActionTooltip="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です（Ctrl+Shift+V）。"
                                       SecondaryActionText="ファイルから解析"
                                       SecondaryActionCommand="{Binding ParseFromFileCommand}"
+                                      SecondaryActionTooltip="AIの出力をクリップボードではなく、保存済みのファイル（.md/.txt/.diff/.patch）から読み込んで解析します。"
                                       Issue="{Binding CenterError}" />
             </Grid>
         </Grid>

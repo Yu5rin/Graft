@@ -80,6 +80,9 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "初回起動ガイドを構築して描画できる")]
     public void 初回起動ガイドを描画できる() => RenderWindow(new OnboardingWindow());
 
+    [AvaloniaFact(DisplayName = "キーボードショートカット一覧を構築して描画できる")]
+    public void キーボードショートカット一覧を描画できる() => RenderWindow(new ShortcutsWindow());
+
     [AvaloniaFact(DisplayName = "バージョン情報を構築して描画できる")]
     public void バージョン情報を描画できる() => RenderInWindow(new AboutView());
 

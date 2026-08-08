@@ -120,6 +120,7 @@
                             <TextBox Grid.Column="0" Text="{Binding NewExcludePattern}"
                                      AutomationProperties.Name="追加する除外パターン" TabIndex="3" />
                             <Button Grid.Column="1" Content="追加" Command="{Binding AddExcludeCommand}" Margin="6,0,0,0"
+                                    ToolTip.Tip="入力した除外パターンをこのプロジェクト専用の除外リストへ追加します。次回以降のファイル一覧・収集結果から外れます。"
                                     AutomationProperties.Name="除外パターンを追加" TabIndex="4" />
                         </Grid>
                         <ListBox ItemsSource="{Binding ExtraExcludes}"
@@ -131,6 +132,7 @@
                                         <Button Grid.Column="1" Content="削除"
                                                 Command="{Binding DataContext.RemoveExcludeCommand, ElementName=Root}"
                                                 CommandParameter="{Binding}"
+                                                ToolTip.Tip="この除外パターンをプロジェクトの除外リストから取り除きます。"
                                                 AutomationProperties.Name="{Binding}" />
                                     </Grid>
                                 </DataTemplate>
@@ -189,8 +191,10 @@
                            FontSize="{DynamicResource CaptionFontSize}" />
             </StackPanel>
             <Button Grid.Column="1" Content="プレビュー" Command="{Binding PreviewCommand}" Margin="0,0,8,0"
+                    ToolTip.Tip="選んだファイルからAIへ渡す内容を組み立て、プレビュータブと推定トークン数で確認します。クリップボードへはコピーしません。"
                     AutomationProperties.Name="推定トークン数をプレビュー" TabIndex="6" />
             <Button Grid.Column="2" Content="コピー" Command="{Binding CopyCommand}"
+                    ToolTip.Tip="選んだファイルからAIへ渡す内容を組み立て、クリップボードへコピーします。推定トークン数が上限を超えている場合はコピーされず警告のみ表示します。"
                     AutomationProperties.Name="コンテキストをクリップボードへコピー" TabIndex="7" />
         </Grid>
     </Grid>
