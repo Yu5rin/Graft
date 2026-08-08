@@ -71,4 +71,38 @@ public sealed class AppPaths
         Directory.CreateDirectory(BackupRootDirectory);
         Directory.CreateDirectory(LogsDirectory);
     }
+
+    /// <summary>
+    /// 課題1（バグ）: 書き込み権限の無いフォルダ（例: Windowsの Program Files 配下）に
+    /// 置かれても何の警告も出ずに起動してしまい、settings.json / projects.json / back/ / logs/ の
+    /// いずれも保存できないまま利用者の変更が次回起動時に静かに消えていた不具合への対応。
+    ///
+    /// <see cref="BaseDirectory"/> へ実際に書き込めるかを、空の一時ファイルを1つ作成して
+    /// 即座に削除するだけの最小限の方法で確認する。back/・logs/ 配下ではなく
+    /// <see cref="BaseDirectory"/> 直下で確認するのは、settings.json・projects.json は
+    /// そこへ直接書くため（back/・logs/ が存在しなくても、そちらが書けなければ
+    /// どのみち保存できない）。ディレクトリ作成やファイルI/Oを何段も行わないため、
+    /// 起動を遅延させない（仕様書18章「起動から操作可能まで1秒以内」）。
+    ///
+    /// 例外は握りつぶし、判定結果のみをboolで返す。呼び出し側（StartupCoordinator）が
+    /// falseの場合に日本語の警告を表示する責務を持つ。
+    /// </summary>
+    public bool CanWriteToBaseDirectory()
+    {
+        var probePath = Path.Combine(BaseDirectory, $".graft_write_check_{Guid.NewGuid():N}.tmp");
+        try
+        {
+            using (File.Create(probePath))
+            {
+                // 存在確認のみが目的で、中身は書かない。
+            }
+
+            File.Delete(probePath);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 }
