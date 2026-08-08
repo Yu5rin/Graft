@@ -10,6 +10,9 @@
     <AssemblyName>Graft</AssemblyName>
     <Version>1.0.0</Version>
     <Product>Graft</Product>
+    <Authors>YUGO</Authors>
+    <Company>YUGO</Company>
+    <Copyright>Copyright © 2026 YUGO</Copyright>
     <WarningsAsErrors>nullable</WarningsAsErrors>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!--

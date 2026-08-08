@@ -20,6 +20,11 @@
                     <TextBlock x:Name="VersionText" Foreground="{DynamicResource TextSecondary}" />
                     <TextBlock x:Name="BuildDateText" Foreground="{DynamicResource TextSecondary}"
                                FontSize="{DynamicResource CaptionFontSize}" />
+                    <TextBlock x:Name="AuthorText" Foreground="{DynamicResource TextSecondary}"
+                               AutomationProperties.Name="製作者" />
+                    <TextBlock x:Name="CopyrightText" Foreground="{DynamicResource TextSecondary}"
+                               FontSize="{DynamicResource CaptionFontSize}"
+                               AutomationProperties.Name="著作権表示" />
                 </StackPanel>
             </StackPanel>
 

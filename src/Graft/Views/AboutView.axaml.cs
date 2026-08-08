@@ -37,6 +37,30 @@ public partial class AboutView : UserControl
         BuildDateText.Text = buildDate is null
             ? "ビルド日時: 不明"
             : $"ビルド日時: {buildDate.Value:yyyy-MM-dd HH:mm}";
+
+        // 製作者・著作権表示はGraft.csprojの<Company>/<Copyright>から生成される
+        // アセンブリ属性を読む。画面側に文字列を直書きすると、csprojと二重管理になり
+        // どちらか一方だけ更新して食い違う恐れがあるため、単一の情報源(csproj)に揃える。
+        var company = assembly.GetCustomAttribute<AssemblyCompanyAttribute>()?.Company;
+        if (string.IsNullOrEmpty(company))
+        {
+            // 空文字の行が残って隙間になるのを避けるため、行ごと非表示にする
+            AuthorText.IsVisible = false;
+        }
+        else
+        {
+            AuthorText.Text = $"製作者: {company}";
+        }
+
+        var copyright = assembly.GetCustomAttribute<AssemblyCopyrightAttribute>()?.Copyright;
+        if (string.IsNullOrEmpty(copyright))
+        {
+            CopyrightText.IsVisible = false;
+        }
+        else
+        {
+            CopyrightText.Text = copyright;
+        }
     }
 
     private async void OnDiffPlexExpanderPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
