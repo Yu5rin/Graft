@@ -71,6 +71,15 @@ public partial class App : Application
             // このプロセスはまだ何も（設定読み込み・ウィンドウ生成・Mutex取得のいずれも）
             // 開始していないため後始末は不要で、Avaloniaのシャットダウン手順に頼らず
             // Environment.Exit(0)で即座にプロセスを終了させれば十分（かつ安全）。
+            //
+            // 課題1: この経路はStartAsyncを呼ばないため通常のロガーが存在せず、そのままでは
+            // 終了ログが一切残らない（診断上の欠陥）。使い捨てのロガーで1行だけ記録するが、
+            // Environment.Exit(0)は書き込み中のファイルI/Oも問答無用で打ち切るため、
+            // 必ずログ書き込みの完了を待ってから呼ぶ順序にする。ログ書き込み自体が
+            // （ディスク障害等で）ハングした場合にこのプロセスが二度と終了できなくなっては
+            // 本末転倒なので、タイムアウトで諦める（多重起動検知・既存ウィンドウの前面化は
+            // 既に完了しているため、ログが書けなくても実害は無い）。
+            await LogSingleInstanceExitWithTimeoutAsync().ConfigureAwait(true);
             Environment.Exit(0);
             return;
         }
@@ -79,6 +88,33 @@ public partial class App : Application
 
         await _coordinator.StartAsync().ConfigureAwait(true);
         desktop.MainWindow = _coordinator.MainWindow;
+    }
+
+    /// <summary>
+    /// 課題1: 多重起動検出時のログ記録を、一定時間で諦めるようにする。呼び出し元は
+    /// この直後に<c>Environment.Exit(0)</c>を呼ぶため、ここでハングするとプロセスが
+    /// 二度と終了できなくなってしまう（「終了できない」という課題1の症状そのものを、
+    /// 直し方自身が生みかねない）。失敗・タイムアウトのいずれも黙って諦めてよい
+    /// （多重起動検知・既存ウィンドウの前面化は呼び出し前に完了済みのため、
+    /// ログが1行残らなくても機能上の実害は無い）。
+    /// </summary>
+    private async Task LogSingleInstanceExitWithTimeoutAsync()
+    {
+        if (_coordinator is null) return;
+
+        try
+        {
+            var logTask = _coordinator.LogSingleInstanceExitAsync();
+            var completed = await Task.WhenAny(logTask, Task.Delay(TimeSpan.FromSeconds(3))).ConfigureAwait(true);
+            if (completed == logTask)
+            {
+                await logTask.ConfigureAwait(true); // 例外を観測する（UnobservedTaskException化を防ぐ）。
+            }
+        }
+        catch
+        {
+            // ログ記録の失敗でプロセスが終了できなくなってはならない（附録A.4と同じ方針）。
+        }
     }
 
     /// <summary>

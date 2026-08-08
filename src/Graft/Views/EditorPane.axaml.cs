@@ -93,6 +93,10 @@ public partial class EditorPane : UserControl
         {
             ApplyWhitespaceOption();
         }
+        else if (e.PropertyName == nameof(EditorPaneViewModel.WordWrap))
+        {
+            ApplyWordWrapOption();
+        }
     }
 
     /// <summary>アクティブタブの切替。Documentの差し替え・言語別ハイライトの再接続・
@@ -118,14 +122,21 @@ public partial class EditorPane : UserControl
         Editor.IsEnabled = true;
         Editor.Document = tab.Session.Document;
         ApplyWhitespaceOption();
+        ApplyWordWrapOption();
         ApplyIndentOptions(tab);
 
+        // 課題3: 極端に長い行（1行20,000文字超）を含むファイルは、構文強調・折り返し・
+        // 括弧の対応付けの計算コストがその1行の文字数に比例して増える（詳細は
+        // DocumentSession.HasExtremelyLongLine・ApplyWordWrapOptionのコメント参照）。
+        // 利用者の設定に関わらずこれらを自動的に無効化し、ステータスバーで通知する
+        // （StatusBarView.axaml・EditorPaneViewModel.ActiveTabHasLongLineWarning）。
+        var longLine = tab.Session.HasExtremelyLongLine;
         var extension = Path.GetExtension(tab.Session.FileName);
-        _bridge.Attach(tab.Session.Document, extension, _viewModel?.SyntaxEnabled ?? true);
-        _brackets.Attach(tab.Session.Document, extension);
-        _brackets.SetAutoCloseEnabled(_viewModel?.AutoClosingBrackets ?? true);
+        _bridge.Attach(tab.Session.Document, extension, !longLine && (_viewModel?.SyntaxEnabled ?? true));
+        _brackets.Attach(tab.Session.Document, extension, languageAware: !longLine);
+        _brackets.SetAutoCloseEnabled(!longLine && (_viewModel?.AutoClosingBrackets ?? true));
         _folding.Attach(tab.Session.Document, extension);
-        _folding.SetEnabled(_viewModel?.Folding ?? true);
+        _folding.SetEnabled(!longLine && (_viewModel?.Folding ?? true));
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
         ApplyGitGutter(tab);
 
@@ -198,6 +209,22 @@ public partial class EditorPane : UserControl
         Editor.Options.ShowSpaces = show;
         Editor.Options.ShowTabs = show;
         Editor.Options.HighlightCurrentLine = _viewModel?.HighlightCurrentLine ?? true;
+    }
+
+    /// <summary>
+    /// 課題3: 折り返し表示の反映。極端に長い行を含むファイル
+    /// （<see cref="DocumentSession.HasExtremelyLongLine"/>）では、利用者の設定に関わらず
+    /// 折り返しを無効化する。実測（1行10万文字のファイル）では、折り返し有効時に
+    /// AvaloniaEdit側の書式計算コストが無効時の10倍以上（数百ms→1.5秒前後）に
+    /// 悪化することを確認しており、既定でオフの折り返しをこのファイルに限って
+    /// 有効なままにしておくと利用者が気付かないまま極端に遅くなる。横スクロールで
+    /// 内容自体は確認できるため、折り返しだけを諦める。
+    /// XAML側ではバインドせずここで一括管理する（ShowWhitespace等と同じ方針）。
+    /// </summary>
+    private void ApplyWordWrapOption()
+    {
+        var longLine = _loadedTab is { Kind: EditorTabKind.Document } t && t.Session.HasExtremelyLongLine;
+        Editor.WordWrap = !longLine && (_viewModel?.WordWrap ?? false);
     }
 
     private void ApplyIndentOptions(EditorTabViewModel tab)

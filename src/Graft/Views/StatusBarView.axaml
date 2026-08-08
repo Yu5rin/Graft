@@ -30,6 +30,11 @@
                            Foreground="{DynamicResource StateWarn}"
                            FontSize="{DynamicResource StatusBarFontSize}"
                            IsVisible="{Binding Graft.Diff.SyntaxHighlightDisabled}" />
+                <!-- 課題3: 1行が極端に長いファイルで構文強調・折り返し・括弧の対応付けを自動的に無効化した場合の通知。 -->
+                <TextBlock Text="極端に長い行があるため構文強調・折り返しを無効化しました" Margin="12,0,0,0"
+                           Foreground="{DynamicResource StateWarn}"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Editor.ActiveTabHasLongLineWarning}" />
             </StackPanel>
 
             <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->
