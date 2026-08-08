@@ -153,10 +153,16 @@ Windowsのバージョン: （設定 → システム → 詳細情報 に表示
   6. 残り4ファイルの状態を、PowerShellで機械的に確認する。`Graft検証サンプル\project`
      フォルダでPowerShellを開き（フォルダ内の空いている場所を Shift+右クリック→
      「PowerShellウィンドウをここで開く」）、次のテキストをそのまま貼り付けてEnterを押す。
+     > **注意**: `[System.IO.File]` に相対パスを渡すと、PowerShellのカレントではなく
+     > .NETプロセスのカレント（多くの場合 `C:\WINDOWS\system32`）を基準に探してしまい、
+     > 「ファイルが見つかりませんでした」になる。`cd` しても .NET 側は追随しないため、
+     > 下のコードでは `Resolve-Path` で絶対パスへ直してから渡している。
+
      ```powershell
      foreach ($name in 'utf8bom-sample.txt','crlf-sample.txt','lf-sample.txt','no-trailing-newline-sample.txt') {
-         $bytes = [System.IO.File]::ReadAllBytes($name)
-         $text  = [System.IO.File]::ReadAllText($name)
+         $path  = (Resolve-Path $name).Path
+         $bytes = [System.IO.File]::ReadAllBytes($path)
+         $text  = [System.IO.File]::ReadAllText($path)
          $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
          $hasCrlf = $text.Contains("`r`n")
          $endsWithNewline = $text.Length -gt 0 -and ($text[$text.Length-1] -eq "`n" -or $text[$text.Length-1] -eq "`r")
