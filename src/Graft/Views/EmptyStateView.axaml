@@ -45,6 +45,7 @@
                     Content="{Binding ActionText, ElementName=Root}"
                     AutomationProperties.Name="{Binding ActionText, ElementName=Root}"
                     Command="{Binding ActionCommand, ElementName=Root}"
+                    ToolTip.Tip="{Binding ActionTooltip, ElementName=Root}"
                     Margin="0,16,0,0"
                     HorizontalAlignment="Center"
                     IsVisible="False" />
@@ -54,6 +55,7 @@
                     Content="{Binding SecondaryActionText, ElementName=Root}"
                     AutomationProperties.Name="{Binding SecondaryActionText, ElementName=Root}"
                     Command="{Binding SecondaryActionCommand, ElementName=Root}"
+                    ToolTip.Tip="{Binding SecondaryActionTooltip, ElementName=Root}"
                     Background="Transparent"
                     Margin="0,8,0,0"
                     HorizontalAlignment="Center"

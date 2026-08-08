@@ -80,6 +80,7 @@
                 <Button Content="{Binding Left.Text}" Command="{Binding ExpandCommand}"
                         HorizontalContentAlignment="Left" Padding="8,4" Background="{DynamicResource BgHover}"
                         BorderThickness="0" Foreground="{DynamicResource TextSecondary}"
+                        ToolTip.Tip="変更のない行をまとめて省略しています。クリックすると周辺の行を段階的に表示します（「すべて展開」でまとめて表示することもできます）。"
                         AutomationProperties.Name="{Binding RowAutomationName}"
                         IsVisible="{Binding IsOmitted}" />
 
