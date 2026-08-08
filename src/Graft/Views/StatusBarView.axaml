@@ -30,6 +30,17 @@
                            Foreground="{DynamicResource StateWarn}"
                            FontSize="{DynamicResource StatusBarFontSize}"
                            IsVisible="{Binding Graft.Diff.SyntaxHighlightDisabled}" />
+                <!--
+                    課題1: データ保存先（実行ファイルと同じ階層）へ書き込めない場合の常時警告。
+                    起動時ダイアログは1回しか出ないため、保存できない状態が続いている間は
+                    ここで警告を出し続ける（黙って失敗し続けることを防ぐ）。
+                -->
+                <TextBlock Text="書き込み不可のため設定・履歴・バックアップは保存されません"
+                           Margin="12,0,0,0"
+                           Foreground="{DynamicResource StateWarn}"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.IsDataDirectoryReadOnly}"
+                           ToolTip.Tip="実行ファイルと同じフォルダへ書き込む権限がありません。書き込み権限のあるフォルダへGraftのフォルダ一式を移動してから起動し直してください。" />
             </StackPanel>
 
             <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->

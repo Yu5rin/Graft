@@ -41,6 +41,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     private WindowMessageBridge? _messageBridge;
     private AppSettings _settings = new();
 
+    // 課題1: データ保存先（実行ファイルと同じ階層）へ書き込めるかどうか。既定はtrue
+    // （StartAsync冒頭のCanWriteToBaseDirectory()確認より前に参照されることは無いが、
+    // 万一に備え安全側の値にしておく）。
+    private bool _isDataDirectoryWritable = true;
+
     /// <param name="baseDirectory">
     /// settings.json 等の基準ディレクトリ。省略時は実行ファイルの場所を使う。
     /// テストから一時ディレクトリを渡して、利用者の設定を汚さずに起動処理を検証できるようにする。
@@ -76,11 +81,12 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 起点は現在のプロセスの開始時刻を使う。
         var startedAt = Process.GetCurrentProcess().StartTime;
 
-        _appPaths.EnsureCoreDirectoriesExist();
-        _logger = new Logger(_appPaths);
-        _logger.Info("startup", _platform.DescribeEnvironment());
-
         var dialogService = new AvaloniaDialogService();
+
+        // 課題1（バグ）: データ保存先へ書き込めるかを確認し、書き込めなければ日本語で警告する。
+        // ログ経由の通知に頼れない状況を想定しているため、Loggerより先に行う
+        // （詳細はStartupCoordinator.WriteCheck.csのコメント参照）。
+        _logger = await InitializeDataDirectoryAsync(dialogService).ConfigureAwait(true);
 
         // 設計目標5（製品相当の完成度）: UIハンドラ内の想定外の例外でアプリを終わらせない。
         // 記録したうえで日本語の通知だけ出し、操作を続けられるようにする。
@@ -136,6 +142,14 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             dialogService, _ui, OpenSettings);
         var mainViewModel = shellViewModel.Graft;
         _shellViewModel = shellViewModel;
+
+        // 課題1: 起動時ダイアログは1回きりで、その後は画面から見えなくなってしまう。
+        // 「保存されない」状態が続いている間はステータスバーに常時表示し続けることで、
+        // 黙って失敗し続けることを防ぐ（MainViewModel.DataWritability.cs参照）。
+        if (!_isDataDirectoryWritable)
+        {
+            mainViewModel.MarkDataDirectoryReadOnly();
+        }
 
         var window = new ShellWindow(shellViewModel);
         MainWindow = window;
@@ -290,7 +304,17 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         else _platform.Clipboard.Stop();
 
         _settings = _settings with { ClipboardWatch = _settings.ClipboardWatch with { Enabled = enabled } };
-        if (_settingsStore is not null) _ = _settingsStore.SaveAsync(_settings);
+
+        // 課題1関連: 以前は`_ = _settingsStore.SaveAsync(_settings);`と投げっぱなしにしており、
+        // 書き込みに失敗した場合の例外はTaskScheduler.UnobservedTaskException（App.axaml.cs）に
+        // しか届かず、ログに記録されるだけで利用者には一切通知されなかった（設定の保存は
+        // 即時反映方式のため、これは「保存できたと思い込んだまま実は消えている」実害の大きい
+        // 抜け道だった）。SettingsViewModel.CommitAndSaveAsync と同じSafeHandler経由に揃え、
+        // 失敗時は他の保存失敗と同じダイアログ通知（+ロガーが書ければログにも記録）を行う。
+        if (_settingsStore is not null)
+        {
+            _ = SafeHandler.RunAsync("設定の保存", () => _settingsStore.SaveAsync(_settings));
+        }
     }
 
     /// <summary>
