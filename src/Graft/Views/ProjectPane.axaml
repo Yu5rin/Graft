@@ -40,7 +40,8 @@
                     Padding="4"
                     Background="Transparent"
                     BorderThickness="0"
-                    ToolTip.Tip="プロジェクトを追加"
+                    local:HelpTip.Standard="プロジェクトを追加"
+                    local:HelpTip.Detailed="フォルダ選択ダイアログを開き、Graftで管理したいプロジェクトのフォルダを選んで一覧に登録します。デスクトップやエクスプローラからフォルダをこの一覧へドラッグ＆ドロップしても、同じように追加できます。"
                     AutomationProperties.Name="プロジェクトを追加（フォルダ選択）">
                 <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
             </Button>
@@ -103,6 +104,8 @@
                                   Message="プロジェクトがありません。フォルダをドラッグ＆ドロップ、または追加ボタンで登録してください"
                                   ActionText="フォルダを追加"
                                   ActionCommand="{Binding AddProjectCommand}"
+                                  ActionTooltip="プロジェクトとして管理するフォルダをダイアログで選び、一覧に登録します。ドラッグ＆ドロップでも追加できます。"
+                                  ActionTooltipDetailed="フォルダ選択ダイアログを開き、Graftで管理したいプロジェクトのフォルダを選んで一覧に登録します。デスクトップやエクスプローラからフォルダをこの一覧へドラッグ＆ドロップしても、同じように追加できます。登録すると、コマンドバー左端のドロップダウンからいつでもこのプロジェクトを選び直せます。"
                                   Issue="{Binding Error}" />
         </Grid>
     </Grid>

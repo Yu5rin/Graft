@@ -168,11 +168,17 @@
             </TabItem>
         </TabControl>
 
+        <!--
+            即時反映方式への移行で「保存」ボタンは撤去した（変更は変更した瞬間・またはTextBoxの
+            フォーカスを外した瞬間に自動で保存される。SettingsViewModelのクラスドキュメント参照）。
+            代わりに「触りすぎて分からなくなった」ときの逃げ道として「既定に戻す」を同じ位置へ
+            置く。破壊的操作なのでIsDefault（Enterキーでの実行）は与えない。
+        -->
         <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto">
             <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" />
-            <Button Grid.Column="1" Content="保存" Command="{Binding SaveCommand}" Margin="0,0,8,0"
-                    IsDefault="True" AutomationProperties.Name="設定を保存" />
+            <Button Grid.Column="1" Content="既定に戻す" Command="{Binding ResetToDefaultsCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="設定を既定値に戻す" />
             <Button Grid.Column="2" Content="閉じる" Click="OnCloseClicked"
                     AutomationProperties.Name="設定を閉じる" />
         </Grid>

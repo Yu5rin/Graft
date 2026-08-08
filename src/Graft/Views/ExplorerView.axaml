@@ -76,15 +76,21 @@
                        Foreground="{DynamicResource TextSecondary}" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button Command="{Binding NewFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
-                        ToolTip.Tip="新規ファイル" AutomationProperties.Name="新規ファイルを作成">
+                        local:HelpTip.Standard="新規ファイル"
+                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、空の新しいファイルを作成します。ファイル名を入力する欄が表示されるので、名前を付けて確定してください。作成したファイルはそのままエディタで開いて編集できます。"
+                        AutomationProperties.Name="新規ファイルを作成">
                     <local:IconGlyph Data="{DynamicResource IconFileGeometry}" />
                 </Button>
                 <Button Command="{Binding NewFolderCommand}" Padding="4" Background="Transparent" BorderThickness="0"
-                        ToolTip.Tip="新規フォルダ" AutomationProperties.Name="新規フォルダを作成">
+                        local:HelpTip.Standard="新規フォルダ"
+                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、新しい空のフォルダを作成します。フォルダ名を入力する欄が表示されるので、名前を付けて確定してください。"
+                        AutomationProperties.Name="新規フォルダを作成">
                     <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
                 </Button>
                 <Button Command="{Binding RefreshCommand}" Padding="4" Background="Transparent" BorderThickness="0"
-                        ToolTip.Tip="更新" AutomationProperties.Name="ツリーを更新">
+                        local:HelpTip.Standard="更新"
+                        local:HelpTip.Detailed="このファイルツリーの表示を、ディスク上の最新の状態に読み込み直します。Graftの外（他のアプリやAIの適用結果）でファイルが追加・削除されたのに一覧へ反映されていないときに使います。"
+                        AutomationProperties.Name="ツリーを更新">
                     <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
                 </Button>
             </StackPanel>

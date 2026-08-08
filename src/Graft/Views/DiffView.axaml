@@ -80,6 +80,8 @@
                 <Button Content="{Binding Left.Text}" Command="{Binding ExpandCommand}"
                         HorizontalContentAlignment="Left" Padding="8,4" Background="{DynamicResource BgHover}"
                         BorderThickness="0" Foreground="{DynamicResource TextSecondary}"
+                        views:HelpTip.Standard="変更のない行をまとめて省略しています。クリックすると周辺の行を段階的に表示します（「すべて展開」でまとめて表示することもできます）。"
+                        views:HelpTip.Detailed="ここには変更の無い行がたくさん続いていたため、まとめて折りたたんで表示しています。差分を見やすくするための表示上の省略で、実際のファイルからは何も削除されていません。このボタンをクリックすると、周辺の行が少しずつ表示されます。まとめて全部見たい場合は、画面上部の「すべて展開」ボタンを使ってください。"
                         AutomationProperties.Name="{Binding RowAutomationName}"
                         IsVisible="{Binding IsOmitted}" />
 

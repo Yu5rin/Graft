@@ -1,10 +1,15 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.EditorSettingsView"
              AutomationProperties.Name="エディタ設定">
     <!--
         15章 editorセクション（12項目）・4章 コードエディタの設定タブ。
         書式は Themes/Settings.axaml のクラス。DataContextはSettingsViewModelを継承する。
+
+        即時反映方式（14章）の確定タイミングの理屈はGeneralSettingsView参照。TextBoxは
+        UpdateSourceTrigger=LostFocus＋views:TextBoxCommitBehavior.CommitOnEnterで
+        フォーカスを外した時／Enterキーでのみ確定する。
     -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
@@ -16,7 +21,8 @@
             <TextBlock Text="表示" Classes="sectionHeading first" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="フォントサイズ" Classes="fieldLabel" />
-                <TextBox Text="{Binding EditorFontSizeText}" Width="80"
+                <TextBox Text="{Binding EditorFontSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="エディタのフォントサイズ" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="長い行を折り返す" IsChecked="{Binding EditorWordWrap}"
@@ -33,7 +39,9 @@
             <TextBlock Text="インデント" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="タブ幅（検出不能時の既定値）" Classes="fieldLabel" />
-                <TextBox Text="{Binding EditorTabSizeText}" Width="80" AutomationProperties.Name="タブ幅" />
+                <TextBox Text="{Binding EditorTabSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="タブ幅" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="タブの代わりにスペースを挿入する（検出不能時の既定値）"
                       IsChecked="{Binding EditorInsertSpaces}"

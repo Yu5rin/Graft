@@ -20,18 +20,60 @@ public partial class OnboardingWindow : Window
 
     private readonly AppPaths _appPaths;
     private readonly ProjectStore _projectStore;
-    private readonly AvaloniaDialogService _dialogService = new();
+    private readonly ProjectPaneViewModel? _projectPane;
+    private readonly IDialogService _dialogService;
     private int _step;
 
-    public OnboardingWindow()
+    /// <summary>headlessテスト・デザイナ用の引数なしコンストラクタ。プロジェクト登録はできるが、
+    /// シェル側の一覧とは連携しない（<see cref="_projectPane"/> がnullのため）。</summary>
+    public OnboardingWindow() : this(new AppPaths())
+    {
+    }
+
+    /// <summary>
+    /// <paramref name="appPaths"/> のみを指定するコンストラクタ。プロジェクト登録はできるが、
+    /// シェル側の一覧とは連携しない（テストで基準ディレクトリだけ差し替えたい場合に使う）。
+    /// </summary>
+    public OnboardingWindow(AppPaths appPaths)
     {
         InitializeComponent();
-        _appPaths = new AppPaths();
+        _appPaths = appPaths ?? throw new ArgumentNullException(nameof(appPaths));
         _projectStore = new ProjectStore(_appPaths);
+        _dialogService = new AvaloniaDialogService();
 
         TemplatePreviewText.Text = PromptTemplateStore.BuiltIns.First(t => t.Id == "builtin-full").Body;
         UpdateStepUi();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+    }
+
+    /// <summary>
+    /// 実際の起動経路（StartupCoordinator）から使うコンストラクタ。<paramref name="appPaths"/> は
+    /// StartupCoordinatorが保持しているのと同じインスタンス、<paramref name="projectPane"/> には
+    /// シェルの左ペイン・上部ドロップダウンが参照しているのと同じ <see cref="ProjectPaneViewModel"/>
+    /// インスタンスを渡す。
+    /// バグ修正: 従来は本ウィンドウが独自の<see cref="ProjectStore"/>でprojects.jsonへ直接書き込む
+    /// だけだったため、登録自体は成功してもシェル側が保持する一覧（起動時に読み込み済み）には
+    /// 反映されず、チュートリアルを閉じてもプロジェクトが現れなかった（再起動すると現れる＝
+    /// ディスク上のprojects.jsonは正しいが、メモリ上の一覧が古いままという状態）。
+    /// 同じインスタンスを介して<see cref="ProjectPaneViewModel.RegisterFolderAsync"/>を呼ぶことで、
+    /// 登録・一覧再読み込み・新規プロジェクトの選択までが、シェルの一覧・ドロップダウンが
+    /// バインドしているコレクションそのものに対して行われるようにする。
+    /// </summary>
+    public OnboardingWindow(AppPaths appPaths, ProjectPaneViewModel projectPane) : this(appPaths)
+    {
+        _projectPane = projectPane ?? throw new ArgumentNullException(nameof(projectPane));
+    }
+
+    /// <summary>
+    /// テスト向けコンストラクタ。フォルダ選択ダイアログはOSのネイティブダイアログを開くため
+    /// headlessテストから駆動できない。<paramref name="dialogService"/> にフェイク実装を渡すことで、
+    /// 「フォルダを選択して登録」ボタンの実クリックからシェルの一覧・ドロップダウンへの反映までを
+    /// end-to-endで検証できるようにする（本番経路は<see cref="AvaloniaDialogService"/>を使う）。
+    /// </summary>
+    public OnboardingWindow(AppPaths appPaths, ProjectPaneViewModel projectPane, IDialogService dialogService)
+        : this(appPaths, projectPane)
+    {
+        _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
     }
 
     /// <summary><see cref="AppPaths.BaseDirectory"/> 直下の表示済みフラグファイルの絶対パス。</summary>
@@ -75,7 +117,12 @@ public partial class OnboardingWindow : Window
                 .ConfigureAwait(true);
             if (folder is null) return;
 
-            var result = await _projectStore.RegisterAsync(folder, null).ConfigureAwait(true);
+            // _projectPaneが渡されているとき（実際の起動経路）はシェルと同じインスタンスを介して
+            // 登録し、一覧・ドロップダウンへ即座に反映させる。渡されていないとき（headlessテスト・
+            // デザイナ用の引数なしコンストラクタ）は従来どおり登録のみ行う。
+            var result = _projectPane is not null
+                ? await _projectPane.RegisterFolderAsync(folder).ConfigureAwait(true)
+                : await _projectStore.RegisterAsync(folder, null).ConfigureAwait(true);
             ProjectResultText.Text = result.IsSuccess
                 ? $"「{result.Value.Name}」を登録しました（{result.Value.Root}）。"
                 : "プロジェクトの登録に失敗しました。";
