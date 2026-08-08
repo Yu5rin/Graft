@@ -1,5 +1,6 @@
 using Graft.Core;
 using Graft.Features;
+using Graft.Infra;
 
 namespace Graft.ViewModels;
 
@@ -12,6 +13,16 @@ namespace Graft.ViewModels;
 public sealed partial class MainViewModel
 {
     private readonly GitIntegration _gitIntegration = new();
+
+    /// <summary>
+    /// 課題3: 自動コミットの成否をlogs/&lt;日付&gt;.logへ記録するためのロガー。起動処理
+    /// （StartupCoordinator）が生成する<see cref="Logger"/>をShellWindowと同じ流儀
+    /// （コンストラクタ引数ではなく、生成後に設定するnullableプロパティ）で受け取る。
+    /// コンストラクタへ新たな依存を追加すると、本体のテスト用ビルダ（BuildShellViewModel等）
+    /// すべてに影響が及ぶため、この程度の付随的なログ出力のためだけにそこまでの変更は見送った
+    /// （未設定＝nullでも動作は変わらず、単にログへ残らないだけ）。
+    /// </summary>
+    public Logger? Logger { get; set; }
 
     /// <summary>
     /// ApplyAsync成功直後から呼ぶ。<see cref="Graft.Infra.GitSettings.AutoCommit"/>が有効なときだけ
@@ -30,10 +41,8 @@ public sealed partial class MainViewModel
     /// いずれも日常的に起こりうる状況であり、AutoCommitをオンにした利用者に適用のたびに
     /// エラーダイアログを見せると煩わしいだけで得るものが無い。加えて適用（ファイルの書き換え）
     /// 自体は既に成功しているため、コミットの失敗を理由に適用全体を失敗扱いにするのも誤り。
-    /// そのためここでの失敗は静かに諦める（呼び出し元・利用者への通知は行わない）。
-    /// MainViewModelにはログ出力用の依存が無く（Loggerはアプリ起動処理・View層のみが保持する）、
-    /// この程度の付随的な失敗のためだけにコンストラクタへ新たな依存を追加するのは見送った
-    /// （ログに残せないこと自体は実機確認・課題3の報告で明記する）。
+    /// そのため画面には一切出さず静かに諦めるが、「コミットされない」と相談を受けたときに
+    /// 原因を追えるよう、理由を区別してLoggerへ記録する（課題3）。
     /// </summary>
     private async Task TryAutoCommitAfterApplyAsync(Project project, RevisionManifest manifest)
     {
@@ -46,14 +55,43 @@ public sealed partial class MainViewModel
                 : new[] { e.RenamedFrom, e.Path })
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (paths.Count == 0) return; // コミット対象が無い（ApplyCommandの実行条件上ここには来ないはずだが念のため）。
+        if (paths.Count == 0)
+        {
+            // コミット対象が無い（ApplyCommandの実行条件上ここには来ないはずだが念のため）。
+            Logger?.Warn("git-auto-commit", "コミット対象が無いためスキップしました", revision: manifest.Revision);
+            return;
+        }
+
+        // git add / git commit を試みる前に前提条件を確認する。CommitAsync自身は
+        // 「gitが無い」も「リポジトリでない」も同じ形の失敗（"git add に失敗しました: ..."）で
+        // 返ってくるため、ログで理由を区別するにはここで先に見分ける必要がある。
+        var preflight = await _gitIntegration.CheckCommitPreflightAsync(project.Root).ConfigureAwait(true);
+        switch (preflight)
+        {
+            case GitCommitPreflight.GitCommandNotFound:
+                Logger?.Warn("git-auto-commit", "gitコマンドが見つからないためスキップしました", revision: manifest.Revision);
+                return;
+            case GitCommitPreflight.NotARepository:
+                Logger?.Warn("git-auto-commit", $"「{project.DisplayName}」はgitリポジトリではないためスキップしました", revision: manifest.Revision);
+                return;
+        }
 
         // 6.6/17章: コミットメッセージは"type: summary"形式（GitIntegration.CommitAsync）。
         // 履歴（history.jsonl・back/配下）とGitログを見比べられるよう、リビジョン番号を添える。
         var summary = string.IsNullOrWhiteSpace(manifest.Summary) ? "Graftによる変更" : manifest.Summary;
         var message = $"{summary} (r{manifest.Revision})";
 
-        // 戻り値は意図的に無視する。理由は本メソッドのコメント参照（静かに諦める設計）。
-        _ = await _gitIntegration.CommitAsync(project.Root, manifest.Type, message, paths).ConfigureAwait(true);
+        var result = await _gitIntegration.CommitAsync(project.Root, manifest.Type, message, paths).ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            // 上のpreflightで「gitが無い」「リポジトリでない」は既に除外済みのため、ここに来る
+            // 失敗はそれ以外の理由（コミット対象の差分が実際には無かった、gitのuser.name/
+            // user.emailが未設定、pre-commitフックの失敗等）としてまとめて記録する。
+            var detail = result.Issues.FirstOrDefault()?.Detail ?? "詳細不明のエラー";
+            Logger?.Warn("git-auto-commit", $"コミットに失敗しました: {detail}", revision: manifest.Revision);
+            return;
+        }
+
+        Logger?.Info("git-auto-commit", $"コミットしました: {result.Value}", revision: manifest.Revision);
     }
 }

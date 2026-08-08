@@ -189,6 +189,83 @@ public class ProjectMatchScenarioTests : IDisposable
         shell.Graft.CenterError!.Code.Should().Be(ErrorCode.E303);
     }
 
+    [AvaloniaFact(DisplayName = "新規ファイルのみのパッチは、無関係なプロジェクトが選択されていてもブロックされず解析できる")]
+    public async Task 新規ファイルのみのパッチは無関係なプロジェクトでもブロックされない()
+    {
+        // 課題1の回帰テスト: 新規作成前提のパスは一致率算出の分母から除かれる。除外の結果
+        // 判定対象が1件も残らない（＝完全に新規ファイルのみ）場合は、選択中のプロジェクトが
+        // パッチの内容と無関係でも、判定自体をスキップして無警告で解析が進むはず。
+        File.WriteAllText(Path.Combine(_projectADirectory, "a.py"), "x=1\n");
+        File.WriteAllText(Path.Combine(_projectBDirectory, "b.py"), "x=1\n");
+
+        var dialogs = new ThrowIfConfirmedDialogService();
+        var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectADirectory).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectBDirectory).ConfigureAwait(true);
+        SelectProject(shell, _projectADirectory);
+
+        // AにもBにも存在しない新規ファイルのみを作成するパッチ。
+        _clipboard.Text = BuildFullFilePatch("brandnew/feature.py", "print('new')");
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+
+        shell.Graft.CenterError.Should().BeNull("新規ファイルのみのパッチはプロジェクトが無関係でもブロックしてはいけない");
+        shell.Graft.State.Should().Be(CenterPaneState.Content);
+        shell.Graft.Blocks.Should().ContainSingle();
+        shell.Graft.ProjectPane.SelectedItem!.Project.Root.Should().Be(_projectADirectory,
+            "判定をスキップするだけで、選択中プロジェクトを勝手に切り替えてはいけない");
+    }
+
+    [AvaloniaFact(DisplayName = "新規ファイル作成と既存ファイル変更が混在するパッチでは、既存ファイル分だけで一致率が判定される")]
+    public async Task 新規と既存が混在するパッチは既存ファイル分だけで判定される()
+    {
+        // 課題1の回帰テスト: 新規ファイルは分母から除かれるが、既存ファイルの変更が1件でも
+        // 混ざっていれば、その既存ファイル分でこれまでどおりの一致率判定・切替確認が働くはず。
+        File.WriteAllText(Path.Combine(_projectADirectory, "unrelated.py"), "x=1\n");
+        File.WriteAllText(Path.Combine(_projectBDirectory, "b.py"), "x=1\n");
+
+        var dialogs = new RecordingDialogService { ThreeWayResult = true };
+        var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectADirectory).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectBDirectory).ConfigureAwait(true);
+        SelectProject(shell, _projectADirectory);
+
+        // brandnew.pyはどちらにも存在しない新規ファイル（分母から除外されるはず）。
+        // b.pyはBにのみ存在する既存ファイルのDELETE（除外されず判定対象に残るはず）。
+        _clipboard.Text = BuildFullFilePatch("brandnew.py", "print('new')") + BuildDeletePatch("b.py");
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+
+        dialogs.ThreeWayCallCount.Should().Be(1,
+            "新規ファイルを除いた既存ファイル分（b.py）だけで判定すればBへの一致率100%になり、切替確認が働くはず");
+        shell.Graft.ProjectPane.SelectedItem!.Project.Root.Should().Be(_projectBDirectory,
+            "確認で「切り替える」を選んだのでプロジェクトBへ切り替わっているはず");
+    }
+
+    [AvaloniaFact(DisplayName = "新規ファイル作成が混ざっていても、既存ファイル参照が全滅（0%）ならブロックされる（タイの穴の再発防止）")]
+    public async Task 新規ファイルが混ざっていても既存ファイル参照が全滅ならブロックされる()
+    {
+        // 課題1の回帰テスト: 新規ファイル分の除外ロジックを入れたことで、既存ファイル参照が
+        // どのプロジェクトにも一致しない（全滅）パッチまで無警告で通ってしまわないこと、
+        // かつ「全滅タイで選択中がたまたま先頭に来る」穴（前ラウンドで塞いだもの）が
+        // 除外ロジック追加後も再発していないことを確認する。
+        File.WriteAllText(Path.Combine(_projectADirectory, "a.py"), "x=1\n");
+        File.WriteAllText(Path.Combine(_projectBDirectory, "b.py"), "x=1\n");
+
+        var dialogs = new ThrowIfConfirmedDialogService();
+        var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectADirectory).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectBDirectory).ConfigureAwait(true);
+        SelectProject(shell, _projectADirectory);
+
+        // brandnew.pyはどちらにも存在しない新規ファイル（分母から除外される）。
+        // c1〜c4はどちらのプロジェクトにも存在しない（既存ファイル参照として全滅＝0%）。
+        _clipboard.Text = BuildFullFilePatch("brandnew.py", "print('new')")
+            + BuildDeletePatch("c1.py", "c2.py", "c3.py", "c4.py");
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+
+        shell.Graft.State.Should().Be(CenterPaneState.Error, "新規ファイル分を除いても既存ファイル参照が全滅なのでブロックされるべき");
+        shell.Graft.CenterError!.Code.Should().Be(ErrorCode.E303);
+    }
+
     [AvaloniaFact(DisplayName = "登録プロジェクトが1つだけの場合は判定自体をスキップし、無意味な警告は出さない")]
     public async Task プロジェクトが1つだけなら判定をスキップする()
     {
@@ -241,6 +318,10 @@ public class ProjectMatchScenarioTests : IDisposable
     /// SEARCH本文の内容一致を気にしなくてよいDELETEが最も単純に組み立てられる）。</summary>
     private static string BuildDeletePatch(params string[] relativePaths)
         => string.Join(Environment.NewLine, relativePaths.Select(p => $"<<<< DELETE: {p}")) + Environment.NewLine;
+
+    /// <summary>FULL形式（新規作成前提）のパッチ本文を1件組み立てる。</summary>
+    private static string BuildFullFilePatch(string relativePath, string content)
+        => $"<<<< FILE: {relativePath} MODE=FULL{Environment.NewLine}{content}{Environment.NewLine}>>>> END{Environment.NewLine}";
 
     /// <summary>非同期コマンドを実行し、完了するまで待つ。</summary>
     private static async Task ExecuteAsync(System.Windows.Input.ICommand command)
