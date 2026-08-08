@@ -81,6 +81,24 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     /// <summary>ファイル監視を停止して解放する。アプリ終了時にShellViewModelから呼ばれる。</summary>
     public void Dispose() => _fileWatch.Dispose();
 
+    /// <summary>
+    /// ファイル監視の開始結果（成功・失敗いずれも）の通知先を差し替えるフック（不具合4対応）。
+    /// 既定（null）では失敗時にこのクラス自身が即座にダイアログを出すが、起動直後の
+    /// 自動プロジェクト選択のときだけ、StartupCoordinatorがここへ集約用のコールバックを
+    /// 差し込む。失敗時は<see cref="GraftIssue"/>を、成功時はnullを渡して必ず1回呼ぶ
+    /// （成功・失敗どちらであっても「起動時の初回監視開始が完了した」こと自体を
+    /// StartupCoordinator側が待ち合わせに使うため）。
+    /// <para>
+    /// 単に「失敗したらハンドラへ」ではなく成功時も含めて必ず通知する設計にしたのは、
+    /// 実機検証で「背景の起動時検証（RunStartupValidationAsync）が、この監視開始より先に
+    /// 完了してレポートを確定・表示してしまい、監視失敗の警告が一切表示されないまま
+    /// 消えてしまう」レースを実際に踏んだため。StartupCoordinator側はプロジェクトが
+    /// 1件以上あるとき、この通知（またはタイムアウト）を待ってからレポートを確定することで、
+    /// 完了の順序に依らず必ず集約できるようにする（StartupCoordinator.Validation.cs参照）。
+    /// </para>
+    /// </summary>
+    public Action<GraftIssue?>? WatchStartCompletedHandler { get; set; }
+
     /// <summary>プロジェクト切替時にShellViewModelから呼ばれる。ツリーの再構築と監視の再開始を行う。</summary>
     public async Task SetProjectAsync(Project? project, CancellationToken ct = default)
     {
@@ -99,7 +117,12 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
             await ReconcileDirectoryAsync(null, ct).ConfigureAwait(true);
 
             var started = _fileWatch.Start(project.Root);
-            if (!started.IsSuccess)
+            var failureIssue = started.IsSuccess ? null : started.Issues.FirstOrDefault();
+            if (WatchStartCompletedHandler is not null)
+            {
+                WatchStartCompletedHandler(failureIssue);
+            }
+            else if (failureIssue is not null)
             {
                 await ShowFailureAsync("ファイル監視を開始できませんでした", started.Issues).ConfigureAwait(true);
             }

@@ -74,7 +74,8 @@ public sealed class HookRunner
             TimedOut = false,
             Output = ex.Message,
         };
-        var issue = GraftIssue.Of(ErrorCode.E501, detail: ex.Message, path: hook.Name);
+        // Output（実行結果ログ）は原文のまま残し、issue.Detail（ダイアログ表示用）のみ日本語化する。
+        var issue = GraftIssue.Of(ErrorCode.E501, detail: ExceptionMessages.Describe(ex), path: hook.Name);
         return (result, issue);
     }
 

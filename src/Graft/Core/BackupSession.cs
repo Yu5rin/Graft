@@ -70,7 +70,7 @@ public sealed class BackupSession
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E401, $"退避元の読み取りに失敗しました: {ex.Message}", path: relativePath);
+            return GraftResult<bool>.Fail(ErrorCode.E401, $"退避元の読み取りに失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath);
         }
 
         var writeResult = await SafeFileWriter.ReplaceAsync(destFull, bytes, ct).ConfigureAwait(false);
@@ -98,7 +98,7 @@ public sealed class BackupSession
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の確定に失敗しました: {ex.Message}", path: _manifestPath);
+            return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の確定に失敗しました: {ExceptionMessages.Describe(ex)}", path: _manifestPath);
         }
 
         return await AppendToIndexAsync(manifest, ct).ConfigureAwait(false);
@@ -126,7 +126,7 @@ public sealed class BackupSession
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             var warning = GraftIssue.Of(
-                ErrorCode.E404, $"history.jsonl への追記に失敗しました: {ex.Message}", path: _projectId, severity: Severity.Warning);
+                ErrorCode.E404, $"history.jsonl への追記に失敗しました: {ExceptionMessages.Describe(ex)}", path: _projectId, severity: Severity.Warning);
             return GraftResult<bool>.Ok(true, new[] { warning });
         }
     }
@@ -181,7 +181,7 @@ public sealed class BackupSession
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E402, $"退避ファイルの読み取りに失敗しました: {ex.Message}", path: relativePath);
+            return GraftResult<bool>.Fail(ErrorCode.E402, $"退避ファイルの読み取りに失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath);
         }
 
         var targetFull = Path.GetFullPath(Path.Combine(_projectRoot, relativePath));
@@ -201,7 +201,7 @@ public sealed class BackupSession
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            issues.Add(GraftIssue.Of(ErrorCode.E402, $"新規作成ファイルの削除に失敗しました: {ex.Message}", path: relativePath));
+            issues.Add(GraftIssue.Of(ErrorCode.E402, $"新規作成ファイルの削除に失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath));
         }
     }
 }

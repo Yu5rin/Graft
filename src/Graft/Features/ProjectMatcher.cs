@@ -124,7 +124,7 @@ public sealed class ProjectMatcher
             decision = ProjectMatchDecision.Blocked;
             issues.Add(GraftIssue.Of(
                 ErrorCode.E303,
-                detail: $"最も一致率が高いプロジェクト「{best.Project.Name}」でも一致率{best.Ratio:P0}のため、適用をブロックしました。"));
+                detail: $"最も一致率が高いプロジェクト「{best.Project.DisplayName}」でも一致率{best.Ratio:P0}のため、適用をブロックしました。"));
         }
 
         var outcome = new ProjectMatchOutcome { Decision = decision, Best = best, Candidates = candidates };

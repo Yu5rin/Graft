@@ -28,5 +28,5 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>選択中のプロジェクト名。未選択のときはその旨を示す。</summary>
-    public string CurrentProjectName => ProjectPane.SelectedItem?.Name ?? "(プロジェクト未選択)";
+    public string CurrentProjectName => ProjectPane.SelectedItem?.DisplayName ?? "(プロジェクト未選択)";
 }

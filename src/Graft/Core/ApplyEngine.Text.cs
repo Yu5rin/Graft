@@ -116,7 +116,7 @@ public sealed partial class ApplyEngine
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return GraftResult<bool>.Fail(ErrorCode.E402, ex.Message, path: p.Path);
+                return GraftResult<bool>.Fail(ErrorCode.E402, ExceptionMessages.Describe(ex), path: p.Path);
             }
 
             entries.Add(new RevisionEntry { Path = p.Path, Operation = EntryOperation.Delete, Desc = p.Description });
