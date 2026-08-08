@@ -184,6 +184,77 @@ public class ContextCollectViewModelTests : IDisposable
         vm2.Dispose();
     }
 
+    [AvaloniaFact(DisplayName = "「プレビュー」を実行するとPreviewLinesのPropertyChangedが発火し、プレビュー行が表示状態になる")]
+    public async Task プレビュー実行後にプレビュー行が表示状態になる()
+    {
+        var (vm, _, _) = await BuildAsync("previewbug", ws =>
+        {
+            ws.WriteText("main.py", "print(1)\n");
+        });
+
+        // バグ1: ContextCollectWindow.axamlのプレビュー欄・空状態プレースホルダは
+        // IsVisible="{Binding PreviewLines, Converter=...HasItems/IsEmptyCollection}" という
+        // コレクション「への参照」を対象にした値バインディングのため、PreviewLines自体の
+        // PropertyChangedが飛ばないと再評価されない（Clear()/Add()だけではCollectionChangedしか
+        // 飛ばない）。ここではPropertyChangedの発火そのものを検証する。
+        var raisedForPreviewLines = false;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ContextCollectViewModel.PreviewLines)) raisedForPreviewLines = true;
+        };
+
+        vm.PreviewLines.Should().BeEmpty("プレビュー実行前は空のはず");
+
+        await ExecuteAsync(vm.PreviewCommand);
+
+        raisedForPreviewLines.Should().BeTrue(
+            "PreviewLinesのCollectionChangedを受けてPropertyChangedが再発火するはず（IsVisibleバインディングの再評価に必要）");
+        vm.PreviewLines.Should().NotBeEmpty("プレビュー実行後は出力内容の行が入っているはず");
+    }
+
+    [AvaloniaFact(DisplayName = "全ファイルを「構成だけ」にしても、ライブ表示の推定トークン数は実際の出力の推定値と大きく乖離しない")]
+    public async Task ライブ推定と実値のトークン数が大きく乖離しない()
+    {
+        var (vm, _, _) = await BuildAsync("tokenest", ws =>
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                ws.WriteText($"src/module{i}.py", new string('x', 200));
+            }
+        });
+
+        // バグ2の再現条件: 全ファイルを「構成だけ」に切り替える（内容を出さないため
+        // 選択ファイルのバイト数だけを見るとほぼ0になり、構成ツリー分を数えていないと
+        // ライブ表示が実値と桁違いにずれる）。
+        foreach (var file in vm.Files.Where(f => !f.IsDirectory).ToList())
+        {
+            vm.CycleStateCommand.Execute(file); // 内容も出す → 構成だけ
+        }
+
+        var liveEstimate = vm.EstimatedTokens;
+        liveEstimate.Should().BeGreaterThan(0, "構成ツリー分は必ず出力されるため、ライブ表示も0にはならないはず");
+
+        await ExecuteAsync(vm.PreviewCommand);
+        var actualEstimate = vm.EstimatedTokens;
+
+        actualEstimate.Should().BeGreaterThan(0);
+        var ratio = (double)Math.Max(liveEstimate, actualEstimate) / Math.Min(liveEstimate, actualEstimate);
+        ratio.Should().BeLessThan(3.0, $"ライブ表示({liveEstimate}件)と実値({actualEstimate}件)の差が大きすぎる");
+    }
+
+    /// <summary>非同期コマンドを実行し、完了するまで待つ（HookSettingsViewModelTestsと同じ手法）。</summary>
+    private static async Task ExecuteAsync(System.Windows.Input.ICommand command)
+    {
+        command.Execute(null);
+        if (command is AsyncRelayCommand async)
+        {
+            while (async.IsExecuting)
+            {
+                await Task.Delay(10);
+            }
+        }
+    }
+
     private async Task<(ContextCollectViewModel Vm, AppPaths AppPaths, Project Project)> BuildAsync(string caseName, Action<Workspace> setup)
     {
         var appPaths = new AppPaths(Path.Combine(_root, caseName, "app"));

@@ -70,6 +70,17 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         ExtraExcludes = new ObservableCollection<string>(project.Overrides.Excludes);
         PreviewLines = new ObservableCollection<PreviewLine>();
 
+        // ContextCollectWindow.axamlのプレビュー表示・空状態プレースホルダは、IsVisible="{Binding
+        // PreviewLines, Converter=...HasItems}"（および IsEmptyCollection）という、コレクション
+        // 「への参照」を対象にした値バインディングである。SettingsViewModel.ValidationIssuesと
+        // 同じ理由で、UpdatePreviewLines内のClear()/Add()はコレクションの中身だけを書き換え、
+        // プロパティの参照自体は変えない（INotifyCollectionChangedで通知するのみ）ため、この
+        // ままではプレビュー欄が最初の（空の）評価のまま固まり、「プレビュー」を押しても出力
+        // 内容が一切表示されない（実機で確認済みの不具合）。CollectionChangedのたびに
+        // PreviewLines自体のPropertyChangedを代わりに発火させ、バインディングを強制的に
+        // 再評価させる。
+        PreviewLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(PreviewLines));
+
         RefreshCommand = new AsyncRelayCommand(() => RefreshAsync());
         PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => !_isScanning);
         CopyCommand = new AsyncRelayCommand(CopyAsync, () => !_isScanning);
@@ -532,6 +543,13 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
     /// 近似（バイト数を文字数の近似として扱う。正確な値は「プレビュー」「コピー」「保存」実行時に
     /// 実際の文字数から再計算される）。課題3の「既定オンで巨大になりがち」に対する注意喚起
     /// （WarnIfDefaultSelectionIsLarge）にも使う。
+    ///
+    /// 課題（バグ2）: 以前はここが選択ファイルのバイト数だけしか数えておらず、実際の出力に
+    /// 必ず含まれる構成ツリー分をまったく計算に入れていなかった（実機で確認済み。「プレビュー」を
+    /// 押す前は7件、押した後は125件と約18倍ずれていた）。特に全ファイルを「構成だけ」に
+    /// した場合はtotalBytesがほぼ0になる一方、実際の出力には構成ツリーの分だけ確実に文字数が
+    /// 生じるため、ずれが最大になる。構成ツリーが出力に含まれるモード（TreeOnly・
+    /// TreeAndSelected）のときは、EstimateTreeSectionCharsで見積もった概算文字数を合算する。
     /// </summary>
     private void UpdateApproxTokenEstimate()
     {
@@ -545,8 +563,51 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
             if (!node.IsDirectory && fullPaths.Contains(node.RelativePath)) totalBytes += node.SizeBytes;
         }
 
-        EstimatedTokens = TokenEstimator.EstimateLength(totalBytes, _settings.Context.TokenRatio);
+        var treeChars = IncludesTreeInEstimate(_selectedMode) ? EstimateTreeSectionChars() : 0;
+
+        EstimatedTokens = TokenEstimator.EstimateLength(totalBytes, _settings.Context.TokenRatio)
+            + TokenEstimator.EstimateLength(treeChars, _settings.Context.TokenRatio);
         ExceedsWarnThreshold = EstimatedTokens > TokenWarnThreshold;
+    }
+
+    /// <summary>ContextCollector.CollectAsync内のIncludesTreeと同じ判定（構成ツリーを出力に含むモードか）。</summary>
+    private static bool IncludesTreeInEstimate(ContextMode mode) => mode is ContextMode.TreeOnly or ContextMode.TreeAndSelected;
+
+    /// <summary>
+    /// 実際に出力される構成ツリー部分（概要見出し＋フェンス＋ツリー本文）の概算文字数。
+    /// <see cref="ContextCollector"/>のBuildTreeTextと同じ整形（インデント幅2・ディレクトリの
+    /// "/"・除外ディレクトリの畳み込み・各種注記文言）を簡略化してなぞり、行ごとの概算文字数を
+    /// 積み上げる。実ファイルを読まないため厳密な一致は狙わないが、実際の出力と桁が変わる
+    /// ほどのずれは出さないことを目的とする。
+    /// </summary>
+    private int EstimateTreeSectionChars()
+    {
+        const int perLineOverhead = 3; // 改行・区切り分の概算
+        const int overviewAndFenceOverhead = 220; // 概要見出し・生成日時等・```text/```フェンスの概算
+
+        var chars = overviewAndFenceOverhead;
+        foreach (var node in Files)
+        {
+            // 「出さない」（Hidden）は非除外ファイルに限りツリーから完全に除かれる
+            // （BuildTreeTextのhiddenPaths判定と同じ。全滅したフォルダの畳み込みまでは追わない簡略化）。
+            if (!node.IsExcluded && !node.IsDirectory && node.State == ContextFileState.Hidden) continue;
+
+            chars += node.IndentLevel * 2 + node.DisplayName.Length + perLineOverhead;
+            if (node.IsDirectory)
+            {
+                chars += 1; // "/"
+                if (node.IsExcluded) chars += 20; // "  （N ファイル、内容は非出力）" 相当の概算
+            }
+            else if (node.IsExcluded)
+            {
+                chars += (node.ExcludeReason?.Length ?? 0) + 10; // "  (理由・内容は非出力)" 相当
+            }
+            else if (_selectedMode == ContextMode.TreeAndSelected && node.State != ContextFileState.Full)
+            {
+                chars += 14; // "  (構成のみ・内容は省略)" 相当
+            }
+        }
+        return chars;
     }
 
     /// <summary>
