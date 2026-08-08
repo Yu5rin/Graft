@@ -62,6 +62,8 @@ public class DataDirectoryWritabilityTests : IDisposable
         shell.Graft.MarkDataDirectoryReadOnly();
 
         shell.Graft.IsDataDirectoryReadOnly.Should().BeTrue();
+        shell.HasStatusBarWarning.Should().BeTrue();
+        shell.StatusBarWarningText.Should().Be("書き込み不可のため設定・履歴・バックアップは保存されません");
 
         // ShellWindowを実際に描画してもバインディング先の取り違えで落ちないことを確認する
         // （StatusBarView.axamlの新規追加分のバインディング検証を兼ねる）。
@@ -69,6 +71,54 @@ public class DataDirectoryWritabilityTests : IDisposable
         window.Show();
         using var frame = window.CaptureRenderedFrame();
         frame.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// 統合ブランチとのマージで発覚した競合（StatusBarView.axamlに書き込み不可警告と
+    /// 長い行の警告が別々に追加されていた）の解決を検証する回帰テスト。
+    /// 実機のXvfb環境で両方を同時に表示させたところ、ウィンドウの最小幅（960px）では
+    /// 警告文どうし・右側の接ぎ木状態表示が重なって判読できなくなることを確認したため、
+    /// 表示スロットを1つに統合し「最優先の1件＋ほかN件」で要約する方式にした
+    /// （ShellViewModel.StatusBarWarning.cs参照）。ここでは、書き込み不可（優先度・高）と
+    /// 長い行の警告（優先度・低）が同時に成立したときに、書き込み不可が先頭に出て
+    /// 「ほか1件」が付き、隠れた警告もToolTipの全文からは失われないことを確認する。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "書き込み不可と長い行の警告が同時に成立すると、優先度の高い方＋「ほか1件」に要約される")]
+    public async Task 複数の警告が同時に成立すると要約される()
+    {
+        var appPaths = new AppPaths(_baseDirectory);
+        appPaths.EnsureCoreDirectoriesExist();
+        IDialogService dialogs = new NullDialogService();
+        IUiServices ui = new AvaloniaUiServices();
+        var shell = StartupCoordinator.BuildShellViewModel(
+            appPaths, new Settings(), new SettingsStore(appPaths), new PatchQueue(appPaths),
+            new ProjectStore(appPaths), new RevisionStore(appPaths), new RevisionRestorer(appPaths),
+            dialogs, ui, openSettings: () => { });
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        await shell.Graft.InitializeAsync();
+
+        var longLinePath = Path.Combine(_baseDirectory, "LongLine.cs");
+        await File.WriteAllTextAsync(longLinePath, "class L { /* " + new string('x', 100_000) + " */ }\n");
+        var opened = await shell.Editor.OpenFileAsync(longLinePath);
+        opened.IsSuccess.Should().BeTrue();
+        shell.Editor.ActiveTabHasLongLineWarning.Should().BeTrue("前提条件: 長い行の警告が単独で立っていること");
+
+        // まだ書き込み不可は成立していないため、この時点では長い行の警告のみが出る。
+        shell.HasStatusBarWarning.Should().BeTrue();
+        shell.StatusBarWarningText.Should().Be("極端に長い行があるため構文強調・折り返しを無効化しました");
+
+        // 書き込み不可（優先度・高）が成立すると、そちらが先頭に出て「ほか1件」が付く。
+        shell.Graft.MarkDataDirectoryReadOnly();
+
+        shell.StatusBarWarningText.Should().Be("書き込み不可のため設定・履歴・バックアップは保存されません　ほか1件");
+        shell.StatusBarWarningTooltip.Should().Contain("書き込み権限のあるフォルダへGraftのフォルダ一式を移動");
+        shell.StatusBarWarningTooltip.Should().Contain("極端に長い行があるため構文強調・折り返しを無効化しました");
+
+        using var frame = window.CaptureRenderedFrame();
+        frame.Should().NotBeNull("複数の警告が同時に成立してもバインディング先の取り違えで描画に失敗してはならない");
+
+        window.Close();
     }
 
     private ShellViewModel BuildShell()
