@@ -32,6 +32,34 @@
       ReadyToRunは有効のまま維持する。
     -->
     <PublishReadyToRun>true</PublishReadyToRun>
+    <!--
+      配布形式（フォルダ形式 → 単一ファイル形式）。かつて単一ファイル形式を採用していたが、
+      IncludeNativeLibrariesForSelfExtract=true（ネイティブDLLを実行時に一時フォルダへ
+      自己展開する設定）により初回起動が約5.44秒に達したため、いったんフォルダ形式へ
+      移行した経緯がある（附録B参照）。しかしフォルダ形式は発行物が216ファイル・約109MBに
+      散らばり、DLLを子フォルダへ移動すると `Graft.deps.json` が期待する
+      `lib/net8.0/xxx.dll` 相対パスが崩れて `FileNotFoundException` で起動不能になるなど、
+      整理のしようがなかった。
+
+      そこで今回、単一ファイル形式へ戻しつつ IncludeNativeLibrariesForSelfExtract は
+      明示的に false のままにする（true にしないこと。これが過去の5.44秒の原因だった）。
+      falseであれば実行時展開が発生せず、管理コードもバンドルから直接読まれるため、
+      起動が遅くなる理由がない。実測（Linux, 同一条件）でもフォルダ形式 798〜1145ms に対し
+      単一ファイル形式は 622〜637ms とむしろ高速だった。発行物も216ファイル→4ファイル
+      （実行ファイル＋ネイティブDLL3つ）に減り、当初の「発行フォルダの中がごちゃごちゃ
+      している」という課題を解消する。EnableCompressionInSingleFileも同じ理由（展開が
+      必要になり起動が遅くなる）でfalseにする。
+    -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <!--
+      Release発行では .pdb を出さない。既定のまま（portable pdb）だと単一ファイルの
+      発行物に Graft.pdb が加わり「実行ファイル＋ネイティブDLL3つの計4ファイル」から
+      崩れてしまうため、Release構成のみ明示的に無効化する（Debug構成では従来どおり
+      デバッグ用に出力する）。
+    -->
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
