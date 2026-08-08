@@ -64,11 +64,23 @@ public sealed class SettingsViewModel : ObservableObject
     private bool _isBusy;
     private string? _statusMessage;
 
-    public SettingsViewModel(AppPaths appPaths, IDialogService dialogService, IUiServices ui)
+    // 課題2・3で追加した「閉じたときの動作」「PC起動時に自動で起動する」は即時反映方式
+    // （SetEditableProperty/ScheduleSave/CommitAndSaveAsync）で扱う。既存項目は並行して
+    // 別担当者が全体を即時反映方式へ移行中のため、ここでは新規追加分のみをこの方式にし、
+    // 既存の保存ボタン方式（SaveAsync等）には手を入れない。
+    private string _closeBehavior = "exit";
+    private bool _launchAtStartup;
+    private CancellationTokenSource? _saveDebounceCts;
+    private static readonly TimeSpan SaveDebounce = TimeSpan.FromMilliseconds(300);
+    private readonly Action<Settings>? _onLiveSettingsChanged;
+
+    public SettingsViewModel(
+        AppPaths appPaths, IDialogService dialogService, IUiServices ui, Action<Settings>? onLiveSettingsChanged = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         ArgumentNullException.ThrowIfNull(ui);
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        _onLiveSettingsChanged = onLiveSettingsChanged;
         _settingsStore = new SettingsStore(appPaths);
         var projectStore = new ProjectStore(appPaths);
 
@@ -114,6 +126,27 @@ public sealed class SettingsViewModel : ObservableObject
         new ChoiceOption("トレイ通知のみ", "notify"), new ChoiceOption("非アクティブ表示", "passive"), new ChoiceOption("アクティブ表示", "active"),
     };
 
+    /// <summary>
+    /// 課題2: トレイが実際に機能しない環境（Linuxでの未対応デスクトップ環境等）では
+    /// 「タスクトレイに常駐する」を選択肢そのものから外す（仕様書2.3の縮退）。
+    /// ShellWindow.OnClosing側でも実際の対応可否を二重に確認しているため、万一ここが
+    /// 誤ってtrueを返しても、実際にトレイが使えない環境なら閉じると終了する。
+    /// </summary>
+    public bool IsTraySupported { get; } = PlatformServices.Current.Tray.IsSupported;
+
+    /// <summary>トレイが使えない場合に画面へ表示する理由（利用可能なら null）。</summary>
+    public string? TrayUnsupportedReason => PlatformServices.Current.Tray.UnsupportedReason;
+
+    public IReadOnlyList<ChoiceOption> CloseBehaviorOptions => IsTraySupported
+        ? new[] { new ChoiceOption("終了する", "exit"), new ChoiceOption("タスクトレイに常駐する", "tray") }
+        : new[] { new ChoiceOption("終了する", "exit") };
+
+    /// <summary>課題3: この環境で自動起動に対応しているか。非対応ならチェックボックスを無効化する。</summary>
+    public bool IsAutoStartSupported { get; } = PlatformServices.Current.AutoStart.IsSupported;
+
+    /// <summary>自動起動が使えない場合に画面へ表示する理由（利用可能なら null）。</summary>
+    public string? AutoStartUnsupportedReason => PlatformServices.Current.AutoStart.UnsupportedReason;
+
     /// <summary>テーマ。設定変更と同時に <see cref="ThemeManager"/> 経由で即時反映する（再起動不要）。</summary>
     public string SelectedTheme
     {
@@ -153,6 +186,18 @@ public sealed class SettingsViewModel : ObservableObject
     public string TokenWarnThresholdText { get => _tokenWarnThresholdText; set => SetProperty(ref _tokenWarnThresholdText, value); }
     public string HooksTimeoutSecText { get => _hooksTimeoutSecText; set => SetProperty(ref _hooksTimeoutSecText, value); }
     public bool AutoCommit { get => _autoCommit; set => SetProperty(ref _autoCommit, value); }
+
+    /// <summary>
+    /// 課題2: ウィンドウを×で閉じたときの動作（"exit" / "tray"）。ドロップダウンのため、
+    /// 変更した瞬間に即時反映する（<see cref="SetEditableProperty{T}"/>）。
+    /// </summary>
+    public string CloseBehavior { get => _closeBehavior; set => SetEditableProperty(ref _closeBehavior, value); }
+
+    /// <summary>
+    /// 課題3: PC起動時に自動で起動するか。チェックボックスのため、変更した瞬間に即時反映する。
+    /// 実際のスタートアップフォルダへの登録・解除は<see cref="CommitAndSaveAsync"/>で行う。
+    /// </summary>
+    public bool LaunchAtStartup { get => _launchAtStartup; set => SetEditableProperty(ref _launchAtStartup, value); }
 
     /// <summary>15章・4章 エディタ設定（12項目）。設定画面の「エディタ」タブが編集する。</summary>
     public string EditorFontSizeText { get => _editorFontSizeText; set => SetProperty(ref _editorFontSizeText, value); }
@@ -358,6 +403,11 @@ public sealed class SettingsViewModel : ObservableObject
         TokenWarnThresholdText = s.Context.TokenWarnThreshold.ToString(CultureInfo.InvariantCulture);
         HooksTimeoutSecText = s.Hooks.TimeoutSec.ToString(CultureInfo.InvariantCulture);
         AutoCommit = s.Git.AutoCommit;
+        // 課題2・3の追加分は即時反映プロパティ（SetEditableProperty）のため、公開セッター
+        // 経由で代入すると読み込み直後に不要な保存とスタートアップフォルダへの再登録が
+        // 走ってしまう。SetProperty（ScheduleSaveを伴わない版）で直接フィールドへ反映する。
+        SetProperty(ref _closeBehavior, s.CloseBehavior, nameof(CloseBehavior));
+        SetProperty(ref _launchAtStartup, s.LaunchAtStartup, nameof(LaunchAtStartup));
         PopulateEditorFields(s.Editor);
     }
 
@@ -380,6 +430,8 @@ public sealed class SettingsViewModel : ObservableObject
         RequireSummary = _requireSummary,
         Hotkey = _hotkey,
         LogLevel = _selectedLogLevel,
+        CloseBehavior = _closeBehavior,
+        LaunchAtStartup = _launchAtStartup,
         ClipboardWatch = new ClipboardWatchSettings { Enabled = _clipboardWatchEnabled, Action = _selectedClipboardAction },
         Backup = new BackupSettings { MaxRevisions = ParseInt(_maxRevisionsText), MaxTotalMB = ParseInt(_maxTotalMbText), UseRecycleBin = _useRecycleBin },
         Matching = new MatchingSettings
@@ -426,6 +478,82 @@ public sealed class SettingsViewModel : ObservableObject
         }
         await operation.ConfigureAwait(true);
         IsBusy = false;
+    }
+
+    // ------------------------------------------------------------------
+    // 課題2・3: 即時反映方式（新規追加分のみ）。
+    // チェックボックス・ドロップダウンは変更した瞬間にフィールドとUIへ反映し
+    // （SetEditableProperty）、300msデバウンス後に実際の保存・副作用（自動起動の
+    // 登録／解除）を行う（ScheduleSave→CommitAndSaveAsync）。短時間に連続で
+    // 変更されても、最後の値だけが保存される。
+    // ------------------------------------------------------------------
+
+    /// <summary>値を即座にフィールド・UIへ反映したうえで、保存をデバウンスする。</summary>
+    private void SetEditableProperty<T>(ref T field, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
+        => SetProperty(ref field, value, ScheduleSave, propertyName);
+
+    /// <summary>
+    /// 直前の保存待ちを打ち切り、300ms後に<see cref="CommitAndSaveAsync"/>を実行し直す。
+    /// </summary>
+    private void ScheduleSave()
+    {
+        _saveDebounceCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _saveDebounceCts = cts;
+        _ = CommitAndSaveAsync(cts.Token);
+    }
+
+    /// <summary>
+    /// デバウンス後に実際へ保存する。課題2・3で追加した項目のみを、直近に読み込み／
+    /// 保存済みの <see cref="_settings"/> へ重ねて保存する（既存項目の未保存編集を
+    /// 巻き込まない）。LaunchAtStartupが変化した場合は、実際のスタートアップフォルダへの
+    /// 登録・解除も行い、失敗時は利用者へ通知する（黙って失敗させない）。
+    /// </summary>
+    private async Task CommitAndSaveAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(SaveDebounce, ct).ConfigureAwait(true);
+        }
+        catch (TaskCanceledException)
+        {
+            return; // 新しい変更で上書きされた。
+        }
+        if (ct.IsCancellationRequested) return;
+
+        var previousLaunchAtStartup = _settings.LaunchAtStartup;
+        var updated = _settings with { CloseBehavior = _closeBehavior, LaunchAtStartup = _launchAtStartup };
+
+        await _settingsStore.SaveAsync(updated, ct).ConfigureAwait(true);
+        if (ct.IsCancellationRequested) return;
+
+        _settings = updated;
+        _onLiveSettingsChanged?.Invoke(updated);
+
+        if (_launchAtStartup != previousLaunchAtStartup)
+        {
+            await ApplyAutoStartAsync(_launchAtStartup).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// 実際のスタートアップフォルダへの登録・解除を行う（課題3）。ファイルI/Oは
+    /// スレッドプールへ逃がし、UIスレッドをブロックしない。失敗時はチェックボックスを
+    /// 元の状態へ戻したうえで理由をダイアログで伝える（黙って失敗させない）。
+    /// </summary>
+    private async Task ApplyAutoStartAsync(bool enable)
+    {
+        var platform = PlatformServices.Current.AutoStart;
+        var result = await Task.Run(() => enable ? platform.Enable() : platform.Disable()).ConfigureAwait(true);
+        if (result.Success) return;
+
+        // 実際には登録・解除できていないので、チェックボックスの表示も元へ戻す。
+        // このsetterも即時反映プロパティのため、この巻き戻し自体も改めて保存される
+        // （settings.json側もLaunchAtStartupの実状態と一貫する）。
+        LaunchAtStartup = !enable;
+        await _dialogService.ShowMessageAsync("自動起動",
+            (enable ? "自動起動の登録に失敗しました。" : "自動起動の解除に失敗しました。") + Environment.NewLine + result.ErrorMessage)
+            .ConfigureAwait(true);
     }
 
     // 対応表は ThemeManager 側に集約する（起動時の反映と同じ規則を使うため）。

@@ -66,6 +66,8 @@ public class SettingsStoreTests
         s.Hooks.TimeoutSec.Should().Be(120);
         s.Git.AutoCommit.Should().BeFalse();
         s.LogLevel.Should().Be("info");
+        s.CloseBehavior.Should().Be("exit");
+        s.LaunchAtStartup.Should().BeFalse();
     }
 
     [Fact(DisplayName = "editorセクションの既定値が仕様書のJSONと一致する")]
@@ -154,6 +156,34 @@ public class SettingsStoreTests
 
         result.Value.Theme.Should().Be("system");
         result.Issues.Should().Contain(i => i.Code == ErrorCode.E404);
+    }
+
+    [Fact(DisplayName = "課題2: 不正なcloseBehaviorの値は既定値exitへフォールバックする")]
+    public async Task 不正なcloseBehaviorはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "closeBehavior": "hibernate" }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.CloseBehavior.Should().Be("exit");
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404);
+    }
+
+    [Fact(DisplayName = "課題2: closeBehaviorに\"tray\"を指定すればそのまま読み込める")]
+    public async Task closeBehaviorがtrayならそのまま読み込める()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "closeBehavior": "tray" }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.CloseBehavior.Should().Be("tray");
+        result.Issues.Should().BeEmpty();
     }
 
     [Fact(DisplayName = "空のallowedExtensionsは既定の拡張子一覧へフォールバックする")]

@@ -182,6 +182,40 @@ public interface ISingleInstanceGuard : IPlatformService, IDisposable
 }
 
 /// <summary>
+/// 課題3: PC起動時の自動起動。仕様書2.1「レジストリ書き込みは行わない（読み取りのみ許可）」
+/// に従い、レジストリの Run キーは使わない。代わりにOSごとの「スタートアップフォルダ」
+/// 方式（Windows: スタートアップフォルダへの起動スクリプト配置／Linux: XDG autostart仕様の
+/// .desktopファイル）で実現する。
+/// </summary>
+public interface IAutoStartService : IPlatformService
+{
+    /// <summary>現在、自動起動が登録されているかどうかを実際のファイルの有無から判定する。</summary>
+    bool IsRegistered { get; }
+
+    /// <summary>
+    /// 自動起動を登録する。既に登録されている場合も、現在の実行ファイルの絶対パスで
+    /// 常に書き直す（アプリを別の場所へ移動した後でも、登録し直せば古いパスの
+    /// 残骸が残らないようにするため）。
+    /// </summary>
+    AutoStartResult Enable();
+
+    /// <summary>自動起動の登録を解除する。登録されていない場合は何もせず成功を返す。</summary>
+    AutoStartResult Disable();
+}
+
+/// <summary>
+/// <see cref="IAutoStartService.Enable"/>・<see cref="IAutoStartService.Disable"/> の結果。
+/// 失敗時は<see cref="ErrorMessage"/>に日本語の理由が入り、呼び出し側（設定画面）が
+/// そのまま利用者へ表示できる（「登録・解除に失敗した場合は黙って失敗させず伝える」の対応）。
+/// </summary>
+public readonly record struct AutoStartResult(bool Success, string? ErrorMessage)
+{
+    public static AutoStartResult Ok() => new(true, null);
+
+    public static AutoStartResult Fail(string message) => new(false, message);
+}
+
+/// <summary>
 /// OS固有機能の入口。実行中のOSに応じた実装一式を提供する（<see cref="PlatformServices"/> が
 /// ファクトリ）。UI層・機能層はこのインターフェースにのみ依存し、個別のOS APIを直接呼ばない。
 /// </summary>
@@ -189,6 +223,9 @@ public interface IPlatformServices
 {
     /// <summary>トレイ常駐。</summary>
     ITrayIcon Tray { get; }
+
+    /// <summary>PC起動時の自動起動。</summary>
+    IAutoStartService AutoStart { get; }
 
     /// <summary>グローバルホットキー。</summary>
     IGlobalHotkeys Hotkeys { get; }

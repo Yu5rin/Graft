@@ -17,6 +17,12 @@ namespace Graft;
 public partial class App : Application
 {
     private Views.StartupCoordinator? _coordinator;
+    private IClassicDesktopStyleApplicationLifetime? _desktop;
+
+    // 課題1（バグ）: ×で閉じてもプロセスが終了しない不具合の再発防止フラグ。
+    // 後始末（DisposeAsync）が完了したあとの2回目のShutdownRequestedを
+    // そのまま通す（＝キャンセルしない）ための目印。
+    private bool _cleanupCompleted;
 
     public override void Initialize()
     {
@@ -38,6 +44,7 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
 
         if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
+        _desktop = desktop;
 
         // 想定外の例外は最上位で記録する（附録A.4）。ユーザー操作起因の失敗は各所で
         // GraftResult として扱われ、ここには到達しない。
@@ -59,10 +66,45 @@ public partial class App : Application
         desktop.MainWindow = _coordinator.MainWindow;
     }
 
-    private void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
+    /// <summary>
+    /// 課題1（バグ修正）: ×で閉じてもプロセスが終了しない不具合の真因と対処。
+    ///
+    /// 真因: 旧実装は <c>_coordinator.DisposeAsync().AsTask().GetAwaiter().GetResult()</c> で
+    /// UIスレッド上から後始末を同期的に待っていた。<see cref="StartupCoordinator.DisposeAsync"/>
+    /// 内部の <c>await ... .ConfigureAwait(true)</c> は、awaitの継続をawait時点の同期コンテキスト
+    /// （Avaloniaの UIスレッド用SynchronizationContext）へ戻そうとする。しかしその継続を
+    /// 実行できるはずのUIスレッドは、まさにこの<c>GetResult()</c>呼び出しによって同期的に
+    /// ブロックされていて、自分自身のディスパッチャキューを処理できない。結果として
+    /// 継続が永久に実行されず、後始末が完了しないまま <c>Dispatcher.UIThread.MainLoop</c> も
+    /// 終了せず、<c>Main</c>が返らずプロセスが残り続けていた（実機のXvfb環境で
+    /// xdotool windowcloseを使い再現し、後始末が<c>DisposeAsync</c>の最初のawaitで
+    /// 停止したまま戻らないことをログで確認した）。「TrayIconが生存している間は
+    /// 終了しない」という当初の仮説は誤りで、トレイの有無に関係なく発生する。
+    ///
+    /// 対処: UIスレッドを同期的にブロックするのをやめる。最初のShutdownRequestedは
+    /// いったん<c>e.Cancel = true</c>でキャンセルしてアプリの終了を保留し、後始末は
+    /// 通常のasync/awaitで（UIスレッドをブロックせずに）実行する。UIスレッドは
+    /// ブロックされていないので、ConfigureAwait(true)の継続も普通にディスパッチャ
+    /// キュー経由で実行できる（＝WindowsのDestroyWindow等、生成スレッドでの実行が
+    /// 必要なOS資源の後始末も安全に行える）。後始末が完了したら明示的に
+    /// <c>desktop.Shutdown()</c>を呼び直す。この2回目の呼び出しは
+    /// force引数がtrueになりShutdownRequestedを再度発火させない（Avalonia実装を
+    /// 確認済み）ため、無限ループにはならない。
+    /// </summary>
+    private async void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e)
     {
+        if (_cleanupCompleted) return; // 後始末済みの2回目の呼び出しはそのまま通す（キャンセルしない）。
+
+        e.Cancel = true; // 後始末が終わるまで、いったん終了を保留する。
+
         ThemeManager.Shutdown();
-        _coordinator?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        if (_coordinator is not null)
+        {
+            await _coordinator.DisposeAsync().ConfigureAwait(true);
+        }
+
+        _cleanupCompleted = true;
+        _desktop?.Shutdown();
     }
 
     /// <summary>UIスレッド外（バックグラウンドタスク・ファイナライザ等）の想定外の例外。記録のみ行う。</summary>

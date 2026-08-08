@@ -32,6 +32,9 @@ public sealed class SettingsStore
     private static readonly HashSet<string> ValidLogLevels =
         new(StringComparer.OrdinalIgnoreCase) { "trace", "debug", "info", "warn", "error" };
 
+    private static readonly HashSet<string> ValidCloseBehaviors =
+        new(StringComparer.OrdinalIgnoreCase) { "exit", "tray" };
+
     private readonly AppPaths _paths;
     private readonly JsonFileStore _store;
 
@@ -140,6 +143,7 @@ public sealed class SettingsStore
             Theme = NormalizeChoice(safe.Theme, ValidThemes, "system", "theme", issues),
             ApplyMode = NormalizeChoice(safe.ApplyMode, ValidApplyModes, "allOrNothing", "applyMode", issues),
             LogLevel = NormalizeChoice(safe.LogLevel, ValidLogLevels, "info", "logLevel", issues),
+            CloseBehavior = NormalizeChoice(safe.CloseBehavior, ValidCloseBehaviors, "exit", "closeBehavior", issues),
             Hotkey = NormalizeNotEmpty(safe.Hotkey, "Ctrl+Alt+V", "hotkey", issues),
             ClipboardWatch = ValidateClipboardWatch(safe.ClipboardWatch, issues),
             Backup = ValidateBackup(safe.Backup, issues),
