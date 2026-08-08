@@ -25,6 +25,29 @@ public partial class ShellWindow : Window
     private double _sideViewWidth = 260;
     private double _graftPanelHeight = 260;
 
+    // 課題2: 「閉じたときの動作」設定。既定は"exit"（終了する）。StartupCoordinatorが
+    // 起動時・設定変更時に設定する。設定は即時反映のため、ここは可変プロパティにする。
+    private string _closeBehavior = "exit";
+
+    /// <summary>
+    /// ×で閉じたときの動作。"exit"（終了する）/ "tray"（タスクトレイに常駐する）。
+    /// 設定画面での変更を即時に反映できるよう、StartupCoordinatorから都度書き換える。
+    /// </summary>
+    public string CloseBehavior { get => _closeBehavior; set => _closeBehavior = value; }
+
+    /// <summary>
+    /// トレイが実際に機能する環境かどうか。falseの場合、CloseBehaviorが"tray"であっても
+    /// 実際には終了する（仕様書2.3の縮退）。プロセス起動中に変わることは無いため、
+    /// StartupCoordinatorが起動時に一度だけ設定する。
+    /// </summary>
+    public bool IsTraySupported { get; set; }
+
+    /// <summary>
+    /// トレイメニューの「終了」等、CloseBehaviorの設定に関わらず必ず終了させたい経路から
+    /// Close()を呼ぶ前にtrueにする。OnClosingがトレイへ隠す分岐を迂回するための目印。
+    /// </summary>
+    public bool IsForceClosing { get; set; }
+
     // AvaloniaのXAMLコンパイラは Row/ColumnDefinition の x:Name に対してフィールドを
     // 生成しない（コントロールではないため）。そのため寸法を書き換える定義は、
     // 名前を付けたGridから位置で取得する。
@@ -187,9 +210,23 @@ public partial class ShellWindow : Window
         }
     }
 
-    /// <summary>仕様書9.6/3.2: 終了時にウィンドウ位置・サイズ・最大化・ペイン寸法を保存する。</summary>
+    /// <summary>
+    /// 仕様書9.6/3.2: 終了時にウィンドウ位置・サイズ・最大化・ペイン寸法を保存する。
+    /// 課題2: CloseBehaviorが"tray"、トレイが実際に機能する環境、かつ強制終了経路
+    /// （IsForceClosing）でない場合は、閉じる代わりに隠すだけにしてプロセスを残す。
+    /// トレイが使えない環境では"tray"が設定されていても無視して通常どおり終了する
+    /// （仕様書2.3の縮退。設定画面側でも選べないようにするが、手動でsettings.jsonを
+    /// 書き換えた場合や環境が変わった場合に備え、ここでも二重に守る）。
+    /// </summary>
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
+        if (_closeBehavior == "tray" && IsTraySupported && !IsForceClosing)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+
         var layout = ViewModel.Graft.Layout;
         layout.IsMaximized = WindowState == WindowState.Maximized;
         if (WindowState == WindowState.Normal)

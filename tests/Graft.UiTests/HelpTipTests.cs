@@ -9,6 +9,7 @@ using Graft.Infra;
 using Graft.Platform;
 using Graft.ViewModels;
 using Graft.Views;
+using Graft.Views.SettingsPanels;
 
 namespace Graft.UiTests;
 
@@ -152,6 +153,54 @@ public class HelpTipTests
 
         vm.SelectedTooltipDetail = "off";
         ToolTip.GetTip(analyzeButton).Should().BeNull();
+
+        try
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+        catch (IOException)
+        {
+            // 後始末の失敗は検証結果に影響しない。
+        }
+    }
+
+    [AvaloniaFact(DisplayName = "課題2・3: 「閉じたときの動作」「PC起動時に自動で起動する」のツールチップも操作の説明レベルに追従する")]
+    public async Task 課題2_3の設定項目もツールチップが切り替わる()
+    {
+        HelpTip.SetLevel(TooltipDetailLevel.Standard);
+
+        var root = Path.Combine(Path.GetTempPath(), "graft-helptip-general", Guid.NewGuid().ToString("N"));
+        var appPaths = new AppPaths(root);
+        appPaths.EnsureCoreDirectoriesExist();
+        var vm = new SettingsViewModel(appPaths, new NullDialogService(), new AvaloniaUiServices());
+        await vm.InitializeAsync();
+
+        var view = new GeneralSettingsView { DataContext = vm };
+        var window = new Window { Content = view };
+        window.Show();
+
+        var closeBehaviorCombo = view.GetVisualDescendants().OfType<ComboBox>()
+            .Single(c => Equals(AutomationProperties.GetName(c), "ウィンドウを閉じたときの動作"));
+        var launchAtStartupCheck = view.GetVisualDescendants().OfType<CheckBox>()
+            .Single(c => Equals(AutomationProperties.GetName(c), "PC起動時に自動で起動する"));
+
+        ToolTip.GetTip(closeBehaviorCombo).Should().BeOfType<TextBlock>()
+            .Which.Text.Should().Contain("常駐する");
+        ToolTip.GetTip(launchAtStartupCheck).Should().BeOfType<TextBlock>()
+            .Which.Text.Should().Contain("PCの起動時");
+
+        // 「くわしい説明」に切り替えると、両方ともくわしい文言へ即時に切り替わる必要がある
+        // （課題1のHelpTip機構に相乗りしているだけであることの確認。再構築は不要）。
+        HelpTip.SetLevel(TooltipDetailLevel.Detailed);
+
+        ToolTip.GetTip(closeBehaviorCombo).Should().BeOfType<TextBlock>()
+            .Which.Text.Should().Contain("お使いの環境がタスクトレイに対応していない場合");
+        ToolTip.GetTip(launchAtStartupCheck).Should().BeOfType<TextBlock>()
+            .Which.Text.Should().Contain("XDG autostart");
+
+        HelpTip.SetLevel(TooltipDetailLevel.Off);
+        ToolTip.GetTip(closeBehaviorCombo).Should().BeNull();
+        ToolTip.GetTip(launchAtStartupCheck).Should().BeNull();
 
         try
         {

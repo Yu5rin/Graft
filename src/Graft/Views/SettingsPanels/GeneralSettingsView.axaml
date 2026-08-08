@@ -62,6 +62,29 @@
                           AutomationProperties.Name="ログレベル" />
             </StackPanel>
 
+            <!--
+                課題2・3: ウィンドウを閉じたときの動作／PC起動時の自動起動。
+                この2項目は変更した瞬間に即時反映される（保存ボタンはない）。
+            -->
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="ウィンドウを閉じたときの動作" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding CloseBehaviorOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding CloseBehavior}"
+                          AutomationProperties.Name="ウィンドウを閉じたときの動作"
+                          views:HelpTip.Standard="×ボタンでウィンドウを閉じたときの動作を選びます。「終了する」ならアプリごと終了し、「タスクトレイに常駐する」ならウィンドウを隠すだけで動作を続けます。"
+                          views:HelpTip.Detailed="ウィンドウ右上の×ボタンを押したときの挙動を選びます。「終了する」（既定）を選ぶと、×を押した時点でGraftのプロセスごと終了します。「タスクトレイに常駐する」を選ぶと、×を押してもプロセスは終了せずウィンドウが隠れるだけになり、タスクトレイのアイコンの「開く」で再表示、「終了」で完全に終了できます。クリップボード監視やホットキー貼り付けをすぐ使えるよう、常に起動しておきたいときに使います。お使いの環境がタスクトレイに対応していない場合は、この選択肢自体が表示されません（×で閉じると常に終了します）。" />
+            </StackPanel>
+            <TextBlock Text="このデスクトップ環境ではタスクトレイ（StatusNotifierItem）に対応していないため、常駐は選べません。×で閉じると終了します。"
+                       Classes="fieldHint" IsVisible="{Binding !IsTraySupported}"
+                       TextWrapping="Wrap" />
+            <CheckBox Classes="settingRow" Content="PC起動時に自動で起動する" IsChecked="{Binding LaunchAtStartup}"
+                      IsEnabled="{Binding IsAutoStartSupported}"
+                      AutomationProperties.Name="PC起動時に自動で起動する"
+                      views:HelpTip.Standard="オンにすると、PCの起動時にGraftが自動的に立ち上がるようになります。"
+                      views:HelpTip.Detailed="オンにすると、次回以降PCを起動したときにGraftが自動的に立ち上がるようになります。レジストリは使わず、OS標準のスタートアップフォルダ（Windows）やXDG autostart（Linux）に登録する方式です。オフに戻すと登録は解除されます。登録・解除に失敗した場合は、その場でダイアログに理由が表示されます。" />
+            <TextBlock Text="{Binding AutoStartUnsupportedReason}" Classes="fieldHint"
+                       IsVisible="{Binding !IsAutoStartSupported}" TextWrapping="Wrap" />
+
             <TextBlock Text="バックアップ・世代管理" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />

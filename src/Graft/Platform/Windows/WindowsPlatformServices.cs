@@ -31,6 +31,8 @@ public sealed class WindowsPlatformServices : IPlatformServices
 
     public ISingleInstanceGuard SingleInstance { get; } = new WindowsSingleInstanceGuard();
 
+    public IAutoStartService AutoStart { get; } = new WindowsAutoStartService();
+
     /// <summary>16章: OS種別・バージョン・各サービスの利用可否を1行の日本語で記録する。</summary>
     public string DescribeEnvironment()
     {
@@ -38,7 +40,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
         builder.Append("OS: Windows ").Append(Environment.OSVersion.Version);
         builder.Append("（トレイ: 対応, ホットキー: 対応, クリップボード監視: 対応, ");
         builder.Append("ごみ箱: 対応, ファイルマネージャ連携: 対応, ");
-        builder.Append("テーマ自動追従: 対応, 多重起動防止: 対応）");
+        builder.Append("テーマ自動追従: 対応, 多重起動防止: 対応, 自動起動: 対応）");
         return builder.ToString();
     }
 }

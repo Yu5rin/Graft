@@ -21,6 +21,8 @@ public sealed class NullPlatformServices : IPlatformServices
 
     public ISingleInstanceGuard SingleInstance { get; } = new NullSingleInstanceGuard();
 
+    public IAutoStartService AutoStart { get; } = new NullAutoStartService();
+
     public string DescribeEnvironment()
         => $"OS: {Environment.OSVersion.VersionString}"
            + "（未対応プラットフォーム。トレイ/ホットキー/クリップボード監視/ごみ箱/"
