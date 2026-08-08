@@ -364,4 +364,42 @@ public class ApplyEngineTests
         keepContent.Should().Be("original\n",
             "失敗時は同一適用内で先に成功していたkeep.txtへの変更もロールバックされているはず（仕様書6.1・6.3）");
     }
+
+    // ------------------------------------------------------------------
+    // 不具合1: 適用の成功後に7.4の世代管理が実際に呼ばれること
+    // （RevisionStore.EnforceRetentionAsync自体は既存テストで直接検証済みのため、
+    // ここではApplyEngine.ApplyAsyncを経由した「呼び出し元の配線」自体を検証する）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "不具合1: ApplyAsyncは適用成功後に世代管理を実行し、maxRevisionsを超えた古いリビジョンを削除する")]
+    public async Task 適用成功後に世代管理が自動で実行される()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        harness.WriteProjectText("value.txt", "value1\n");
+        var settings = new Graft.Infra.Settings
+        {
+            Backup = new Graft.Infra.BackupSettings { MaxRevisions = 2, MaxTotalMB = 0, UseRecycleBin = false },
+        };
+
+        var values = new[] { ("value1", "value2"), ("value2", "value3"), ("value3", "value4") };
+        var revision = 1;
+        foreach (var (from, to) in values)
+        {
+            var ctx = harness.MakeContext(revision, settings);
+            var dryRun = await harness.DryRunAsync(BuildSrPatch("value.txt", from, to), ctx);
+            var apply = await harness.ApplyAsync(dryRun, ctx);
+            apply.IsSuccess.Should().BeTrue(string.Join(",", apply.Issues.Select(i => i.ToDisplayText())));
+            revision++;
+        }
+
+        var projectBackupDir = harness.Paths.GetProjectBackupDirectory(harness.ProjectId);
+        Directory.EnumerateDirectories(projectBackupDir).Should().HaveCount(2,
+            "maxRevisions=2で3回適用したので、世代管理が呼ばれていれば実体フォルダは2件だけ残るはず" +
+            "（不具合修正前はEnforceRetentionAsyncの呼び出し元が存在せず、3件とも残ってしまっていた）");
+
+        var remaining = await harness.Revisions.ListAsync(harness.ProjectId);
+        remaining.Value.Where(r => r.IsRestorable).Select(r => r.Manifest.Revision)
+            .Should().BeEquivalentTo(new[] { 2, 3 }, "削除されるのは最も古いr1で、新しい2件が残るはず");
+    }
 }

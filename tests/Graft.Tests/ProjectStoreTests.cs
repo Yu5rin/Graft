@@ -140,6 +140,86 @@ public class ProjectStoreTests
     }
 
     // ------------------------------------------------------------------
+    // 不具合2: nextRevisionの消費（ConsumeNextRevisionAsync）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ConsumeNextRevisionAsyncは消費前の値を返し、projects.jsonへは+1した値を永続化する")]
+    public async Task 番号消費は消費前の値を返しつつ1つ進めて永続化する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+        await store.SaveAsync(new[] { new Project { Id = "p_a", Root = ws.CreateDirectory("a"), NextRevision = 1 } });
+
+        var first = await store.ConsumeNextRevisionAsync("p_a");
+        first.IsSuccess.Should().BeTrue();
+        first.Value.Should().Be(1, "1回目に使う番号は消費前の値（1）のはず");
+
+        var second = await store.ConsumeNextRevisionAsync("p_a");
+        second.Value.Should().Be(2, "1回目の消費で2へ進んでいるはず");
+
+        var reloaded = await store.LoadAsync();
+        reloaded.Value.Single(p => p.Id == "p_a").NextRevision.Should().Be(3,
+            "2回消費したので永続化されたnextRevisionは3になっているはず");
+    }
+
+    [Fact(DisplayName = "ConsumeNextRevisionAsyncは複数プロジェクトのnextRevisionを独立して扱う")]
+    public async Task 番号消費は他プロジェクトへ影響しない()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+        await store.SaveAsync(new[]
+        {
+            new Project { Id = "p_a", Root = ws.CreateDirectory("a"), NextRevision = 1 },
+            new Project { Id = "p_b", Root = ws.CreateDirectory("b"), NextRevision = 5 },
+        });
+
+        await store.ConsumeNextRevisionAsync("p_a");
+        await store.ConsumeNextRevisionAsync("p_a");
+
+        var reloaded = await store.LoadAsync();
+        reloaded.Value.Single(p => p.Id == "p_a").NextRevision.Should().Be(3);
+        reloaded.Value.Single(p => p.Id == "p_b").NextRevision.Should().Be(5, "別プロジェクトのnextRevisionは変化しないはず");
+    }
+
+    [Fact(DisplayName = "ConsumeNextRevisionAsyncは存在しないプロジェクトIDに対して失敗を返す")]
+    public async Task 番号消費は未知のプロジェクトIDでは失敗する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+
+        var result = await store.ConsumeNextRevisionAsync("p_不存在");
+
+        result.IsSuccess.Should().BeFalse();
+    }
+
+    [Fact(DisplayName = "nextRevisionキーを持たない旧形式のprojects.jsonを読み込んでも1から正しく消費できる")]
+    public async Task 旧形式のprojects_jsonでも番号消費は1から始まる()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var root = ws.CreateDirectory("legacy");
+        // 実機で確認された最小形式（nextRevisionキー自体が存在しない）を模す。
+        var legacyJson = $$"""
+            {"projects":[{"id":"p_legacy","name":"旧形式プロジェクト","root":"{{root.Replace("\\", "\\\\")}}"}]}
+            """;
+        await File.WriteAllTextAsync(paths.ProjectsFilePath, legacyJson);
+
+        var store = new ProjectStore(paths);
+        var loaded = await store.LoadAsync();
+        loaded.Value.Single().NextRevision.Should().Be(1, "nextRevisionキーが無い場合は既定値1で読めるはず");
+
+        var consumed = await store.ConsumeNextRevisionAsync("p_legacy");
+
+        consumed.IsSuccess.Should().BeTrue();
+        consumed.Value.Should().Be(1, "旧形式でも初回の消費は1番から始まるはず");
+        var reloaded = await store.LoadAsync();
+        reloaded.Value.Single().NextRevision.Should().Be(2, "消費後はprojects.jsonへ2として永続化されるはず");
+    }
+
+    // ------------------------------------------------------------------
     // 3.1 overrides の +/- 解決
     // ------------------------------------------------------------------
 

@@ -62,7 +62,25 @@ public sealed partial class ApplyEngine
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
         if (!completed.IsSuccess) return GraftResult<RevisionManifest>.Fail(completed.Issues);
 
-        return GraftResult<RevisionManifest>.Ok(finalManifest, dupIssues.Issues);
+        // 不具合1対応: 7.4の世代管理（RevisionStore.EnforceRetentionAsync）は実装済みだったが
+        // 呼び出し元が存在せず、設定画面の「最大保持リビジョン数」「バックアップ合計上限」が
+        // 一切効いていなかった。リビジョンが確定した直後（=これ以上このリビジョンの実体を
+        // 参照する処理が無くなった時点）に実行するのが最も安全なタイミングのため、ここで行う。
+        // 失敗時の扱い: 適用そのものは直前のCompleteAsyncで既に確定済みであり、世代整理
+        // （古いフォルダの削除）が失敗したからといって「適用が失敗した」と利用者に見せると
+        // 実際には成功しているのに誤解を招く。そのためEnforceRetentionAsyncの失敗は
+        // 適用結果をFailへ倒さず、Warningのissueとして合流させるだけにとどめる。
+        // 通知の要否: 削除件数を適用のたびにダイアログで知らせると、通常運用時（上限超過は
+        // 稀ではなく毎回発生しうる）はポップアップが頻発してうるさくなる。呼び出し元
+        // （MainViewModel.ApplyAsync）は現状issuesを成功時ダイアログへ反映していないため、
+        // ここではissuesに合流させるだけにとどめ、ログへ出すかどうかは呼び出し側の判断に委ねる。
+        var retention = await _revisions.EnforceRetentionAsync(ctx.ProjectId, ctx.Settings.Backup, ct).ConfigureAwait(false);
+
+        // ついでの修正: CompleteAsync自身が返すissues（history.jsonl追記失敗時のWarning等）が
+        // これまで呼び出し元へ一切伝わっていなかった（このメソッドの戻り値に含めていなかった）
+        // ため、あわせて合流させる。適用が成功したこと自体には影響しない付随情報。
+        var mergedIssues = dupIssues.Issues.Concat(completed.Issues).Concat(retention.Issues).ToList();
+        return GraftResult<RevisionManifest>.Ok(finalManifest, mergedIssues);
     }
 
     // ------------------------------------------------------------------

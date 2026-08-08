@@ -49,6 +49,13 @@ public sealed partial class MainViewModel
 
         State = CenterPaneState.Loading;
         var result = await _applyEngine.ApplyAsync(updatedDryRun, _lastContext).ConfigureAwait(true);
+
+        // 不具合2対応: 適用を試みた直後に、成功・失敗を問わずnextRevisionを消費して
+        // projects.jsonへ永続化する（消費しないと次回も同じ番号が付与され続ける）。
+        // 失敗時にも消費する理由はProjectStore.ConsumeNextRevisionAsyncのコメント参照。
+        // ProjectPane.LoadAsync（下）より前に行い、再読込結果へ確実に反映させる。
+        await ConsumeRevisionNumberAsync(_lastContext.ProjectId).ConfigureAwait(true);
+
         if (!result.IsSuccess)
         {
             CenterError = result.Errors.FirstOrDefault();
@@ -70,6 +77,26 @@ public sealed partial class MainViewModel
         }
 
         await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 不具合2対応: 適用を試みた直後に呼ぶ。projects.jsonのnextRevisionを1つ進めて永続化する。
+    /// 消費するかどうかを成功/失敗で分岐しない理由は<see cref="ProjectStore.ConsumeNextRevisionAsync"/>
+    /// のコメント参照。
+    /// </summary>
+    private async Task ConsumeRevisionNumberAsync(string projectId)
+    {
+        var consumed = await _projectStore.ConsumeNextRevisionAsync(projectId).ConfigureAwait(true);
+        if (!consumed.IsSuccess)
+        {
+            // projects.jsonへの書き込み不可等、想定外の状況。適用結果自体はここでは
+            // Fail扱いにしない（次回起動時のReconcileRevisionsAsyncが実体フォルダの最大値から
+            // 補正するため、番号がずれたままでも致命的にはならない）。ログにだけ残す。
+            SafeHandler.OnUnexpected?.Invoke(
+                "リビジョン番号の更新",
+                new InvalidOperationException(
+                    consumed.Errors.FirstOrDefault()?.Detail ?? "不明なエラーでprojects.jsonを更新できませんでした"));
+        }
     }
 
     /// <summary>UndoCommand（Ctrl+Z）の実体。最新リビジョンを取り消す。</summary>
