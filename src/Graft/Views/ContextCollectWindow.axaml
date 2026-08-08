@@ -120,7 +120,8 @@
                             <TextBox Grid.Column="0" Text="{Binding NewExcludePattern}"
                                      AutomationProperties.Name="追加する除外パターン" TabIndex="3" />
                             <Button Grid.Column="1" Content="追加" Command="{Binding AddExcludeCommand}" Margin="6,0,0,0"
-                                    ToolTip.Tip="入力した除外パターンをこのプロジェクト専用の除外リストへ追加します。次回以降のファイル一覧・収集結果から外れます。"
+                                    local:HelpTip.Standard="入力した除外パターンをこのプロジェクト専用の除外リストへ追加します。次回以降のファイル一覧・収集結果から外れます。"
+                                    local:HelpTip.Detailed="左のテキストボックスに入力したパターン（例: *.log や node_modules/）を、このプロジェクト専用の除外リストへ追加します。追加すると、左側のファイル一覧やAIへ渡す内容から、パターンに一致するファイルが除かれるようになります。AIに読ませたくない大きなファイルや秘密情報を含むファイルを外すのに使います。"
                                     AutomationProperties.Name="除外パターンを追加" TabIndex="4" />
                         </Grid>
                         <ListBox ItemsSource="{Binding ExtraExcludes}"
@@ -132,7 +133,8 @@
                                         <Button Grid.Column="1" Content="削除"
                                                 Command="{Binding DataContext.RemoveExcludeCommand, ElementName=Root}"
                                                 CommandParameter="{Binding}"
-                                                ToolTip.Tip="この除外パターンをプロジェクトの除外リストから取り除きます。"
+                                                local:HelpTip.Standard="この除外パターンをプロジェクトの除外リストから取り除きます。"
+                                                local:HelpTip.Detailed="この1件の除外パターンだけをリストから取り除きます。取り除くと、次にファイル一覧・収集結果を作り直したときに、これまでこのパターンで除かれていたファイルが再び対象に含まれるようになります。"
                                                 AutomationProperties.Name="{Binding}" />
                                     </Grid>
                                 </DataTemplate>
@@ -191,10 +193,12 @@
                            FontSize="{DynamicResource CaptionFontSize}" />
             </StackPanel>
             <Button Grid.Column="1" Content="プレビュー" Command="{Binding PreviewCommand}" Margin="0,0,8,0"
-                    ToolTip.Tip="選んだファイルからAIへ渡す内容を組み立て、プレビュータブと推定トークン数で確認します。クリップボードへはコピーしません。"
+                    local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、プレビュータブと推定トークン数で確認します。クリップボードへはコピーしません。"
+                    local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、実際にAIへ渡す文章としてどう組み立てられるかを「プレビュー」タブで確認できます。おおよそのトークン数（AIへの負荷の目安）もここで分かります。この操作ではクリップボードには何もコピーされないため、内容を確認するだけのときに使ってください。"
                     AutomationProperties.Name="推定トークン数をプレビュー" TabIndex="6" />
             <Button Grid.Column="2" Content="コピー" Command="{Binding CopyCommand}"
-                    ToolTip.Tip="選んだファイルからAIへ渡す内容を組み立て、クリップボードへコピーします。推定トークン数が上限を超えている場合はコピーされず警告のみ表示します。"
+                    local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、クリップボードへコピーします。推定トークン数が上限を超えている場合はコピーされず警告のみ表示します。"
+                    local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、AIへ渡す文章としてクリップボードへコピーします。コピーしたら、そのままChatGPTやClaudeなどのAIとの会話に貼り付けて質問してください。推定トークン数が設定の上限を超えている場合は、コピーされずに警告だけが表示されます（内容が大きすぎるため、除外パターンでファイルを減らすなどの調整が必要です）。"
                     AutomationProperties.Name="コンテキストをクリップボードへコピー" TabIndex="7" />
         </Grid>
     </Grid>

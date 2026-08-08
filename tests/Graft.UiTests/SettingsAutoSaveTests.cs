@@ -170,6 +170,34 @@ public class SettingsAutoSaveTests : IDisposable
         });
     }
 
+    [AvaloniaFact(DisplayName = "「操作の説明」を切り替えると即座にHelpTip.CurrentLevelへ反映され、デバウンス後settings.jsonへも保存される")]
+    public async Task 操作の説明を切り替えると即時反映と保存の両方が行われる()
+    {
+        var (vm, appPaths, _) = await BuildWindowAsync();
+
+        vm.SelectedTooltipDetail.Should().Be("standard", "既定は標準の説明");
+        HelpTip.CurrentLevel.Should().Be(TooltipDetailLevel.Standard);
+
+        // 設定画面が即時反映方式であることに合わせ、ドロップダウンの選択が変わった瞬間に
+        // （保存を待たずに）HelpTip側のレベルが切り替わる必要がある（課題1の要件）。
+        vm.SelectedTooltipDetail = "detailed";
+        HelpTip.CurrentLevel.Should().Be(TooltipDetailLevel.Detailed, "保存の完了を待たず、setterの時点で即時反映される必要がある");
+
+        await WaitUntilAsync(async () =>
+        {
+            var reloaded = await new SettingsStore(appPaths).LoadAsync();
+            return reloaded.Value.TooltipDetail == "detailed";
+        });
+
+        vm.SelectedTooltipDetail = "off";
+        HelpTip.CurrentLevel.Should().Be(TooltipDetailLevel.Off);
+        await WaitUntilAsync(async () =>
+        {
+            var reloaded = await new SettingsStore(appPaths).LoadAsync();
+            return reloaded.Value.TooltipDetail == "off";
+        });
+    }
+
     [AvaloniaFact(DisplayName = "「既定に戻す」は確認ダイアログを経て、settings.jsonのみを既定値に戻しprojects.jsonは変更しない")]
     public async Task 既定に戻すは設定のみを対象にする()
     {

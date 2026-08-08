@@ -40,7 +40,22 @@
                 Background="{DynamicResource BgSurface}"
                 BorderBrush="{DynamicResource BorderSubtle}"
                 BorderThickness="0,0,0,1">
-            <Grid Margin="12,0" ColumnDefinitions="Auto,*,Auto">
+            <!--
+                課題3（ボタンの左詰め）: 以前はColumnDefinitions="Auto,*,Auto"で、左端が
+                プロジェクト選択、右端がボタン群という配置だった。ウィンドウが広いと
+                プロジェクト選択とボタン群の間に大きな空白ができ、視線移動が長くなる
+                （実機で確認済み）ため、ボタン群をプロジェクト選択のすぐ右（列1）へ寄せ、
+                余白（*）は列2へ追い出す。
+
+                「?」ショートカット一覧ボタンだけは列3として右端に残す。他のボタンは
+                「ファイル→解析→…→設定」という接ぎ木のワークフロー順に並ぶ操作ボタン群だが、
+                ショートカット一覧はワークフローの一部ではなく画面の使い方そのものを調べる
+                補助機能であり、性質が異なる。右端に固定しておけば、ウィンドウ幅やボタンの
+                増減でワークフロー側の並びが変わっても「困ったときはここ」という位置が
+                動かない（実機でウィンドウを最小幅まで狭めても両グループが欠けずに収まる
+                ことを確認済み）。
+            -->
+            <Grid x:Name="CommandBarGrid" Margin="12,0" ColumnDefinitions="Auto,Auto,*,Auto">
 
                 <ComboBox Grid.Column="0"
                           MinWidth="180"
@@ -50,69 +65,87 @@
                           ItemTemplate="{StaticResource NameItemTemplate}"
                           AutomationProperties.Name="プロジェクトを選択" />
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
                     <!-- 10章: プロジェクトのフォルダ構成・ファイル内容を確認するコンテキスト収集画面。
                          ツールチップは「このボタンが何をするものか」を初見で分かる言葉で書く。
                          ボタン名（ファイル・解析・キュー）だけでは機能が伝わらないという
                          利用者からの指摘への対応で、AutomationProperties.Name（読み上げ用の
-                         短い操作名）とは別に、目的と使いどころを1〜2文で添える。 -->
+                         短い操作名）とは別に、目的と使いどころを1〜2文で添える。
+
+                         ツールチップの表示レベル（表示しない／標準／くわしい）は
+                         views:HelpTip.Standard・views:HelpTip.Detailed の添付プロパティで
+                         2種類の文言を持たせ、実際に表示されるToolTip.Tipへの反映は
+                         HelpTipクラスが設定に応じて一括で行う（詳細はHelpTip.csのコメント）。
+                         そのためこの画面ではToolTip.Tipを直接は書かない。 -->
                     <Button Content="ファイル"
                             Command="{Binding Graft.OpenContextCollectCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="プロジェクトのファイルを選んで、AIに渡すコード一式をまとめてコピーします。AIに質問する前の準備に使います。"
+                            views:HelpTip.Standard="プロジェクトのファイルを選んで、AIに渡すコード一式をまとめてコピーします。AIに質問する前の準備に使います。"
+                            views:HelpTip.Detailed="AIに質問する前に、プロジェクト内のどのファイルを読んでもらうかを選ぶ画面を開きます。左側でファイルにチェックを入れると、その中身をまとめてコピーする準備ができます。コピーした内容をChatGPTやClaudeなどのAIとの会話に貼り付けてから、直してほしい内容を伝えてください。ここではまだファイルは変更されません。"
                             AutomationProperties.Name="プロジェクトのファイル一覧とコンテキスト収集を開く" />
                     <Button Content="解析"
                             Command="{Binding Graft.PasteAndParseCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です。"
+                            views:HelpTip.Standard="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です。"
+                            views:HelpTip.Detailed="ChatGPTやClaudeなどのAIに修正を頼んで返ってきた回答を、まるごとコピーしてからこのボタンを押します。Graftが回答の中からコード変更の部分だけを探し出し、下の接ぎ木パネルに一覧表示します。この時点ではまだファイルは書き換わりません。内容を確認して「適用」を押すまで、あなたのコードは安全なままです。"
                             AutomationProperties.Name="クリップボードのパッチを解析" />
                     <!-- 4.10: 分割パッチの受け取り。キューへ追加／キュー一覧を開く。 -->
                     <Button Content="キューへ追加"
                             Command="{Binding Graft.AddCurrentPatchToQueueCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="解析した変更をすぐ適用せず、順番待ちに溜めます。AIが変更を数回に分けて出してきたときに使います。"
+                            views:HelpTip.Standard="解析した変更をすぐ適用せず、順番待ちに溜めます。AIが変更を数回に分けて出してきたときに使います。"
+                            views:HelpTip.Detailed="AIの回答が長く、修正が何回かに分けて送られてくることがあります。そのたびに「解析」で読み取った内容を、このボタンで順番待ちの列（キュー）に追加できます。追加してもファイルはまだ変わりません。すべての回答を解析し終えたら「キュー」ボタンを押して一覧を開き、まとめて適用してください。"
                             AutomationProperties.Name="現在の解析結果をパッチキューへ追加" />
                     <Button Content="{Binding Graft.Queue.Items.Count, StringFormat=キュー（{0}）}"
                             Command="{Binding Graft.OpenQueueCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="順番待ちにしてある変更の一覧を開きます。括弧内は現在の待ち件数です。まとめて適用できます。"
+                            views:HelpTip.Standard="順番待ちにしてある変更の一覧を開きます。括弧内は現在の待ち件数です。まとめて適用できます。"
+                            views:HelpTip.Detailed="「キューへ追加」で溜めておいた変更の一覧を開きます。ボタンの括弧内の数字は、今たまっている件数です。開いた画面で内容を確認し、不要なものを取り除いてから、まとめて適用できます。"
                             AutomationProperties.Name="パッチキューを開く" />
                     <Button Content="適用"
                             Command="{Binding Graft.ApplyCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
+                            views:HelpTip.Standard="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
+                            views:HelpTip.Detailed="「解析」で読み取った変更を、実際にファイルへ書き込みます。押す前には自動でバックアップ（元の状態のコピー）が作られるため、結果が気に入らなければサイドバーの「履歴」からいつでも元に戻せます。設定で「適用前にプレビューを表示する」を有効にしていれば、書き込む前に差分を確認する画面が挟まります。"
                             AutomationProperties.Name="適用を実行" />
                     <!-- 4.8.4 コピー操作: テンプレート選択ドロップダウン。Ctrl+Shift+Cでも同じ操作。 -->
                     <Button x:Name="PromptButton"
                             Content="プロンプト"
                             Command="{Binding Graft.OpenPromptDropdownCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="AIへの依頼文をコピーします。Graftが読み取れる形式で回答するよう指示する文面です（Ctrl+Shift+C）。"
+                            views:HelpTip.Standard="AIへの依頼文をコピーします。Graftが読み取れる形式で回答するよう指示する文面です（Ctrl+Shift+C）。"
+                            views:HelpTip.Detailed="AIに「Graftが読み取れる決まった形式で回答してください」と伝えるための文章（テンプレート）を選び、クリップボードへコピーします。コピーした文章をAIとの会話に貼り付けてから、続けて直してほしい内容を書いてください。こうしておくと、AIの回答をあとで「解析」ボタンで正しく読み取れるようになります。ショートカットキーはCtrl+Shift+Cです。"
                             AutomationProperties.Name="プロンプトテンプレートを選んでコピー" />
                     <!-- 9.2: サイドバーの履歴ビューを開く動作にする。 -->
                     <Button Content="履歴"
                             Command="{Binding Graft.ShowHistoryCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
+                            views:HelpTip.Standard="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
+                            views:HelpTip.Detailed="これまでに「適用」したすべての変更が、時系列の一覧として記録されています。過去のどれかを選ぶと、その時点の内容を確認したり、その状態へ復元（元に戻す）したりできます。誤った変更を適用してしまったときのやり直し手段です。"
                             AutomationProperties.Name="履歴ビューを開く" />
                     <Button Content="設定"
                             Command="{Binding Graft.OpenSettingsCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="テーマ・エディタ・安全機構などの設定を開きます。"
+                            views:HelpTip.Standard="テーマ・エディタ・安全機構などの設定を開きます。"
+                            views:HelpTip.Detailed="Graft全体の動作を調整する設定画面を開きます。見た目の色（テーマ）、この説明文の詳しさ、エディタの表示、バックアップの保持数など、多くの項目をここでまとめて変更できます。変更は入力した瞬間に自動で保存されるため、保存ボタンを押す必要はありません。"
                             AutomationProperties.Name="設定を開く" />
-                    <!-- キーボードショートカット一覧。20個以上あるショートカットを利用者が
-                         発見する手段がボタン1つ分のツールチップしか無かったための追加。
-                         既存レイアウトを崩さないよう、コマンドバー右端に小さいアイコンのみの
-                         ボタンとして置く。開く手段はこのボタンとCtrl+/の2通り。 -->
-                    <Button Command="{Binding OpenShortcutsCommand}"
-                            Margin="12,0,0,0"
-                            Padding="6"
-                            Background="Transparent" BorderThickness="0"
-                            ToolTip.Tip="キーボードショートカットの一覧を開きます（Ctrl+/）。"
-                            AutomationProperties.Name="キーボードショートカット一覧を開く">
-                        <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconHelpCircleGeometry}" />
-                    </Button>
                 </StackPanel>
+
+                <!-- キーボードショートカット一覧。20個以上あるショートカットを利用者が
+                     発見する手段がボタン1つ分のツールチップしか無かったための追加。
+                     ワークフローの操作ボタン群（列1）とは性質が異なる補助機能のため、
+                     課題3の対応として列3（コマンドバー右端）に独立させて置く
+                     （このGrid冒頭のコメント参照）。開く手段はこのボタンとCtrl+/の2通り。 -->
+                <Button Grid.Column="3"
+                        Command="{Binding OpenShortcutsCommand}"
+                        VerticalAlignment="Center"
+                        Padding="6"
+                        Background="Transparent" BorderThickness="0"
+                        views:HelpTip.Standard="キーボードショートカットの一覧を開きます（Ctrl+/）。"
+                        views:HelpTip.Detailed="Graftで使えるキーボードショートカットの一覧を開きます。マウス操作を減らして素早く作業したいときに確認してください。このボタンを押すか、キーボードでCtrl+/を押しても同じ一覧が開きます。"
+                        AutomationProperties.Name="キーボードショートカット一覧を開く">
+                    <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconHelpCircleGeometry}" />
+                </Button>
 
                 <!-- 4.8.4: テンプレート選択ドロップダウン。名称の右に展開後の推定トークン数を表示する。 -->
                 <Popup x:Name="PromptPopup"
