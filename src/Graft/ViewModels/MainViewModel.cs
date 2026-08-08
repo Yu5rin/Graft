@@ -335,6 +335,14 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 3.3/3.4: プロジェクト自動判定（MainViewModel.ProjectMatch.cs）。ドライランへ進む唯一の
+        // 入口であるここに固定で組み込むことで、呼び出し側からの無効化・通し忘れを構造的に防ぐ。
+        // falseが返るのはブロック、またはユーザーが確認ダイアログをキャンセルした場合で、
+        // その場合はEnsureProjectMatchAsync側で既にCenterError/Stateを設定済み。
+        if (!await EnsureProjectMatchAsync(project).ConfigureAwait(true)) return;
+        project = ProjectPane.SelectedItem?.Project; // 切替が起きていれば反映する。
+        if (project is null) return; // 理論上は到達しない（切替後も必ずどこかのプロジェクトが選択されている）。
+
         // 4.8/7章: 未保存編集があれば保存を促してから続行する（破棄不可。MainViewModel.Apply.cs）。
         if (!await ConfirmTargetsSavedAsync(project.Root).ConfigureAwait(true)) return;
 
