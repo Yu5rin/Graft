@@ -56,7 +56,22 @@ public partial class App : Application
         {
             // 既に起動中の場合は既存ウィンドウを前面へ表示済み（StartupCoordinator側）。
             // このプロセスはウィンドウを一切表示せずに終了する。
-            desktop.Shutdown();
+            //
+            // 6.8のLinux版実機検証（Global\プレフィックス修正）で判明した追加の不具合の修正:
+            // ここは OnFrameworkInitializationCompleted（AppBuilder.StartWithClassicDesktopLifetime内、
+            // ClassicDesktopStyleApplicationLifetime.StartCoreがDispatcher.MainLoopを開始する
+            // *前*）から同期的に呼ばれる。この時点で desktop.Shutdown() を呼ぶと、
+            // まだ回り始めてすらいないDispatcherへ「シャットダウン済み」の状態を刻んでしまい、
+            // 直後に開始されるMainLoop側のPushFrameが
+            // 「Cannot perform requested operation because the Dispatcher shut down」という
+            // InvalidOperationExceptionを投げて未処理のまま落ちる（実機のXvfb環境で、
+            // 2つ目のGraftを起動して確認した）。以前はLinuxで多重起動検知そのものが機能して
+            // いなかった（Global\プレフィックス欠落）ためこの経路を誰も通っておらず、
+            // 気付かれていなかった。
+            // このプロセスはまだ何も（設定読み込み・ウィンドウ生成・Mutex取得のいずれも）
+            // 開始していないため後始末は不要で、Avaloniaのシャットダウン手順に頼らず
+            // Environment.Exit(0)で即座にプロセスを終了させれば十分（かつ安全）。
+            Environment.Exit(0);
             return;
         }
 
