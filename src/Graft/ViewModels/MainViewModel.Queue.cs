@@ -7,8 +7,8 @@ namespace Graft.ViewModels;
 
 /// <summary>
 /// <see cref="MainViewModel"/> の分割ファイル（1ファイル400行上限のため）。
-/// 仕様書4.10「分割パッチの受け取り」（切断検出→継続依頼のコピー→パッチキューへの追加、
-/// キューの結合適用）と、11章「失敗時リカバリ支援」（失敗ブロックの再依頼文コピー）を担う。
+/// 仕様書4.10「分割パッチの受け取り」（切断検出→パッチキューへの追加→確認のうえ継続依頼の
+/// コピー→キューの結合適用）と、11章「失敗時リカバリ支援」（失敗ブロックの再依頼文コピー）を担う。
 /// </summary>
 public sealed partial class MainViewModel
 {
@@ -31,36 +31,48 @@ public sealed partial class MainViewModel
     public event EventHandler? RequestOpenQueue;
 
     /// <summary>
-    /// 4.10: パッチが途中で切れていた場合の処理。解析できたブロックはキューへ追加し、
-    /// 続きを依頼するプロンプトを自動的にクリップボードへコピーして通知する。
+    /// 4.10: パッチが途中で切れていた場合の処理。解析できたブロックはキューへ追加したうえで、
+    /// 続きを依頼するプロンプトをクリップボードへコピーしてよいか確認する。
+    ///
+    /// 以前は確認なしに上書きコピーしていたが、貼り付けた元のパッチ（実機で3MBのパッチが
+    /// 消失したことを確認済み）がクリップボードから失われてしまう事故があったため、
+    /// 「事後報告」ではなく「事前の確認」に変更した。キャンセルした場合はクリップボードへ
+    /// 一切触れないため、元の内容がそのまま保たれる。
     /// </summary>
     private async Task HandleTruncatedPatchAsync(Patch patch)
     {
         var addResult = PatchQueue.Add(patch);
         Queue.Refresh();
 
+        var duplicateCount = addResult.Issues.Count(i => i.Code == ErrorCode.E007);
+        var confirmMessage = BuildTruncatedPatchConfirmMessage(addResult.Value.Count, duplicateCount);
+        var confirmed = await _dialogs.ConfirmAsync("続きを依頼するプロンプトをコピーしますか？", confirmMessage).ConfigureAwait(true);
+        if (!confirmed)
+        {
+            return;
+        }
+
         var continuation = RecoveryPrompt.BuildContinuation(patch.TailLines);
         TrySetClipboardText(continuation);
-
-        var duplicateCount = addResult.Issues.Count(i => i.Code == ErrorCode.E007);
-        var message = BuildTruncatedPatchMessage(addResult.Value.Count, duplicateCount);
-        await _dialogs.ShowMessageAsync("パッチの続きを依頼します", message).ConfigureAwait(true);
     }
 
     /// <summary>
-    /// 4.10: パッチが途中で切れていた場合の通知文言を組み立てる。解析できたブロックが0件の
-    /// ときは「解析できた0件をキューへ追加し」が不自然（実際には何も追加されていない）ため、
-    /// 「解析できたブロックは無かった」旨の文言に分岐する。1件以上のときは従来どおり件数を示す。
+    /// 4.10: パッチが途中で切れていた場合の確認ダイアログの文言を組み立てる。解析できた
+    /// ブロックが0件のときは「解析できた0件をキューへ追加し」が不自然（実際には何も
+    /// 追加されていない）ため、「解析できたブロックは無かった」旨の文言に分岐する。
+    /// 1件以上のときは従来どおり件数を示す。いずれの場合も、コピーすると現在クリップボードに
+    /// ある内容（貼り付けた元のパッチ）が失われる旨を明示する。
     /// </summary>
-    public static string BuildTruncatedPatchMessage(int addedCount, int duplicateCount)
+    public static string BuildTruncatedPatchConfirmMessage(int addedCount, int duplicateCount)
     {
         var message = addedCount == 0
-            ? "パッチが途中で切れていました。解析できたブロックは無かったため、続きを依頼するプロンプトをクリップボードへコピーしました。"
-            : $"パッチが途中で切れていたため、解析できた{addedCount}件をキューへ追加し、続きを依頼するプロンプトをクリップボードへコピーしました。";
+            ? "パッチが途中で切れていました。解析できたブロックは無かったため、続きを依頼するプロンプトをクリップボードへコピーしますか？"
+            : $"パッチが途中で切れていたため、解析できた{addedCount}件をキューへ追加しました。続きを依頼するプロンプトをクリップボードへコピーしますか？";
         if (duplicateCount > 0)
         {
             message += $" 同一ファイルへの重複ブロックが{duplicateCount}件あります（キュー画面で確認してください）。";
         }
+        message += "\n\n今クリップボードにある内容（貼り付けた元のパッチなど）は上書きされて失われます。";
         return message;
     }
 
