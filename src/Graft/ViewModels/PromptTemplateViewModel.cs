@@ -217,7 +217,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
 
         projects[index] = projects[index] with { PromptTemplateId = _selectedTemplate.Id };
         await _projectStore.SaveAsync(projects).ConfigureAwait(true);
-        StatusMessage = $"「{_selectedProject.Name}」の既定テンプレートを「{_selectedTemplate.Name}」に設定しました。";
+        StatusMessage = $"「{_selectedProject.DisplayName}」の既定テンプレートを「{_selectedTemplate.Name}」に設定しました。";
     }
 
     private TemplateEntry? ResolveCopyTarget()

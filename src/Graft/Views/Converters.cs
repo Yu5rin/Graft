@@ -59,6 +59,23 @@ public static class Converters
     public static readonly IValueConverter IndentToMargin =
         new FuncValueConverter<int, Thickness>(level => new Thickness(level * 16.0, 2, 0, 2));
 
+    /// <summary>
+    /// 不具合5対応（ShellWindow.axamlのコマンドバー）: ウィンドウ幅からプロジェクト選択
+    /// ComboBox＋左右余白の見込み分（360px想定の最大幅＋左右マージン24px＋予備36px）を
+    /// 差し引き、ボタン列を包むScrollViewerのMaxWidthに使う。
+    /// <para>
+    /// GridのAuto/*列やDockPanelのLastChildFillにScrollViewerを置いて「残り幅」を
+    /// 自動計算させる方法は、実機検証でウィンドウが最小幅まで縮んだ場合に正しく機能しない
+    /// （ScrollViewerが実際の残り幅を受け取れず、内容が画面外へあふれたままクリップされない）
+    /// ことを確認したため、ウィンドウ幅からの直接計算に切り替えた。ComboBoxの実測幅を
+    /// 使わず固定の見込み値で差し引くのは簡易な近似だが、ComboBoxの名前が短いときに
+    /// ボタン列がやや早めに横スクロールへ切り替わるだけで、実用上の支障はない
+    /// （優先すべきは「ウィンドウ外へはみ出して押せなくなる」不具合そのものの解消）。
+    /// </para>
+    /// </summary>
+    public static readonly IValueConverter WindowWidthToToolbarButtonsMaxWidth =
+        new FuncValueConverter<double, double>(windowWidth => Math.Max(0, windowWidth - 420));
+
     /// <summary>trueなら残り幅いっぱい（1*）、falseなら0。差分ビューの片側折りたたみ用。</summary>
     public static readonly IValueConverter BoolToStarGridLength =
         new FuncValueConverter<bool, GridLength>(

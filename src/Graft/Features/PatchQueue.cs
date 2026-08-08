@@ -127,7 +127,7 @@ public sealed class PatchQueue
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E402, detail: ex.Message, path: _queueFilePath);
+            return GraftResult<bool>.Fail(ErrorCode.E402, detail: ExceptionMessages.Describe(ex), path: _queueFilePath);
         }
     }
 

@@ -37,7 +37,7 @@ public sealed partial class RevisionStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の更新に失敗しました: {ex.Message}", path: manifestPath);
+            return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の更新に失敗しました: {ExceptionMessages.Describe(ex)}", path: manifestPath);
         }
 
         return GraftResult<bool>.Ok(true, readResult.Issues);
