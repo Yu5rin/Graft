@@ -171,11 +171,14 @@ public class SearchPerformanceTests
             }
 
             // 検索結果（ツリー項目・SearchHitViewModel等）が確実に解放されることの検証。
-            // わずかな増減はGCの世代管理上ありうるため、大きめの絶対余裕（8MB）を許容し、
-            // それを超える継続的な増加のみ失格とする。
-            var growth = samples[^1] - samples[0];
+            // 不具合6: 1回目（samples[0]）はGCタイミングのばらつきで異常に低い値が出ることがあり、
+            // これを基準にすると横ばいでも誤って「増加」と判定してしまう
+            // （tests/Graft.Tests/CrossFileSearchPerformanceTests.cs参照）。1回目は基準から除外し、
+            // 2回目（samples[1]）以降の推移で判定する。わずかな増減はGCの世代管理上ありうるため、
+            // 大きめの絶対余裕（8MB）を許容し、それを超える継続的な増加のみ失格とする。
+            var growth = samples[^1] - samples[1];
             growth.Should().BeLessThan(8 * 1024 * 1024,
-                $"5回の検索・クリア後もヒープが増え続けている（1回目: {samples[0] / 1024}KB → 5回目: {samples[^1] / 1024}KB）");
+                $"5回の検索・クリア後もヒープが増え続けている（2回目: {samples[1] / 1024}KB → 5回目: {samples[^1] / 1024}KB）");
         }
         finally
         {
