@@ -1,3 +1,4 @@
+using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -85,6 +86,29 @@ public class ViewTests
 
     [AvaloniaFact(DisplayName = "バージョン情報を構築して描画できる")]
     public void バージョン情報を描画できる() => RenderInWindow(new AboutView());
+
+    [AvaloniaFact(DisplayName = "バージョン情報に製作者と著作権表示が出る")]
+    public void バージョン情報に製作者と著作権が表示される()
+    {
+        var view = new AboutView();
+        RenderInWindow(view);
+
+        // Graft.csprojの<Company>/<Copyright>から生成されるアセンブリ属性を読んで
+        // 表示していることを検証する（ハードコード文字列ではないことの確認）。
+        var assembly = typeof(AboutView).Assembly;
+        var company = assembly.GetCustomAttribute<AssemblyCompanyAttribute>()?.Company;
+        var copyright = assembly.GetCustomAttribute<AssemblyCopyrightAttribute>()?.Copyright;
+
+        var authorText = view.FindControl<TextBlock>("AuthorText");
+        var copyrightText = view.FindControl<TextBlock>("CopyrightText");
+
+        authorText.Should().NotBeNull();
+        copyrightText.Should().NotBeNull();
+        authorText!.IsVisible.Should().BeTrue();
+        copyrightText!.IsVisible.Should().BeTrue();
+        authorText.Text.Should().Be($"製作者: {company}");
+        copyrightText.Text.Should().Be(copyright);
+    }
 
     [AvaloniaFact(DisplayName = "設定画面の各タブを構築して描画できる")]
     public void 設定タブを描画できる()
