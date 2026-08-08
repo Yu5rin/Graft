@@ -33,7 +33,11 @@ public sealed class ProjectListItemViewModel
     /// <summary>上位9件に割り当てる数字キーショートカット。それ以外は null。</summary>
     public int? ShortcutNumber { get; }
 
-    public string Name => Project.Name;
+    /// <summary>
+    /// 表示用に正規化した名前（不具合2対応）。空・改行混じりの異常な名前でも一覧・
+    /// ドロップダウンの見た目が崩れないよう <see cref="Project.DisplayName"/> をそのまま使う。
+    /// </summary>
+    public string DisplayName => Project.DisplayName;
 
     public bool IsPinned => Project.Pinned;
 
@@ -49,7 +53,7 @@ public sealed class ProjectListItemViewModel
     {
         get
         {
-            var parts = new List<string> { Name };
+            var parts = new List<string> { DisplayName };
             if (IsPinned) parts.Add("ピン留め");
             if (IsDisconnected) parts.Add("未接続");
             if (ShortcutNumber is int n) parts.Add($"ショートカット{n}");

@@ -136,7 +136,7 @@ public sealed class RevisionRestorer
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<string?>.Fail(ErrorCode.E402, $"新規作成ファイルの削除に失敗しました: {ex.Message}", path: relativePath);
+            return GraftResult<string?>.Fail(ErrorCode.E402, $"新規作成ファイルの削除に失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath);
         }
     }
 
@@ -167,7 +167,7 @@ public sealed class RevisionRestorer
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<string?>.Fail(ErrorCode.E402, $"作成フォルダの削除に失敗しました: {ex.Message}", path: relativePath);
+            return GraftResult<string?>.Fail(ErrorCode.E402, $"作成フォルダの削除に失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath);
         }
     }
 
@@ -222,7 +222,7 @@ public sealed class RevisionRestorer
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<string?>.Fail(ErrorCode.E402, $"移動先ファイルの削除に失敗しました: {ex.Message}", path: newRelativePath);
+            return GraftResult<string?>.Fail(ErrorCode.E402, $"移動先ファイルの削除に失敗しました: {ExceptionMessages.Describe(ex)}", path: newRelativePath);
         }
     }
 
@@ -250,7 +250,7 @@ public sealed class RevisionRestorer
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<string?>.Fail(ErrorCode.E402, $"退避ファイルの読み取りに失敗しました: {ex.Message}", path: relativePath);
+            return GraftResult<string?>.Fail(ErrorCode.E402, $"退避ファイルの読み取りに失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath);
         }
 
         var targetFull = Path.GetFullPath(Path.Combine(projectRoot, normalized.Value));
