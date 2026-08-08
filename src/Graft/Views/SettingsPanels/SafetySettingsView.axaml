@@ -1,8 +1,15 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.SafetySettingsView"
              AutomationProperties.Name="安全機構設定">
-    <!-- 14章「safety」区分（13章 安全機構）。 -->
+    <!--
+        14章「safety」区分（13章 安全機構）。
+        即時反映方式（14章）の確定タイミングの理屈はGeneralSettingsView参照。ただし
+        「許可する拡張子」欄はAcceptsReturn=Trueの複数行入力のため、Enterは改行そのものの
+        入力手段として使わせる必要があり、あえてCommitOnEnterを付けない
+        （フォーカスを外したときのみ確定する）。
+    -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
         Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
@@ -14,17 +21,19 @@
             <TextBlock Text="許可する拡張子（カンマ区切り）" Margin="0,0,0,4"
                        Foreground="{DynamicResource TextSecondary}"
                        FontSize="{DynamicResource CaptionFontSize}" />
-            <TextBox Text="{Binding AllowedExtensionsText}"
+            <TextBox Text="{Binding AllowedExtensionsText, UpdateSourceTrigger=LostFocus}"
                      AcceptsReturn="True" TextWrapping="Wrap" Height="60" Margin="0,0,0,10"
                      AutomationProperties.Name="許可する拡張子" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="1ファイルの上限サイズ（MB）" Classes="fieldLabel" />
-                <TextBox Text="{Binding MaxFileSizeMBText}" Width="120"
+                <TextBox Text="{Binding MaxFileSizeMBText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="1ファイルの上限サイズ" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="1リビジョンの上限ファイル数" Classes="fieldLabel" />
-                <TextBox Text="{Binding MaxFilesPerRevisionText}" Width="120"
+                <TextBox Text="{Binding MaxFilesPerRevisionText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="1リビジョンの上限ファイル数" />
             </StackPanel>
         </StackPanel>
