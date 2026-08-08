@@ -146,6 +146,66 @@ public class GitAutoCommitScenarioTests : IDisposable
         status.Should().BeEmpty("ロールバック後は作業ツリーも初期コミットの状態に戻っているはず");
     }
 
+    // ------------------------------------------------------------------
+    // 課題3: 自動コミット失敗をlogs/<日付>.logへ記録する
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "gitリポジトリでないプロジェクトへAutoCommit有効で適用すると、失敗理由がlogs/<日付>.logへ記録される")]
+    public async Task gitリポジトリでない場合の失敗理由がログへ記録される()
+    {
+        // _projectDirectoryをgit initしない。
+        var targetPath = Path.Combine(_projectDirectory, "sample.txt");
+        await File.WriteAllTextAsync(targetPath, "1行目\n2行目\n3行目\n").ConfigureAwait(true);
+
+        var appPaths = new AppPaths(_appDirectory);
+        appPaths.EnsureCoreDirectoriesExist();
+        var logger = new Logger(appPaths, autoCleanupOnStart: false);
+
+        var (shell, _) = await OpenShellAsync(autoCommit: true, logger: logger).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+
+        _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+
+        // チャネル経由の非同期書き込みを確実にファイルへ反映させてから読む。
+        await logger.DisposeAsync().ConfigureAwait(true);
+
+        var logPath = appPaths.GetLogFilePath(DateOnly.FromDateTime(DateTime.Now));
+        File.Exists(logPath).Should().BeTrue("logs/<日付>.log が作られているはず");
+        var logText = await File.ReadAllTextAsync(logPath).ConfigureAwait(true);
+        logText.Should().Contain("git-auto-commit", "イベント種別で自動コミット関連のログだと分かるはず");
+        logText.Should().Contain("gitリポジトリではない", "失敗理由が「リポジトリでない」と分かる文言で記録されているはず");
+    }
+
+    [AvaloniaFact(DisplayName = "AutoCommitが有効なgitリポジトリで実際にコミットが成功すると、成功もログへ記録される")]
+    public async Task コミット成功時もログへ記録される()
+    {
+        await InitGitRepoAsync(_projectDirectory).ConfigureAwait(true);
+        var targetPath = Path.Combine(_projectDirectory, "sample.txt");
+        await File.WriteAllTextAsync(targetPath, "1行目\n2行目\n3行目\n").ConfigureAwait(true);
+        await RunGitAsync(_projectDirectory, "add", "-A").ConfigureAwait(true);
+        await RunGitAsync(_projectDirectory, "commit", "-q", "-m", "初期コミット").ConfigureAwait(true);
+
+        var appPaths = new AppPaths(_appDirectory);
+        appPaths.EnsureCoreDirectoriesExist();
+        var logger = new Logger(appPaths, autoCleanupOnStart: false);
+
+        var (shell, _) = await OpenShellAsync(autoCommit: true, logger: logger).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+
+        _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+
+        await logger.DisposeAsync().ConfigureAwait(true);
+
+        var logPath = appPaths.GetLogFilePath(DateOnly.FromDateTime(DateTime.Now));
+        var logText = await File.ReadAllTextAsync(logPath).ConfigureAwait(true);
+        logText.Should().Contain("git-auto-commit");
+        logText.Should().Contain("コミットしました", "成功時もコミットハッシュ・メッセージを後から追えるよう記録されるはず");
+    }
+
     /// <summary>projects.jsonへ直接、指定プロジェクトの適用後フックを設定する（テスト用の下拵え）。</summary>
     private async Task SetPostApplyHooksAsync(string projectId, params PostApplyHook[] hooks)
     {
@@ -156,7 +216,7 @@ public class GitAutoCommitScenarioTests : IDisposable
         await projectStore.SaveAsync(projects).ConfigureAwait(true);
     }
 
-    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(bool autoCommit)
+    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(bool autoCommit, Logger? logger = null)
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -178,6 +238,9 @@ public class GitAutoCommitScenarioTests : IDisposable
             new AutoConfirmDialogService(),
             new FakeUiServices(_clipboard),
             openSettings: () => { });
+        // 課題3: 本物の起動処理（StartupCoordinator.StartAsync）と同じく、生成後に設定する
+        // nullableプロパティ経由でロガーを渡す。
+        shell.Graft.Logger = logger;
 
         var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
         window.Show();

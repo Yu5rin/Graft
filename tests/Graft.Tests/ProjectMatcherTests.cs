@@ -138,4 +138,68 @@ public class ProjectMatcherTests
 
         outcome.Value.Best!.Ratio.Should().Be(1.0);
     }
+
+    // ------------------------------------------------------------------
+    // 課題1: 新規ファイルのみのパッチを判定から除外する（既存ファイルとFULL形式の食い違い対応）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "接続済みのどのプロジェクトにも実在しないFULL形式パスは、複数プロジェクトがあっても分母から除かれる")]
+    public async Task 新規ファイルのみのパッチは複数プロジェクトでも判定不能として要確認になる()
+    {
+        using var wsA = new TempWorkspace();
+        using var wsB = new TempWorkspace();
+        wsA.WriteText("a.py", "x");
+        wsB.WriteText("b.py", "x");
+        var projectA = MakeProject(wsA.RootPath, id: "p_a");
+        var projectB = MakeProject(wsB.RootPath, id: "p_b");
+        // どちらのプロジェクトにも存在しない新規ファイルのみのパッチ。
+        var patch = MakePatch(NewFile("brandnew.py"), NewDir("newdir"));
+
+        var outcome = await new ProjectMatcher().MatchAsync(patch, new[] { projectA, projectB });
+
+        outcome.Value.Decision.Should().Be(ProjectMatchDecision.NeedsConfirmation,
+            "新規作成前提のパスしか無い場合は判定不能として扱われ、無警告で通過するはず");
+        outcome.Value.Best.Should().BeNull();
+    }
+
+    [Fact(DisplayName = "FULL形式の対象が候補プロジェクトの1つに実在する場合は、新規扱いにせず一致率の判定対象に含める")]
+    public async Task FULL形式でも実在するプロジェクトがあれば判定対象に含まれる()
+    {
+        // ApplyEngine（DryRunPlanner.BuildBlockPlan）はファイルが実在すればFULL形式でも
+        // Create ではなく Modify（上書き）として扱う。ProjectMatcher側で無条件にFULL形式を
+        // 除外すると「判定では新規扱いなのに適用では既存ファイルを上書きする」食い違いが
+        // 起きるため、実在するプロジェクトがあるならその情報を判定に使うべき、という回帰テスト。
+        using var wsA = new TempWorkspace();
+        using var wsB = new TempWorkspace();
+        wsA.WriteText("existing.py", "x"); // Aには既にこのファイルがある（FULLは上書きになる）。
+        wsB.WriteText("unrelated.py", "x"); // Bには無関係のファイルしか無い。
+        var projectA = MakeProject(wsA.RootPath, id: "p_a");
+        var projectB = MakeProject(wsB.RootPath, id: "p_b");
+        var patch = MakePatch(NewFile("existing.py"));
+
+        var outcome = await new ProjectMatcher().MatchAsync(patch, new[] { projectA, projectB });
+
+        outcome.Value.Best.Should().NotBeNull("Aに実在するファイルを対象にしているため判定不能にはならない");
+        outcome.Value.Best!.Project.Id.Should().Be("p_a");
+        outcome.Value.Best!.Ratio.Should().Be(1.0);
+    }
+
+    [Fact(DisplayName = "新規ファイル作成と既存ファイル変更が混在する場合、既存ファイル分だけで一致率が計算される")]
+    public async Task 新規と既存の混在パッチは既存ファイル分だけで判定される()
+    {
+        using var ws = new TempWorkspace();
+        ws.WriteText("a.py", "x");
+        ws.WriteText("b.py", "x");
+        ws.WriteText("c.py", "x");
+        var project = MakeProject(ws.RootPath);
+        // 既存3件は全て一致、新規ファイル2件（どのプロジェクトにも存在しない）は分母から除外されるべき。
+        var patch = MakePatch(
+            Existing("a.py"), Existing("b.py"), Existing("c.py"),
+            NewFile("brandnew1.py"), NewFile("brandnew2.py"));
+
+        var outcome = await new ProjectMatcher().MatchAsync(patch, new[] { project });
+
+        outcome.Value.Best!.Ratio.Should().Be(1.0, "新規ファイル2件は分母から除かれ、既存3件が全て一致するため100%になるはず");
+        outcome.Value.Best!.MatchedPaths.Should().HaveCount(3);
+    }
 }
