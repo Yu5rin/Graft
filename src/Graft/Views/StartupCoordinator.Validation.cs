@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia.Threading;
 using Graft.Core;
 using Graft.Features;
@@ -160,23 +161,79 @@ public sealed partial class StartupCoordinator
     /// 以前は呼び出し側が<c>.GetAwaiter().GetResult()</c>でUIスレッドを同期的にブロックして
     /// おり、その状態でConfigureAwait(true)の継続をUIスレッドへ戻そうとしたためデッドロックし、
     /// ×で閉じてもプロセスが終了しない不具合の直接の原因になっていた。
+    ///
+    /// 課題1（ログ）: 後始末そのもの（パッチキューの保存・各プラットフォームサービスの破棄）が
+    /// 完了したことと、終了処理全体（<see cref="ShellWindow.ShutdownStartedAt"/>から
+    /// ここまで）にかかった時間を記録する。起動側の「操作可能まで N ms」と対になる形。
+    /// 後始末の途中で例外が飛んでもここで必ず捕捉し、Error levelで記録したうえで
+    /// 呼び出し元へは正常終了として返す（＝再スローしない）。後始末の失敗で
+    /// <see cref="App.OnShutdownRequested"/>側の<c>desktop.Shutdown()</c>呼び出しに
+    /// 到達できなくなり、二度と終了できなくなる事態を避けるため。
+    ///
+    /// ロガーの破棄順序: ロガー自身への書き込みは、破棄対象の中で最後まで使うため
+    /// <see cref="Logger.DisposeAsync"/>は必ず一番最後に呼ぶ（このメソッドの他の行より前で
+    /// 呼んではならない）。<see cref="Logger"/>はキューへの書き込みが完了済みチャネルに対しては
+    /// 例外を投げず黙って無視する作りのため、万一この順序を誤っても即座にクラッシュはしないが、
+    /// 直後のログが記録されず診断できなくなる。
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (_patchQueue is not null)
+        var stopwatch = Stopwatch.StartNew();
+        try
         {
-            await _patchQueue.SaveAsync().ConfigureAwait(true);
+            if (_patchQueue is not null)
+            {
+                await _patchQueue.SaveAsync().ConfigureAwait(true);
+            }
+            _shellViewModel?.Dispose();
+            _messageBridge?.Dispose();
+            _platform.Hotkeys.Dispose();
+            _platform.Clipboard.Dispose();
+            _platform.Tray.Dispose();
+            _platform.Theme.Dispose();
+            _platform.SingleInstance.Dispose();
+
+            LogCleanupCompleted(stopwatch.ElapsedMilliseconds, error: null);
         }
-        _shellViewModel?.Dispose();
-        _messageBridge?.Dispose();
-        _platform.Hotkeys.Dispose();
-        _platform.Clipboard.Dispose();
-        _platform.Tray.Dispose();
-        _platform.Theme.Dispose();
-        _platform.SingleInstance.Dispose();
-        if (_logger is not null)
+        catch (Exception ex)
         {
-            await _logger.DisposeAsync().ConfigureAwait(true);
+            // 後始末の一部（パッチキューの保存やOS資源の解放）が失敗しても、プロセスは
+            // 必ず終了できなければならない（課題2）。ここで再スローしない。
+            LogCleanupCompleted(stopwatch.ElapsedMilliseconds, error: ex);
+        }
+        finally
+        {
+            // ロガーは他の後始末すべてが終わった後、一番最後に破棄する（上記コメント参照）。
+            if (_logger is not null)
+            {
+                await _logger.DisposeAsync().ConfigureAwait(true);
+            }
+        }
+    }
+
+    /// <summary>後始末の完了・終了処理全体の所要時間を記録する。3秒を超えたら異常として警告する。</summary>
+    private void LogCleanupCompleted(long cleanupElapsedMs, Exception? error)
+    {
+        if (error is not null)
+        {
+            _logger?.Error("shutdown", $"後始末に失敗しました（{cleanupElapsedMs} ms経過）: {error}");
+        }
+        else if (cleanupElapsedMs > 3000)
+        {
+            _logger?.Warn("shutdown", $"後始末の完了に時間がかかりました: {cleanupElapsedMs} ms");
+        }
+        else
+        {
+            _logger?.Info("shutdown", $"後始末が完了しました: {cleanupElapsedMs} ms");
+        }
+
+        // 起動側の「操作可能まで N ms」（StartupCoordinator.StartAsync）と対になる形で、
+        // ウィンドウを閉じてからここまでの終了処理全体の所要時間も記録する。トレイへ
+        // 隠しただけの場合やウィンドウを一切作らなかった場合（多重起動検出）はnullのまま。
+        if (MainWindow?.ShutdownStartedAt is { } startedAt)
+        {
+            var totalMs = (long)(DateTime.Now - startedAt).TotalMilliseconds;
+            _logger?.Info("shutdown", $"終了処理を完了しました。終了処理全体で {totalMs} ms かかりました。");
         }
     }
 }

@@ -31,16 +31,29 @@ public sealed class DocumentSession : IDisposable
     // 見つかった時点でバイナリ確定として扱う（テキストファイルに出現することはまず無いため）。
     private const double BinaryControlRatioThreshold = 0.3;
 
+    /// <summary>
+    /// 課題3: 1行がこの文字数を超えたら「極端に長い行」とみなし、構文強調・折り返し・
+    /// 括弧の対応付けを自動的に無効化する（<see cref="HasExtremelyLongLine"/>）。
+    /// 実測（10万文字の1行ファイル）では、開く操作自体は数百ms程度に収まったが、
+    /// AvaloniaEdit側がその1行の全文字を一括で書式計算するコストは行の文字数に
+    /// 比例して増え、さらに折り返し設定が有効だと数倍〜十数倍に悪化することを確認した
+    /// （詳細はEditorPane.axaml.csのApplyWordWrapOption参照）。VS Codeの既定の
+    /// トークナイズ上限（20,000文字）にならい、同じ値をしきい値とする。
+    /// </summary>
+    public const int LongLineThreshold = 20_000;
+
     private bool _wasModified;
     private bool _disposed;
 
-    private DocumentSession(string fullPath, string relativePath, TextDocument document, TextShape shape)
+    private DocumentSession(
+        string fullPath, string relativePath, TextDocument document, TextShape shape, bool hasExtremelyLongLine)
     {
         FullPath = fullPath;
         RelativePath = relativePath;
         FileName = Path.GetFileName(fullPath);
         Document = document;
         Shape = shape;
+        HasExtremelyLongLine = hasExtremelyLongLine;
         Document.UndoStack.PropertyChanged += OnUndoStackPropertyChanged;
     }
 
@@ -58,6 +71,13 @@ public sealed class DocumentSession : IDisposable
 
     /// <summary>読み込み時に判定したエンコーディング・改行・末尾改行の見た目。</summary>
     public TextShape Shape { get; private set; }
+
+    /// <summary>
+    /// 課題3: <see cref="LongLineThreshold"/>を超える行を含むかどうか。<see cref="OpenAsync"/>時に
+    /// 一度だけ判定する。trueの場合、エディタ側（EditorPane）は構文強調・折り返し・
+    /// 括弧の対応付けを自動的に無効化し、ステータスバーでその旨を通知する。
+    /// </summary>
+    public bool HasExtremelyLongLine { get; }
 
     /// <summary>
     /// 未保存の変更があるかどうか。AvaloniaEditのアンドゥスタックが持つ
@@ -95,10 +115,14 @@ public sealed class DocumentSession : IDisposable
         var (text, shape) = read.Value;
         var relativePath = ComputeRelativePath(fullPath, projectRoot);
 
+        // 課題3: 読み込んだ全文はここで既にメモリ上にあるため、追加のI/Oなしで判定できる。
+        // ワーカースレッド上（ConfigureAwait(false)のまま）で行い、UIスレッドの待ち時間を増やさない。
+        var hasExtremelyLongLine = TextNormalizer.HasLineLongerThan(text, LongLineThreshold);
+
         // TextDocumentの生成はUIスレッドへ切り替えてから行う（クラス冒頭のコメント参照）。
         // DispatcherOperationはConfigureAwaitを持たないため素直にawaitする。
         var session = await Dispatcher.UIThread.InvokeAsync(
-            () => new DocumentSession(fullPath, relativePath, new TextDocument(text), shape));
+            () => new DocumentSession(fullPath, relativePath, new TextDocument(text), shape, hasExtremelyLongLine));
         return GraftResult<DocumentSession>.Ok(session, read.Issues);
     }
 
