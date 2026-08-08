@@ -58,6 +58,7 @@
                                     VerticalAlignment="Top"
                                     Command="{Binding DataContext.RemoveCommand, ElementName=Root}"
                                     CommandParameter="{Binding}"
+                                    ToolTip.Tip="このブロックだけをキューから取り除きます。他のブロックには影響しません。"
                                     AutomationProperties.Name="このブロックをキューから削除" />
                         </Grid>
                     </DataTemplate>
@@ -77,13 +78,16 @@
             <Button Content="すべて削除"
                     Command="{Binding ClearCommand}"
                     Margin="0,0,8,0"
+                    ToolTip.Tip="キューに溜まっているブロックをすべて削除します（確認あり）。元に戻せないので注意してください。"
                     AutomationProperties.Name="キューをすべて削除" />
             <Button Content="結合して適用へ進む"
                     Command="{Binding MergeCommand}"
                     Margin="0,0,8,0"
+                    ToolTip.Tip="キュー内のブロックを1つの変更としてまとめ、通常の解析結果と同じようにプレビュー・適用へ進みます。"
                     AutomationProperties.Name="キューを結合して解析結果へ渡す" />
             <Button Content="閉じる"
                     Click="OnCloseClicked"
+                    ToolTip.Tip="このウィンドウを閉じます（Esc）。"
                     AutomationProperties.Name="閉じる" />
         </StackPanel>
     </Grid>

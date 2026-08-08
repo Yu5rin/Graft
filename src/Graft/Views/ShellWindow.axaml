@@ -100,6 +100,18 @@
                             Margin="4,0"
                             ToolTip.Tip="テーマ・エディタ・安全機構などの設定を開きます。"
                             AutomationProperties.Name="設定を開く" />
+                    <!-- キーボードショートカット一覧。20個以上あるショートカットを利用者が
+                         発見する手段がボタン1つ分のツールチップしか無かったための追加。
+                         既存レイアウトを崩さないよう、コマンドバー右端に小さいアイコンのみの
+                         ボタンとして置く。開く手段はこのボタンとCtrl+/の2通り。 -->
+                    <Button Command="{Binding OpenShortcutsCommand}"
+                            Margin="12,0,0,0"
+                            Padding="6"
+                            Background="Transparent" BorderThickness="0"
+                            ToolTip.Tip="キーボードショートカットの一覧を開きます（Ctrl+/）。"
+                            AutomationProperties.Name="キーボードショートカット一覧を開く">
+                        <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconHelpCircleGeometry}" />
+                    </Button>
                 </StackPanel>
 
                 <!-- 4.8.4: テンプレート選択ドロップダウン。名称の右に展開後の推定トークン数を表示する。 -->
