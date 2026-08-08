@@ -153,6 +153,14 @@ public sealed partial class StartupCoordinator
     // 終了処理（4.10 パッチキューの保存を含む）
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// 課題1（バグ修正）: 呼び出し側（<see cref="App.OnShutdownRequested"/>）が
+    /// UIスレッドを同期ブロックせずawaitするようになったため、ここのConfigureAwait(true)は
+    /// 安全（UIスレッドは塞がれておらず、継続をディスパッチャ経由で普通に受け取れる）。
+    /// 以前は呼び出し側が<c>.GetAwaiter().GetResult()</c>でUIスレッドを同期的にブロックして
+    /// おり、その状態でConfigureAwait(true)の継続をUIスレッドへ戻そうとしたためデッドロックし、
+    /// ×で閉じてもプロセスが終了しない不具合の直接の原因になっていた。
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         if (_patchQueue is not null)

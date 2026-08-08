@@ -101,13 +101,29 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // ここで当て直さないと、選んだテーマが再起動のたびにシステム追従へ戻ってしまう。
         Themes.ThemeManager.SetTheme(Themes.ThemeManager.ParseTheme(_settings.Theme));
 
+        // 課題3: 自動起動が有効なら、毎起動時に登録し直して現在の実行ファイルパスへ追従させる。
+        // アプリを別の場所へ移動した後でも（設定画面でオン・オフし直さなくても）、次回起動時に
+        // 古いパスの登録が自然に正しいパスへ上書きされるようにするための保険。失敗しても
+        // 起動そのものは継続し、ログにのみ記録する（利用者を起動のたびに煩わせないため。
+        // 明示的にオン/オフを切り替えたときの失敗は設定画面で都度通知する）。
+        if (_settings.LaunchAtStartup)
+        {
+            var result = _platform.AutoStart.Enable();
+            if (!result.Success)
+            {
+                _logger.Warn("startup", $"自動起動の登録し直しに失敗しました: {result.ErrorMessage}");
+            }
+        }
+
         var projectStore = new ProjectStore(_appPaths);
         var revisionStore = new RevisionStore(_appPaths);
         var revisionRestorer = new RevisionRestorer(_appPaths);
 
         void OpenSettings()
         {
-            var vm = new SettingsViewModel(_appPaths, dialogService, _ui);
+            // 課題2: 「閉じたときの動作」は即時反映のため、設定画面での変更を
+            // 実行中のShellWindowへその場で反映するコールバックを渡す。
+            var vm = new SettingsViewModel(_appPaths, dialogService, _ui, ApplyLiveSettingsChange);
             var window = new SettingsWindow(vm);
             if (MainWindow is not null) _ = window.ShowDialog(MainWindow);
             else window.Show();
@@ -121,6 +137,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
         var window = new ShellWindow(shellViewModel);
         MainWindow = window;
+
+        // 課題2: 「閉じたときの動作」設定と、トレイの実際の利用可否をウィンドウへ渡す。
+        // IsTraySupportedはプロセス起動中に変わらないため、ここで一度だけ設定する。
+        window.CloseBehavior = _settings.CloseBehavior;
+        window.IsTraySupported = _platform.Tray.IsSupported;
 
         // 画面情報（IScreenInfo）はデスクトップライフタイムのウィンドウ経由で解決するため、
         // レイアウト復元より前にMainWindowを割り当てておく。割り当てが遅れると画面構成が
@@ -203,7 +224,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     // OS固有機能の配線（9章 クリップボード監視・8.10 グローバルホットキー・トレイ常駐）
     // ------------------------------------------------------------------
 
-    private void WirePlatformServices(Window window, MainViewModel mainViewModel, List<GraftIssue> issues)
+    private void WirePlatformServices(ShellWindow window, MainViewModel mainViewModel, List<GraftIssue> issues)
     {
         // クリップボード監視とホットキーが受信するウィンドウハンドルの割り当ては
         // WindowMessageBridge が行う（Windowsは専用のメッセージ受信ウィンドウ、
@@ -231,7 +252,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
                 .ToList(),
             OnRestoreMainWindow = () => RestoreWindow(window),
             OnOpenSettings = () => mainViewModel.OpenSettingsCommand.Execute(null),
-            OnExit = Shutdown,
+            OnExit = () => ForceExit(window),
         });
         _platform.Tray.Show();
     }
@@ -246,12 +267,30 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         if (_settingsStore is not null) _ = _settingsStore.SaveAsync(_settings);
     }
 
-    private static void Shutdown()
+    /// <summary>
+    /// 課題2: 設定画面での「閉じたときの動作」変更を、実行中のウィンドウへ即時反映する。
+    /// SettingsViewModelの即時反映（300msデバウンス後の保存）が成功した直後に呼ばれる。
+    /// </summary>
+    private void ApplyLiveSettingsChange(AppSettings updated)
     {
-        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            desktop.Shutdown();
-        }
+        _settings = updated;
+        if (MainWindow is not null) MainWindow.CloseBehavior = updated.CloseBehavior;
+    }
+
+    /// <summary>
+    /// トレイメニューの「終了」。CloseBehaviorが「タスクトレイに常駐する」であっても
+    /// ここからは必ず終了させたいため、IsForceClosingを立ててからWindow.Close()を呼ぶ。
+    /// window.Close()はOnClosing→（最後の1枚なら）ApplicationLifetimeの自動シャットダウン判定
+    /// →App.OnShutdownRequestedという、×で閉じた場合と全く同じ経路を通る（課題1の修正が
+    /// そのまま効く）。以前はここで直接desktop.Shutdown()を呼んでおり、Avalonia実装上
+    /// force=trueとなってShutdownRequestedそのものが発火せず、後始末
+    /// （DisposeAsync＝パッチキューの保存やトレイアイコンの破棄等）が一切行われないまま
+    /// プロセスが終了してしまう不具合があった（本タスクの調査で判明）。
+    /// </summary>
+    private static void ForceExit(ShellWindow window)
+    {
+        window.IsForceClosing = true;
+        window.Close();
     }
 
     private static void OnPasteHotkey(Window window, MainViewModel mainViewModel)
