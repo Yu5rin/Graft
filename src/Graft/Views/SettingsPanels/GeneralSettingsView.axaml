@@ -46,6 +46,25 @@
                           AutomationProperties.Name="ログレベル" />
             </StackPanel>
 
+            <!--
+                課題2・3: ウィンドウを閉じたときの動作／PC起動時の自動起動。
+                この2項目は変更した瞬間に即時反映される（保存ボタンはない）。
+            -->
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="ウィンドウを閉じたときの動作" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding CloseBehaviorOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding CloseBehavior}"
+                          AutomationProperties.Name="ウィンドウを閉じたときの動作" />
+            </StackPanel>
+            <TextBlock Text="このデスクトップ環境ではタスクトレイ（StatusNotifierItem）に対応していないため、常駐は選べません。×で閉じると終了します。"
+                       Classes="fieldHint" IsVisible="{Binding !IsTraySupported}"
+                       TextWrapping="Wrap" />
+            <CheckBox Classes="settingRow" Content="PC起動時に自動で起動する" IsChecked="{Binding LaunchAtStartup}"
+                      IsEnabled="{Binding IsAutoStartSupported}"
+                      AutomationProperties.Name="PC起動時に自動で起動する" />
+            <TextBlock Text="{Binding AutoStartUnsupportedReason}" Classes="fieldHint"
+                       IsVisible="{Binding !IsAutoStartSupported}" TextWrapping="Wrap" />
+
             <TextBlock Text="バックアップ・世代管理" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />

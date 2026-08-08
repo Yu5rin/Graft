@@ -57,6 +57,16 @@ public sealed record Settings
 
     /// <summary>ログ出力レベル。trace/debug/info/warn/error のいずれか（15章）。</summary>
     public string LogLevel { get; init; } = "info";
+
+    /// <summary>
+    /// 課題2: ウィンドウを×で閉じたときの動作。"exit"（終了する。既定）/
+    /// "tray"（タスクトレイに常駐する）のいずれか。トレイが使えない環境では
+    /// "tray"を選んでいても実際には終了する（縮退。<c>ShellWindow.OnClosing</c>参照）。
+    /// </summary>
+    public string CloseBehavior { get; init; } = "exit";
+
+    /// <summary>課題3: PC起動時に自動で起動するか。既定はオフ。</summary>
+    public bool LaunchAtStartup { get; init; } = false;
 }
 
 /// <summary>コードエディタ設定（v2.0 仕様書15章・4章）。</summary>

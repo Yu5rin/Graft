@@ -112,6 +112,22 @@ public sealed class LinuxGlobalHotkeys : IGlobalHotkeys
     /// <summary>X11ではウィンドウメッセージを使わないため常にfalseを返す。</summary>
     public bool HandleMessage(int msg, IntPtr wParam, IntPtr lParam) => false;
 
+    /// <summary>
+    /// 実機バグ調査で判明した不具合の修正: 以前はここで無条件に <c>XCloseDisplay</c> を呼び、
+    /// イベントループ側のブロッキング <c>XNextEvent</c> を強制的に失敗させて終了させていた。
+    /// しかしXlibは、あるスレッドが使用中（<c>XNextEvent</c>でブロック中）の接続を
+    /// 別スレッドから<c>XCloseDisplay</c>する操作を安全に扱えない。接続が壊れると
+    /// Xlibの既定の <c>IOErrorHandler</c> が呼ばれ、これは「回復不能」として
+    /// <c>exit()</c> でプロセス全体を強制終了させる（アプリ側の後始末が終わる前に
+    /// プロセスが消える）。実機（Xvfb + xdotool windowclose）で
+    /// <c>XIO: fatal IO error ... on X server</c> によりプロセスが丸ごと落ちることを確認した。
+    /// 対処として <see cref="RunEventLoop"/> 側をpoll(2)によるタイムアウト付き待機へ変更し
+    /// （<c>X11ClipboardReader.WaitForEvent</c>と同じ手法）、ここでは接続を閉じる前に
+    /// スレッドの自然な終了を待つ。最長でもpollのタイムアウト間隔以内に<c>_running</c>の
+    /// 変化へ気づいて自力で終了するため、Joinはほぼ確実に成功する。万一終了しなかった
+    /// 場合は、危険な強制切断はせず接続を開いたままにする（プロセスはこの直後に終了する
+    /// ため、単一fdの解放漏れは実害がない）。
+    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
@@ -120,8 +136,11 @@ public sealed class LinuxGlobalHotkeys : IGlobalHotkeys
         UnregisterAll();
         _running = false;
 
-        // イベントループはXNextEventで待機しているため、次のイベントが来るまで抜けない。
-        // 接続を閉じることでXNextEventが失敗し、ループが終了する。
+        if (_loop is not null && !_loop.Join(TimeSpan.FromSeconds(1)))
+        {
+            return; // スレッドがまだ動作中。接続の強制切断はしない（上記コメント参照）。
+        }
+
         var display = _display;
         _display = IntPtr.Zero;
         if (display != IntPtr.Zero) X11Interop.XCloseDisplay(display);
@@ -160,19 +179,16 @@ public sealed class LinuxGlobalHotkeys : IGlobalHotkeys
         _loop.Start();
     }
 
+    // pollのタイムアウト間隔。Dispose側はこの間隔以内に_runningの変化を検知できる前提で
+    // スレッドのJoinを待つため、あまり長くしすぎない（X11ClipboardReaderと同程度の値）。
+    private static readonly TimeSpan PollTimeout = TimeSpan.FromMilliseconds(200);
+
     private void RunEventLoop()
     {
         var buffer = new byte[X11Interop.XEventSize];
         while (_running && _display != IntPtr.Zero)
         {
-            try
-            {
-                X11Interop.XNextEvent(_display, buffer);
-            }
-            catch (Exception)
-            {
-                return; // 接続が閉じられた（Dispose）。
-            }
+            if (!WaitForEvent(_display, buffer)) continue; // タイムアウト。_runningを再確認する。
 
             if (X11Interop.GetEventType(buffer) != X11Interop.KeyPress) continue;
 
@@ -188,6 +204,30 @@ public sealed class LinuxGlobalHotkeys : IGlobalHotkeys
             // コールバックはViewModelの操作を伴うため、必ずUIスレッドへ戻してから呼ぶ。
             if (callback is not null) Dispatcher.UIThread.Post(callback);
         }
+    }
+
+    /// <summary>
+    /// 次のXイベントを待つ。接続fdをpoll(2)で監視することで、スレッドを無期限に
+    /// ブロックさせずタイムアウト時刻で確実に諦め、その都度<see cref="_running"/>を
+    /// 再確認できるようにする（X11ClipboardReader.WaitForEventと同じ手法。Dispose時に
+    /// 接続を強制切断せずに済むようにするための変更、詳細は<see cref="Dispose"/>参照）。
+    /// </summary>
+    private static bool WaitForEvent(IntPtr display, byte[] buffer)
+    {
+        if (X11Interop.XPending(display) > 0)
+        {
+            X11Interop.XNextEvent(display, buffer);
+            return true;
+        }
+
+        var fd = X11Interop.XConnectionNumber(display);
+        var pollFds = new[] { new X11Interop.PollFd { Fd = fd, Events = X11Interop.PollIn } };
+        var ready = X11Interop.poll(pollFds, 1, (int)PollTimeout.TotalMilliseconds);
+        if (ready <= 0) return false; // タイムアウトまたはpoll失敗。
+
+        if (X11Interop.XPending(display) == 0) return false; // 受信途中の断片等。次回へ。
+        X11Interop.XNextEvent(display, buffer);
+        return true;
     }
 
     /// <summary>
