@@ -223,6 +223,121 @@ public class SettingsStoreTests
     }
 
     // ------------------------------------------------------------------
+    // ValidateOnly（14章 即時反映方式の保存前検証）
+    //
+    // SettingsViewModelは変更のたびに自動保存するが、LoadAsyncと同じ「不正値を既定値へ
+    // 差し替えて延命する」ロジックをそのまま保存前にも使うと、画面に見えている値と
+    // 実際にディスクへ保存された値が黙って食い違う事故になる。ValidateOnlyは同じ検証規則を
+    // 使いつつディスクへは一切書き込まず、「この値を保存してよいか」の判定材料
+    // （Issuesの有無）だけを返す。ただしErrorCodeはLoadAsyncのE404（設定・履歴データの破損→
+    // 退避のうえ再生成）ではなく、保存前検証向けのE406（値を修正すると自動的に保存される）へ
+    // 差し替えて返す。「データが壊れて再生成された」という誤った印象を与えないため。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ValidateOnlyは正常な値ならIssuesが空で、ディスクへは書き込まない")]
+    public void ValidateOnlyは正常な値ならIssuesが空でディスクへ書き込まない()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = 50 } });
+
+        result.IsSuccess.Should().BeTrue();
+        result.Issues.Should().BeEmpty();
+        result.Value.Backup.MaxRevisions.Should().Be(50, "正常な値はそのまま素通りする（既定値へ差し替えない）");
+        File.Exists(paths.SettingsFilePath).Should().BeFalse("ValidateOnlyはディスクへ一切書き込んではならない");
+    }
+
+    [Fact(DisplayName = "ValidateOnlyは範囲外のbackup.maxRevisionsに対してIssuesを返す（保存を保留する判断材料）")]
+    public void ValidateOnlyは範囲外の値でIssuesを返す()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = -1 } });
+
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E406 && i.Severity == Severity.Warning
+            && i.Detail != null && i.Detail.Contains("maxRevisions"));
+        File.Exists(paths.SettingsFilePath).Should().BeFalse(
+            "ValidateOnly自体は判定するだけで、Issuesがあっても保存しない判断は呼び出し側（SettingsViewModel）が行う");
+    }
+
+    [Fact(DisplayName = "ValidateOnlyは複数の不正な値がある場合、それぞれについて個別にIssuesを返す")]
+    public void ValidateOnlyは複数の不正値でそれぞれIssuesを返す()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+
+        var result = SettingsStore.ValidateOnly(new Settings
+        {
+            ApplyMode = "invalid-mode",
+            Backup = new BackupSettings { MaxRevisions = -1 },
+            Hooks = new HookSettings { TimeoutSec = -10 },
+        });
+
+        result.Issues.Count(i => i.Code == ErrorCode.E406).Should().BeGreaterOrEqualTo(3);
+        File.Exists(paths.SettingsFilePath).Should().BeFalse();
+    }
+
+    // ------------------------------------------------------------------
+    // バグ2: E406（保存前検証）の文言が実態と矛盾していた不具合の回帰テスト。
+    //
+    // 以前はValidateOnlyのDetailがLoadAsyncと同じ「既定値Xを使用します」という文言のまま
+    // コードだけE406へ差し替わっていたため、「入力値が保存条件を満たしていない: …は0以上
+    // である必要があるため既定値100を使用します。（対処: 値を修正すると自動的に保存されます）」
+    // という、Detail（既定値100を使う）とRemedy（保存されず修正を待つ）が矛盾した表示になって
+    // いた。実際には何も保存されず直前の値のままなので、Detailも「保存されない」という
+    // 事実に合わせる必要がある。一方でLoadAsync（起動時に不正値を実際に既定値へ差し替える
+    // 文脈）では「既定値を使用します」のままが正確であるため、文脈で文言を分けたことも
+    // あわせて検証する（両方が同じ検証ロジック=Validate()を共有しているため、
+    // 一律に変えると片方が不正確になる）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ValidateOnly（保存前検証）のDetailは『既定値を使用します』と言わず、保存されない旨を伝える")]
+    public void ValidateOnlyのDetailは保存されない旨を伝える()
+    {
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = -5 } });
+
+        var issue = result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E406
+            && i.Detail != null && i.Detail.Contains("maxRevisions")).Subject;
+
+        issue.Detail.Should().NotContain("既定値", "保存前検証では既定値へ差し替わらないため、既定値を使うという表現は誤り");
+        issue.Detail.Should().NotContain("100を使用", "実際には直前の正しい値のまま保存されず、100になるわけではない");
+        issue.Detail.Should().Contain("保存されて", "保存されなかった（保留された）ことが伝わる文言である必要がある");
+    }
+
+    [Fact(DisplayName = "LoadAsync（起動時の読み込み）のDetailは、実際に既定値へ差し替わるため『既定値を使用します』のままでよい")]
+    public async Task LoadAsyncのDetailは既定値を使用する旨のままでよい()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "backup": { "maxRevisions": -5 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Backup.MaxRevisions.Should().Be(100, "起動時の読み込みでは実際に既定値へ差し替わる");
+        var issue = result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E404
+            && i.Detail != null && i.Detail.Contains("maxRevisions")).Subject;
+        issue.Detail.Should().Contain("既定値", "この文脈では実際に既定値が使われるため、その旨を伝える文言のままでよい");
+    }
+
+    [Fact(DisplayName = "E406の対処方法（Remedy）は『値を修正すると自動的に保存されます』のまま変わらない")]
+    public void E406のRemedyは保存される旨のままである()
+    {
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = -5 } });
+
+        var issue = result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E406).Subject;
+        issue.Remedy.Should().Be("値を修正すると自動的に保存されます");
+        issue.Summary.Should().Be("入力値が保存条件を満たしていない");
+
+        // Detail・Remedyを組み合わせた表示（ToDisplayText + Remedy）全体で見ても、
+        // 「既定値を使用する」という矛盾した記述が残っていないことを確認する。
+        var displayText = $"{issue.ToDisplayText()}（対処: {issue.Remedy}）";
+        displayText.Should().NotContain("既定値100を使用");
+    }
+
+    // ------------------------------------------------------------------
     // 13.1 破損時の復旧
     // ------------------------------------------------------------------
 

@@ -71,6 +71,7 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
         OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
         ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
+        OpenShortcutsCommand = new RelayCommand(() => RequestOpenShortcuts?.Invoke(this, EventArgs.Empty));
     }
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>
@@ -146,11 +147,21 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     public ICommand ToggleQuickOpenCommand { get; }
 
     /// <summary>
+    /// Ctrl+/・ツールバーの「?」ボタン。キーボードショートカット一覧ウィンドウを開く。
+    /// テキスト入力欄・エディタにフォーカスがある間はCtrl+/がエディタの行コメント切り替えに
+    /// 使われるため（ShellWindow.Keyboard.cs）、そちらを優先しここは反応しない。
+    /// </summary>
+    public ICommand OpenShortcutsCommand { get; }
+
+    /// <summary>
     /// 4.4: 検索ビューを表示したとき（サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも
     /// <see cref="SelectSideView"/>を経由するため、ここで一括して発火する）、検索テキストボックスへ
     /// フォーカスするようViewへ要求する。
     /// </summary>
     public event EventHandler? RequestFocusSearchView;
+
+    /// <summary>ショートカット一覧ウィンドウを開くタイミングの通知。View側（ShellWindow）が購読する。</summary>
+    public event EventHandler? RequestOpenShortcuts;
 
     /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを

@@ -91,6 +91,8 @@
                                     Theme="{StaticResource EditorTabCloseButtonTheme}"
                                     Margin="6,0,0,0"
                                     IsVisible="False"
+                                    local:HelpTip.Standard="このタブを閉じます。未保存の変更があれば保存するか確認します（Ctrl+W）。"
+                                    local:HelpTip.Detailed="このファイルをエディタから閉じます。保存していない変更が残っている場合は、閉じる前に「保存する／保存しない／キャンセル」を確認するダイアログが出ます。ファイル自体（ディスク上のファイル）は削除されません。ショートカットはCtrl+Wです。"
                                     AutomationProperties.Name="タブを閉じる" />
                         </StackPanel>
                     </Border>
@@ -120,11 +122,15 @@
                             Content="再読込"
                             Command="{Binding ActiveTab.ReloadDiscardingChangesCommand}"
                             Margin="8,0,0,0"
+                            local:HelpTip.Standard="未保存の編集を破棄し、ディスク上の最新の内容を読み込み直します。"
+                            local:HelpTip.Detailed="このファイルが、Graftの外（他のエディタやAIによる適用など）で書き換えられたことを検知しました。「再読込」を押すと、今エディタに残っている未保存の編集内容は失われ、ディスク上の最新の内容に置き換わります。自分の編集より、外部での変更を優先したいときに使います。"
                             AutomationProperties.Name="編集を破棄してディスクの内容を再読込" />
                     <Button Grid.Column="2"
                             Content="無視"
                             Command="{Binding ActiveTab.DismissExternalConflictCommand}"
                             Margin="8,0,0,0"
+                            local:HelpTip.Standard="この通知を閉じ、現在編集中の内容をそのまま保持します（ディスク上の変更は無視されます）。"
+                            local:HelpTip.Detailed="この通知バーを閉じます。エディタ上の未保存の編集内容はそのまま残り、ディスク側の変更は取り込みません。このあと保存すると、ディスク上の変更を上書きすることになります。自分の編集を優先したいときに使います。"
                             AutomationProperties.Name="この通知を無視して編集を続ける" />
                 </Grid>
             </Border>
