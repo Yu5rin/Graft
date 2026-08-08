@@ -11,7 +11,7 @@
         - DatePicker.SelectedDate は DateTimeOffset? を直接扱うため、v2.0のWPF版で必要だった
           DateTime? との変換コンバータは使わない。
     -->
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
 
         <!-- 見出しと復元ボタン -->
         <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
@@ -62,11 +62,32 @@
         </Grid>
 
         <!--
+            期間プリセット。手入力欄だけでは細かい範囲は指定できても、大半の用途である
+            「直近の適用を見たい」という操作のたびに日付を打ち直すのは不親切なため追加。
+            選ぶと下の手入力欄へ即座に反映する（HistoryPaneViewModel.DatePreset参照）。
+            サイドビューの幅が狭く「期間」行に収まらないため、専用の行を上に足している。
+        -->
+        <Grid Grid.Row="3" Margin="8,0,8,4" ColumnDefinitions="*">
+            <ComboBox Grid.Column="0"
+                      ItemsSource="{Binding AvailableDatePresets}"
+                      SelectedItem="{Binding DatePreset, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="期間のプリセットで絞り込み">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={x:Static local:Converters.HistoryDatePresetToLabel}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
+
+        <!--
             日付範囲。日付選択コントロールではなく入力欄にしているのは、Avaloniaの
             DatePickerが英語の項目名（year/month/day）を表示し差し替えられないことと、
             サイドビューの幅に3項目分の枠が収まらないため（HistoryPaneViewModel参照）。
+            細かい範囲を指定したいときのために、上のプリセットとは別に残している。
         -->
-        <Grid Grid.Row="3" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
+        <Grid Grid.Row="4" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
             <TextBlock Grid.Column="0" Text="期間" VerticalAlignment="Center"
                        Margin="0,0,6,0"
                        FontSize="{DynamicResource CaptionFontSize}"
@@ -81,7 +102,7 @@
                      AutomationProperties.Name="終了日（年-月-日）" />
         </Grid>
 
-        <Grid Grid.Row="4">
+        <Grid Grid.Row="5">
             <ListBox x:Name="RevisionListBox"
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
