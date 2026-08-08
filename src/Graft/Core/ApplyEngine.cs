@@ -169,7 +169,7 @@ public sealed partial class ApplyEngine
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return GraftResult<bool>.Fail(ErrorCode.E402, ex.Message, path: p.Path);
+                return GraftResult<bool>.Fail(ErrorCode.E402, ExceptionMessages.Describe(ex), path: p.Path);
             }
 
             entries.Add(new RevisionEntry { Path = p.Path, Operation = EntryOperation.Mkdir, Desc = p.Description });
@@ -195,7 +195,7 @@ public sealed partial class ApplyEngine
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return GraftResult<bool>.Fail(ErrorCode.E402, ex.Message, path: p.Path);
+                return GraftResult<bool>.Fail(ErrorCode.E402, ExceptionMessages.Describe(ex), path: p.Path);
             }
 
             entries.Add(new RevisionEntry
@@ -278,7 +278,7 @@ public sealed partial class ApplyEngine
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
                 {
                     return GraftResult<(bool, string?, string)>.Fail(
-                        ErrorCode.E402, $"親フォルダを作成できませんでした: {ex.Message}", path: path);
+                        ErrorCode.E402, $"親フォルダを作成できませんでした: {ExceptionMessages.Describe(ex)}", path: path);
                 }
             }
         }

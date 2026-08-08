@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:Graft.Views"
         x:Class="Graft.Views.ShellWindow"
+        x:Name="RootWindow"
         Title="Graft"
         Width="1280" Height="800"
         MinWidth="{DynamicResource MinWindowWidth}"
@@ -54,10 +55,18 @@
                 増減でワークフロー側の並びが変わっても「困ったときはここ」という位置が
                 動かない（実機でウィンドウを最小幅まで狭めても両グループが欠けずに収まる
                 ことを確認済み）。
+
+                不具合5対応: 列構成をAuto,*,AutoからAuto,Auto,*,Autoへ変更した（課題3対応）ため、
+                ボタン列（列1）を包むScrollViewerのMaxWidthを求める計算式も列の増減に合わせて
+                作り直した。プロジェクト選択ComboBoxとショートカット一覧ボタンの実測幅
+                （Bounds.Width）をウィンドウ幅から差し引く方式にしており、列構成が今後変わっても
+                固定値を書き直さずに済む（計算の詳細はConverters.ToolbarButtonsMaxWidthのコメント
+                参照）。
             -->
             <Grid x:Name="CommandBarGrid" Margin="12,0" ColumnDefinitions="Auto,Auto,*,Auto">
 
-                <ComboBox Grid.Column="0"
+                <ComboBox x:Name="ProjectComboBox"
+                          Grid.Column="0"
                           MinWidth="180"
                           VerticalAlignment="Center"
                           ItemsSource="{Binding Graft.ProjectPane.Items}"
@@ -65,7 +74,33 @@
                           ItemTemplate="{StaticResource NameItemTemplate}"
                           AutomationProperties.Name="プロジェクトを選択" />
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                <!--
+                    不具合5対応: layout.jsonの極端な値からの復元でウィンドウがMinWidth
+                    （960px）まで縮んだ場合、このボタン列は幅がAuto（内容に合わせて伸びる）の
+                    ため、右端のボタン（設定など）が画面外へはみ出し押せなくなっていた
+                    （実機で確認）。ツールバーの構造自体（ボタンの並び・個数・列配置）は変えず、
+                    ScrollViewerで包んで収まらない分を横スクロールできるようにするだけに留める。
+                    GridのAuto列にScrollViewerを置いて「残り幅」の計算を自動化させる方法は、
+                    実機検証でウィンドウが最小幅まで縮んだ場合に機能しないことを確認した
+                    （ScrollViewerが実際の残り幅を受け取れず、内容が画面外へクリップされずに
+                    あふれる）。そのためMaxWidthはウィンドウ幅とプロジェクト選択ComboBox・
+                    ショートカット一覧ボタンの実測幅から直接計算する
+                    （Converters.ToolbarButtonsMaxWidth参照）。
+                -->
+                <ScrollViewer x:Name="ToolbarButtonsScroll"
+                              Grid.Column="1"
+                              Margin="12,0,0,0"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              VerticalAlignment="Center">
+                    <ScrollViewer.MaxWidth>
+                        <MultiBinding Converter="{x:Static views:Converters.ToolbarButtonsMaxWidth}">
+                            <Binding ElementName="RootWindow" Path="ClientSize.Width" />
+                            <Binding ElementName="ProjectComboBox" Path="Bounds.Width" />
+                            <Binding ElementName="ShortcutsButton" Path="Bounds.Width" />
+                        </MultiBinding>
+                    </ScrollViewer.MaxWidth>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- 10章: プロジェクトのフォルダ構成・ファイル内容を確認するコンテキスト収集画面。
                          ツールチップは「このボタンが何をするものか」を初見で分かる言葉で書く。
                          ボタン名（ファイル・解析・キュー）だけでは機能が伝わらないという
@@ -123,20 +158,25 @@
                             views:HelpTip.Standard="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
                             views:HelpTip.Detailed="これまでに「適用」したすべての変更が、時系列の一覧として記録されています。過去のどれかを選ぶと、その時点の内容を確認したり、その状態へ復元（元に戻す）したりできます。誤った変更を適用してしまったときのやり直し手段です。"
                             AutomationProperties.Name="履歴ビューを開く" />
-                    <Button Content="設定"
+                    <Button x:Name="SettingsButton"
+                            Content="設定"
                             Command="{Binding Graft.OpenSettingsCommand}"
                             Margin="4,0"
                             views:HelpTip.Standard="テーマ・エディタ・安全機構などの設定を開きます。"
                             views:HelpTip.Detailed="Graft全体の動作を調整する設定画面を開きます。見た目の色（テーマ）、この説明文の詳しさ、エディタの表示、バックアップの保持数など、多くの項目をここでまとめて変更できます。変更は入力した瞬間に自動で保存されるため、保存ボタンを押す必要はありません。"
                             AutomationProperties.Name="設定を開く" />
                 </StackPanel>
+                </ScrollViewer>
 
                 <!-- キーボードショートカット一覧。20個以上あるショートカットを利用者が
                      発見する手段がボタン1つ分のツールチップしか無かったための追加。
                      ワークフローの操作ボタン群（列1）とは性質が異なる補助機能のため、
                      課題3の対応として列3（コマンドバー右端）に独立させて置く
-                     （このGrid冒頭のコメント参照）。開く手段はこのボタンとCtrl+/の2通り。 -->
-                <Button Grid.Column="3"
+                     （このGrid冒頭のコメント参照）。開く手段はこのボタンとCtrl+/の2通り。
+                     x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を
+                     兼ねる。 -->
+                <Button x:Name="ShortcutsButton"
+                        Grid.Column="3"
                         Command="{Binding OpenShortcutsCommand}"
                         VerticalAlignment="Center"
                         Padding="6"

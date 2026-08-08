@@ -25,7 +25,7 @@ public static class FileTextIO
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<(string, TextShape)>.Fail(ErrorCode.E204, ex.Message, path: fullPath);
+            return GraftResult<(string, TextShape)>.Fail(ErrorCode.E204, ExceptionMessages.Describe(ex), path: fullPath);
         }
     }
 

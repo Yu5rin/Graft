@@ -31,7 +31,7 @@ public static class SafeFileWriter
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             TryDelete(tempPath);
-            return GraftResult<bool>.Fail(ErrorCode.E402, $"一時ファイルの作成に失敗しました: {ex.Message}", path: fullPath);
+            return GraftResult<bool>.Fail(ErrorCode.E402, $"一時ファイルの作成に失敗しました: {ExceptionMessages.Describe(ex)}", path: fullPath);
         }
 
         try
@@ -111,7 +111,8 @@ public static class SafeFileWriter
             RestoreFromBackupIfPossible(fullPath, backupPath, targetExists);
             TryDelete(tempPath);
             return GraftResult<bool>.Fail(ErrorCode.E402,
-                $"代替手順でも書き込みに失敗しました: {ex.Message}（一次要因: {cause.Message}）", path: fullPath);
+                $"代替手順でも書き込みに失敗しました: {ExceptionMessages.Describe(ex)}（一次要因: {ExceptionMessages.Describe(cause)}）",
+                path: fullPath);
         }
     }
 

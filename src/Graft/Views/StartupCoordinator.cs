@@ -87,7 +87,9 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         SafeHandler.OnUnexpected = (context, ex) =>
         {
             _logger?.Error("handler", $"{context}: {ex}");
-            _ = dialogService.ShowMessageAsync("Graft", $"{context}に失敗しました。{Environment.NewLine}{ex.Message}");
+            // 想定外の例外（附録A.4: 握り潰さずログへ記録しつつ日本語で通知する）。
+            // ex.Messageの生文言をそのまま出さず、よくある原因はExceptionMessagesで日本語化する。
+            _ = dialogService.ShowMessageAsync("Graft", $"{context}に失敗しました。{Environment.NewLine}{ExceptionMessages.Describe(ex)}");
         };
 
         _settingsStore = new SettingsStore(_appPaths);
@@ -133,6 +135,30 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         var startupIssues = new List<GraftIssue>(settingsResult.Issues);
         WirePlatformServices(window, mainViewModel, startupIssues);
 
+        // 不具合4対応: OnLoaded経由の起動直後プロジェクト自動選択（MainViewModel.InitializeAsync）が
+        // ファイル監視の開始に失敗すると、ExplorerViewModelは既定で即座に自分のダイアログを出す。
+        // これがRunStartupValidationAsync（背景検証、完了後に1枚のダイアログへ集約する）と
+        // 別々に表示され、2枚重なって出ていた（実機で確認）。ここでハンドラを差し込み、
+        // 起動時レポートが提示されるまでの間はこのリストへ集約する。
+        //
+        // 単に「差し込んで完了後にnullへ戻す」だけだと、初回のSetProjectAsync（監視開始の
+        // 試行）が完了するより先にRunStartupValidationAsyncが完了・レポート確定してしまう
+        // 順序のときに、監視失敗の警告が一切表示されないまま失われる（実機検証で実際に発生を
+        // 確認したレース）。そのため、initialWatchSignalで「初回の監視開始試行が
+        // 完了（成功・失敗問わず）」を通知させ、RunStartupValidationAsync側はプロジェクトが
+        // 1件以上あるときに限りこの通知（またはタイムアウト）を待ってからレポートを確定する
+        // （StartupCoordinator.Validation.cs参照）。issues一覧への追加はスレッドをまたぐため
+        // startupIssuesをロックオブジェクトとして使う。
+        var initialWatchSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        shellViewModel.Explorer.WatchStartCompletedHandler = issue =>
+        {
+            if (issue is not null)
+            {
+                lock (startupIssues) startupIssues.Add(issue);
+            }
+            initialWatchSignal.TrySetResult();
+        };
+
         // 9章: 最小化でトレイへ格納する（トレイが使えない環境では通常の最小化のまま）。
         window.PropertyChanged += (_, e) =>
         {
@@ -156,7 +182,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // ファイナライザ経由の未観測例外として遅れて表面化し、原因を追いにくい。
         // 例外は必ず観測してログへ落とす（附録A.4: 握り潰さない）。
         _ = RunStartupValidationAsync(
-                projectStore, revisionStore, dialogService, revisionRestorer, startupIssues)
+                projectStore, revisionStore, dialogService, revisionRestorer, startupIssues, initialWatchSignal.Task)
             .ContinueWith(
                 task => _logger?.Error("startup", $"起動時検証に失敗しました: {task.Exception!.GetBaseException()}"),
                 CancellationToken.None,
@@ -227,7 +253,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             OnToggleClipboardWatch = SetClipboardWatchEnabled,
             RecentProjects = mainViewModel.ProjectPane.Items
                 .Take(9)
-                .Select(p => new TrayRecentProjectItem(p.Name, () => mainViewModel.ProjectPane.SelectedItem = p))
+                .Select(p => new TrayRecentProjectItem(p.DisplayName, () => mainViewModel.ProjectPane.SelectedItem = p))
                 .ToList(),
             OnRestoreMainWindow = () => RestoreWindow(window),
             OnOpenSettings = () => mainViewModel.OpenSettingsCommand.Execute(null),

@@ -59,6 +59,43 @@ public static class Converters
     public static readonly IValueConverter IndentToMargin =
         new FuncValueConverter<int, Thickness>(level => new Thickness(level * 16.0, 2, 0, 2));
 
+    /// <summary>
+    /// 不具合5対応（ShellWindow.axamlのコマンドバー）: ウィンドウ幅からプロジェクト選択
+    /// ComboBoxとショートカット一覧ボタン（「?」）の実測幅（Bounds.Width）を差し引き、
+    /// 操作ボタン列を包むScrollViewerのMaxWidthに使う。
+    /// <para>
+    /// GridのAuto/*列やDockPanelのLastChildFillにScrollViewerを置いて「残り幅」を
+    /// 自動計算させる方法は、実機検証でウィンドウが最小幅まで縮んだ場合に正しく機能しない
+    /// （ScrollViewerが実際の残り幅を受け取れず、内容が画面外へあふれたままクリップされない）
+    /// ことを確認したため、ウィンドウ幅からの直接計算に切り替えた。
+    /// </para>
+    /// <para>
+    /// 当初はComboBoxの実測幅を使わず「360px想定の最大幅＋左右マージン24px＋予備36px＝420px」
+    /// という固定の見込み値で差し引く簡易な近似だった。その後コマンドバーの列構成が
+    /// Auto,*,AutoからAuto,Auto,*,Auto（ショートカット一覧ボタン用の列が独立）へ変わり、
+    /// 固定値420pxがショートカットボタン分の幅を含んでいないため成り立たなくなった。
+    /// 列が増えるたびに固定値を数え直すのは保守性が低いため、ComboBoxとショートカット
+    /// ボタンそれぞれのBounds.Width（実測値）をMultiBindingで受け取り、そこから動的に
+    /// 差し引く方式へ変更した。差し引けないのはGridの左右マージン（12px×2）とボタン列の
+    /// 左マージン（12px）だけで、これはレイアウト上の固定余白であり内容量に応じて変動
+    /// しないため、定数として残しても近似誤差にはならない。
+    /// </para>
+    /// </summary>
+    public static readonly IMultiValueConverter ToolbarButtonsMaxWidth =
+        new FuncMultiValueConverter<double, double>(values =>
+        {
+            var list = values.ToList();
+            var windowWidth = list.Count > 0 ? list[0] : 0;
+            var comboWidth = list.Count > 1 ? list[1] : 0;
+            var shortcutsWidth = list.Count > 2 ? list[2] : 0;
+
+            // Gridの左右マージン12px×2＋ボタン列の左マージン12px＝36px。
+            // 実測できないレイアウト上の固定余白のみ定数として残す。
+            const double fixedMargins = 36;
+
+            return Math.Max(0, windowWidth - comboWidth - shortcutsWidth - fixedMargins);
+        });
+
     /// <summary>trueなら残り幅いっぱい（1*）、falseなら0。差分ビューの片側折りたたみ用。</summary>
     public static readonly IValueConverter BoolToStarGridLength =
         new FuncValueConverter<bool, GridLength>(
