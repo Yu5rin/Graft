@@ -38,12 +38,45 @@ public sealed record GitHeadContent
 }
 
 /// <summary>
+/// 課題3: 自動コミットの前提条件チェック結果。<see cref="GitIntegration.CommitAsync"/>自体は
+/// gitが無い場合もリポジトリでない場合も「git add に失敗しました」という同じ形のエラーで
+/// 返ってくる（git add/commitの実行結果を文字列で包むだけのため）ため、ログに残す理由を
+/// 区別するにはコミットを試みる前にこのチェックを行う必要がある。
+/// </summary>
+public enum GitCommitPreflight
+{
+    /// <summary>gitコマンドが実行でき、対象がgitリポジトリである。コミットを試みてよい。</summary>
+    Ready,
+
+    /// <summary>gitコマンド自体が見つからない（未インストール、PATHが通っていない等）。</summary>
+    GitCommandNotFound,
+
+    /// <summary>gitコマンドは実行できたが、対象ディレクトリがgitリポジトリではない。</summary>
+    NotARepository,
+}
+
+/// <summary>
 /// 仕様書7.5 Git連携。git コマンドを子プロセスとして呼び出す（外部ライブラリは追加しない）。
 /// git が見つからない、またはリポジトリでない場合はエラーとせず <see cref="GitStatus.IsRepository"/>
 /// を false として返す。
 /// </summary>
 public sealed class GitIntegration
 {
+    /// <summary>
+    /// 課題3: <see cref="CommitAsync"/>を呼ぶ前に前提条件を確認する。<c>git rev-parse
+    /// --is-inside-work-tree</c>はgitが無ければプロセス自体を起動できず（Started=false）、
+    /// git はあるがリポジトリでなければ非0の終了コードを返す（Started=true）ため、
+    /// この2つを区別できる。
+    /// </summary>
+    public async Task<GitCommitPreflight> CheckCommitPreflightAsync(string projectRoot, CancellationToken ct = default)
+    {
+        var inside = await RunGitAsync(projectRoot, new[] { "rev-parse", "--is-inside-work-tree" }, ct)
+            .ConfigureAwait(false);
+        if (!inside.Started) return GitCommitPreflight.GitCommandNotFound;
+        if (inside.ExitCode != 0) return GitCommitPreflight.NotARepository;
+        return GitCommitPreflight.Ready;
+    }
+
     /// <summary>git 管理下かどうか、未コミットの変更があるかを調べる。</summary>
     public async Task<GraftResult<GitStatus>> GetStatusAsync(string projectRoot, CancellationToken ct = default)
     {

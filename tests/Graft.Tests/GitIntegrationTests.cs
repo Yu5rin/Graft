@@ -77,6 +77,34 @@ public class GitIntegrationTests
         result.IsSuccess.Should().BeFalse();
     }
 
+    // ------------------------------------------------------------------
+    // 課題3: 自動コミット失敗理由のログ区別に使う前提条件チェック
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "gitリポジトリならCheckCommitPreflightAsyncはReadyを返す")]
+    public async Task 前提条件チェックはリポジトリならReadyを返す()
+    {
+        using var ws = new TempWorkspace();
+        await InitRepoAsync(ws.RootPath);
+
+        var git = new GitIntegration();
+        var preflight = await git.CheckCommitPreflightAsync(ws.RootPath);
+
+        preflight.Should().Be(GitCommitPreflight.Ready);
+    }
+
+    [Fact(DisplayName = "gitリポジトリでないフォルダではCheckCommitPreflightAsyncがNotARepositoryを返す")]
+    public async Task 前提条件チェックはリポジトリでなければNotARepositoryを返す()
+    {
+        using var ws = new TempWorkspace();
+        ws.WriteText("a.py", "x=1\n"); // git init しない。
+
+        var git = new GitIntegration();
+        var preflight = await git.CheckCommitPreflightAsync(ws.RootPath);
+
+        preflight.Should().Be(GitCommitPreflight.NotARepository);
+    }
+
     /// <summary>git init と、テスト実行環境のグローバル設定に依存しないローカルのuser設定を行う。</summary>
     private static async Task InitRepoAsync(string root)
     {
