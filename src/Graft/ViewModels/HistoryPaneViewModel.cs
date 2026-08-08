@@ -17,6 +17,26 @@ public enum HistoryPaneState
 }
 
 /// <summary>
+/// 期間絞り込みのプリセット（仕様書7.2）。手入力のみでは絞り込みに手間がかかるため、
+/// 「直近の適用を見たい」という大半の用途をワンクリックで満たせるようにする。
+/// <see cref="Custom"/> は手入力で任意の範囲を指定している状態を表す表示専用の値で、
+/// ドロップダウンで選んでも何も変化しない（現在の入力内容をそのまま保つ）。
+/// </summary>
+public enum HistoryDatePreset
+{
+    /// <summary>手入力など、他のいずれのプリセットにも一致しない状態（指定期間）。</summary>
+    Custom,
+    /// <summary>絞り込みなし。</summary>
+    All,
+    /// <summary>当日0時から。</summary>
+    Today,
+    /// <summary>当日を含む直近7日（6日前0時から）。</summary>
+    Last7Days,
+    /// <summary>当日を含む直近30日（29日前0時から）。</summary>
+    Last30Days,
+}
+
+/// <summary>
 /// リビジョン履歴の1行。<c>git log</c> 相当の情報密度（仕様書7.2）で表示するための
 /// 表示用プロパティを持つ。
 /// </summary>
@@ -65,6 +85,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
     private readonly RevisionStore _revisionStore;
     private readonly RevisionRestorer _restorer;
     private readonly IDialogService _dialogs;
+    private readonly Func<DateTimeOffset> _now;
 
     private string? _projectId;
     private string? _projectRoot;
@@ -79,12 +100,18 @@ public sealed class HistoryPaneViewModel : ObservableObject
     private string _dateToText = string.Empty;
     private DateTimeOffset? _dateFrom;
     private DateTimeOffset? _dateTo;
+    private HistoryDatePreset _datePreset = HistoryDatePreset.All;
+    private bool _isApplyingPreset;
 
-    public HistoryPaneViewModel(RevisionStore revisionStore, RevisionRestorer restorer, IDialogService dialogs)
+    public HistoryPaneViewModel(
+        RevisionStore revisionStore, RevisionRestorer restorer, IDialogService dialogs, Func<DateTimeOffset>? now = null)
     {
         _revisionStore = revisionStore ?? throw new ArgumentNullException(nameof(revisionStore));
         _restorer = restorer ?? throw new ArgumentNullException(nameof(restorer));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        // 現在時刻を注入可能にしているのは、期間プリセット（過去7日等）の計算をテストで
+        // 日付をまたがずに固定できるようにするため。既定はローカル時刻の DateTimeOffset.Now。
+        _now = now ?? (() => DateTimeOffset.Now);
         RestoreCommand = new AsyncRelayCommand(RestoreSelectedAsync, () => SelectedItem is { CanRestore: true });
     }
 
@@ -149,19 +176,119 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// AvaloniaのDatePickerが英語の項目名（year/month/day）を表示し、差し替える手段が
     /// 無いため。加えて、サイドビューの幅（既定260px）に3項目分の枠が収まらない。
     /// 解釈できない入力は「指定なし」として扱い、入力の途中で一覧が消えないようにする。
+    ///
+    /// 手入力欄だけでは細かい範囲は指定できても、大半の用途である「直近の適用を見たい」
+    /// という操作のたびに日付を打ち直すのは不親切なため、<see cref="DatePreset"/> で
+    /// 「今日」「過去7日」「過去30日」等のプリセットを選ぶだけでこの欄へ反映できるようにする。
+    /// 手入力欄そのものは、細かい範囲指定の手段として残す。
     /// </summary>
     public string DateFromText
     {
         get => FormatDate(_dateFrom);
-        set { if (SetProperty(ref _dateFromText, value)) DateFrom = ParseDate(value); }
+        set
+        {
+            if (EqualityComparer<string>.Default.Equals(_dateFromText, value))
+            {
+                return;
+            }
+            _dateFromText = value;
+            // DateFromの反映（DateFrom自身の通知とApplyFilterを含む）を先に済ませてから
+            // DateFromText自身の変更通知を出す。逆順だと、このプロパティのgetterが参照する
+            // _dateFromがまだ更新されておらず、バインド先（TextBox）へ古い値を読み直させて
+            // しまう（プリセット選択でテキスト欄が更新されない不具合の原因になっていた）。
+            DateFrom = ParseDate(value);
+            OnPropertyChanged();
+            SyncPresetWithManualInput();
+        }
     }
 
     /// <inheritdoc cref="DateFromText"/>
     public string DateToText
     {
         get => FormatDate(_dateTo);
-        set { if (SetProperty(ref _dateToText, value)) DateTo = ParseDate(value); }
+        set
+        {
+            if (EqualityComparer<string>.Default.Equals(_dateToText, value))
+            {
+                return;
+            }
+            _dateToText = value;
+            DateTo = ParseDate(value);
+            OnPropertyChanged();
+            SyncPresetWithManualInput();
+        }
     }
+
+    /// <summary>期間絞り込みのプリセット選択肢（ドロップダウンの表示順）。</summary>
+    public IReadOnlyList<HistoryDatePreset> AvailableDatePresets { get; } = new[]
+    {
+        HistoryDatePreset.All,
+        HistoryDatePreset.Today,
+        HistoryDatePreset.Last7Days,
+        HistoryDatePreset.Last30Days,
+        HistoryDatePreset.Custom,
+    };
+
+    /// <summary>
+    /// 期間絞り込みのプリセット選択状態。選ぶと即座に <see cref="DateFromText"/>・
+    /// <see cref="DateToText"/> へ反映する（<see cref="HistoryDatePreset.Custom"/> を除く）。
+    /// 手入力欄を直接編集した場合は、選択中の表示をこの値経由で <see cref="HistoryDatePreset.Custom"/>
+    /// （空欄なら<see cref="HistoryDatePreset.All"/>）へ切り替え、プリセット表示と手入力欄の
+    /// 内容が矛盾しないようにする。
+    /// </summary>
+    public HistoryDatePreset DatePreset
+    {
+        get => _datePreset;
+        set => SetProperty(ref _datePreset, value, () => OnDatePresetChanged(value));
+    }
+
+    private void OnDatePresetChanged(HistoryDatePreset preset)
+    {
+        if (_isApplyingPreset || preset == HistoryDatePreset.Custom)
+        {
+            return;
+        }
+        ApplyPresetRange(preset);
+    }
+
+    /// <summary>
+    /// プリセットから開始日・終了日の入力欄を組み立てる。終了日は常に指定なし（＝現在まで）とする。
+    /// 開始日は「その日の0時」を基準にし、<see cref="DateFromText"/> と同じ書式・解釈で反映する。
+    /// </summary>
+    private void ApplyPresetRange(HistoryDatePreset preset)
+    {
+        _isApplyingPreset = true;
+        try
+        {
+            var todayStart = StartOfToday(_now());
+            DateFromText = preset switch
+            {
+                HistoryDatePreset.Today => FormatDate(todayStart),
+                // 「直近7日／30日」は当日を含むため、6日前／29日前の0時が起点になる。
+                HistoryDatePreset.Last7Days => FormatDate(todayStart.AddDays(-6)),
+                HistoryDatePreset.Last30Days => FormatDate(todayStart.AddDays(-29)),
+                _ => string.Empty, // All（全期間）
+            };
+            DateToText = string.Empty;
+        }
+        finally
+        {
+            _isApplyingPreset = false;
+        }
+    }
+
+    /// <summary>手入力欄が編集されたとき、プリセット表示を実際の内容に合わせて更新する。</summary>
+    private void SyncPresetWithManualInput()
+    {
+        if (_isApplyingPreset)
+        {
+            return;
+        }
+        var isUnfiltered = string.IsNullOrEmpty(_dateFromText) && string.IsNullOrEmpty(_dateToText);
+        DatePreset = isUnfiltered ? HistoryDatePreset.All : HistoryDatePreset.Custom;
+    }
+
+    private static DateTimeOffset StartOfToday(DateTimeOffset now) => new(now.Date, now.Offset);
 
     private static string FormatDate(DateTimeOffset? value)
         => value is null ? string.Empty : value.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

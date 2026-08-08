@@ -5,8 +5,11 @@
              x:Class="Graft.Views.SideBar"
              Focusable="False">
     <!--
-        9.2 サイドバー（48px固定）。エクスプローラ／プロジェクト／履歴／検索の4ビューを
-        アイコンで切り替える。同じアイコンの再クリックでサイドビューを折りたたむ
+        9.2 サイドバー（48px固定）。プロジェクト／エクスプローラ／履歴／検索の4ビューを
+        アイコンで切り替える。並び順は「プロジェクトを登録→ファイルを見る→履歴を確認→
+        必要なら検索する」というワークフロー順。既定表示はプロジェクトビュー
+        （ShellViewModel）なので、起動直後は一番上のアイコンが選択状態になる。
+        同じアイコンの再クリックでサイドビューを折りたたむ
         （ShellViewModel.SelectSideView）。DataContextはShellWindowから継承する。
 
         v2.0のWPF版からの差分: AvaloniaにMultiDataTriggerが無いため、「表示中かつ折りたたみ
@@ -32,21 +35,21 @@
         <StackPanel Orientation="Vertical" Margin="0,8">
 
             <Button Classes="sideBarIcon"
-                    Classes.active="{Binding IsExplorerActive}"
-                    Command="{Binding SelectSideViewCommand}"
-                    CommandParameter="{x:Static vm:SideViewKind.Explorer}"
-                    ToolTip.Tip="ファイル一覧。プロジェクト内のファイルを開いて編集します。"
-                    AutomationProperties.Name="エクスプローラビューを切り替え">
-                <views:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
-            </Button>
-
-            <Button Classes="sideBarIcon"
                     Classes.active="{Binding IsProjectActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.Project}"
                     ToolTip.Tip="プロジェクト一覧。登録したフォルダを切り替えます。"
                     AutomationProperties.Name="プロジェクトビューを切り替え">
                 <views:IconGlyph Data="{DynamicResource IconLayersGeometry}" />
+            </Button>
+
+            <Button Classes="sideBarIcon"
+                    Classes.active="{Binding IsExplorerActive}"
+                    Command="{Binding SelectSideViewCommand}"
+                    CommandParameter="{x:Static vm:SideViewKind.Explorer}"
+                    ToolTip.Tip="ファイル一覧。プロジェクト内のファイルを開いて編集します。"
+                    AutomationProperties.Name="エクスプローラビューを切り替え">
+                <views:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
             </Button>
 
             <Button Classes="sideBarIcon"
