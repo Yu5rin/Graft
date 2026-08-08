@@ -363,9 +363,16 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (node is not null) _ui.Clipboard.SetText(node.FullPath);
     }
 
+    /// <summary>
+    /// 不具合2対応: 以前はここで <see cref="FileTreeService.RevealInFileExplorer"/>
+    /// （Windows専用の別実装で、Linuxでは何もしない・フォルダのときに親フォルダが開く
+    /// 不具合も未対応のまま）を直接呼んでいた。プラットフォーム差し替え可能な
+    /// <see cref="IFileManagerLauncher"/>（Windows/Linuxの両方に対応し、対象がフォルダの
+    /// ときはフォルダ自体を開く）へ揃える。
+    /// </summary>
     private static void RevealInExplorer(FileNodeViewModel? node)
     {
-        if (node is not null) FileTreeService.RevealInFileExplorer(node.FullPath);
+        if (node is not null) PlatformServices.Current.FileManager.Reveal(node.FullPath);
     }
 
     private string ToFullPath(string relativePath)

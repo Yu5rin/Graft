@@ -144,10 +144,29 @@
                                     <TextBlock Text="{Binding DescriptionText}"
                                                FontSize="{DynamicResource CaptionFontSize}"
                                                Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" />
-                                    <!-- 8.8: エラーは赤い帯ではなく該当行のインライン表示。エラーコード＋対処方法併記。 -->
-                                    <TextBlock Text="{Binding IssueText}" FontSize="{DynamicResource CaptionFontSize}"
-                                               Foreground="{DynamicResource StateError}" TextWrapping="Wrap"
-                                               IsVisible="{Binding HasIssue}" />
+                                    <!--
+                                        8.8: エラーは赤い帯ではなく該当行のインライン表示。エラーコード＋対処方法併記。
+                                        不具合1対応: 1ブロックに複数件の問題が付くことがある（PathGuard.Inspectが
+                                        サイズ超過E203と排他ロックE204を同時に返す場合など）。以前は1本のTextBlock
+                                        へ改行文字で連結していたが、複数件を確実に縦へ並べて全部読めるようにする
+                                        ため、IssueLines（BlockItemViewModel、上限＋「ほかN件」で件数も抑える）を
+                                        ItemsControlで1件ずつ独立したTextBlockとして描画する。ItemsPanelは既定でも
+                                        StackPanelだが、意図を明示するためここでも明記する。
+                                    -->
+                                    <ItemsControl ItemsSource="{Binding IssueLines}" IsVisible="{Binding HasIssue}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding}" FontSize="{DynamicResource CaptionFontSize}"
+                                                           Foreground="{DynamicResource StateError}"
+                                                           TextWrapping="Wrap" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
 
                                 <TextBlock Grid.Column="3" Text="{Binding AddedRemovedText}" VerticalAlignment="Top"
