@@ -62,7 +62,9 @@
                 <ToggleButton Grid.Column="0" Classes="searchToggle"
                               IsChecked="{Binding IsReplaceMode, Mode=OneWay}"
                               Command="{Binding ToggleReplaceModeCommand}"
-                              AutomationProperties.Name="置換欄の表示切り替え">
+                              AutomationProperties.Name="置換欄の表示切り替え"
+                              views:HelpTip.Standard="下に置換用の入力欄を出します（このファイル内だけの置換）。"
+                              views:HelpTip.Detailed="クリックすると下に置換文字列の入力欄が現れ、開いているこのファイルの中だけで文字列を置き換えられるようになります。複数ファイルをまとめて置換したい場合は、サイドバーの「検索」（虫眼鏡アイコン、Ctrl+Shift+F）を使ってください。">
                     <Panel>
                         <views:IconGlyph Width="12" Height="12"
                                          Data="{DynamicResource IconChevronRightGeometry}"
@@ -77,7 +79,9 @@
                          Grid.Column="1"
                          Text="{Binding Query}"
                          KeyDown="OnFindBoxKeyDown"
-                         AutomationProperties.Name="検索文字列" />
+                         AutomationProperties.Name="検索文字列"
+                         views:HelpTip.Standard="開いているこのファイルの中だけを検索する文字列です。Enterで次の一致へ移動します。"
+                         views:HelpTip.Detailed="今エディタで開いているファイルの中だけを検索します（Ctrl+Fでこの欄にフォーカスします）。入力すると一致箇所が数えられ、Enterキーまたは右側の矢印アイコンで次・前の一致へ移動できます。プロジェクト全体を横断して検索したい場合は、サイドバーの「検索」（虫眼鏡アイコン、Ctrl+Shift+F）を使ってください。" />
 
                 <ToggleButton Grid.Column="2" Classes="searchToggle"
                               IsChecked="{Binding UseRegex, Mode=OneWay}"
@@ -150,18 +154,24 @@
                          Grid.Column="1"
                          Text="{Binding ReplaceText}"
                          KeyDown="OnReplaceBoxKeyDown"
-                         AutomationProperties.Name="置換文字列" />
+                         AutomationProperties.Name="置換文字列"
+                         views:HelpTip.Standard="上の検索文字列を、この文字列に置き換えます。「置換」または「すべて置換」を押すまでファイルは変わりません。"
+                         views:HelpTip.Detailed="上で検索した文字列を、この文字列に置き換えます。入力しただけではまだ何も変わらず、右の「置換」（今カーソルがある1件だけ）または「すべて置換」（このファイル内の全ての一致）を押した時点で書き換わります。書き込み後は通常のCtrl+Zで元に戻せます。" />
 
                 <Button Grid.Column="2"
                         Command="{Binding ReplaceCommand}"
                         Content="置換"
                         Margin="4,0,0,0"
-                        AutomationProperties.Name="この一致を置換" />
+                        AutomationProperties.Name="この一致を置換"
+                        views:HelpTip.Standard="今カーソルがある1件の一致だけを置換文字列に置き換えます。"
+                        views:HelpTip.Detailed="現在選択中の1つの一致箇所だけを、上の置換文字列に置き換えます。置き換えたあとは自動的に次の一致箇所へ移動するので、1件ずつ確認しながら進めたいときに使います。" />
                 <Button Grid.Column="3"
                         Command="{Binding ReplaceAllCommand}"
                         Content="すべて置換"
                         Margin="4,0,0,0"
-                        AutomationProperties.Name="すべて置換" />
+                        AutomationProperties.Name="すべて置換"
+                        views:HelpTip.Standard="このファイル内の一致箇所すべてを、置換文字列に一括で置き換えます。"
+                        views:HelpTip.Detailed="今開いているファイルの中で検索条件に一致する箇所を、すべて一括で置換文字列に置き換えます。確認ダイアログなしで即座に書き換わるため、意図した検索条件になっているかをよく確認してから押してください。書き込み後はCtrl+Zで元に戻せます。" />
             </Grid>
         </StackPanel>
     </Border>

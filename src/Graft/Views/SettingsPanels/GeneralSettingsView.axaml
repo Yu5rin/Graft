@@ -29,7 +29,9 @@
                 <TextBlock Text="テーマ" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTheme}"
-                          AutomationProperties.Name="テーマ" />
+                          AutomationProperties.Name="テーマ"
+                          views:HelpTip.Standard="画面全体の配色を選びます。既定は「システム追従」です。"
+                          views:HelpTip.Detailed="Graftの画面全体の配色を選びます。「ダーク」「ライト」を選ぶとその配色に固定され、「システム追従」（既定）を選ぶとOSの設定（Windowsの「色」設定など）に応じて自動的に切り替わります。見た目だけの設定で、ファイルの内容には一切影響しません。選んだ瞬間にその場で切り替わります。" />
             </StackPanel>
             <!-- 利用者からの要望: ツールチップの詳しさを3段階で選べるようにする。テーマの
                  すぐ下に置く。選択の反映は views:HelpTip（添付プロパティ方式）が担う。 -->
@@ -37,29 +39,41 @@
                 <TextBlock Text="操作の説明" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding TooltipDetailOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTooltipDetail}"
-                          AutomationProperties.Name="操作の説明" />
+                          AutomationProperties.Name="操作の説明"
+                          views:HelpTip.Standard="ボタンなどにカーソルを合わせたときに出る説明の詳しさを選びます。既定は「標準の説明」です。"
+                          views:HelpTip.Detailed="画面上のボタンやチェックボックスにマウスを乗せたときに出る、この吹き出し説明の詳しさを選びます。「表示しない」は吹き出しを一切出さず、「標準の説明」（既定）は1文の短い説明、「くわしい説明」は初めて使う人向けに噛み砕いた長い説明を出します。ここで選んだ瞬間、開いている画面全体の説明がその場で切り替わります（アプリの再起動は不要）。" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="適用モード" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ApplyModeOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedApplyMode}"
-                          AutomationProperties.Name="適用モード" />
+                          AutomationProperties.Name="適用モード"
+                          views:HelpTip.Standard="パッチの一部が当てはまらなかったときの扱いを選びます。既定の「全件適用」は1件でも失敗すると何も書き換えません。"
+                          views:HelpTip.Detailed="AIの回答に含まれる変更のうち一部だけが実際のコードに当てはまらなかった場合の挙動を選びます。「全件適用（All or Nothing）」（既定）は、1件でも当てはまらない変更があれば、その回答に含まれる変更を1つも書き込まずに中止します（中途半端な状態になるのを防ぎます）。「部分適用可」は、当てはまった変更だけを書き込み、当てはまらなかった変更は失敗として一覧に残します。迷ったら既定のままで問題ありません。" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="適用前にプレビューを表示する" IsChecked="{Binding ShowPreview}"
-                      AutomationProperties.Name="適用前にプレビューを表示する" />
+                      AutomationProperties.Name="適用前にプレビューを表示する"
+                      views:HelpTip.Standard="「適用」を押したときに、書き込む前に差分を確認する画面を挟みます。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、コマンドバーの「適用」を押したときにファイルへ書き込む前に、変更内容の差分を確認できるプレビュー画面が必ず挟まります。そこで「適用」を押すまでファイルは書き換わりません。オフにすると、プレビューを経由せずに即座に書き込まれるようになります。バックアップは無効にしない限り自動で作られるため、オフにしてもいつでも履歴から元に戻せますが、書き込む前に確認したい場合はオンのままにしておくことをおすすめします。" />
             <CheckBox Classes="settingRow" Content="パッチメタデータのsummaryを必須にする" IsChecked="{Binding RequireSummary}"
-                      AutomationProperties.Name="パッチメタデータのsummaryを必須にする" />
+                      AutomationProperties.Name="パッチメタデータのsummaryを必須にする"
+                      views:HelpTip.Standard="AIの回答にひとこと要約（summary）が無い場合に警告するかどうかです。既定はオンです。"
+                      views:HelpTip.Detailed="AIに渡すプロンプトテンプレートは、各変更の先頭に「summary」というひとこと要約を書くよう指示しています。オンにすると（既定）、解析した回答にsummaryが無い場合に警告として扱われます。オフにすると、summaryが無くても警告せずに読み進めます。適用そのものを止める設定ではなく、あくまで気付きやすくするための注意喚起です。" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="グローバルホットキー" Classes="fieldLabel" />
                 <TextBox Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}" Width="220"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="グローバルホットキー" />
+                         AutomationProperties.Name="グローバルホットキー"
+                         views:HelpTip.Standard="Graftがバックグラウンドにあっても、クリップボードの内容を貼り付けて解析するショートカットキーです。既定はCtrl+Alt+Vです。"
+                         views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでクリップボードの内容をGraftへ渡して解析できるショートカットキーです（コマンドバーの「解析」ボタンと同じ動作）。既定は「Ctrl+Alt+V」です。「Ctrl+Shift+K」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。他のアプリと衝突する組み合わせを入力すると、Graft側では反応しないことがあります。" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="ログレベル" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding LogLevelOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedLogLevel}"
-                          AutomationProperties.Name="ログレベル" />
+                          AutomationProperties.Name="ログレベル"
+                          views:HelpTip.Standard="ログファイルへ書き出す情報の詳しさを選びます。普段は既定の「info」のままで構いません。"
+                          views:HelpTip.Detailed="Graftの動作記録（ログファイル）にどこまで細かい情報を残すかを選びます。「trace」「debug」が最も詳しく、「error」が最も少なくなります（trace &gt; debug &gt; info &gt; warn &gt; error の順に少なくなります）。既定は「info」です。不具合の調査を頼まれたときなど、詳しいログが必要と言われた場合だけ「debug」以上へ変更してください。詳しくするほどログファイルの容量が増えます。" />
             </StackPanel>
 
             <!--
@@ -90,35 +104,51 @@
                 <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />
                 <TextBox Text="{Binding MaxRevisionsText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="最大保持リビジョン数" />
+                         AutomationProperties.Name="最大保持リビジョン数"
+                         views:HelpTip.Standard="履歴（バックアップ）を何件まで残すかです。既定は100件で、超えると古いものから自動で消えます。"
+                         views:HelpTip.Detailed="サイドバーの「履歴」に残しておくバックアップの最大件数です。既定は100件で、これを超えると一番古いリビジョンから自動的に整理されます（「世代整理でごみ箱を使用する」がオンなら、消える前にごみ箱へ移動します）。0にすると件数の上限を無くせますが、プロジェクトが大きい・変更頻度が高いとディスクを圧迫し続けるおそれがあるため、通常は既定のままにしておくことをおすすめします。" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="バックアップ合計上限（MB、0で無制限）" Classes="fieldLabel" />
                 <TextBox Text="{Binding MaxTotalMBText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="バックアップ合計上限" />
+                         AutomationProperties.Name="バックアップ合計上限"
+                         views:HelpTip.Standard="バックアップ全体で使ってよいディスク容量の上限（MB）です。既定は500MBです。"
+                         views:HelpTip.Detailed="このプロジェクトのバックアップが合計でどれだけディスク容量を使ってよいかの上限です。既定は500MBで、超えそうになると古いリビジョンから自動的に整理されます（件数の上限と同時に働きます）。0にすると容量の上限を無くせますが、その場合は上のリビジョン数の上限だけが歯止めになります。両方0にすると、ディスクが尽きるまで際限なくバックアップが増え続けるため注意してください。" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="世代整理でごみ箱を使用する" IsChecked="{Binding UseRecycleBin}"
-                      AutomationProperties.Name="世代整理でごみ箱を使用する" />
+                      AutomationProperties.Name="世代整理でごみ箱を使用する"
+                      views:HelpTip.Standard="古いバックアップを削除するとき、完全に消さずごみ箱へ送ります。既定はオンです。"
+                      views:HelpTip.Detailed="上の上限を超えて古いバックアップを整理するとき、オンにしておくと（既定）OSのごみ箱へ移動するだけになり、必要になったらごみ箱から拾い直せます。オフにすると、整理されたバックアップはその場で完全に削除され、二度と取り戻せません。ディスク容量が厳しい場合を除き、オンのままにしておくことを強くおすすめします。" />
 
             <TextBlock Text="Git連携・適用後フック" Classes="sectionHeading" />
             <CheckBox Classes="settingRow" Content="適用後に自動コミットする" IsChecked="{Binding AutoCommit}"
-                      AutomationProperties.Name="適用後に自動コミットする" />
+                      AutomationProperties.Name="適用後に自動コミットする"
+                      views:HelpTip.Standard="「適用」が成功するたびに、そのプロジェクトのGitへ自動でコミットします。既定はオフです。"
+                      views:HelpTip.Detailed="オンにすると、パッチの「適用」が成功するたびに、対象プロジェクトがGitリポジトリであれば自動的にコミットが作られます。Graftのバックアップとは別に、Git側の履歴としても変更を追いたい場合に使います。既定はオフで、コミットは自分の好きなタイミングで手動で行う運用になります。プロジェクトがGitリポジトリでない場合、この設定はオンにしても何も起きません。自動コミットはあくまでGit側の記録用で、誤ってコミットしても元のバックアップ（履歴）から復元できます。" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="フックのタイムアウト（秒）" Classes="fieldLabel" />
                 <TextBox Text="{Binding HooksTimeoutSecText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="フックのタイムアウト秒数" />
+                         AutomationProperties.Name="フックのタイムアウト秒数"
+                         views:HelpTip.Standard="「適用後フック」タブで登録したコマンドを、何秒待っても終わらなければ打ち切るかです。既定は120秒です。"
+                         views:HelpTip.Detailed="適用が成功したあとに「適用後フック」タブで登録したコマンド（例: リンターやフォーマッタの実行）を走らせる際、応答が返ってこない場合に待つ最大秒数です。既定は120秒で、これを超えるとコマンドは強制的に打ち切られ、失敗として扱われます（打ち切られてもファイルへの適用結果そのものは取り消されません）。時間のかかるコマンドを登録している場合は、この値を伸ばしてください。" />
             </StackPanel>
 
             <TextBlock Text="エクスポート／インポート" Classes="sectionHeading" />
             <CheckBox Classes="settingRow" Content="設定のみを対象にする（プロジェクト定義を除外）"
-                      IsChecked="{Binding ExportSettingsOnly}" AutomationProperties.Name="設定のみを対象にする" />
+                      IsChecked="{Binding ExportSettingsOnly}" AutomationProperties.Name="設定のみを対象にする"
+                      views:HelpTip.Standard="下のエクスポート／インポートで、登録済みプロジェクトの一覧を含めるかどうかです。既定はオフ（含める）です。"
+                      views:HelpTip.Detailed="下の「エクスポート」「インポート」の対象範囲を絞り込みます。オフ（既定）のときは、この画面の各種設定に加えて登録済みプロジェクトの一覧も一緒に書き出し・読み込みします。オンにすると、プロジェクトの一覧は対象から外れ、テーマやエディタなどの設定だけをやり取りします。他のPCへ設定だけを持っていきたい（プロジェクトの登録はそちらで別途行う）場合に使います。" />
             <StackPanel Orientation="Horizontal">
                 <Button Content="エクスポート" Command="{Binding ExportCommand}" Margin="0,0,8,0"
-                        AutomationProperties.Name="設定をエクスポート" />
+                        AutomationProperties.Name="設定をエクスポート"
+                        views:HelpTip.Standard="現在の設定をJSONファイルとして書き出します。ファイルへの保存先を選ぶダイアログが開きます。"
+                        views:HelpTip.Detailed="この画面で調整した内容（テーマ・エディタ・安全機構などの設定、上のチェックがオフならプロジェクトの一覧も）を1つのJSONファイルへまとめて書き出します。保存先を選ぶダイアログが開くので、別のPCへ持っていく用のバックアップや、同僚と設定を共有する用途に使えます。現在のファイルの中身には一切影響しません。" />
                 <Button Content="インポート" Command="{Binding ImportCommand}"
-                        AutomationProperties.Name="設定をインポート" />
+                        AutomationProperties.Name="設定をインポート"
+                        views:HelpTip.Standard="エクスポートで書き出したJSONファイルを読み込み、現在の設定を上書きします。読み込むファイルを選ぶダイアログが開きます。"
+                        views:HelpTip.Detailed="「エクスポート」で書き出したJSONファイルを選んで読み込み、この画面のすべての設定を読み込んだ内容で上書きします。現在の設定は読み込んだ内容に置き換わるため、必要であれば先に「エクスポート」で今の設定を書き出しておくと安心です。ファイルの内容（コード）には影響しません。" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

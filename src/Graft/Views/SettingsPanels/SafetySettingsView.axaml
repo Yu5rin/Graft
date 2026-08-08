@@ -18,23 +18,31 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="16,8,16,16">
             <TextBlock Text="安全機構" Classes="sectionHeading first" />
+            <TextBlock Text="意図しない大量の書き換えや、対象外のファイルへの適用を防ぐための歯止めです。ゆるめると、AIの誤った回答による被害の範囲が広がりやすくなります。"
+                       Classes="fieldHint" TextWrapping="Wrap" Margin="0,0,0,8" />
             <TextBlock Text="許可する拡張子（カンマ区切り）" Margin="0,0,0,4"
                        Foreground="{DynamicResource TextSecondary}"
                        FontSize="{DynamicResource CaptionFontSize}" />
             <TextBox Text="{Binding AllowedExtensionsText, UpdateSourceTrigger=LostFocus}"
                      AcceptsReturn="True" TextWrapping="Wrap" Height="60" Margin="0,0,0,10"
-                     AutomationProperties.Name="許可する拡張子" />
+                     AutomationProperties.Name="許可する拡張子"
+                     views:HelpTip.Standard="適用を許可するファイルの拡張子の一覧です（カンマ区切り）。ここに無い拡張子への変更はブロックされます。"
+                     views:HelpTip.Detailed="パッチの適用先として許可する拡張子を、カンマ区切りで列挙します（例: .py, .js, .cs）。AIの回答にこの一覧に無い拡張子のファイルへの変更が含まれていた場合、その変更は安全のためブロックされ、書き込まれません。既定では主要なプログラミング言語や設定ファイルの拡張子（.py, .js, .ts, .cs, .json, .md など）が登録されています。見慣れない拡張子のファイルを扱う必要が出てきたら、ここへ追加してください。空にするとどの拡張子も許可されなくなり、実質的に適用ができなくなります。" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="1ファイルの上限サイズ（MB）" Classes="fieldLabel" />
                 <TextBox Text="{Binding MaxFileSizeMBText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="1ファイルの上限サイズ" />
+                         AutomationProperties.Name="1ファイルの上限サイズ"
+                         views:HelpTip.Standard="1つのファイルに書き込める最大サイズ（MB）です。既定は10MBで、これを超えるファイルへの適用はブロックされます。"
+                         views:HelpTip.Detailed="パッチを書き込む対象の1ファイルあたりの上限サイズです。既定は10MBで、これを超える大きさのファイルへの変更はブロックされ、書き込まれません。巨大なファイル（画像を埋め込んだデータファイルなど）を誤って全文書き換えてしまうような事故を防ぐための歯止めです。大きな生成ファイルなどを正当に扱う必要がある場合のみ、値を増やしてください。" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="1リビジョンの上限ファイル数" Classes="fieldLabel" />
                 <TextBox Text="{Binding MaxFilesPerRevisionText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="1リビジョンの上限ファイル数" />
+                         AutomationProperties.Name="1リビジョンの上限ファイル数"
+                         views:HelpTip.Standard="1回の「適用」で同時に書き換えられるファイル数の上限です。既定は200件で、これを超える場合は適用がブロックされます。"
+                         views:HelpTip.Detailed="1回の「適用」操作（1つのリビジョン）で同時に書き換えられるファイルの最大数です。既定は200件です。これを超える数のファイルを一度に変更しようとした場合、意図しない大規模な書き換え（AIの回答の解釈違いなどによる暴走）の可能性があるとみなし、適用そのものがブロックされます。本当に大規模な一括変更が必要な場合のみ、値を増やしてください。" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

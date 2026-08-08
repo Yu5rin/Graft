@@ -33,7 +33,9 @@
             <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,16"
                        Text="変更を適用したいプロジェクトのフォルダを登録します。あとから設定画面でいつでも追加・変更できます。" />
             <Button Content="フォルダを選択して登録" Click="OnRegisterProjectClicked" HorizontalAlignment="Left"
-                    AutomationProperties.Name="フォルダを選択してプロジェクトを登録" />
+                    AutomationProperties.Name="フォルダを選択してプロジェクトを登録"
+                    views:HelpTip.Standard="AIに変更してもらいたいプロジェクトのフォルダを選んで、Graftに登録します。"
+                    views:HelpTip.Detailed="フォルダ選択ダイアログが開くので、これから変更を適用したいプロジェクトのルートフォルダ（例: 普段VS Codeなどで開いているフォルダ）を選んでください。選ぶとGraftのプロジェクト一覧に登録され、以降そのフォルダの中のファイルをエディタで開いたり、パッチを適用したりできるようになります。フォルダの中身自体は変更されません。あとから設定画面や画面左のプロジェクト一覧からも追加・変更できます。" />
             <TextBlock x:Name="ProjectResultText" Margin="0,12,0,0" TextWrapping="Wrap"
                        Foreground="{DynamicResource TextSecondary}" />
         </StackPanel>
@@ -49,11 +51,15 @@
                          Height="120" ScrollViewer.VerticalScrollBarVisibility="Auto"
                          BorderThickness="0" Background="Transparent"
                          FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
-                         AutomationProperties.Name="初回用プロンプトのプレビュー" />
+                         AutomationProperties.Name="初回用プロンプトのプレビュー"
+                         views:HelpTip.Standard="AIへ最初に伝える指示文の内容です（読み取り専用のプレビュー）。下の「クリップボードにコピー」で実際にコピーできます。"
+                         views:HelpTip.Detailed="AIに「Graftが読み取れる決まった形式で回答してください」と伝えるための指示文の中身を、ここでそのまま確認できます（編集はできません）。この文面自体を書き換えたい場合は、あとから設定画面の「プロンプトテンプレート」タブで調整できます。" />
             </Border>
             <Button Content="クリップボードにコピー" Click="OnCopyTemplateClicked" Margin="0,12,0,0"
                     HorizontalAlignment="Left"
-                    AutomationProperties.Name="プロンプトをクリップボードにコピー" />
+                    AutomationProperties.Name="プロンプトをクリップボードにコピー"
+                    views:HelpTip.Standard="上のプロンプトをクリップボードへコピーします。AIとの会話の最初に貼り付けてください。"
+                    views:HelpTip.Detailed="上に表示されている指示文をクリップボードへコピーします。ChatGPTやClaudeなどのAIとの会話を始めるときに最初に貼り付けてから、直してほしい内容を伝えてください。こうしておくと、AIの回答をあとでGraftの「解析」ボタンが正しく読み取れるようになります。コマンドバーの「プロンプト」ボタン（Ctrl+Shift+C）でも、あとからいつでも同じ内容をコピーできます。" />
             <TextBlock x:Name="CopyResultText" Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" />
             <!--
                 課題2: コピーだけではこのあと何をすればいいか分からず終わってしまうため、
@@ -70,13 +76,15 @@
             <TextBlock x:Name="StepIndicatorText" Grid.Column="0" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" FontSize="{DynamicResource CaptionFontSize}" />
             <Button x:Name="BackButton" Grid.Column="2" Content="戻る" Click="OnBackClicked" Margin="0,0,8,0"
-                    IsEnabled="False" AutomationProperties.Name="前の画面に戻る" />
+                    IsEnabled="False" AutomationProperties.Name="前の画面に戻る"
+                    views:HelpTip.Standard="1つ前の画面に戻ります。" />
             <Button x:Name="SkipButton" Grid.Column="3" Content="スキップ" Click="OnSkipClicked" Margin="0,0,8,0"
                     AutomationProperties.Name="ガイドをスキップ"
                     views:HelpTip.Standard="チュートリアルを終了します。プロジェクトの登録はあとから設定画面でいつでも行えます。"
                     views:HelpTip.Detailed="この初回起動ガイドをここで終了し、いつものGraftの画面に進みます。まだプロジェクト（作業対象のフォルダ）を登録していなくても大丈夫です。あとから設定画面や画面左のプロジェクト一覧から、いつでもフォルダを追加登録できます。" />
             <Button x:Name="NextButton" Grid.Column="4" Content="次へ" Click="OnNextClicked" IsDefault="True"
-                    AutomationProperties.Name="次の画面へ" />
+                    AutomationProperties.Name="次の画面へ"
+                    views:HelpTip.Standard="次の画面へ進みます。" />
         </Grid>
     </Grid>
 </Window>

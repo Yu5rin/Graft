@@ -53,7 +53,9 @@
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              FontFamily="{DynamicResource CodeFontFamily}"
                              FontSize="{DynamicResource CodeFontSize}"
-                             AutomationProperties.Name="SEARCH部の編集" />
+                             AutomationProperties.Name="SEARCH部の編集"
+                             views:HelpTip.Standard="AIが「この内容を書き換えて」と指定した変更前のコードです。ここを右側の実際のファイルに合わせて直すと、再判定できます。"
+                             views:HelpTip.Detailed="AIの回答には「この部分を探して、こう書き換える」という形式で変更前・変更後のコードが含まれますが、変更前の部分（SEARCH部）が右側の実際のファイル内容と一致せず、適用できなかった状態です。多くの場合、AIが前提にしたコードと実際のファイルが少しだけ食い違っています。このテキストボックスを右側の「実際のファイル内容」を見ながら実際の記述に合わせて書き換えると、入力の200ミリ秒後に自動で再判定され、上の「再判定結果」が一致に変われば適用できるようになります。ここでの編集はこの1件の変更にのみ影響し、まだファイルへは書き込まれません。" />
                 </DockPanel>
 
                 <Border Grid.Column="1" Background="{DynamicResource BorderSubtle}" />
@@ -66,7 +68,9 @@
                              BorderThickness="0" FontFamily="{DynamicResource CodeFontFamily}"
                              FontSize="{DynamicResource CodeFontSize}"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                             AutomationProperties.Name="実際のファイル内容">
+                             AutomationProperties.Name="実際のファイル内容"
+                             views:HelpTip.Standard="今ディスクにある、このファイルの実際の中身です（読み取り専用）。左のSEARCH部をこの内容に合わせて直してください。"
+                             views:HelpTip.Detailed="現在ディスクに保存されている、このファイルの実際の内容をそのまま表示しています（編集はできません）。AIが前提にしていたコードと実際の内容にズレがあるために一致判定に失敗しているので、ここを見ながら左のSEARCH部を実際の記述に合わせて修正してください。">
                         <ListBox.Styles>
                             <Style Selector="ListBoxItem">
                                 <Setter Property="Padding" Value="0" />
