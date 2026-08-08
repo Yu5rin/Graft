@@ -24,7 +24,7 @@ AIチャットで得たコードをコピー＆ペースト1回で反映し、�
 
 - Windows 10 (21H2 以降) / Windows 11、x64
 - Linux（X11 / Wayland）、x64。glibc ベースのディストリビューション
-- .NET 8 / Avalonia UI、self-contained のフォルダ形式（発行フォルダ一式で約105MB、ランタイム事前導入は不要）
+- .NET 8 / Avalonia UI、self-contained の単一ファイル形式（実行ファイル＋ネイティブDLL3つで約121MB、ランタイム事前導入は不要）
 - インストーラ・管理者権限・レジストリ書き込みは不要
 - ネットワーク通信は一切行わない
 
@@ -78,17 +78,25 @@ dotnet publish src/Graft -c Release -r win-x64 --self-contained true -o publish/
 dotnet publish src/Graft -c Release -r linux-x64 --self-contained true -o publish/linux
 ```
 
-実行ファイルと依存ライブラリ一式がフォルダにまとまって生成される（単一ファイルへは
-まとめない。理由は下記）。フォルダの中の実行ファイルと同じ階層に
-`settings.json` / `projects.json` / `back/` / `logs/` を作るため、フォルダごと専用の場所へ置くこと。
+発行物は `Graft.exe`（Linuxは `Graft`）とネイティブDLL3つの**計4ファイル**になる
+（単一ファイル形式・自己展開なし。`PublishSingleFile` 等はcsproj側の既定値なので、
+上記コマンドに `-p:` の追加指定は不要）。**exeファイルだけを取り出して配置しないこと**。
+同梱の3つのDLLがないと `FileNotFoundException` で起動できない。実行ファイルと同じ階層に
+`settings.json` / `projects.json` / `back/` / `logs/` を作るため、4ファイルをまとめて
+専用の場所へ置くこと。
 
 起動時の JIT を減らすため ReadyToRun を有効にしている（Linux 実測で約1.85秒 → 約0.72秒）。
 
-以前は単一ファイル（PublishSingleFile）として発行していたが、実測の結果フォルダ形式へ
-変更した。単一ファイル版は起動のたびに自分自身をメモリ上に展開する処理が入るため、
-常駐メモリが約20MB多く、かつ初回起動時のみネイティブライブラリの自己展開が加わって
-約5.44秒かかっていた（2回目以降は展開結果を再利用するため約0.84秒）。フォルダ形式では
-この展開が要らないため、初回・2回目以降を問わず毎回 約0.85秒 で起動する。
+以前は単一ファイル（`PublishSingleFile`）として発行していたが、`IncludeNativeLibrariesForSelfExtract`
+（ネイティブDLLを実行時に一時フォルダへ自己展開する設定）が true だったために初回起動が
+約5.44秒かかり、いったんフォルダ形式へ移行した。しかしフォルダ形式は発行物が216ファイル・
+約109MBに散らばり、依存DLLを子フォルダへまとめようとしても `Graft.deps.json` が期待する
+NuGetパッケージ相対パス（`lib/net8.0/Avalonia.Base.dll`）が崩れて起動不能になるなど、
+整理のしようがなかった。そこで今回、`IncludeNativeLibrariesForSelfExtract` を明示的に
+**false** にしたまま単一ファイル形式へ戻した。false であれば実行時展開が発生せず
+（過去の5.44秒はここが原因だった）、管理コードもバンドルから直接読まれるため遅くならない。
+実際、Linux実測（同一条件）でフォルダ形式 798〜1145ms に対し単一ファイル形式は
+622〜637msと、むしろ高速だった。発行物も216ファイルから4ファイルに減っている。
 
 ## 仕様書
 
