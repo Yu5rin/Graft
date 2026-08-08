@@ -55,7 +55,7 @@ public class RevisionNumberingScenarioTests : IDisposable
         var targetPath = Path.Combine(_projectDirectory, "sample.txt");
         await File.WriteAllTextAsync(targetPath, "1行目\n2行目\n3行目\n").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        var shell = await OpenShellAsync().ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
         var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
 
@@ -85,7 +85,7 @@ public class RevisionNumberingScenarioTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(_projectDirectory, "bad.txt"), "存在しない検索対象は含まれていません\n").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        var shell = await OpenShellAsync().ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
         var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
 
@@ -111,7 +111,7 @@ public class RevisionNumberingScenarioTests : IDisposable
         var targetPath = Path.Combine(_projectDirectory, "sample.txt");
         await File.WriteAllTextAsync(targetPath, "v0\n").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync(settings).ConfigureAwait(true);
+        var shell = await OpenShellAsync(settings).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
         var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
 
@@ -143,7 +143,16 @@ public class RevisionNumberingScenarioTests : IDisposable
         return projects.Single(p => p.Id == projectId).NextRevision;
     }
 
-    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(Settings? settings = null)
+    /// <summary>
+    /// 本物のShellWindowはここでは作らない。理由はLiveSettingsPropagationTests.OpenShellAsyncの
+    /// コメントと同じ: このファイルの全テストは戻り値のWindowを一切使わない（採番・世代整理の
+    /// 検証はShell/MainViewModelの状態とprojects.json/back/配下の実ファイルだけで完結する）に
+    /// もかかわらず、window.Show()するとShellWindow.OnLoadedが非同期にMainViewModel.InitializeAsync
+    /// をもう一度呼んでしまい、このメソッド自身が呼ぶ明示的なInitializeAsyncと実行順序が不定なまま
+    /// 二重に走ってしまう（settings.json/projects.jsonの読み直しが2回、順不同で走る競合状態）。
+    /// ShellWindowを作らずShellViewModelだけを構築し、InitializeAsyncは明示的に1回だけ呼ぶ。
+    /// </summary>
+    private async Task<ShellViewModel> OpenShellAsync(Settings? settings = null)
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -169,10 +178,8 @@ public class RevisionNumberingScenarioTests : IDisposable
             new FakeUiServices(_clipboard),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
-        window.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
-        return (shell, window);
+        return shell;
     }
 
     /// <summary>SEARCH/REPLACE形式のパッチ本文を組み立てる（仕様書4.1）。</summary>

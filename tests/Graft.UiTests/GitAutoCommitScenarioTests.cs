@@ -58,7 +58,7 @@ public class GitAutoCommitScenarioTests : IDisposable
         await RunGitAsync(_projectDirectory, "add", "-A").ConfigureAwait(true);
         await RunGitAsync(_projectDirectory, "commit", "-q", "-m", "初期コミット").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync(autoCommit: true).ConfigureAwait(true);
+        var shell = await OpenShellAsync(autoCommit: true).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -81,7 +81,7 @@ public class GitAutoCommitScenarioTests : IDisposable
         await RunGitAsync(_projectDirectory, "add", "-A").ConfigureAwait(true);
         await RunGitAsync(_projectDirectory, "commit", "-q", "-m", "初期コミット").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync(autoCommit: false).ConfigureAwait(true);
+        var shell = await OpenShellAsync(autoCommit: false).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -99,7 +99,7 @@ public class GitAutoCommitScenarioTests : IDisposable
         var targetPath = Path.Combine(_projectDirectory, "sample.txt");
         await File.WriteAllTextAsync(targetPath, "1行目\n2行目\n3行目\n").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync(autoCommit: true).ConfigureAwait(true);
+        var shell = await OpenShellAsync(autoCommit: true).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -121,7 +121,7 @@ public class GitAutoCommitScenarioTests : IDisposable
         await RunGitAsync(_projectDirectory, "commit", "-q", "-m", "初期コミット").ConfigureAwait(true);
         var beforeLog = await RunGitAsync(_projectDirectory, "log", "-1", "--pretty=%H").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync(autoCommit: true).ConfigureAwait(true);
+        var shell = await OpenShellAsync(autoCommit: true).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
         var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
 
@@ -161,7 +161,7 @@ public class GitAutoCommitScenarioTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
         var logger = new Logger(appPaths, autoCleanupOnStart: false);
 
-        var (shell, _) = await OpenShellAsync(autoCommit: true, logger: logger).ConfigureAwait(true);
+        var shell = await OpenShellAsync(autoCommit: true, logger: logger).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -191,7 +191,7 @@ public class GitAutoCommitScenarioTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
         var logger = new Logger(appPaths, autoCleanupOnStart: false);
 
-        var (shell, _) = await OpenShellAsync(autoCommit: true, logger: logger).ConfigureAwait(true);
+        var shell = await OpenShellAsync(autoCommit: true, logger: logger).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -216,7 +216,16 @@ public class GitAutoCommitScenarioTests : IDisposable
         await projectStore.SaveAsync(projects).ConfigureAwait(true);
     }
 
-    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(bool autoCommit, Logger? logger = null)
+    /// <summary>
+    /// 本物のShellWindowはここでは作らない。理由はLiveSettingsPropagationTests.OpenShellAsyncの
+    /// コメントと同じ: このファイルの全テストは戻り値のWindowを一切使わない（Shell/MainViewModelの
+    /// 状態だけを検証する）にもかかわらず、window.Show()するとShellWindow.OnLoadedが非同期に
+    /// MainViewModel.InitializeAsyncをもう一度呼んでしまい、このメソッド自身が呼ぶ明示的な
+    /// InitializeAsyncと実行順序が不定なまま二重に走ってしまう（settings.json/projects.jsonの
+    /// 読み直しが2回、順不同で走る競合状態）。ShellWindowを作らずShellViewModelだけを構築し、
+    /// InitializeAsyncは明示的に1回だけ呼ぶ。
+    /// </summary>
+    private async Task<ShellViewModel> OpenShellAsync(bool autoCommit, Logger? logger = null)
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -245,10 +254,8 @@ public class GitAutoCommitScenarioTests : IDisposable
         // nullableプロパティ経由でロガーを渡す。
         shell.Graft.Logger = logger;
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
-        window.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
-        return (shell, window);
+        return shell;
     }
 
     /// <summary>
