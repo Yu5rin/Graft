@@ -22,7 +22,7 @@ namespace Graft.Views;
 /// </summary>
 public sealed partial class StartupCoordinator : IAsyncDisposable
 {
-    private const string MutexName = "Graft.SingleInstance.Mutex";
+    private const string MutexNamePrefix = "Graft.SingleInstance.";
     private const string MainWindowTitle = "Graft";
     private const string PromptCopyHotkey = "Ctrl+Shift+C";
 
@@ -59,10 +59,15 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// <summary>
     /// 多重起動を判定する（6.8）。既に起動中の場合は既存ウィンドウを前面へ表示しfalseを返す。
     /// 呼び出し側はfalseの場合アプリを即座に終了させること。
+    ///
+    /// 課題4: Mutex名は固定文字列ではなく発行フォルダ（<see cref="AppPaths.BaseDirectory"/>）を
+    /// 混ぜ込んで作る（<see cref="SingleInstanceGuard.BuildInstanceScopedName"/>）。理由は
+    /// そのメソッドのコメントを参照。
     /// </summary>
     public bool TryAcquireSingleInstance()
     {
-        if (_platform.SingleInstance.TryAcquire(MutexName)) return true;
+        var mutexName = SingleInstanceGuard.BuildInstanceScopedName(MutexNamePrefix, _appPaths.BaseDirectory);
+        if (_platform.SingleInstance.TryAcquire(mutexName)) return true;
 
         _platform.SingleInstance.ActivateExistingInstance(MainWindowTitle);
         return false;
