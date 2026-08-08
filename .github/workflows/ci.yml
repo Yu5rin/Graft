@@ -30,4 +30,11 @@ jobs:
         run: dotnet build -c Release --no-restore
 
       - name: テスト
-        run: dotnet test -c Release --no-build --logger "console;verbosity=normal"
+        # --blame-hang-timeout: 個々のテストが90秒（ローカル実測の最遅テストの十数倍の余裕）を
+        # 超えて戻らない場合、そのテストのダンプを採取してテストホストごと打ち切る。
+        # test.runsettingsのTestSessionTimeout（15分、セッション全体の保険）はそのまま残しつつ、
+        # 「どのテストがハングしたか分からないまま15分間無音で待つ」事故を防ぐための、
+        # テスト単位の下限側の歯止め。
+        run: >
+          dotnet test -c Release --no-build --logger "console;verbosity=normal"
+          --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type mini

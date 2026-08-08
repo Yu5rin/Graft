@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Graft.UiTests.TestSupport;
@@ -34,9 +35,35 @@ public static class TempDirectoryCleanup
     /// ディレクトリを再帰的に削除する（同期版、<c>Dispose()</c>から呼ぶ用）。
     /// 削除できなかった場合は例外を投げず false を返す（後片付けの失敗でテスト結果を汚さないための
     /// ベストエフォート。ただし読み取り専用属性の解除と短いリトライにより、実際にはほぼ成功する）。
+    ///
+    /// 非同期版（<see cref="TryDeleteRecursiveAsync"/>）を<c>GetAwaiter().GetResult()</c>で
+    /// 待つ実装（sync-over-async）は意図的に避けている。<c>Dispose()</c>はAvaloniaヘッドレスの
+    /// ディスパッチャスレッド上で呼ばれる可能性があり、スレッドプールが逼迫した状況（CI等の
+    /// コア数が少ない環境）では継続の実行が遅延・詰まりうる。ここでの待ち合わせは
+    /// <see cref="Thread.Sleep(TimeSpan)"/>による素直な同期実装にとどめ、非同期の実装とは
+    /// あえて共有しない（この程度の処理を無理に共通化する価値はないため）。
     /// </summary>
     public static bool TryDeleteRecursive(string path)
-        => TryDeleteRecursiveAsync(path).GetAwaiter().GetResult();
+    {
+        if (!Directory.Exists(path)) return true;
+
+        for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+        {
+            try
+            {
+                ClearReadOnlyRecursively(path);
+                Directory.Delete(path, recursive: true);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt == MaxAttempts) return false;
+                Thread.Sleep(RetryDelay);
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>非同期版。async なテストメソッドの finally から呼ぶ用。</summary>
     public static async Task<bool> TryDeleteRecursiveAsync(string path)
