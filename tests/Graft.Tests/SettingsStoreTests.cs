@@ -193,6 +193,63 @@ public class SettingsStoreTests
     }
 
     // ------------------------------------------------------------------
+    // ValidateOnly（14章 即時反映方式の保存前検証）
+    //
+    // SettingsViewModelは変更のたびに自動保存するが、LoadAsyncと同じ「不正値を既定値へ
+    // 差し替えて延命する」ロジックをそのまま保存前にも使うと、画面に見えている値と
+    // 実際にディスクへ保存された値が黙って食い違う事故になる。ValidateOnlyは同じ検証規則を
+    // 使いつつディスクへは一切書き込まず、「この値を保存してよいか」の判定材料
+    // （Issuesの有無）だけを返す。ただしErrorCodeはLoadAsyncのE404（設定・履歴データの破損→
+    // 退避のうえ再生成）ではなく、保存前検証向けのE406（値を修正すると自動的に保存される）へ
+    // 差し替えて返す。「データが壊れて再生成された」という誤った印象を与えないため。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ValidateOnlyは正常な値ならIssuesが空で、ディスクへは書き込まない")]
+    public void ValidateOnlyは正常な値ならIssuesが空でディスクへ書き込まない()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = 50 } });
+
+        result.IsSuccess.Should().BeTrue();
+        result.Issues.Should().BeEmpty();
+        result.Value.Backup.MaxRevisions.Should().Be(50, "正常な値はそのまま素通りする（既定値へ差し替えない）");
+        File.Exists(paths.SettingsFilePath).Should().BeFalse("ValidateOnlyはディスクへ一切書き込んではならない");
+    }
+
+    [Fact(DisplayName = "ValidateOnlyは範囲外のbackup.maxRevisionsに対してIssuesを返す（保存を保留する判断材料）")]
+    public void ValidateOnlyは範囲外の値でIssuesを返す()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+
+        var result = SettingsStore.ValidateOnly(new Settings { Backup = new BackupSettings { MaxRevisions = -1 } });
+
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E406 && i.Severity == Severity.Warning
+            && i.Detail != null && i.Detail.Contains("maxRevisions"));
+        File.Exists(paths.SettingsFilePath).Should().BeFalse(
+            "ValidateOnly自体は判定するだけで、Issuesがあっても保存しない判断は呼び出し側（SettingsViewModel）が行う");
+    }
+
+    [Fact(DisplayName = "ValidateOnlyは複数の不正な値がある場合、それぞれについて個別にIssuesを返す")]
+    public void ValidateOnlyは複数の不正値でそれぞれIssuesを返す()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+
+        var result = SettingsStore.ValidateOnly(new Settings
+        {
+            ApplyMode = "invalid-mode",
+            Backup = new BackupSettings { MaxRevisions = -1 },
+            Hooks = new HookSettings { TimeoutSec = -10 },
+        });
+
+        result.Issues.Count(i => i.Code == ErrorCode.E406).Should().BeGreaterOrEqualTo(3);
+        File.Exists(paths.SettingsFilePath).Should().BeFalse();
+    }
+
+    // ------------------------------------------------------------------
     // 13.1 破損時の復旧
     // ------------------------------------------------------------------
 

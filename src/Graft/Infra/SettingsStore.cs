@@ -61,6 +61,42 @@ public sealed class SettingsStore
         => await _store.WriteAsync(_paths.SettingsFilePath, settings, JsonFileStore.DefaultOptions, ct).ConfigureAwait(false);
 
     /// <summary>
+    /// 指定した設定値を検証するだけで、ディスクへは書き込まない。
+    ///
+    /// <see cref="LoadAsync"/>が使う<see cref="Validate"/>は「読み込んだ値が不正だった場合、
+    /// 既定値へ差し替えて延命する」ためのものであり、settings.jsonが外部改変や破損で
+    /// 壊れていても起動できることを優先する（13.1章）。しかし設定画面が即時反映方式
+    /// （変更のたびに保存する）へ移行したことで、同じ延命ロジックを保存前にも使ってしまうと
+    /// 「画面に入力されている値」と「実際にディスクへ書き込まれる値」が黙って食い違う
+    /// 事故になる（例: 上限を-1に打ち替えたら、画面には-1が残ったまま裏で既定値が
+    /// 保存される）。そこでこのメソッドでは同じ検証規則を流用しつつ、正規化結果を
+    /// 「保存してよい値」としてではなく、あくまで「この入力に何が問題あるか」を
+    /// 判定するために使う。呼び出し側（<c>SettingsViewModel</c>）は
+    /// <see cref="GraftResult{T}.Issues"/>が1件でもあれば保存自体を見送る。
+    /// </summary>
+    public static GraftResult<Settings> ValidateOnly(Settings raw)
+    {
+        var issues = new List<GraftIssue>();
+        var normalized = Validate(raw, issues);
+
+        // Validate()（LoadAsyncと共有する内部ロジック）が生成するIssueはE404
+        // （「設定・履歴データの破損」→「退避のうえ再生成しました」）で固定されている。
+        // その文言はLoadAsync側の「不正値を既定値へ差し替えて延命する」動作には正しいが、
+        // ここ（保存前の検証）では何も差し替えず・再生成もせず、単に保存を保留するだけなので
+        // そのまま使い回すと「データが壊れて再生成された」という誤った印象を与えてしまう
+        // （実機で確認済み）。どのキーの値がなぜだめかという中身（Detail）はそのまま活かし、
+        // コード・文言（Summary/Remedy）だけを保存前検証向けのE406へ差し替える。
+        var remapped = issues
+            .Select(issue => issue.Code == ErrorCode.E404
+                ? GraftIssue.Of(ErrorCode.E406, detail: issue.Detail, line: issue.LineNumber,
+                    path: issue.Path, severity: issue.Severity)
+                : issue)
+            .ToList();
+
+        return GraftResult<Settings>.Ok(normalized, remapped);
+    }
+
+    /// <summary>
     /// settings.json（および指定時は projects.json）を指定ディレクトリへ書き出す。
     /// </summary>
     public async Task<GraftResult<IReadOnlyList<string>>> ExportAsync(
