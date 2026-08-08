@@ -143,6 +143,46 @@ public sealed class ProjectStore
         return project.NextRevision < minimumNext ? project with { NextRevision = minimumNext } : project;
     }
 
+    /// <summary>
+    /// 不具合2対応: 指定プロジェクトの nextRevision を1つ進めてprojects.jsonへ永続化し、
+    /// 消費前の値（今回の適用で実際に使う番号）を返す。
+    ///
+    /// 呼び出しタイミング: 適用（ApplyEngine.ApplyAsync）を試みた直後に、成功・失敗を問わず
+    /// 呼ぶ想定（仕様書6章）。BackupManager.BeginAsyncはctx.Revisionの番号でバックアップ
+    /// フォルダを先に作成するため、二重適用検知・fatalな検証エラーによる早期リターンを除き、
+    /// 適用が失敗してもディスク上には既にその番号のフォルダが作られている場合がある
+    /// （RollbackAsyncはファイル内容を元に戻すだけでフォルダ自体は削除しない。6.3の
+    /// 中断復帰検出が次回起動時にこのフォルダを拾えるようにするための挙動）。
+    /// ここで番号を消費せずに同じ番号で再適用すると、同一リビジョン番号のフォルダが
+    /// タイムスタンプ違いでもう1つ作られてしまい、世代管理・履歴一覧が
+    /// 一方のフォルダを見失う実害がある。そのため失敗時も一律に番号を進める設計とし、
+    /// 早期リターン（フォルダが作られない場合）で番号が1つ「無駄」になることは許容する
+    /// （13.1「フォルダが後で削除されても番号を再利用しない」と同じ、欠番を許容する方針）。
+    ///
+    /// 複数プロジェクトの独立性: projectId で該当プロジェクトのみを更新するため、
+    /// 他プロジェクトのnextRevisionには影響しない。
+    ///
+    /// 対象プロジェクトが見つからない場合（並行してプロジェクトが削除された等）は
+    /// 何もせず、渡されたプロジェクトの現在値をそのまま返す。
+    /// </summary>
+    public async Task<GraftResult<int>> ConsumeNextRevisionAsync(string projectId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+
+        var loaded = await LoadAsync(ct).ConfigureAwait(false);
+        var projects = loaded.Value.ToList();
+        var index = projects.FindIndex(p => p.Id == projectId);
+        if (index < 0)
+        {
+            return GraftResult<int>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+        }
+
+        var consumed = projects[index].NextRevision;
+        projects[index] = projects[index] with { NextRevision = consumed + 1 };
+        await SaveAsync(projects, ct).ConfigureAwait(false);
+        return GraftResult<int>.Ok(consumed, loaded.Issues);
+    }
+
     private static Project BuildOrUpdateProject(List<Project> projects, string fullRoot, string? name)
     {
         var id = CreateId(fullRoot);
