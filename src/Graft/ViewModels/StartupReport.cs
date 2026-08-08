@@ -53,7 +53,11 @@ public sealed class StartupReport
     public IReadOnlyList<GraftIssue> NotifiableIssues
         => Issues.Where(i => i.Severity != Severity.Info).ToList();
 
-    /// <summary>通知ダイアログ用の本文を組み立てる。1件も無い場合は空文字列を返す。</summary>
+    /// <summary>
+    /// 通知ダイアログ用の本文を組み立てる。1件も無い場合は空文字列を返す。
+    /// 課題2-3: 複数件を1枚のダイアログへ集約すると、件数が多い日はスクロールしないと
+    /// 全体像が分からず「結局何件あるのか」が読み取れなかった。先頭に総数の行を足す。
+    /// </summary>
     public string BuildIssuesSummaryText()
     {
         var notifiable = NotifiableIssues;
@@ -62,7 +66,9 @@ public sealed class StartupReport
             return string.Empty;
         }
 
-        return string.Join(Environment.NewLine, notifiable.Select(i => "・" + i.ToDisplayText()));
+        var countLine = $"{notifiable.Count}件の問題を検出しました。";
+        var body = string.Join(Environment.NewLine, notifiable.Select(i => "・" + i.ToDisplayText()));
+        return countLine + Environment.NewLine + Environment.NewLine + body;
     }
 
     /// <summary>指定プロジェクトのロールバック提案文を組み立てる。</summary>

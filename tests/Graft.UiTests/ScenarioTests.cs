@@ -235,10 +235,16 @@ public class ScenarioTests : IDisposable
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
 
+        // ShowPreview（課題1）はこのファイルの各シナリオの対象外なので明示的にfalseにし、
+        // ApplyCommandが素通りする従来どおりの挙動のまま検証できるようにする
+        // （ApplyPreviewWindowTests.csで専用の回帰テストを別に用意する）。
+        var settingsStore = new SettingsStore(appPaths);
+        await settingsStore.SaveAsync(new Settings { ShowPreview = false }).ConfigureAwait(true);
+
         var shell = StartupCoordinator.BuildShellViewModel(
             appPaths,
-            new Settings(),
-            new SettingsStore(appPaths),
+            new Settings { ShowPreview = false },
+            settingsStore,
             new PatchQueue(appPaths),
             new ProjectStore(appPaths),
             new RevisionStore(appPaths),

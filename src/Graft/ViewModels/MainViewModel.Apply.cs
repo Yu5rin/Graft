@@ -1,5 +1,7 @@
 using System.IO;
 using Graft.Core;
+using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -24,6 +26,15 @@ public sealed partial class MainViewModel
     /// </summary>
     public Func<IReadOnlyList<string>, Task>? AfterApplyAsync { get; set; }
 
+    /// <summary>
+    /// 課題1（設定 Settings.ShowPreview）: 書き込み前の差分確認。MainViewModelはWindowの型を
+    /// 知らないため、実際の表示はShellWindowが購読して<see cref="Views.ApplyPreviewWindow"/>を
+    /// 開く形で行う（BeforeApplyAsync/AfterApplyAsyncと同じ「Viewへ委譲する」設計）。
+    /// 購読者が居ない場合（他画面からMainViewModelだけを使うテスト等）は、フック未設定時と
+    /// 同様に確認済みとして素通りさせる。
+    /// </summary>
+    public event EventHandler<ApplyPreviewRequestedEventArgs>? ApplyPreviewRequested;
+
     /// <summary>ApplyCommandの実体。要約入力・確認ダイアログを経て本適用し、6.5適用後フックを実行する。</summary>
     private async Task ApplyAsync()
     {
@@ -40,9 +51,17 @@ public sealed partial class MainViewModel
             updatedDryRun = updatedDryRun with { Patch = patchWithSummary };
         }
 
-        var confirmed = await _dialogs
-            .ConfirmAsync("適用の確認", $"{updatedDryRun.ApplicableCount}件を適用します。よろしいですか？")
-            .ConfigureAwait(true);
+        // 課題1: 「適用前にプレビューを表示する」設定。有効なら、テキストだけの確認
+        // （「N件を適用します。よろしいですか？」）の代わりに、DiffView/DiffViewModelで
+        // 実際の差分を見ながら可否を判断できる専用ダイアログを挟む（v1.5仕様書6.8）。
+        // 無効なら、確認自体は残しつつ差分確認は挟まない（現在の挙動のまま）。
+        // 接ぎ木パネルの「プレビュー」ボタン（PreviewCommand＝ドライランの再実行）とは別物であり、
+        // 互いの役割は重複しない（ApplyPreviewRequestedのコメント参照）。
+        var confirmed = _settings.ShowPreview
+            ? await RequestApplyPreviewAsync(updatedDryRun).ConfigureAwait(true)
+            : await _dialogs
+                .ConfirmAsync("適用の確認", $"{updatedDryRun.ApplicableCount}件を適用します。よろしいですか？")
+                .ConfigureAwait(true);
         if (!confirmed) return;
 
         var project = ProjectPane.SelectedItem?.Project;
@@ -143,4 +162,46 @@ public sealed partial class MainViewModel
             .Distinct()
             .ToList();
     }
+
+    /// <summary>
+    /// 課題1: <see cref="ApplyPreviewRequested"/>を発火し、Viewがダイアログを閉じるまで待つ。
+    /// 実際に書き込まれる対象（チェック済みかつ適用可能なブロック）だけを渡す。
+    /// 購読者が居ない場合はBeforeApplyAsync等と同じ流儀で確認済み（true）として素通りさせる。
+    /// </summary>
+    private Task<bool> RequestApplyPreviewAsync(DryRunResult updatedDryRun)
+    {
+        if (ApplyPreviewRequested is null) return Task.FromResult(true);
+
+        var plansToApply = updatedDryRun.Plans.Where(p => p.IsSelected && p.CanApply).ToList();
+        var args = new ApplyPreviewRequestedEventArgs(plansToApply, _settings, _ui);
+        ApplyPreviewRequested.Invoke(this, args);
+        return args.Completion.Task;
+    }
+}
+
+/// <summary>
+/// 課題1: <see cref="MainViewModel.ApplyPreviewRequested"/>の引数。Viewは
+/// <see cref="Views.ApplyPreviewWindow"/>を表示し、閉じたら結果（適用するかどうか）を
+/// <see cref="Completion"/>へ書き込む。
+/// </summary>
+public sealed class ApplyPreviewRequestedEventArgs : EventArgs
+{
+    public ApplyPreviewRequestedEventArgs(IReadOnlyList<BlockPlan> plansToApply, Settings settings, IUiServices ui)
+    {
+        PlansToApply = plansToApply ?? throw new ArgumentNullException(nameof(plansToApply));
+        Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        Ui = ui ?? throw new ArgumentNullException(nameof(ui));
+    }
+
+    /// <summary>実際に書き込まれる対象（チェック済みかつ適用可能なブロック）。</summary>
+    public IReadOnlyList<BlockPlan> PlansToApply { get; }
+
+    /// <summary>diff表示（DiffViewModel）の構築に使う現在の設定。</summary>
+    public Settings Settings { get; }
+
+    /// <summary>diff表示（DiffViewModel）の構築に使うUI機能一式。</summary>
+    public IUiServices Ui { get; }
+
+    /// <summary>Viewがダイアログを閉じたら結果（適用する＝true／キャンセル＝false）を書き込む。</summary>
+    public TaskCompletionSource<bool> Completion { get; } = new();
 }

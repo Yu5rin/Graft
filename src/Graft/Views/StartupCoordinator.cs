@@ -353,6 +353,12 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     {
         _settings = updated;
         if (MainWindow is not null) MainWindow.CloseBehavior = updated.CloseBehavior;
+
+        // 課題1関連: MainViewModel.ApplyAsync等が参照するSettings（ShowPreview・ApplyMode・
+        // RequireSummary等）もキャッシュされたままのため、ここで併せて反映しないと、実行中の
+        // セッションでは設定画面での変更が次回起動まで一切効かない（MainViewModel.
+        // UpdateSettingsのコメント参照）。
+        _shellViewModel?.Graft.UpdateSettings(updated);
     }
 
     /// <summary>
