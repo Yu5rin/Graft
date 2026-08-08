@@ -44,6 +44,16 @@ public class ProjectStoreTests
     [Fact(DisplayName = "Linux上ではCreateIdは大文字小文字が異なるパスを別プロジェクトとして扱うべき（仕様書v2.1 3章）")]
     public void ID生成はLinuxでは大文字小文字を区別すべき()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            // Windowsのファイルシステム（NTFS既定）は大文字小文字を区別しないため、この2つの
+            // ディレクトリは同一パス扱いになりそもそも両方は実在できない。この検証はLinux
+            // （ext4等の大文字小文字を区別するファイルシステム）固有の要件であり、Windows側の
+            // 正しい挙動（大文字小文字違いを同一プロジェクトとして扱う）は
+            // ID生成はWindowsでは大文字小文字を区別しない で別途検証する。
+            return;
+        }
+
         using var ws = new TempWorkspace();
         var lower = ws.CreateDirectory("caseproj");
         var upperCandidate = Path.Combine(ws.RootPath, "CASEPROJ");
@@ -61,6 +71,28 @@ public class ProjectStoreTests
             "ProjectStore.NormalizeRootForHashが常にToLowerInvariant()で正規化しているため、" +
             "Linux上で大文字小文字違いの別ディレクトリが同一プロジェクトID扱いになってしまう" +
             "（仕様書v2.1 3章の要件に反する）。");
+    }
+
+    [Fact(DisplayName = "Windows上ではCreateIdは大文字小文字が異なるパスを同一プロジェクトとして扱うべき（仕様書v2.1 3章）")]
+    public void ID生成はWindowsでは大文字小文字を区別しない()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Windowsのパス比較規則（大文字小文字を区別しない）を前提とした検証のため、
+            // Windows以外では成立しない（上のLinux版テストと対になる）。
+            return;
+        }
+
+        using var ws = new TempWorkspace();
+        var lower = ws.CreateDirectory("caseproj2");
+        var upperPath = Path.Combine(ws.RootPath, "CASEPROJ2");
+
+        var idLower = ProjectStore.CreateId(lower);
+        var idUpper = ProjectStore.CreateId(upperPath);
+
+        idLower.Should().Be(idUpper,
+            "Windowsのファイルシステムは大文字小文字を区別しないため、大文字小文字違いの" +
+            "パスは同一プロジェクトとして扱う必要がある（仕様書v2.1 3章）。");
     }
 
     // ------------------------------------------------------------------

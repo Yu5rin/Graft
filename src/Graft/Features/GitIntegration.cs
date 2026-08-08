@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using Graft.Core;
 
 namespace Graft.Features;
@@ -181,8 +182,19 @@ public sealed class GitIntegration
         return result;
     }
 
-    private static async Task<GitProcessResult> RunGitAsync(
-        string projectRoot, IReadOnlyList<string> args, CancellationToken ct)
+    /// <summary>
+    /// BOM無しUTF-8。git の標準出力・標準エラーは常にこのエンコーディングで読む
+    /// （不具合1対応。理由は<see cref="RunGitAsync"/>のコメント参照）。
+    /// </summary>
+    private static readonly UTF8Encoding GitOutputEncoding = new(encoderShouldEmitUTF8Identifier: false);
+
+    /// <summary>
+    /// git 子プロセス起動用の<see cref="ProcessStartInfo"/>を組み立てる。<see cref="RunGitAsync"/>から
+    /// 分離しているのは、実際にgitを起動しなくても設定内容（エンコーディング・グローバル引数）を
+    /// 単体テストできるようにするため（不具合1の回帰防止。Linux上ではOS既定エンコーディングが
+    /// 元々UTF-8のため文字化けが再現せず、実行結果からは検知できない）。internalなのはテスト用。
+    /// </summary>
+    internal static ProcessStartInfo BuildProcessStartInfo(string projectRoot, IReadOnlyList<string> args)
     {
         var psi = new ProcessStartInfo
         {
@@ -190,10 +202,34 @@ public sealed class GitIntegration
             WorkingDirectory = projectRoot,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // 不具合1: 未指定だと.NETはOSの既定コードページ（日本語版WindowsではCP932）で
+            // 標準出力・標準エラーをデコードする。gitの出力はUTF-8のため、日本語を含む
+            // コミットメッセージやパスがCP932として誤読され文字化けする（実機のテスト失敗で確認）。
+            // 常にBOM無しUTF-8として読むことで、OSの既定コードページに依存しないようにする。
+            StandardOutputEncoding = GitOutputEncoding,
+            StandardErrorEncoding = GitOutputEncoding,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        // gitの出力エンコーディング自体も明示する。i18n.logOutputEncodingは既定では未設定で、
+        // その場合commitに記録されたエンコーディング（通常UTF-8）がそのまま出力されるため
+        // 実害は薄いが、利用者のグローバルgit設定でi18n.commitEncoding/logOutputEncodingが
+        // UTF-8以外へ変更されていた場合の保険として明示しておく。core.quotepath=falseは
+        // 日本語ファイル名が"\346\..."のような8進数エスケープ表記へ変換される既定動作を止め、
+        // git status --porcelain の結果（ChangedPaths）やgit show HEAD:<path>への
+        // パス引数をそのまま扱えるようにする。
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("core.quotepath=false");
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("i18n.logOutputEncoding=UTF-8");
         foreach (var arg in args) psi.ArgumentList.Add(arg);
+        return psi;
+    }
+
+    private static async Task<GitProcessResult> RunGitAsync(
+        string projectRoot, IReadOnlyList<string> args, CancellationToken ct)
+    {
+        var psi = BuildProcessStartInfo(projectRoot, args);
 
         Process process;
         try

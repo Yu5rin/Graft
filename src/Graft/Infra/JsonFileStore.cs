@@ -98,11 +98,55 @@ public sealed class JsonFileStore
         {
             File.Move(tempPath, path, overwrite: true);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // 異なるボリューム間などで File.Move が失敗する場合の代替手順（6.7章準拠）。
-            File.Copy(tempPath, path, overwrite: true);
-            File.Delete(tempPath);
+            // Windows では、複数タスクがほぼ同時に同じ対象ファイルへ上書きしようとした場合や、
+            // ウイルス対策ソフト・インデクサが書き込み直後のファイルを一時的に掴んでいる場合に
+            // File.Move / File.Copy が UnauthorizedAccessException を投げることがある
+            // （IOExceptionの派生ではないため、この捕捉が無いと素通りしてしまう）。
+            // Copy+Delete も同じ理由で一時的に失敗しうるため、短い間隔で数回だけリトライする。
+            await RetryOnIoOrAccessDeniedAsync(
+                () =>
+                {
+                    File.Copy(tempPath, path, overwrite: true);
+                    File.Delete(tempPath);
+                    return Task.CompletedTask;
+                },
+                WriteFallbackRetryCount, WriteFallbackRetryDelay, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>WriteAsyncの代替手順（Copy+Delete）のリトライ上限回数。</summary>
+    private const int WriteFallbackRetryCount = 5;
+
+    /// <summary>WriteAsyncの代替手順のリトライ間隔。</summary>
+    private static readonly TimeSpan WriteFallbackRetryDelay = TimeSpan.FromMilliseconds(30);
+
+    /// <summary>
+    /// IOException/UnauthorizedAccessExceptionを短い間隔で最大<paramref name="maxAttempts"/>回まで
+    /// リトライする共通ヘルパ。上限まで試しても解決しない場合は最後の例外をそのまま投げ、
+    /// 呼び出し側（ReadWithRecoveryAsync等）へ従来どおりエラーとして伝える（無限に粘らない）。
+    /// internalなのは、実機（Windows）でしか自然には起きないUnauthorizedAccessExceptionからの
+    /// 回復を、例外を投げるフェイクの<paramref name="action"/>を使ってLinux上でも検証できるように
+    /// するため（不具合2の回帰防止）。
+    /// </summary>
+    internal static async Task RetryOnIoOrAccessDeniedAsync(
+        Func<Task> action, int maxAttempts, TimeSpan delay, CancellationToken ct = default)
+    {
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await action().ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < maxAttempts)
+            {
+                // 上限に達していない間だけ捕捉して再試行する。上限到達時はこのwhen節がfalseになり、
+                // 例外がそのまま呼び出し側へ伝わり従来どおりエラーになる。
+                await Task.Delay(delay, ct).ConfigureAwait(false);
+            }
         }
     }
 
@@ -148,6 +192,12 @@ public sealed class JsonFileStore
             {
                 // 移動先が競合して既に存在する（他タスクが同名で先に退避した）。連番を進めて再試行する。
             }
+            catch (UnauthorizedAccessException)
+            {
+                // Windows でウイルス対策ソフト・インデクサ等が元ファイルを一時的に掴んでいる場合
+                // （推測）。候補名を変えても解決しないため、短く待ってから同じ流れで再試行する。
+                await Task.Delay(WriteFallbackRetryDelay, ct).ConfigureAwait(false);
+            }
         }
 
         // 上限まで衝突が続いた場合は退避を諦める。呼び出し側の「退避済み扱い」へ倒す。
@@ -187,6 +237,15 @@ public sealed class JsonFileStore
         }
         catch (JsonException)
         {
+            return null;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // ReadWithRecoveryAsync冒頭のFile.Existsから、ここへ到達するまでの間に、同じ破損
+            // ファイルを同時に読んでいた別タスクが先にQuarantineAsyncで退避（移動）してしまった
+            // 場合のTOCTOU（File.Exists後の隙間で対象が無くなる）。JsonExceptionと同様に
+            // 「解析できなかった」扱いで返し、呼び出し側の復旧フロー（QuarantineAsyncは対象が
+            // 既に無ければnullを返して「退避済み扱い」で続行する）へ委ねる。
             return null;
         }
     }

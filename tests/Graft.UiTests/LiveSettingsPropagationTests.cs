@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.Text;
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
 using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -43,14 +45,8 @@ public class LiveSettingsPropagationTests : IDisposable
 
     public void Dispose()
     {
-        try
-        {
-            if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // 後始末の失敗は検証結果に影響しない。
-        }
+        // gitオブジェクトファイルの読み取り専用属性解除を含む共通の後片付け（不具合5）。
+        TempDirectoryCleanup.TryDeleteRecursive(_root);
 
         GC.SuppressFinalize(this);
     }
@@ -325,6 +321,10 @@ public class LiveSettingsPropagationTests : IDisposable
         await RunGitAsync(root, "config", "user.name", "Graft Test").ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// テスト側の検証用git実行ヘルパー。エンコーディング明示の理由はGitAutoCommitScenarioTestsの
+    /// 同名メソッドと同じ（不具合1）。
+    /// </summary>
     private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
     {
         var psi = new ProcessStartInfo
@@ -333,6 +333,8 @@ public class LiveSettingsPropagationTests : IDisposable
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            StandardErrorEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             UseShellExecute = false,
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);

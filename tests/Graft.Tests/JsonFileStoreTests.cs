@@ -90,4 +90,63 @@ public class JsonFileStoreTests
         var store = new JsonFileStore();
         (await store.QuarantineAsync(path)).Should().BeNull();
     }
+
+    // ------------------------------------------------------------------
+    // 不具合2: 破損ファイル復旧がWindowsで失敗する（UnauthorizedAccessExceptionの捕捉漏れ）
+    //
+    // JsonFileStore.WriteAsyncのFile.Move失敗時フォールバックは、実機（Windows）でしか
+    // 自然には再現しないUnauthorizedAccessException（開いているファイルの上書き・並行アクセス時に
+    // 発生）からの回復が主目的のため、Linux上では実ファイルI/Oでは再現できない。
+    // ここでは例外を投げるフェイクのactionを使い、リトライ・上限到達時の再スロー・
+    // 「IOExceptionだけでなくUnauthorizedAccessExceptionも同じ扱いで捕捉されること」を
+    // OSに依存せず検証する。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "不具合2: RetryOnIoOrAccessDeniedAsyncはUnauthorizedAccessExceptionを捕捉して再試行する")]
+    public async Task リトライヘルパはUnauthorizedAccessExceptionを再試行する()
+    {
+        var callCount = 0;
+        Task Action()
+        {
+            callCount++;
+            if (callCount < 3) throw new UnauthorizedAccessException("模擬: Windowsでの並行アクセス拒否");
+            return Task.CompletedTask;
+        }
+
+        await JsonFileStore.RetryOnIoOrAccessDeniedAsync(Action, maxAttempts: 5, delay: TimeSpan.Zero);
+
+        callCount.Should().Be(3, "2回失敗した後、3回目で成功したところで打ち切られるはず");
+    }
+
+    [Fact(DisplayName = "不具合2: RetryOnIoOrAccessDeniedAsyncは上限に達すると例外をそのまま投げる（無限に粘らない）")]
+    public async Task リトライヘルパは上限到達で例外を投げる()
+    {
+        var callCount = 0;
+        Task Action()
+        {
+            callCount++;
+            throw new UnauthorizedAccessException("模擬: 常に失敗する");
+        }
+
+        var act = () => JsonFileStore.RetryOnIoOrAccessDeniedAsync(Action, maxAttempts: 4, delay: TimeSpan.Zero);
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>("上限まで解決しない場合は従来どおりエラーとして扱う必要がある");
+        callCount.Should().Be(4, "上限回数ちょうどまで試行し、それ以上は粘らないはず");
+    }
+
+    [Fact(DisplayName = "不具合2: RetryOnIoOrAccessDeniedAsyncはIOExceptionも同様に再試行する")]
+    public async Task リトライヘルパはIOExceptionも再試行する()
+    {
+        var callCount = 0;
+        Task Action()
+        {
+            callCount++;
+            if (callCount < 2) throw new IOException("模擬: 一時的な共有違反");
+            return Task.CompletedTask;
+        }
+
+        await JsonFileStore.RetryOnIoOrAccessDeniedAsync(Action, maxAttempts: 5, delay: TimeSpan.Zero);
+
+        callCount.Should().Be(2);
+    }
 }

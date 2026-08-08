@@ -10,6 +10,7 @@ using FluentAssertions;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -51,7 +52,11 @@ public class EditorSelectionPromptTests
         }
         finally
         {
-            Directory.Delete(dir, recursive: true);
+            // GitGutterProviderが保存・タブ読込のたびfire-and-forgetで起動するgitプロセス
+            // （EditorPane.axaml.cs参照）がまだ終了しきっておらず、このディレクトリを
+            // カレントディレクトリとして掴んだままの場合があるため、少し待ってからリトライする
+            // （不具合5: 実機で"used by another process"のIOExceptionとして観測）。
+            await TempDirectoryCleanup.TryDeleteRecursiveAsync(dir).ConfigureAwait(true);
         }
     }
 
@@ -74,7 +79,11 @@ public class EditorSelectionPromptTests
         }
         finally
         {
-            Directory.Delete(dir, recursive: true);
+            // GitGutterProviderが保存・タブ読込のたびfire-and-forgetで起動するgitプロセス
+            // （EditorPane.axaml.cs参照）がまだ終了しきっておらず、このディレクトリを
+            // カレントディレクトリとして掴んだままの場合があるため、少し待ってからリトライする
+            // （不具合5: 実機で"used by another process"のIOExceptionとして観測）。
+            await TempDirectoryCleanup.TryDeleteRecursiveAsync(dir).ConfigureAwait(true);
         }
     }
 
@@ -106,7 +115,11 @@ public class EditorSelectionPromptTests
         }
         finally
         {
-            Directory.Delete(dir, recursive: true);
+            // GitGutterProviderが保存・タブ読込のたびfire-and-forgetで起動するgitプロセス
+            // （EditorPane.axaml.cs参照）がまだ終了しきっておらず、このディレクトリを
+            // カレントディレクトリとして掴んだままの場合があるため、少し待ってからリトライする
+            // （不具合5: 実機で"used by another process"のIOExceptionとして観測）。
+            await TempDirectoryCleanup.TryDeleteRecursiveAsync(dir).ConfigureAwait(true);
         }
     }
 
