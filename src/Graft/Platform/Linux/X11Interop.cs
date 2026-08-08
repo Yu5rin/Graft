@@ -23,6 +23,16 @@ internal static class X11Interop
     internal const int SelectionNotify = 31;
     internal const int PropertyNotify = 28;
 
+    // 既存ウィンドウの前面化（X11WindowActivator、wmctrl未導入環境向けの縮退）で使う
+    // イベント種別（X.hの値そのまま）。
+    internal const int ClientMessage = 33;
+
+    // XSendEventのevent_mask。EWMHの仕様上、ウィンドウマネージャ向けメッセージ
+    // （_NET_ACTIVE_WINDOW等）はルートウィンドウへ SubstructureRedirect|SubstructureNotify で
+    // 送るのが作法（値はX.hのSubstructureNotifyMask/SubstructureRedirectMaskそのまま）。
+    internal const long SubstructureNotifyMask = 1 << 19;
+    internal const long SubstructureRedirectMask = 1 << 20;
+
     // XPropertyEvent.state の値（PropertyNewValue = 0, PropertyDelete = 1）。
     internal const int PropertyNewValue = 0;
     internal const int PropertyDelete = 1;
@@ -270,6 +280,29 @@ internal static class X11Interop
         BitConverter.GetBytes(target.ToInt64()).CopyTo(buffer, 48);
         BitConverter.GetBytes(property.ToInt64()).CopyTo(buffer, 56);
         BitConverter.GetBytes(time.ToInt64()).CopyTo(buffer, 64);
+        return buffer;
+    }
+
+    /// <summary>
+    /// ClientMessageイベント（<see cref="X11WindowActivator"/>が_NET_ACTIVE_WINDOWの送出に使う）を
+    /// 組み立てる。XClientMessageEventのレイアウトは<see cref="GetSelectionEvent"/>等と異なり、
+    /// type(4)+pad(4)+serial(8)+send_event(4)+pad(4)+display(8)+window(8)+message_type(8)+
+    /// format(4)+pad(4)+data(union、64bit環境ではlong[5]として40バイト)で、
+    /// windowは32バイト、message_typeは40バイト、formatは48バイト、dataは56バイトの位置になる
+    /// （dataの直前にformat用のint 4バイト+パディング4バイトが入る点がSelectionEvent系との違い）。
+    /// </summary>
+    internal static byte[] BuildClientMessageEvent(IntPtr window, IntPtr messageType, int format, long[] data)
+    {
+        var buffer = new byte[XEventSize];
+        BitConverter.GetBytes(ClientMessage).CopyTo(buffer, 0);
+        BitConverter.GetBytes(1).CopyTo(buffer, 16); // send_event = True（合成イベントであることを示す）。
+        BitConverter.GetBytes(window.ToInt64()).CopyTo(buffer, 32);
+        BitConverter.GetBytes(messageType.ToInt64()).CopyTo(buffer, 40);
+        BitConverter.GetBytes(format).CopyTo(buffer, 48);
+        for (var i = 0; i < data.Length && i < 5; i++)
+        {
+            BitConverter.GetBytes(data[i]).CopyTo(buffer, 56 + (i * 8));
+        }
         return buffer;
     }
 }
