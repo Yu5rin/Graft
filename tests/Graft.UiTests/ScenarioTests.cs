@@ -305,6 +305,7 @@ public class ScenarioTests : IDisposable
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 
         public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }
@@ -326,6 +327,7 @@ public class ScenarioTests : IDisposable
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 
         public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }

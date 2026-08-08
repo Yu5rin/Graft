@@ -44,6 +44,15 @@ public interface IDialogService
     /// </summary>
     Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null);
 
+    /// <summary>
+    /// 「名前を付けて保存」ダイアログを表示する。キャンセル時はnullを返す。
+    /// <paramref name="suggestedFileName"/>は既定のファイル名（拡張子込み）。
+    /// <paramref name="extensions"/>は<see cref="PickFileAsync"/>と同じ意味（先頭ドット付き
+    /// 拡張子でフィルタを提示。未指定または空ならフィルタ無し）。<see cref="PickFolderAsync"/>と
+    /// 同じ理由で非同期シグネチャにしている。コンテキスト収集（10章）の「ファイルへ保存」で使う。
+    /// </summary>
+    Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null);
+
     /// <summary>OKボタンのみの通知ダイアログを表示する。</summary>
     Task ShowMessageAsync(string title, string message);
 }

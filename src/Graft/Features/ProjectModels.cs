@@ -33,6 +33,20 @@ public sealed record ProjectOverrides
     public IReadOnlyList<string> AllowedExtensions { get; init; } = Array.Empty<string>();
     /// <summary>新規ファイルのエンコーディング。</summary>
     public string? NewFileEncoding { get; init; }
+    /// <summary>
+    /// コンテキスト収集（10章）の3状態選択（内容も出す／構成だけ／出さない）のうち、
+    /// 既定（内容も出す）から外れているファイルだけを記録する差分方式。
+    /// キーはプロジェクトルートからの相対パス（"/"区切り）、値は <c>ContextFileState</c> の
+    /// <see cref="Enum.ToString()"/>（"StructureOnly" | "Hidden"）。
+    /// <para>
+    /// 差分方式にしている理由は2つ。(1) 既定が全部「内容も出す」（3.既定オン）のため、
+    /// 大半のファイルは記録不要で済み projects.json が肥大化しない。(2) 新規に追加された
+    /// ファイルは記録が無い＝既定のまま「内容も出す」から始まり、後方互換（このキーを
+    /// 持たない古い projects.json を読んでも全部既定オンになる）も自然に成り立つ。
+    /// </para>
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ContextFileStates { get; init; } =
+        new Dictionary<string, string>();
 }
 
 /// <summary>プロジェクト定義。projects.json の1要素。仕様書3.1。</summary>
