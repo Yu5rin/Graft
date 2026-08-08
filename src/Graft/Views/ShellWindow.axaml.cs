@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Graft.Infra;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -47,6 +48,22 @@ public partial class ShellWindow : Window
     /// Close()を呼ぶ前にtrueにする。OnClosingがトレイへ隠す分岐を迂回するための目印。
     /// </summary>
     public bool IsForceClosing { get; set; }
+
+    /// <summary>
+    /// 課題1: 終了処理の経路（ウィンドウを閉じた／トレイメニューの終了）・レイアウト保存の
+    /// 成否を記録するためのロガー。StartupCoordinator.StartAsyncが生成後に設定する
+    /// （コンストラクタの時点ではまだLoggerが存在しないため）。未設定（null）でも
+    /// 終了処理自体は通常どおり行う。
+    /// </summary>
+    public Logger? Logger { get; set; }
+
+    /// <summary>
+    /// 終了処理（レイアウト保存を含む）を開始した時刻。トレイへ隠しただけ（実際には
+    /// 終了しない）の場合は設定しない。起動側の「操作可能まで N ms」（StartupCoordinator.
+    /// StartAsync）に対応する形で、終了処理全体の所要時間をログへ残すために
+    /// StartupCoordinator.DisposeAsyncから参照する。
+    /// </summary>
+    public DateTime? ShutdownStartedAt { get; private set; }
 
     // AvaloniaのXAMLコンパイラは Row/ColumnDefinition の x:Name に対してフィールドを
     // 生成しない（コントロールではないため）。そのため寸法を書き換える定義は、
@@ -224,8 +241,20 @@ public partial class ShellWindow : Window
         {
             e.Cancel = true;
             Hide();
+            // 課題1: 「終了できない」「勝手に落ちた」という報告の中には、実際にはこの
+            // 常駐設定によって意図どおり隠れているだけのものが混ざりうる。終了ログが
+            // 一切残らないという診断上の欠陥を防ぐため、隠しただけの場合も記録しておく。
+            Logger?.Info("shutdown", "×で閉じましたが、タスクトレイに常駐する設定のため終了せず非表示にしました。");
             return;
         }
+
+        // 課題1: 終了処理の開始と、どの経路から来たかを記録する。トレイメニューの「終了」は
+        // StartupCoordinator.ForceExitがIsForceClosingを立ててからClose()を呼ぶため、
+        // ×で閉じた場合と区別できる（多重起動検出による自動終了はウィンドウを一切作らない
+        // 経路のため、ここではなくApp.OnFrameworkInitializationCompletedが別途記録する）。
+        ShutdownStartedAt = DateTime.Now;
+        var source = IsForceClosing ? "トレイメニューの終了" : "ウィンドウを閉じた";
+        Logger?.Info("shutdown", $"終了処理を開始しました（経路: {source}）");
 
         var layout = ViewModel.Graft.Layout;
         layout.IsMaximized = WindowState == WindowState.Maximized;
@@ -259,7 +288,19 @@ public partial class ShellWindow : Window
         // 復元されない不具合の修正）。
         ViewModel.CaptureCurrentProjectState();
 
-        ViewModel.Graft.SaveLayoutAsync().GetAwaiter().GetResult();
+        // 課題1/課題2: 保存先が読み取り専用等で書き込みに失敗しても、Closingを完了させて
+        // プロセスが確実に終了できるようにする（以前は例外を捕捉しておらず、ここで例外が
+        // 飛ぶとOnClosingが完了せずウィンドウが閉じない・終了できない恐れがあった）。
+        // 成功・失敗のいずれもログへ残し、異常終了時は原因調査の手がかりにする。
+        try
+        {
+            ViewModel.Graft.SaveLayoutAsync().GetAwaiter().GetResult();
+            Logger?.Info("shutdown", "レイアウト・タブ構成の保存に成功しました");
+        }
+        catch (Exception ex)
+        {
+            Logger?.Error("shutdown", $"レイアウト・タブ構成の保存に失敗しました: {ex}");
+        }
     }
 
     /// <summary>layout.json が壊れていた場合等にGridLengthが受け付けない値（NaN・0以下）を弾く。</summary>

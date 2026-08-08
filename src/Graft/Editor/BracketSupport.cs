@@ -54,15 +54,26 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
 
     public KnownLayer Layer => KnownLayer.Selection;
 
-    /// <summary>対象ドキュメントと言語ルールを切り替える（タブ切替のたび呼ぶ）。拡張子未対応の
-    /// 言語は文字列・コメント判定を行わず、常に自動閉じを許可する。</summary>
-    public void Attach(TextDocument document, string extension)
+    /// <summary>
+    /// 対象ドキュメントと言語ルールを切り替える（タブ切替のたび呼ぶ）。拡張子未対応の
+    /// 言語は文字列・コメント判定を行わず、常に自動閉じを許可する。
+    /// </summary>
+    /// <param name="languageAware">
+    /// falseの場合、拡張子に対応するレキサがあっても生成しない（文字列・コメントの
+    /// 判定を行わない）。課題3: <see cref="MatchBracket"/>は対応する括弧を探すあいだ
+    /// 1文字ごとに<see cref="IsInsideStringOrComment"/>を呼ぶが、レキサがあると
+    /// 呼び出しのたびに行全体を取り出して再トークン化するため、1行が極端に長い
+    /// ファイルでキャレットが括弧に隣接すると総計でO(行の文字数の2乗)になりうる
+    /// （実測で判明）。極端に長い行を含むファイルではレキサ自体を作らず、
+    /// この経路を完全に塞ぐ（<see cref="DocumentSession.HasExtremelyLongLine"/>）。
+    /// </param>
+    public void Attach(TextDocument document, string extension, bool languageAware = true)
     {
         ArgumentNullException.ThrowIfNull(document);
         if (_document is not null) _document.Changed -= OnDocumentChanged;
 
         _document = document;
-        var rule = SyntaxLexer.RuleForExtension(extension);
+        var rule = languageAware ? SyntaxLexer.RuleForExtension(extension) : null;
         _lexer = rule is null ? null : new SyntaxLexer(rule);
         RescanNow();
         _document.Changed += OnDocumentChanged;

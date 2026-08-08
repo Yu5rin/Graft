@@ -22,6 +22,7 @@ public partial class EditorPane
         Editor.IsVisible = true;
         DiffHost.IsVisible = false;
         DiffHost.DataContext = null;
+        ApplyWordWrapOption();
         _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
         _brackets.Attach(Editor.Document, string.Empty);
         _folding.Attach(Editor.Document, string.Empty);
