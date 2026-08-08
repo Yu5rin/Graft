@@ -40,14 +40,15 @@ public class ThemeTests
         "EditorCurrentLineColor", "EditorCurrentLine", "EditorSelectionColor", "EditorSelection",
     };
 
-    // v2.0のWPF版 Icons.xaml と同一のキー名一覧（9.5）。21種すべて。
+    // v2.0のWPF版 Icons.xaml と同一のキー名一覧（9.5）。21種に加え、エクスプローラの
+    // 「更新」用に新設したIconRefreshGeometryを含め22種。
     private static readonly string[] IconGeometryKeys =
     {
         "IconCheckGeometry", "IconAlertTriangleGeometry", "IconXCircleGeometry", "IconPlayGeometry",
-        "IconEyeGeometry", "IconRotateCcwGeometry", "IconFolderGeometry", "IconLayersGeometry",
-        "IconHistoryGeometry", "IconSettingsGeometry", "IconSearchGeometry", "IconCopyGeometry",
-        "IconFileGeometry", "IconFileCodeGeometry", "IconSaveGeometry", "IconXGeometry",
-        "IconChevronRightGeometry", "IconChevronDownGeometry", "IconPlusGeometry",
+        "IconEyeGeometry", "IconRotateCcwGeometry", "IconRefreshGeometry", "IconFolderGeometry",
+        "IconLayersGeometry", "IconHistoryGeometry", "IconSettingsGeometry", "IconSearchGeometry",
+        "IconCopyGeometry", "IconFileGeometry", "IconFileCodeGeometry", "IconSaveGeometry",
+        "IconXGeometry", "IconChevronRightGeometry", "IconChevronDownGeometry", "IconPlusGeometry",
         "IconGitBranchGeometry", "IconPanelBottomGeometry",
     };
 
@@ -75,7 +76,7 @@ public class ThemeTests
         }
     }
 
-    [AvaloniaFact(DisplayName = "全アイコンジオメトリ（21種）が解決でき、パースできる")]
+    [AvaloniaFact(DisplayName = "全アイコンジオメトリ（22種）が解決でき、パースできる")]
     public void 全アイコンジオメトリが解決できパースできる()
     {
         foreach (var key in IconGeometryKeys)
@@ -91,10 +92,11 @@ public class ThemeTests
         }
     }
 
-    [AvaloniaFact(DisplayName = "アイコンの数はちょうど21種である")]
-    public void アイコンの数はちょうど21種である()
+    [AvaloniaFact(DisplayName = "アイコンの数はちょうど22種である")]
+    public void アイコンの数はちょうど22種である()
     {
-        IconGeometryKeys.Should().HaveCount(21, "9.5の仕様どおりv2.0のWPF版の21種を維持する必要がある");
+        IconGeometryKeys.Should().HaveCount(22,
+            "9.5の仕様どおりv2.0のWPF版の21種に加え、更新アイコン用のIconRefreshGeometryを1種追加した");
     }
 
     [AvaloniaFact(DisplayName = "テーマを切り替えると実際にトークンの値が変わる")]
