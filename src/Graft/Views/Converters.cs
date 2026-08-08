@@ -102,6 +102,17 @@ public static class Converters
             _ => EmptyStateMode.None,
         });
 
+    /// <summary><see cref="HistoryDatePreset"/>を日本語ラベルへ変換する（履歴の期間プリセット表示用）。</summary>
+    public static readonly IValueConverter HistoryDatePresetToLabel =
+        new FuncValueConverter<HistoryDatePreset, string>(preset => preset switch
+        {
+            HistoryDatePreset.All => "全期間",
+            HistoryDatePreset.Today => "今日",
+            HistoryDatePreset.Last7Days => "過去7日",
+            HistoryDatePreset.Last30Days => "過去30日",
+            _ => "指定期間",
+        });
+
     /// <summary>エクスプローラにノードがあれば通常表示、無ければ空状態にする。</summary>
     public static readonly IValueConverter HasNodesToEmptyState =
         new FuncValueConverter<bool, EmptyStateMode>(
