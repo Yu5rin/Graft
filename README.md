@@ -97,6 +97,12 @@ dotnet publish src/Graft -c Release -r linux-x64 --self-contained true -o publis
 | `docs/仕様書_Graft_v2.0.md` | 機能の基準。プロジェクト管理・コードエディタ・接ぎ木 |
 | `docs/仕様書_Graft_v2.1.md` | 現行実装の基準。Linux 対応と Avalonia 構成 |
 
+## Windows実機での検証
+
+開発・自動テストはLinux上で行っているため、Windows固有機能（自動起動・クリップボード監視・
+ごみ箱等）は実機での確認が別途必要になる。手順は `docs/Windows実機検証手順.md`、検証用
+サンプルの生成スクリプトは `tools/New-WindowsTestSample.ps1` を参照。
+
 ## アイコン
 
 アプリアイコンはベクター定義（`src/Graft/Themes/Logo.axaml`）を正とし、
