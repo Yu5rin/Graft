@@ -266,6 +266,62 @@ public class ProjectStoreTests
         resolved.Encoding.NewFileEncoding.Should().Be("shift_jis");
     }
 
+    // ------------------------------------------------------------------
+    // 10章追加要件: コンテキスト収集の3状態選択の永続化（ProjectOverrides.ContextFileStates）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ContextFileStatesはSaveAsync→LoadAsyncで往復する")]
+    public async Task ContextFileStatesが往復する()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(appPaths);
+        var project = new Project
+        {
+            Id = "p_ctxstate",
+            Name = "ctx",
+            Root = ws.CreateDirectory("proj"),
+            Overrides = new ProjectOverrides
+            {
+                ContextFileStates = new Dictionary<string, string>
+                {
+                    ["lib/helper.py"] = ContextFileState.StructureOnly.ToString(),
+                    ["secret.env"] = ContextFileState.Hidden.ToString(),
+                },
+            },
+        };
+
+        await store.SaveAsync(new[] { project });
+        var reloaded = await store.LoadAsync();
+
+        reloaded.IsSuccess.Should().BeTrue();
+        var loadedProject = reloaded.Value.Single();
+        loadedProject.Overrides.ContextFileStates.Should().ContainKey("lib/helper.py")
+            .WhoseValue.Should().Be(ContextFileState.StructureOnly.ToString());
+        loadedProject.Overrides.ContextFileStates.Should().ContainKey("secret.env")
+            .WhoseValue.Should().Be(ContextFileState.Hidden.ToString());
+    }
+
+    [Fact(DisplayName = "ContextFileStatesを持たない古いprojects.jsonを読んでも空（＝全部既定の内容も出す）になる")]
+    public async Task ContextFileStates無しの旧形式は空になる()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        appPaths.EnsureCoreDirectoriesExist();
+        // 「contextFileStates」キーを持たない旧形式のprojects.jsonを直接書く（後方互換の検証）。
+        var legacyJson = """
+            { "projects": [ { "id": "p_legacy", "name": "legacy", "root": "/tmp/legacy" } ] }
+            """;
+        await File.WriteAllTextAsync(appPaths.ProjectsFilePath, legacyJson);
+
+        var store = new ProjectStore(appPaths);
+        var reloaded = await store.LoadAsync();
+
+        reloaded.IsSuccess.Should().BeTrue();
+        reloaded.Value.Single().Overrides.ContextFileStates.Should().BeEmpty(
+            "既定はキー自体が無い旧形式であり、その場合は全ファイルが既定（内容も出す）扱いになるはず");
+    }
+
     [Fact(DisplayName = "overridesが未指定の場合は全体設定のままになる")]
     public void overrides未指定なら全体設定のままになる()
     {

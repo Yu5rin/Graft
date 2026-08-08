@@ -148,6 +148,29 @@ public sealed class AvaloniaDialogService : IDialogService
         return file?.TryGetLocalPath();
     }
 
+    /// <summary>
+    /// 「名前を付けて保存」ダイアログを表示する（<see cref="PickFileAsync"/>と同じ設計方針）。
+    /// コンテキスト収集（10章）の「ファイルへ保存」で使う。
+    /// </summary>
+    public async Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null)
+    {
+        var owner = FindOwnerWindow();
+        var provider = owner is null ? null : TopLevel.GetTopLevel(owner)?.StorageProvider;
+        if (provider is null || !provider.CanSave)
+        {
+            return null;
+        }
+
+        var options = new FilePickerSaveOptions
+        {
+            Title = title,
+            SuggestedFileName = suggestedFileName,
+            FileTypeChoices = BuildFileTypeFilter(extensions),
+        };
+        var picked = await provider.SaveFilePickerAsync(options).ConfigureAwait(true);
+        return picked?.TryGetLocalPath();
+    }
+
     /// <summary>拡張子一覧から「対応するファイル」フィルタを組み立てる。未指定時はnull（フィルタ無し）。</summary>
     private static IReadOnlyList<FilePickerFileType>? BuildFileTypeFilter(IReadOnlyList<string>? extensions)
     {
