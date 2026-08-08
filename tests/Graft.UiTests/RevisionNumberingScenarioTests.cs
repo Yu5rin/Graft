@@ -148,17 +148,18 @@ public class RevisionNumberingScenarioTests : IDisposable
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
 
-        if (settings is not null)
-        {
-            // MainViewModel.InitializeAsync内でSettingsStore.LoadAsyncが改めて読み直すため、
-            // BuildShellViewModelへ渡すSettingsは初期値の仮置きに過ぎない。先にsettings.jsonへ
-            // 書いておく必要がある。
-            await new SettingsStore(appPaths).SaveAsync(settings).ConfigureAwait(true);
-        }
+        // ShowPreview（課題1）はこのファイルの各テストの対象外（採番・世代整理の検証）なので
+        // 明示的にfalseにし、ApplyCommandが素通りする従来どおりの挙動のまま検証できるようにする。
+        settings = (settings ?? new Settings()) with { ShowPreview = false };
+
+        // MainViewModel.InitializeAsync内でSettingsStore.LoadAsyncが改めて読み直すため、
+        // BuildShellViewModelへ渡すSettingsは初期値の仮置きに過ぎない。先にsettings.jsonへ
+        // 書いておく必要がある。
+        await new SettingsStore(appPaths).SaveAsync(settings).ConfigureAwait(true);
 
         var shell = StartupCoordinator.BuildShellViewModel(
             appPaths,
-            settings ?? new Settings(),
+            settings,
             new SettingsStore(appPaths),
             new PatchQueue(appPaths),
             new ProjectStore(appPaths),

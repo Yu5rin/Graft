@@ -48,10 +48,18 @@
 
         <!-- type絞り込み -->
         <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
+            <!--
+                課題2-2: 未選択時（TypeFilterがnull）は空欄のままで何を選ぶドロップダウンか
+                分からなかった。このComboBoxのControlTemplate（Themes/Controls.Input.axaml）は
+                PlaceholderTextを参照しないため（AvaloniaのComboBox標準templateとは異なる自前
+                実装）、PlaceholderTextを設定しても空欄のままだった。代わりに「すべての種別」を
+                選択肢の先頭（HistoryPaneViewModel.AllTypesOption）に加え、既定でそれを選択済みに
+                する（SelectedTypeOption経由。実際の絞り込みはTypeFilterのnullのまま変わらない）。
+            -->
             <ComboBox x:Name="TypeCombo"
                       Grid.Column="0"
                       ItemsSource="{Binding AvailableTypes}"
-                      SelectedItem="{Binding TypeFilter, Mode=TwoWay}"
+                      SelectedItem="{Binding SelectedTypeOption, Mode=TwoWay}"
                       AutomationProperties.Name="種別で絞り込み" />
             <Button Grid.Column="1"
                     Content="×"

@@ -69,7 +69,8 @@ public class LiveSettingsPropagationTests : IDisposable
         await RunGitAsync(_projectDirectory, "commit", "-q", "-m", "初期コミット").ConfigureAwait(true);
 
         // AutoCommit=falseで起動（≒再起動していない状態を再現）。
-        var (shell, _) = await OpenShellAsync(new Settings { Git = new GitSettings { AutoCommit = false } }).ConfigureAwait(true);
+        var baseSettings = new Settings { Git = new GitSettings { AutoCommit = false }, ShowPreview = false };
+        var shell = await OpenShellAsync(baseSettings).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -80,8 +81,11 @@ public class LiveSettingsPropagationTests : IDisposable
             "1回目の適用時点ではまだAutoCommitはオフのまま");
 
         // 再起動せず、実行中のアプリへ設定変更を反映する（StartupCoordinator.ApplyLiveSettingsChange
-        // の先でMainViewModelが受け取るのと同じ経路）。
-        shell.Graft.UpdateSettings(new Settings { Git = new GitSettings { AutoCommit = true } });
+        // の先でMainViewModelが受け取るのと同じ経路）。本物の設定画面は変更点だけでなく現在の
+        // 設定全体を渡す（SettingsViewModel.CommitAndSaveAsync参照）ため、ここも新規のSettingsを
+        // 作り直すのではなくbaseSettingsをwithで一部だけ書き換える（ShowPreview等、他の項目を
+        // 既定値へ巻き戻してApplyPreviewWindow等の別機能を誤って有効化しないため）。
+        shell.Graft.UpdateSettings(baseSettings with { Git = new GitSettings { AutoCommit = true } });
 
         _clipboard.Text = BuildPatch("sample.txt", "3行目", "3行目（変更後）", "fix");
         await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
@@ -99,7 +103,7 @@ public class LiveSettingsPropagationTests : IDisposable
         await File.WriteAllTextAsync(targetPath, "1行目\n2行目\n3行目\n").ConfigureAwait(true);
 
         // 既定（10MB）で起動し、まず問題なく適用できることを確認する。
-        var (shell, _) = await OpenShellAsync(new Settings()).ConfigureAwait(true);
+        var shell = await OpenShellAsync(new Settings()).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -123,7 +127,7 @@ public class LiveSettingsPropagationTests : IDisposable
         var targetPath = Path.Combine(_projectDirectory, "sample.txt");
         await File.WriteAllTextAsync(targetPath, "1行目\n2行目\n3行目\n").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync(new Settings { Diff = new DiffSettings { WordWrap = false } }).ConfigureAwait(true);
+        var shell = await OpenShellAsync(new Settings { Diff = new DiffSettings { WordWrap = false } }).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("sample.txt", "2行目", "2行目（変更後）", "feat");
@@ -152,7 +156,8 @@ public class LiveSettingsPropagationTests : IDisposable
         await RunGitAsync(_projectDirectory, "add", "-A").ConfigureAwait(true);
         await RunGitAsync(_projectDirectory, "commit", "-q", "-m", "初期コミット").ConfigureAwait(true);
 
-        var (shell, _) = await OpenShellAsync(new Settings { Git = new GitSettings { AutoCommit = false } }).ConfigureAwait(true);
+        var baseSettings = new Settings { Git = new GitSettings { AutoCommit = false }, ShowPreview = false };
+        var shell = await OpenShellAsync(baseSettings).ConfigureAwait(true);
         var registered = await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
         // 適用後フックで適用処理そのものに時間をかけさせ、実行中に設定変更を割り込ませる余地を作る
         // （HookRunnerは/bin/sh経由でコマンドを実行する。HookScenarioTests参照）。
@@ -172,11 +177,26 @@ public class LiveSettingsPropagationTests : IDisposable
 
         // この回の適用は開始時点の設定（AutoCommit=false）のまま最後まで動くべきで、
         // 実行中に割り込ませたこの変更はこの回には一切影響してはならない。
-        shell.Graft.UpdateSettings(new Settings { Git = new GitSettings { AutoCommit = true } });
+        // baseSettings with { ... } で一部だけ書き換える理由は上のテストと同じ
+        // （新規のSettingsを作り直すとShowPreview等が既定値へ巻き戻ってしまうため）。
+        shell.Graft.UpdateSettings(baseSettings with { Git = new GitSettings { AutoCommit = true } });
 
-        while (applyCommand.IsExecuting)
+        // 状態（IsExecuting）が変わるまで待つ条件待ちであり、固定の待ち時間ではない。
+        // 上限としてのタイムアウトはExecuteAsyncと同じ考え方で別途置く（原因の分かる例外で落とす）。
+        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
         {
-            await Task.Delay(10).ConfigureAwait(true);
+            try
+            {
+                while (applyCommand.IsExecuting)
+                {
+                    await Task.Delay(10, cts.Token).ConfigureAwait(true);
+                }
+            }
+            catch (OperationCanceledException ex)
+            {
+                throw new TimeoutException(
+                    "ApplyCommandの実行が30秒以内に完了しませんでした（IsExecutingがtrueのまま）。", ex);
+            }
         }
 
         (await RunGitAsync(_projectDirectory, "status", "--porcelain").ConfigureAwait(true)).Should().NotBeEmpty(
@@ -204,7 +224,24 @@ public class LiveSettingsPropagationTests : IDisposable
         await projectStore.SaveAsync(projects).ConfigureAwait(true);
     }
 
-    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(Settings initialSettings)
+    /// <summary>
+    /// 本物のShellWindowはここでは作らない。理由は二つ:
+    ///
+    /// 1. このファイルのテストは戻り値のWindowを一切使わない（ShellViewModel/MainViewModelの
+    ///    設定反映だけを検証する）。にもかかわらずShellWindowを作ってwindow.Show()すると、
+    ///    ShellWindow.OnLoadedが（Loadedイベント経由で非同期に）MainViewModel.InitializeAsyncを
+    ///    もう一度呼んでしまう。このメソッド自身も明示的にInitializeAsyncを呼んでいるため、
+    ///    「settings.jsonから読み直す処理が2回、順不同に走る」という競合が生まれ、後から呼ばれた
+    ///    方が全ての値を（このメソッド内で行ったShowPreview=false化ごと）先に保存した内容へ
+    ///    巻き戻してしまう。実際にこれが原因で「実行中に設定変更しても反映される」系のテストが
+    ///    5割前後の確率で失敗する事故を確認した（設定変更のタイミングと2回目のInitializeAsyncの
+    ///    タイミングがどちらが先かで結果が変わっていた）。ApplyPreviewScenarioTests.csと同じく
+    ///    ShellWindowを作らずShellViewModelだけを構築し、InitializeAsyncは明示的に1回だけ呼ぶ。
+    /// 2. ShellWindowを介さなければApplyPreviewRequestedの購読者も存在しないため、
+    ///    ShowPreviewの既定値（true）を倒し忘れても本物のモーダルダイアログでハングする心配がない
+    ///    （それでも倒し忘れに気づけるよう、以下ではShowPreview = falseを明示している）。
+    /// </summary>
+    private async Task<ShellViewModel> OpenShellAsync(Settings initialSettings)
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -212,6 +249,12 @@ public class LiveSettingsPropagationTests : IDisposable
         // MainViewModel.InitializeAsyncはSettingsStore.LoadAsyncで読み直すため、
         // コンストラクタへnew Settings()を渡すのではなく、あらかじめsettings.jsonへ
         // 初期値を書き込んでおく必要がある（GitAutoCommitScenarioTestsと同じ理由）。
+        //
+        // ShowPreview（課題1）はこのファイルの各テストの対象外（実行中の設定反映の検証）なので
+        // 明示的にfalseにする。呼び出し元がbaseSettingsにShowPreview = falseを持たせたうえで
+        // shell.Graft.UpdateSettings(baseSettings with { ... })と一部だけ書き換えて呼ぶ限りは
+        // このwith書き換えの効果は呼び出し元にも及ぶが、念のためここでも倒しておく。
+        initialSettings = initialSettings with { ShowPreview = false };
         var settingsStore = new SettingsStore(appPaths);
         await settingsStore.SaveAsync(initialSettings).ConfigureAwait(true);
 
@@ -227,10 +270,8 @@ public class LiveSettingsPropagationTests : IDisposable
             new FakeUiServices(_clipboard),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
-        window.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
-        return (shell, window);
+        return shell;
     }
 
     /// <summary>SEARCH/REPLACE形式のパッチ本文を組み立てる（GitAutoCommitScenarioTestsと同じ形式）。</summary>
@@ -257,9 +298,21 @@ public class LiveSettingsPropagationTests : IDisposable
         command.Execute(null);
         if (command is AsyncRelayCommand async)
         {
-            while (async.IsExecuting)
+            // 状態（IsExecuting）が変わるまで待つ条件待ちであり、固定の待ち時間ではない。
+            // ただし本物のバグでIsExecutingが永遠にtrueのまま戻らなかった場合に無音のまま
+            // 待ち続けないよう、上限としてのタイムアウトを別途置く（原因の分かる例外で落とす）。
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try
             {
-                await Task.Delay(10).ConfigureAwait(true);
+                while (async.IsExecuting)
+                {
+                    await Task.Delay(10, cts.Token).ConfigureAwait(true);
+                }
+            }
+            catch (OperationCanceledException ex)
+            {
+                throw new TimeoutException(
+                    "コマンドの実行が30秒以内に完了しませんでした（IsExecutingがtrueのまま）。", ex);
             }
         }
     }

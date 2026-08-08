@@ -117,8 +117,28 @@ public sealed class HistoryPaneViewModel : ObservableObject
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
 
-    /// <summary>type 絞り込みの選択肢。仕様書4.2のtype一覧。</summary>
-    public IReadOnlyList<string> AvailableTypes { get; } = new[] { "feat", "fix", "refactor", "docs", "test", "chore" };
+    /// <summary>
+    /// 課題2-2: 種別絞り込みドロップダウンの先頭に出す「絞り込みなし」の選択肢。
+    /// 未選択（TypeFilterがnull）のとき空欄のままだと何を選ぶドロップダウンか分からなかったため、
+    /// 既定でこれを選択済みにする（<see cref="SelectedTypeOption"/>参照）。
+    /// </summary>
+    public const string AllTypesOption = "すべての種別";
+
+    /// <summary>type 絞り込みの選択肢。仕様書4.2のtype一覧に<see cref="AllTypesOption"/>を先頭に足す。</summary>
+    public IReadOnlyList<string> AvailableTypes { get; } =
+        new[] { AllTypesOption, "feat", "fix", "refactor", "docs", "test", "chore" };
+
+    /// <summary>
+    /// 課題2-2: ComboBoxが直接バインドする表示用プロパティ。<see cref="TypeFilter"/>
+    /// （null＝絞り込みなし）を、ドロップダウンが常に何か選択済みの状態を保てるよう
+    /// <see cref="AllTypesOption"/>と相互変換する。実際の絞り込みは従来どおりTypeFilter
+    /// （null許容）で行うため、絞り込みロジック側に影響はない。
+    /// </summary>
+    public string SelectedTypeOption
+    {
+        get => TypeFilter ?? AllTypesOption;
+        set => TypeFilter = value == AllTypesOption ? null : value;
+    }
 
     public HistoryPaneState State
     {
@@ -154,7 +174,16 @@ public sealed class HistoryPaneViewModel : ObservableObject
     public string? TypeFilter
     {
         get => _typeFilter;
-        set => SetProperty(ref _typeFilter, value, ApplyFilter);
+        set
+        {
+            if (SetProperty(ref _typeFilter, value, ApplyFilter))
+            {
+                // 課題2-2: SelectedTypeOptionはTypeFilterの表示用ラッパーのため、
+                // TypeFilter自体が（×ボタン等、SelectedTypeOption経由以外から）変わったときも
+                // ドロップダウンの表示（AllTypesOption⇔実際の種別）を追従させる。
+                OnPropertyChanged(nameof(SelectedTypeOption));
+            }
+        }
     }
 
     public DateTimeOffset? DateFrom

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  課題3: 応答者のいないモーダルダイアログ（ShellWindow経由で開く本物のWindow）を
+  ヘッドレステストが待ち続け、テストスイート全体がCPU100%のまま無音でハングし続ける事故が
+  過去に起きた（原因: Settingsをコンストラクタ引数に渡すだけでsettings.jsonへ保存しておらず、
+  MainViewModel.InitializeAsyncが既定値で上書きしてしまい、想定と異なるダイアログが開いた。
+  詳細はLiveSettingsPropagationTests.csのコメント参照）。
+
+  本番コードに「テスト用のタイムアウト分岐」を持ち込まずに再発を防ぐため、
+  Graft.UiTestsプロジェクト全体（dotnet testが自動で読む。csprojのRunSettingsFilePath参照）に
+  セッション全体のタイムアウトを設ける。これを超過すると「test run timeout of N milliseconds
+  exceeded」という原因の分かるメッセージで打ち切られ、無音のまま延々とCPUを使い続けることはない
+  （超過時は非0の終了コードで終わるため、CIやこのタスクの完了条件チェックでも検知できる）。
+
+  値（15分）は通常のフルスイート実行時間に対して十分な余裕を持たせてある。特定のテストが
+  ハングしている場合、原因追跡にはdotnet testへblame-hang-timeoutオプション（秒数指定）を
+  都度指定するか、filterオプションで対象を絞り込むこと。
+-->
+<RunSettings>
+  <RunConfiguration>
+    <TestSessionTimeout>900000</TestSessionTimeout>
+  </RunConfiguration>
+</RunSettings>

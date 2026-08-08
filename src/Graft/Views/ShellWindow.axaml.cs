@@ -87,6 +87,7 @@ public partial class ShellWindow : Window
         Closing += OnClosing;
         viewModel.PropertyChanged += OnShellViewModelPropertyChanged;
         viewModel.Graft.RequestOpenQueue += OnRequestOpenQueue;
+        viewModel.Graft.ApplyPreviewRequested += OnApplyPreviewRequested;
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
@@ -101,6 +102,21 @@ public partial class ShellWindow : Window
     {
         var window = new QueueWindow(ViewModel.Graft.Queue);
         _ = window.ShowDialog(this);
+    }
+
+    /// <summary>
+    /// 課題1（設定「適用前にプレビューを表示する」）: ApplyAsyncからの適用前プレビュー要求を
+    /// 受けて<see cref="ApplyPreviewWindow"/>を開き、結果（「適用」が押されたかどうか）を
+    /// イベント引数のCompletionへ書き戻す。MainViewModelはWindowの型を知らないため、
+    /// この橋渡しはBeforeApplyAsync/AfterApplyAsync（<see cref="ShellViewModel"/>）と同じく
+    /// View側の責務とする。
+    /// </summary>
+    private async void OnApplyPreviewRequested(object? sender, ApplyPreviewRequestedEventArgs e)
+    {
+        var previewViewModel = new ApplyPreviewViewModel(e.PlansToApply, e.Settings, e.Ui);
+        var window = new ApplyPreviewWindow(previewViewModel);
+        var confirmed = await window.ShowAndConfirmAsync(this).ConfigureAwait(true);
+        e.Completion.TrySetResult(confirmed);
     }
 
     /// <summary>10章: コンテキスト収集ウィンドウを開く（コマンドバー「ファイル」ボタン）。</summary>
