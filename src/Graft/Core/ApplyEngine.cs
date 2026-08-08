@@ -12,8 +12,13 @@ public sealed partial class ApplyEngine
 {
     private readonly BackupManager _backup;
     private readonly RevisionStore _revisions;
-    private readonly MatchEngine _matcher;
-    private readonly DryRunPlanner _planner;
+    // 課題1: マッチング設定（類似度しきい値・あいまい一致の可否・範囲警告行数）は設定画面の
+    // 変更を実行中に反映できるよう、readonlyにせず差し替え可能にしておく
+    // （UpdateMatchOptions参照）。BackupやSafety等、他の設定はApplyContext.Settings経由で
+    // ドライラン・適用のたびに渡されるため差し替え不要（呼び出し元で都度最新値を積める）だが、
+    // マッチングだけはMatchEngineインスタンスに固定で焼き込む設計のため、この対応が要る。
+    private MatchEngine _matcher;
+    private DryRunPlanner _planner;
 
     public ApplyEngine(BackupManager backup, RevisionStore revisions, MatchEngine matcher)
     {
@@ -26,6 +31,25 @@ public sealed partial class ApplyEngine
     /// <summary>6.1 ドライラン。ファイルへは一切書き込まない。</summary>
     public Task<GraftResult<DryRunResult>> DryRunAsync(Patch patch, ApplyContext ctx, CancellationToken ct = default)
         => _planner.PlanAsync(patch, ctx, ct);
+
+    /// <summary>
+    /// 課題1: 設定画面でのマッチング設定変更を実行中のアプリへ反映する。<see cref="MatchEngine"/>は
+    /// コンストラクタで受け取ったオプションをフィールドへ固定で保持する不変な設計のため、値を
+    /// 差し替えるにはインスタンスごと作り直す必要がある。それに依存する<see cref="DryRunPlanner"/>
+    /// も同様に作り直す（RevisionStoreは使い回す。ドライラン計画自体は状態を持たないため、
+    /// 作り直しても進行中の処理には影響しない）。
+    ///
+    /// 呼び出し元の責務: 適用処理（ドライラン確定〜書き込み〜適用後フック）の実行中には
+    /// 呼ばないこと。書き込み中（<see cref="ApplyFileGroupAsync"/>）はこのインスタンスを
+    /// フィールド経由で直接参照するため、途中で差し替わると同一リビジョン内のファイルが
+    /// 前半と後半で異なるしきい値で処理されてしまう。呼び出し元（MainViewModel）は
+    /// 適用処理中の反映を保留する設計になっている前提のため、本メソッド自体は排他制御を持たない。
+    /// </summary>
+    public void UpdateMatchOptions(MatchOptions options)
+    {
+        _matcher = new MatchEngine(options);
+        _planner = new DryRunPlanner(_matcher, _revisions);
+    }
 
     /// <summary>6.1 本適用。バックアップ取得後に書き込み、manifest を確定する。</summary>
     public async Task<GraftResult<RevisionManifest>> ApplyAsync(DryRunResult plan, ApplyContext ctx, CancellationToken ct = default)

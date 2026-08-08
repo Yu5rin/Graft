@@ -27,10 +27,34 @@ public sealed partial class MainViewModel
     /// <summary>ApplyCommandの実体。要約入力・確認ダイアログを経て本適用し、6.5適用後フックを実行する。</summary>
     private async Task ApplyAsync()
     {
-        if (_dryRun is null || _lastContext is null) return;
+        if (_dryRun is not { } dryRun || _lastContext is not { } context) return;
 
+        // 課題1: この一連の処理（要約確認〜適用〜適用後フック〜Git自動コミット完了まで）の間、
+        // UpdateSettingsからの_settings差し替えを保留させる（MainViewModel.UpdateSettings
+        // 参照）。設定画面はApplyCommand実行中もモーダルではなく開けるため、その間に
+        // ユーザーが安全機構・マッチング・Git連携等を変更しても、この回の適用は開始時点の
+        // 設定のまま最後まで一貫して動かす。finallyで必ず解除し、保留中の変更があれば
+        // ここでまとめて反映する。
+        _isApplyInProgress = true;
+        try
+        {
+            await ApplyCoreAsync(dryRun, context).ConfigureAwait(true);
+        }
+        finally
+        {
+            _isApplyInProgress = false;
+            if (_pendingSettings is { } pending)
+            {
+                _pendingSettings = null;
+                ApplySettingsNow(pending);
+            }
+        }
+    }
+
+    private async Task ApplyCoreAsync(DryRunResult dryRun, ApplyContext context)
+    {
         var updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
-        var updatedDryRun = _dryRun with { Plans = updatedPlans };
+        var updatedDryRun = dryRun with { Plans = updatedPlans };
 
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
@@ -48,13 +72,13 @@ public sealed partial class MainViewModel
         var project = ProjectPane.SelectedItem?.Project;
 
         State = CenterPaneState.Loading;
-        var result = await _applyEngine.ApplyAsync(updatedDryRun, _lastContext).ConfigureAwait(true);
+        var result = await _applyEngine.ApplyAsync(updatedDryRun, context).ConfigureAwait(true);
 
         // 不具合2対応: 適用を試みた直後に、成功・失敗を問わずnextRevisionを消費して
         // projects.jsonへ永続化する（消費しないと次回も同じ番号が付与され続ける）。
         // 失敗時にも消費する理由はProjectStore.ConsumeNextRevisionAsyncのコメント参照。
         // ProjectPane.LoadAsync（下）より前に行い、再読込結果へ確実に反映させる。
-        await ConsumeRevisionNumberAsync(_lastContext.ProjectId).ConfigureAwait(true);
+        await ConsumeRevisionNumberAsync(context.ProjectId).ConfigureAwait(true);
 
         if (!result.IsSuccess)
         {
@@ -63,7 +87,7 @@ public sealed partial class MainViewModel
             return;
         }
 
-        await NotifyFilesRewrittenAsync(_lastContext.ProjectRoot, result.Value).ConfigureAwait(true); // 4.8/7章: 再読込フック。
+        await NotifyFilesRewrittenAsync(context.ProjectRoot, result.Value).ConfigureAwait(true); // 4.8/7章: 再読込フック。
         FinalizeApplyFromQueueIfNeeded(); // 4.10: キュー結合適用時はキューを空にする（MainViewModel.Queue.cs）。
         DiscardCurrentPatch();
         await ProjectPane.LoadAsync().ConfigureAwait(true);

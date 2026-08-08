@@ -344,11 +344,20 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// <summary>
     /// 課題2: 設定画面での「閉じたときの動作」変更を、実行中のウィンドウへ即時反映する。
     /// SettingsViewModelの即時反映（300msデバウンス後の保存）が成功した直後に呼ばれる。
+    ///
+    /// 課題1: 適用の挙動を決める設定（安全機構・マッチング・バックアップ・Git連携・
+    /// 適用後フックのタイムアウト・差分表示の折り返し/空白表示等）は、MainViewModelが
+    /// 起動時に読み込んだ<c>_settings</c>を以後一切更新していなかったため、設定画面で
+    /// 変更しても再起動するまで動作へ反映されなかった（実機確認: 適用中に「適用後に
+    /// 自動コミットする」をオンにしても、その場の適用ではコミットされない）。ここから
+    /// MainViewModel.UpdateSettingsへ伝播させる。反映のタイミング（適用処理の実行中は
+    /// 完了まで保留する等）はMainViewModel側の責務とする（詳細はUpdateSettingsのコメント）。
     /// </summary>
     private void ApplyLiveSettingsChange(AppSettings updated)
     {
         _settings = updated;
         if (MainWindow is not null) MainWindow.CloseBehavior = updated.CloseBehavior;
+        _shellViewModel?.Graft.UpdateSettings(updated);
     }
 
     /// <summary>
