@@ -26,7 +26,8 @@
                     Padding="4"
                     Background="Transparent"
                     BorderThickness="0"
-                    ToolTip.Tip="選択したリビジョン直前の状態へ復元"
+                    local:HelpTip.Standard="選択したリビジョン直前の状態へ復元"
+                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョン（適用の記録）を適用する直前の状態へ、ファイルを元に戻します。適用した結果が思っていたものと違ったときのやり直し手段です。一覧から復元したい時点を選んでからこのボタンを押してください。"
                     AutomationProperties.Name="選択したリビジョンへ復元">
                 <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
             </Button>
@@ -57,7 +58,8 @@
                     Click="OnClearTypeFilter"
                     Padding="6,2"
                     Margin="4,0,0,0"
-                    ToolTip.Tip="種別絞り込みを解除"
+                    local:HelpTip.Standard="種別絞り込みを解除"
+                    local:HelpTip.Detailed="左のドロップダウンで選んでいる種別による絞り込みを解除し、すべての種類のリビジョンを一覧に表示し直します。"
                     AutomationProperties.Name="種別絞り込みを解除" />
         </Grid>
 

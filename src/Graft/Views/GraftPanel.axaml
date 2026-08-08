@@ -26,7 +26,8 @@
                 <Button Grid.Column="0"
                         Command="{Binding DataContext.ToggleGraftPanelCommand, ElementName=Root}"
                         Background="Transparent" BorderThickness="0" Padding="4"
-                        ToolTip.Tip="接ぎ木パネルを開閉します。パッチを解析すると自動的に開きます（Ctrl+J）。"
+                        views:HelpTip.Standard="接ぎ木パネルを開閉します。パッチを解析すると自動的に開きます（Ctrl+J）。"
+                        views:HelpTip.Detailed="下部の接ぎ木パネル（AIの回答から抽出した変更ブロックの一覧）を開閉します。「解析」ボタンでAIの回答を読み取ると自動的に開くため、通常は自分で開く必要はありません。作業スペースを広く使いたいときにこのボタンで折りたたんでください。ショートカットはCtrl+Jです。"
                         AutomationProperties.Name="接ぎ木パネルの開閉">
                     <Panel>
                         <views:IconGlyph Width="14" Height="14"
@@ -61,11 +62,13 @@
                 <!-- 11章 失敗時リカバリ支援: 失敗ブロックがある場合のみ有効になる。 -->
                 <Button Grid.Column="3" Content="失敗を再依頼" Margin="4,0"
                         Command="{Binding CopyRecoveryPromptCommand}"
-                        ToolTip.Tip="適用できなかったブロックについて、現在のファイルの内容を添えた修正依頼文をクリップボードへコピーします。AIへ再度質問するときに使います。失敗したブロックがあるときだけ有効になります。"
+                        views:HelpTip.Standard="適用できなかったブロックについて、現在のファイルの内容を添えた修正依頼文をクリップボードへコピーします。AIへ再度質問するときに使います。失敗したブロックがあるときだけ有効になります。"
+                        views:HelpTip.Detailed="一覧の中に赤い×印（適用できなかったブロック）があるときに使います。押すと、失敗した理由と対象ファイルの今の中身を含んだ修正依頼文がクリップボードへコピーされます。それをAIとの会話に貼り付けて再度質問すれば、状況を説明し直す手間なく修正案をもらえます。失敗したブロックが無いときはこのボタンは押せません。"
                         AutomationProperties.Name="失敗ブロックの再依頼プロンプトをコピー" />
 
                 <Button Grid.Column="4" Margin="4,0" Command="{Binding PreviewCommand}"
-                        ToolTip.Tip="解析した変更をもう一度ドライラン（試し適用）し、各ブロックの適用可否と差分を最新の状態に更新します。対象ファイルを編集した後に使います。"
+                        views:HelpTip.Standard="解析した変更をもう一度ドライラン（試し適用）し、各ブロックの適用可否と差分を最新の状態に更新します。対象ファイルを編集した後に使います。"
+                        views:HelpTip.Detailed="解析済みの変更が、今のファイルの中身に対して問題なく適用できるかどうかを、実際には書き込まずに試します（ドライラン）。エディタで対象ファイルを直接編集したあとにこのボタンを押すと、各ブロックの状態（適用可能・要確認・失敗）と差分表示が最新の内容に更新されます。"
                         AutomationProperties.Name="プレビューを再実行">
                     <StackPanel Orientation="Horizontal">
                         <views:IconGlyph Data="{DynamicResource IconEyeGeometry}"
@@ -76,7 +79,8 @@
 
                 <!-- F6ペイン巡回の最後の停留先（GraftPanel.axaml.cs: DiffHost）。 -->
                 <Button x:Name="ApplyButtonElement" Grid.Column="5" Command="{Binding ApplyCommand}"
-                        ToolTip.Tip="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます（Ctrl+Enter）。"
+                        views:HelpTip.Standard="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます（Ctrl+Enter）。"
+                        views:HelpTip.Detailed="一覧に並んでいる、チェックが入ったブロックを実際のファイルへ書き込みます。書き込む前には自動でバックアップが作られるため、結果が気に入らなければサイドバーの「履歴」からいつでも元に戻せます。ショートカットはCtrl+Enterです。"
                         AutomationProperties.Name="適用を実行">
                     <StackPanel Orientation="Horizontal">
                         <views:IconGlyph Data="{DynamicResource IconPlayGeometry}"
@@ -156,7 +160,8 @@
                                         Background="Transparent" BorderThickness="0"
                                         Command="{Binding DataContext.OpenBlockInEditorCommand, ElementName=Root}"
                                         CommandParameter="{Binding}"
-                                        ToolTip.Tip="このブロックが変更する対象ファイルを、変更箇所の行へジャンプしてエディタで開きます。"
+                                        views:HelpTip.Standard="このブロックが変更する対象ファイルを、変更箇所の行へジャンプしてエディタで開きます。"
+                                        views:HelpTip.Detailed="このブロックが変更しようとしているファイルをエディタで開き、変更対象の行まで自動でスクロールします。適用する前に、実際のコードの前後の文脈を見ながら内容を確認したいときに使います。"
                                         AutomationProperties.Name="エディタで開く">
                                     <views:IconGlyph Width="14" Height="14"
                                                      Data="{DynamicResource IconFileCodeGeometry}"
@@ -174,9 +179,11 @@
                                       ActionText="解析"
                                       ActionCommand="{Binding PasteAndParseCommand}"
                                       ActionTooltip="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です（Ctrl+Shift+V）。"
+                                      ActionTooltipDetailed="ChatGPTやClaudeなどのAIに修正を頼んで返ってきた回答を、まるごとコピーしてからこのボタンを押します。Graftが回答の中からコード変更の部分だけを探し出し、この一覧に表示します。この時点ではまだファイルは書き換わりません。ショートカットはCtrl+Shift+Vです。"
                                       SecondaryActionText="ファイルから解析"
                                       SecondaryActionCommand="{Binding ParseFromFileCommand}"
                                       SecondaryActionTooltip="AIの出力をクリップボードではなく、保存済みのファイル（.md/.txt/.diff/.patch）から読み込んで解析します。"
+                                      SecondaryActionTooltipDetailed="AIとのやり取りをクリップボードにコピーする代わりに、あらかじめファイルへ保存してある場合に使います。.md/.txt/.diff/.patchのいずれかの形式で保存したファイルを選ぶと、その中身を「解析」ボタンを押したときと同じように読み取ります。長いやり取りを一旦保存してから読み込みたいときに便利です。"
                                       Issue="{Binding CenterError}" />
             </Grid>
         </Grid>

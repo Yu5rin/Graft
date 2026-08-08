@@ -44,13 +44,20 @@ public partial class EmptyStateView : UserControl
         AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(ActionCommand));
 
     /// <summary>
-    /// 主要アクションボタンのツールチップ。利用者からの指摘（ボタン名だけでは機能が伝わらない）
-    /// への対応。空状態は複数の画面（GraftPanel・ProjectPane等）で使い回すため、文言は
-    /// ActionTextと同様に呼び出し側が用途に応じて渡す。未指定なら通常のToolTip.Tip同様に
-    /// 何も表示しない。
+    /// 主要アクションボタンのツールチップ（標準の説明）。利用者からの指摘（ボタン名だけでは
+    /// 機能が伝わらない）への対応。空状態は複数の画面（GraftPanel・ProjectPane等）で使い回すため、
+    /// 文言はActionTextと同様に呼び出し側が用途に応じて渡す。未指定なら何も表示しない。
     /// </summary>
     public static readonly StyledProperty<string?> ActionTooltipProperty =
         AvaloniaProperty.Register<EmptyStateView, string?>(nameof(ActionTooltip));
+
+    /// <summary>
+    /// 主要アクションボタンのツールチップ（くわしい説明）。設定「操作の説明」で「くわしい説明」を
+    /// 選んだときに<see cref="ActionTooltip"/>の代わりに使う（<see cref="HelpTip"/>参照）。
+    /// 未指定なら「くわしい説明」を選んでいても<see cref="ActionTooltip"/>にフォールバックする。
+    /// </summary>
+    public static readonly StyledProperty<string?> ActionTooltipDetailedProperty =
+        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(ActionTooltipDetailed));
 
     public static readonly StyledProperty<string> SecondaryActionTextProperty =
         AvaloniaProperty.Register<EmptyStateView, string>(nameof(SecondaryActionText), string.Empty);
@@ -58,9 +65,13 @@ public partial class EmptyStateView : UserControl
     public static readonly StyledProperty<ICommand?> SecondaryActionCommandProperty =
         AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(SecondaryActionCommand));
 
-    /// <summary>副次アクションボタンのツールチップ。<see cref="ActionTooltipProperty"/>と同じ考え方。</summary>
+    /// <summary>副次アクションボタンのツールチップ（標準の説明）。<see cref="ActionTooltipProperty"/>と同じ考え方。</summary>
     public static readonly StyledProperty<string?> SecondaryActionTooltipProperty =
         AvaloniaProperty.Register<EmptyStateView, string?>(nameof(SecondaryActionTooltip));
+
+    /// <summary>副次アクションボタンのツールチップ（くわしい説明）。<see cref="ActionTooltipDetailedProperty"/>と同じ考え方。</summary>
+    public static readonly StyledProperty<string?> SecondaryActionTooltipDetailedProperty =
+        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(SecondaryActionTooltipDetailed));
 
     public static readonly StyledProperty<GraftIssue?> IssueProperty =
         AvaloniaProperty.Register<EmptyStateView, GraftIssue?>(nameof(Issue));
@@ -126,6 +137,13 @@ public partial class EmptyStateView : UserControl
         set => SetValue(ActionTooltipProperty, value);
     }
 
+    /// <summary>主要アクションボタンのくわしい説明。<see cref="ActionTooltipDetailedProperty"/>参照。</summary>
+    public string? ActionTooltipDetailed
+    {
+        get => GetValue(ActionTooltipDetailedProperty);
+        set => SetValue(ActionTooltipDetailedProperty, value);
+    }
+
     /// <summary>
     /// 空状態の副次アクションのラベル（4.1「ファイルから解析」等）。未指定（空文字）なら
     /// ボタンごと非表示にする。主要アクションと違い、無くても空状態として成立する用途向け。
@@ -148,6 +166,13 @@ public partial class EmptyStateView : UserControl
     {
         get => GetValue(SecondaryActionTooltipProperty);
         set => SetValue(SecondaryActionTooltipProperty, value);
+    }
+
+    /// <summary>副次アクションボタンのくわしい説明。<see cref="ActionTooltipDetailed"/>と同じ考え方。</summary>
+    public string? SecondaryActionTooltipDetailed
+    {
+        get => GetValue(SecondaryActionTooltipDetailedProperty);
+        set => SetValue(SecondaryActionTooltipDetailedProperty, value);
     }
 
     /// <summary>エラー状態で表示する問題。エラーコードと対処方法を併記する（8.8）。</summary>

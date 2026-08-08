@@ -31,6 +31,14 @@
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTheme}"
                           AutomationProperties.Name="テーマ" />
             </StackPanel>
+            <!-- 利用者からの要望: ツールチップの詳しさを3段階で選べるようにする。テーマの
+                 すぐ下に置く。選択の反映は views:HelpTip（添付プロパティ方式）が担う。 -->
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="操作の説明" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding TooltipDetailOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTooltipDetail}"
+                          AutomationProperties.Name="操作の説明" />
+            </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="適用モード" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ApplyModeOptions}" SelectedValueBinding="{Binding Value}"
