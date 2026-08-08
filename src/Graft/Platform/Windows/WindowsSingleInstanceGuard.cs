@@ -10,6 +10,14 @@ namespace Graft.Platform.Windows;
 /// ロジックは変更せずそのまま利用する）に委譲する。既存ウィンドウの前面化
 /// （<c>FindWindow</c>・<c>ShowWindow</c>・<c>SetForegroundWindow</c>）は移設元
 /// <c>Views/StartupCoordinator.cs</c> のロジックをそのまま移す。
+///
+/// Mutex名には "Global\" プレフィックスが付与される（Core/SingleInstanceGuard.cs参照）。
+/// Windowsでは元々 "Global\" はターミナルサービスのグローバル名前空間を指す正規の構文で、
+/// 通常の名前付きMutexとして機能するため、この変更によるWindows側の挙動差は無い
+/// （実機調査で判明したのはUnix版ランタイムの挙動の誤解であり、Windows側の実装・前提に
+/// 誤りは無かった）。Global\ の作成が権限で拒否される限られた環境向けの縮退・
+/// 判定不能時に起動を止めない安全側の倒し方も、Core/SingleInstanceGuard.cs側で
+/// プラットフォームを問わず共通に対応する。
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsSingleInstanceGuard : ISingleInstanceGuard
