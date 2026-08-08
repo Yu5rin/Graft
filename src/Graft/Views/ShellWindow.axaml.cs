@@ -21,6 +21,15 @@ public partial class ShellWindow : Window
     /// <summary>接ぎ木パネルが折りたたまれているときのヘッダーのみの高さ（GraftPanel.axamlと一致させる）。</summary>
     internal const double GraftPanelHeaderHeight = 32;
 
+    // 要望1（実機からの改善要望）: GridSplitterでドラッグして潰せる下限。
+    // 0まで潰せると二度と戻せなくなって詰む（マウスで再び広げる手がかりが無くなる）ため、
+    // サイドビュー・接ぎ木パネルそれぞれに「これ以上は狭められない」下限を設ける。
+    // サイドビュー: 履歴・検索ペインのフィルタ用ドロップダウン等が実機でも窮屈にならない
+    // 最小幅として180pxを採用（既定値260pxの約7割）。
+    internal const double SideViewMinWidth = 180;
+    // 接ぎ木パネル: ヘッダー32px＋パッチ行が最低2〜3件見える高さとして120pxを採用。
+    internal const double GraftPanelMinHeight = 120;
+
     // 9.2/3.2: サイドビュー幅・接ぎ木パネル高さは ProjectPaneLayout の
     // SideViewWidth/GraftPanelHeight に記憶する。
     private double _sideViewWidth = 260;
@@ -189,32 +198,45 @@ public partial class ShellWindow : Window
         ApplyGraftPanelState();
     }
 
-    /// <summary>サイドビューの折りたたみ・展開をColumnDefinitionへ反映する。</summary>
+    /// <summary>
+    /// サイドビューの折りたたみ・展開をColumnDefinitionへ反映する。
+    /// 要望1: MinWidthも展開中(SideViewMinWidth)/折りたたみ中(0)で切り替える。
+    /// 折りたたみ時にMinWidthを正の値のままにすると、直後のWidth=0への代入が
+    /// MinWidthまで切り上げられてしまい「折りたたむと透明な帯が残る」不具合になる
+    /// （GridSplitterのドラッグ下限と既存の折りたたみ機能が両立するようにするための対応）。
+    /// </summary>
     private void ApplySideViewState()
     {
         if (ViewModel.IsSideViewCollapsed)
         {
+            SideViewColumn.MinWidth = 0;
             SideViewColumn.Width = new GridLength(0);
             SideViewSplitter.IsVisible = false;
         }
         else
         {
+            SideViewColumn.MinWidth = SideViewMinWidth;
             SideViewColumn.Width = new GridLength(_sideViewWidth);
             SideViewSplitter.IsVisible = true;
         }
     }
 
-    /// <summary>接ぎ木パネルの折りたたみ・展開をRowDefinitionへ反映する。</summary>
+    /// <summary>
+    /// 接ぎ木パネルの折りたたみ・展開をRowDefinitionへ反映する。
+    /// 要望1: MinHeightもサイドビューと同じ理由で開閉に合わせて切り替える。
+    /// </summary>
     private void ApplyGraftPanelState()
     {
         if (ViewModel.IsGraftPanelOpen)
         {
+            GraftPanelRow.MinHeight = GraftPanelMinHeight;
             GraftPanelRow.Height = new GridLength(_graftPanelHeight);
             GraftSplitterRow.Height = GridLength.Auto;
             GraftSplitter.IsVisible = true;
         }
         else
         {
+            GraftPanelRow.MinHeight = 0;
             GraftPanelRow.Height = new GridLength(GraftPanelHeaderHeight);
             GraftSplitterRow.Height = new GridLength(0);
             GraftSplitter.IsVisible = false;

@@ -240,6 +240,16 @@
 
         <!-- ============== 本体: サイドバー／サイドビュー／エディタ＋接ぎ木パネル ============== -->
         <Grid Grid.Row="1" x:Name="BodyGrid">
+            <!--
+                要望1（実機からの改善要望）: サイドビュー列（列1）の MinWidth は
+                ここでは 0 のまま置く。折りたたみ機能（ViewModel.IsSideViewCollapsed）は
+                この列の幅を GridLength(0) へ直接書き換えることで実現しており、MinWidthを
+                ここで正の値にしてしまうと折りたたみ時にその値へ切り上げられてしまい
+                「折りたたむと0にならない」という別の不具合になる。そのため実際の
+                ドラッグ下限（ペインを潰しきれないようにする最小幅）は、展開中だけ
+                ShellWindow.axaml.cs（ApplySideViewState）が動的に付け外しする
+                （折りたたみ機能と喧嘩しないための対応）。
+            -->
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="48" />
                 <ColumnDefinition Width="260" MinWidth="0" />
@@ -278,11 +288,21 @@
                 </Border>
             </Grid>
 
+            <!--
+                要望1: 掴みやすさのため幅は6px（実機で4pxは掴みにくかったため6pxへ）とし、
+                カーソルを左右リサイズ形状にして「ここはドラッグできる」と分かるようにする。
+                GridSplitterはThumb派生のTemplatedControlのため、ControlTheme側に
+                ControlTemplate（Border 1枚）を与えないと何も描画されずヒットテストの
+                対象にもならない＝ドラッグが一切効かないという不具合があった
+                （Controls.Layout.axamlのGridSplitterテーマ参照。実機・headlessテスト
+                双方でPointerPressedすら発火しないことを確認して特定した）。
+            -->
             <GridSplitter x:Name="SideViewSplitter"
                           Grid.Column="2"
-                          Width="4"
+                          Width="6"
                           HorizontalAlignment="Center"
                           VerticalAlignment="Stretch"
+                          Cursor="SizeWestEast"
                           Background="{DynamicResource BorderSubtle}"
                           AutomationProperties.Name="サイドビューとエディタの境界" />
 
@@ -292,8 +312,11 @@
                  （AvaloniaのXAMLコンパイラはRow/ColumnDefinitionのx:Nameに対して
                  フィールドを生成しないため、v2.0のWPF版のように定義自体へ名前は付けられない）。 -->
             <Grid Grid.Column="3" x:Name="EditorAreaGrid">
+                <!-- エディタ行（[0]）のMinHeightは常時固定で構わない（折りたたみ対象ではないため）。
+                     接ぎ木パネル行（[2]）のMinHeightは列1と同じ理由で折りたたみ（ヘッダーのみ32px）と
+                     喧嘩するため、ShellWindow.axaml.cs（ApplyGraftPanelState）が動的に付け外す。 -->
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />
+                    <RowDefinition Height="*" MinHeight="120" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="32" />
                 </Grid.RowDefinitions>
@@ -313,9 +336,10 @@
 
                 <GridSplitter x:Name="GraftSplitter"
                               Grid.Row="1"
-                              Height="4"
+                              Height="6"
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Center"
+                              Cursor="SizeNorthSouth"
                               Background="{DynamicResource BorderSubtle}"
                               AutomationProperties.Name="エディタと接ぎ木パネルの境界" />
 

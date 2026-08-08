@@ -319,12 +319,36 @@
         </Style>
     </ControlTheme>
 
-    <!-- ========== GridSplitter（3ペインの区切り） ========== -->
+    <!--
+        ========== GridSplitter（ペイン境界のドラッグ調整） ==========
+        不具合1（実機検証で発覚）: GridSplitter は Thumb 派生の TemplatedControl のため、
+        Background 等の Setter だけでは何も描画されない（ControlTemplate が無いと
+        テンプレート内の実体が生成されず、マウスヒットテストの対象になる図形も
+        存在しない）。以前はここに Template の Setter が無く、Background を
+        指定していても実際には透明・当たり判定なしの幅0として振る舞い、
+        ドラッグでのペイン幅調整が一切効かなかった（PointerPressedすら発火しない
+        ことをheadlessテストで確認済み）。Border 1枚だけの最小限のテンプレートを
+        与えることで、Background の描画とヒットテストの両方を成立させる。
+
+        不具合2（同じく実機検証で発覚）: ここに既定の Width="1" を置いていたため、
+        接ぎ木パネルとの境界（横方向いっぱいに伸ばしたい水平スプリッタ。
+        ShellWindow.axamlのGraftSplitter。HorizontalAlignment="Stretch"を
+        ローカルで指定）が、Widthをローカルで上書きしていない限りこの既定値1に
+        負けてしまい、Stretchを指定しても実際には幅1pxの点として描画されていた
+        （Avaloniaでは明示的なWidthがHorizontalAlignment=Stretchより優先されるため）。
+        サイドビューとの境界（縦方向いっぱいに伸ばす垂直スプリッタ）はWidthを
+        ローカルで明示しているため問題無い。既定値を持たせず、垂直スプリッタは
+        Width、水平スプリッタはHeightを使用側で必ず明示する方針に変える。
+    -->
     <ControlTheme x:Key="{x:Type GridSplitter}" TargetType="GridSplitter">
         <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
-        <Setter Property="Width" Value="1" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Background="{TemplateBinding Background}" />
+            </ControlTemplate>
+        </Setter>
         <Style Selector="^:pointerover">
             <Setter Property="Background" Value="{DynamicResource Accent}" />
         </Style>
