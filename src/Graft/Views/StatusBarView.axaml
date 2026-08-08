@@ -25,15 +25,18 @@
                            FontSize="{DynamicResource StatusBarFontSize}" />
                 <TextBlock Text="{Binding Editor.LanguageText}" Margin="12,0,0,0"
                            FontSize="{DynamicResource StatusBarFontSize}" />
-                <!-- 8.6: シンタックスハイライトが性能基準を満たさず無効化された場合の通知。 -->
-                <TextBlock Text="シンタックスハイライトを無効化しました" Margin="12,0,0,0"
-                           Foreground="{DynamicResource StateWarn}"
-                           FontSize="{DynamicResource StatusBarFontSize}"
-                           IsVisible="{Binding Graft.Diff.SyntaxHighlightDisabled}" />
                 <!--
-                    課題1: データ保存先（実行ファイルと同じ階層）へ書き込めない場合の常時警告。
-                    起動時ダイアログは1回しか出ないため、保存できない状態が続いている間は
-                    ここで警告を出し続ける（黙って失敗し続けることを防ぐ）。
+                    ステータスバーの警告表示の並び順について: このStackPanelは折り返しをしない
+                    横並びのため、複数の警告が同時に立つと右端（Grid.Column="1"の接ぎ木状態表示）
+                    へ食い込む・はみ出すおそれがある（例: 書き込み不可のフォルダで、極端に長い行を
+                    含むファイルを開いた場合。実機のXvfb環境で実際に両方を同時に表示させ、
+                    右側の接ぎ木状態表示と重ならず、ウィンドウ幅内に収まることを確認済み）。
+                    ここでは表示順を「深刻さ・影響範囲が大きい警告ほど左（先頭）」に統一し、
+                    仮に将来さらに警告が増えて右側が見切れる状況になっても、最も重要な警告だけは
+                    残るようにしている。書き込み不可（課題1）はアプリ全体・設定やバックアップの
+                    喪失に関わる警告であり、以降に続くシンタックスハイライト・長い行の警告
+                    （いずれもアクティブな1タブの表示上の制約に留まる）より優先度を高くしたいため、
+                    あえてこの2つより前に置く。
                 -->
                 <TextBlock Text="書き込み不可のため設定・履歴・バックアップは保存されません"
                            Margin="12,0,0,0"
@@ -41,6 +44,16 @@
                            FontSize="{DynamicResource StatusBarFontSize}"
                            IsVisible="{Binding Graft.IsDataDirectoryReadOnly}"
                            ToolTip.Tip="実行ファイルと同じフォルダへ書き込む権限がありません。書き込み権限のあるフォルダへGraftのフォルダ一式を移動してから起動し直してください。" />
+                <!-- 8.6: シンタックスハイライトが性能基準を満たさず無効化された場合の通知。 -->
+                <TextBlock Text="シンタックスハイライトを無効化しました" Margin="12,0,0,0"
+                           Foreground="{DynamicResource StateWarn}"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.Diff.SyntaxHighlightDisabled}" />
+                <!-- 課題3: 1行が極端に長いファイルで構文強調・折り返し・括弧の対応付けを自動的に無効化した場合の通知。 -->
+                <TextBlock Text="極端に長い行があるため構文強調・折り返しを無効化しました" Margin="12,0,0,0"
+                           Foreground="{DynamicResource StateWarn}"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Editor.ActiveTabHasLongLineWarning}" />
             </StackPanel>
 
             <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->
