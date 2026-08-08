@@ -73,6 +73,21 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         return false;
     }
 
+    /// <summary>
+    /// 課題1: <see cref="TryAcquireSingleInstance"/>がfalseを返し、多重起動検出により
+    /// このプロセスを即座に終了させる経路専用のログ記録。この経路は<see cref="StartAsync"/>を
+    /// 一切呼ばないため通常の<see cref="Logger"/>（<see cref="StartAsync"/>内で生成）が存在せず、
+    /// そのままでは「終了処理が始まったことすら分からない」という課題1の欠陥が
+    /// この経路にも当てはまってしまう。ここだけのために使い捨てのロガーを生成し、
+    /// 1行記録してすぐに破棄する。
+    /// </summary>
+    public async Task LogSingleInstanceExitAsync()
+    {
+        _appPaths.EnsureCoreDirectoriesExist();
+        await using var logger = new Logger(_appPaths, autoCleanupOnStart: false);
+        logger.Info("shutdown", "多重起動を検出したため、既存ウィンドウを前面化してこのプロセスは終了します。");
+    }
+
     /// <summary>依存の生成・メインウィンドウの表示・各種配線・初回起動ガイドまでを行う。</summary>
     public async Task StartAsync()
     {
@@ -149,6 +164,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // IsTraySupportedはプロセス起動中に変わらないため、ここで一度だけ設定する。
         window.CloseBehavior = _settings.CloseBehavior;
         window.IsTraySupported = _platform.Tray.IsSupported;
+
+        // 課題1: 終了処理（ShellWindow.OnClosing）が経路・レイアウト保存の成否を記録できるよう、
+        // 起動時に生成済みのロガーを渡す。
+        window.Logger = _logger;
 
         // 画面情報（IScreenInfo）はデスクトップライフタイムのウィンドウ経由で解決するため、
         // レイアウト復元より前にMainWindowを割り当てておく。割り当てが遅れると画面構成が

@@ -45,6 +45,36 @@ public static class TextNormalizer
         return lines;
     }
 
+    /// <summary>
+    /// 指定文字数を超える行が含まれるかどうかを判定する（改行コードの種類は問わない）。
+    /// 課題3: 構文強調・折り返しの計算コストは行数ではなくその行の文字数に比例して増える
+    /// （仕様書18章の「10万行」という性能目標は行数を前提にしており、1行が極端に長い
+    /// ケースは想定していない）。呼び出し元（<see cref="Graft.Editor.DocumentSession"/>）は
+    /// この判定を使って構文強調・折り返し・括弧対応付けを自動的に無効化する。
+    /// しきい値を超えた時点で走査を打ち切るため、該当しない大半のファイルでも
+    /// 全文を1回なめる以上のコストはかからない。
+    /// </summary>
+    public static bool HasLineLongerThan(string text, int threshold)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (threshold < 0) return text.Length > 0;
+
+        var runLength = 0;
+        foreach (var c in text)
+        {
+            if (c is '\r' or '\n')
+            {
+                runLength = 0;
+                continue;
+            }
+
+            runLength++;
+            if (runLength > threshold) return true;
+        }
+
+        return false;
+    }
+
     /// <summary>行末の空白（スペース・タブ）を取り除く。</summary>
     public static string TrimTrailingWhitespace(string line) => line.TrimEnd(' ', '\t');
 

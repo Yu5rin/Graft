@@ -136,10 +136,12 @@
             </Border>
 
             <Grid Grid.Row="1">
+                <!-- 課題3: WordWrapはここでバインドせずEditorPane.axaml.csのApplyWordWrapOptionで
+                     一括管理する（極端に長い行を含むファイルでは利用者の設定に関わらず無効化するため。
+                     ShowSpaces/ShowTabs/HighlightCurrentLine等と同じ方針）。 -->
                 <ae:TextEditor x:Name="Editor"
                                FontSize="{Binding FontSize}"
                                ShowLineNumbers="{Binding ShowLineNumbers}"
-                               WordWrap="{Binding WordWrap}"
                                HorizontalScrollBarVisibility="Auto"
                                VerticalScrollBarVisibility="Auto"
                                AutomationProperties.Name="コードエディタ">
