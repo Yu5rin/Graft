@@ -50,6 +50,7 @@ public partial class ShellWindow : Window
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
+        viewModel.RequestOpenShortcuts += OnRequestOpenShortcuts;
         viewModel.QuickOpen.Opened += OnQuickOpenOpened;
     }
 
@@ -68,6 +69,13 @@ public partial class ShellWindow : Window
         if (ViewModel.Graft.ContextCollect is null) return;
 
         var window = new ContextCollectWindow(ViewModel.Graft.ContextCollect);
+        _ = window.ShowDialog(this);
+    }
+
+    /// <summary>Ctrl+/・ツールバーの「?」ボタン。キーボードショートカット一覧を開く（静的な内容のため専用ViewModelは持たない）。</summary>
+    private void OnRequestOpenShortcuts(object? sender, EventArgs e)
+    {
+        var window = new ShortcutsWindow();
         _ = window.ShowDialog(this);
     }
 

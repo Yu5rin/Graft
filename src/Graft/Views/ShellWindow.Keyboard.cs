@@ -164,6 +164,11 @@ public partial class ShellWindow
             case Key.Z: ViewModel.NotifyLegacyKey(LegacyKey.UndoCtrlZ); return true;
             case Key.H: ViewModel.NotifyLegacyKey(LegacyKey.HistoryCtrlH); return true;
             case Key.OemComma: ViewModel.Graft.OpenSettingsCommand.Execute(null); return true;
+            // Ctrl+/: ショートカット一覧を開く。ドキュメントタブを開いたエディタ内では同じキーが
+            // 行コメントの切り替え（EditorPane.axaml.cs）に使われているため、ここは
+            // テキスト入力欄・エディタの外（inTextInputがfalse）でのみ届く経路にとどめ、
+            // 既存の行コメント操作を横取りしないようにする。
+            case Key.OemQuestion or Key.Divide: ViewModel.OpenShortcutsCommand.Execute(null); return true;
             default: return false; // F/G/W/Tab/Y/Space等はここでも何もしない。
         }
     }

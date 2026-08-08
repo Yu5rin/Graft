@@ -43,11 +43,24 @@ public partial class EmptyStateView : UserControl
     public static readonly StyledProperty<ICommand?> ActionCommandProperty =
         AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(ActionCommand));
 
+    /// <summary>
+    /// 主要アクションボタンのツールチップ。利用者からの指摘（ボタン名だけでは機能が伝わらない）
+    /// への対応。空状態は複数の画面（GraftPanel・ProjectPane等）で使い回すため、文言は
+    /// ActionTextと同様に呼び出し側が用途に応じて渡す。未指定なら通常のToolTip.Tip同様に
+    /// 何も表示しない。
+    /// </summary>
+    public static readonly StyledProperty<string?> ActionTooltipProperty =
+        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(ActionTooltip));
+
     public static readonly StyledProperty<string> SecondaryActionTextProperty =
         AvaloniaProperty.Register<EmptyStateView, string>(nameof(SecondaryActionText), string.Empty);
 
     public static readonly StyledProperty<ICommand?> SecondaryActionCommandProperty =
         AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(SecondaryActionCommand));
+
+    /// <summary>副次アクションボタンのツールチップ。<see cref="ActionTooltipProperty"/>と同じ考え方。</summary>
+    public static readonly StyledProperty<string?> SecondaryActionTooltipProperty =
+        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(SecondaryActionTooltip));
 
     public static readonly StyledProperty<GraftIssue?> IssueProperty =
         AvaloniaProperty.Register<EmptyStateView, GraftIssue?>(nameof(Issue));
@@ -106,6 +119,13 @@ public partial class EmptyStateView : UserControl
         set => SetValue(ActionCommandProperty, value);
     }
 
+    /// <summary>主要アクションボタンのツールチップ（目的と使いどころを1〜2文で）。未指定なら表示しない。</summary>
+    public string? ActionTooltip
+    {
+        get => GetValue(ActionTooltipProperty);
+        set => SetValue(ActionTooltipProperty, value);
+    }
+
     /// <summary>
     /// 空状態の副次アクションのラベル（4.1「ファイルから解析」等）。未指定（空文字）なら
     /// ボタンごと非表示にする。主要アクションと違い、無くても空状態として成立する用途向け。
@@ -121,6 +141,13 @@ public partial class EmptyStateView : UserControl
     {
         get => GetValue(SecondaryActionCommandProperty);
         set => SetValue(SecondaryActionCommandProperty, value);
+    }
+
+    /// <summary>副次アクションボタンのツールチップ。<see cref="ActionTooltip"/>と同じ考え方。</summary>
+    public string? SecondaryActionTooltip
+    {
+        get => GetValue(SecondaryActionTooltipProperty);
+        set => SetValue(SecondaryActionTooltipProperty, value);
     }
 
     /// <summary>エラー状態で表示する問題。エラーコードと対処方法を併記する（8.8）。</summary>

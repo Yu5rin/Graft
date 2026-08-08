@@ -1,7 +1,7 @@
 <!--
   9.5 アイコン。v2.0のWPF版 Themes/Icons.xaml の移植（附録A・20章L2）。
   24×24のビューボックス、ストローク幅1.5px、線端・結合は丸め、塗りなしの
-  Geometryとして21種類を定義する。ラスタ画像は一切使わない。パスデータ（Data）は
+  Geometryとして22種類を定義する。ラスタ画像は一切使わない。パスデータ（Data）は
   原則としてv2.0のWPF版と同一の値を流用する（9.5）。
 
   【利用者からの指摘によるアイコン品質改善（意図的な変更・値を変えた箇所あり）】
@@ -160,6 +160,13 @@
         <!-- panel-bottom: 接ぎ木パネルの開閉 -->
         <StreamGeometry x:Key="IconPanelBottomGeometry">
             M3,4 L21,4 L21,20 L3,20 Z M3,15 L21,15
+        </StreamGeometry>
+
+        <!-- help-circle: ショートカット一覧を開く（円はIconXCircleGeometryと同じ描き方に揃えた） -->
+        <StreamGeometry x:Key="IconHelpCircleGeometry">
+            M12,3 A9,9 0 1,0 12,21 A9,9 0 1,0 12,3
+            M9.09,9 C9.09,7.4 10.5,6 12,6 C13.5,6 15,7.1 15,8.5 C15,10.5 12,11.2 12,13.5
+            M12,17 L12,17.01
         </StreamGeometry>
 
         <!-- アイコン共通テーマ（IconGlyph、Views/IconGlyph.cs）。塗りなし・線端/結合は丸め・
