@@ -64,6 +64,15 @@ public sealed record Project
     /// <summary>ルートが存在せず未接続かどうか。永続化はせず起動時の検証で設定する。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool IsDisconnected { get; init; }
+
+    /// <summary>
+    /// 表示用に正規化した名前（不具合2対応）。空・改行混じり・空白のみといった異常な
+    /// <see cref="Name"/> でも一覧やドロップダウンの見た目が崩れないよう、都度算出する。
+    /// 正規化ルールは <see cref="ProjectNameFormatter"/> 参照。永続化はしない
+    /// （projects.json 上は常に生の Name のまま。理由は同クラスのコメント参照）。
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DisplayName => ProjectNameFormatter.Normalize(Name, Root);
 }
 
 /// <summary>projects.json のルート要素。</summary>

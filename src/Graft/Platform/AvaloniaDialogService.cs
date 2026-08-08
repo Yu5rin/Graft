@@ -185,10 +185,26 @@ public sealed class AvaloniaDialogService : IDialogService
     private static Window BuildShell(string title, out StackPanel body)
     {
         body = new StackPanel { Margin = new Thickness(20) };
+
+        // 不具合4対応: 起動時の問題を1枚のダイアログへ集約すると、件数が多い日は本文が
+        // 長くなる。SizeToContent.WidthAndHeightのみだと高さの上限が無く、画面からはみ出して
+        // ボタンに手が届かなくなるおそれがあるため、bodyごとScrollViewerで包んで高さに上限を
+        // 持たせる。ボタン行もbody内（AddButtonRow参照）に含まれスクロール対象になるが、
+        // 「上限に達したら丸ごとスクロールできる」だけでも「画面外に出て一切届かない」不具合は
+        // 解消できるため、この程度の作りに留めた（ボタン行だけを常時固定表示にするには、
+        // Confirm/ConfirmThreeWay/Prompt/ShowMessageの4種すべてでヘッダ・フッタを分離する
+        // 作り直しが要り、この修正の範囲を超える）。
+        var scrollableBody = new ScrollViewer
+        {
+            Content = body,
+            MaxHeight = 480,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
         var window = new Window
         {
             Title = title,
-            Content = body,
+            Content = scrollableBody,
             SizeToContent = SizeToContent.WidthAndHeight,
             MinWidth = 360,
             MaxWidth = 560,

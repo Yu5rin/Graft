@@ -68,7 +68,11 @@ public sealed class FileWatchService : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
             _watcher = null;
-            return GraftResult<bool>.Fail(GraftIssue.Of(ErrorCode.E704, ex.Message, path: projectRoot, severity: Severity.Warning));
+            // 実機検証で発見した不具合3: 存在しないフォルダの場合、ex.Messageは
+            // "The directory name '...' does not exist. (Parameter 'path')" という英語の
+            // 生例外文になる。UI文言はすべて日本語という方針のため、ExceptionMessagesで変換する。
+            return GraftResult<bool>.Fail(GraftIssue.Of(
+                ErrorCode.E704, ExceptionMessages.Describe(ex), path: projectRoot, severity: Severity.Warning));
         }
     }
 

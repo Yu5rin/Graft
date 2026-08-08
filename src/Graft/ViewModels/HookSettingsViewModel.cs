@@ -137,7 +137,7 @@ public sealed class HookSettingsViewModel : ObservableObject
         if (selectedIndex >= 0) Projects[selectedIndex] = _selectedProject;
         OnPropertyChanged(nameof(SelectedProject));
 
-        StatusMessage = $"「{_selectedProject.Name}」の適用後フックを保存しました。";
+        StatusMessage = $"「{_selectedProject.DisplayName}」の適用後フックを保存しました。";
     }
 
     private void RaiseCommandStates()

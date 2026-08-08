@@ -50,7 +50,7 @@ public sealed class BackupManager
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return GraftResult<BackupSession>.Fail(
-                ErrorCode.E401, $"バックアップフォルダを作成できません: {ex.Message}", path: folderPath);
+                ErrorCode.E401, $"バックアップフォルダを作成できません: {ExceptionMessages.Describe(ex)}", path: folderPath);
         }
 
         var manifest = initial with { Status = RevisionStatus.InProgress, AppliedAt = appliedAt };
@@ -63,7 +63,7 @@ public sealed class BackupManager
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return GraftResult<BackupSession>.Fail(
-                ErrorCode.E401, $"manifest.json の書き込みに失敗しました: {ex.Message}", path: manifestPath);
+                ErrorCode.E401, $"manifest.json の書き込みに失敗しました: {ExceptionMessages.Describe(ex)}", path: manifestPath);
         }
 
         var session = new BackupSession(_jsonStore, _revisionIndex, projectId, projectRoot, folderPath, manifestPath, initial.Revision);

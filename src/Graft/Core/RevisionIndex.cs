@@ -88,7 +88,7 @@ public sealed class RevisionIndex
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             var warning = GraftIssue.Of(
-                ErrorCode.E404, $"history.jsonl を読み取れませんでした: {ex.Message}", path: path, severity: Severity.Warning);
+                ErrorCode.E404, $"history.jsonl を読み取れませんでした: {ExceptionMessages.Describe(ex)}", path: path, severity: Severity.Warning);
             return GraftResult<IReadOnlyList<RevisionIndexEntry>>.Ok(Array.Empty<RevisionIndexEntry>(), new[] { warning });
         }
 
