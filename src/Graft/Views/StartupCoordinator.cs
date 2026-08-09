@@ -467,52 +467,47 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// その結果だけを見る。
     ///
     /// 機能追加: 「検知したら前面に表示する」（既定オン、StartupCoordinator.
-    /// ClipboardActivation.cs参照）。この設定がオンの間は、自動解析の有無に関わらず必ず
-    /// ここで前面化を完結させる（要件4: 検知したことを伝えるのが目的で、解析の有無は別軸の
-    /// ため）。オフの場合のみ、以下の従来どおりの挙動へフォールバックする:
+    /// ClipboardActivation.cs参照）。この設定がオンで前面化に成功した場合
+    /// （<see cref="ClipboardActivationOutcome.Activated"/>）・既に前面にあった場合
+    /// （<see cref="ClipboardActivationOutcome.AlreadyForeground"/>）は、自動解析の有無に
+    /// 関わらず必ずここで前面化を完結させる（要件4: 検知したことを伝えるのが目的で、解析の
+    /// 有無は別軸のため）。それ以外の場合（設定オフ＝<see cref="ClipboardActivationOutcome.
+    /// Disabled"/>、またはOS側の制約で前面化が拒否された縮退＝<see cref="
+    /// ClipboardActivationOutcome.Degraded"/>）は、以下の従来どおりの挙動へフォールバックする:
     /// 自動解析した場合は、反応時の挙動設定（トレイ通知のみ／非アクティブ／アクティブ）に
     /// 関わらず必ずウィンドウを前面化する（その場で解析した接ぎ木パネルの結果を見せる必要が
     /// あるため。「トレイ通知のみ」を選んでいても、通知の代わりに結果そのものを見せる形に
     /// なる点が唯一の例外）。自動解析しなかった場合（設定オフ、または未処理の内容がある場合）は、
     /// 従来どおり反応時の挙動設定に従って通知するだけに留める。
+    ///
+    /// 回帰修正: Degradedのときも以前はここで早期returnしていたが、前面化が拒否されている
+    /// 以上、利用者へ検知を伝える手段は上記の通知経路しか残っていない。「反応時の挙動＝
+    /// トレイ通知のみ」を選んでいる利用者にとっては、前面化にも通知にも失敗する
+    /// 「何も起きない」状態になってしまうため、Degradedのときも必ずこのフォールバックへ
+    /// 合流させる（詳細はClipboardActivationOutcome.Degradedのコメント参照）。
     /// </summary>
     private void OnClipboardPatchDetected(Window window)
     {
         var autoParsed = _shellViewModel?.HandleClipboardPatchDetected(_settings.ClipboardWatch.AutoParse) ?? false;
 
         var isAlreadyForeground = window.IsVisible && window.WindowState != WindowState.Minimized && window.IsActive;
-        var activation = ActivateWindowOnPatchDetected(
-            _platform.SingleInstance, window, MainWindowTitle,
-            _settings.ClipboardWatch.ActivateOnDetect, isAlreadyForeground);
+
+        // 分岐（前面化できた／既に前面だった場合のみ通知経路を省略し、それ以外は必ず従来の
+        // 通知経路へ合流させる）自体を含めてActivateOrFallBackOnPatchDetectedへ切り出している
+        // （回帰修正: 詳細はClipboardActivationOutcome.Degradedのコメントおよび
+        // ClipboardActivationTests.csのテスト参照）。
+        var activation = ActivateOrFallBackOnPatchDetected(
+            _platform.SingleInstance, _platform.Tray, window, MainWindowTitle,
+            _settings.ClipboardWatch.ActivateOnDetect, isAlreadyForeground, autoParsed, _settings.ClipboardWatch.Action);
 
         if (activation == ClipboardActivationOutcome.Degraded)
         {
             // 要件6: OS側の制約（Windowsのフォーカス窃取防止等）による縮退はエラー扱いにせず、
-            // ログにのみ記録する（利用者へダイアログ等は出さない）。
+            // ログにのみ記録する（利用者へダイアログ等は出さない）。通知経路への合流は上の
+            // ActivateOrFallBackOnPatchDetected側で既に行っている。
             _logger?.Warn("clipboard",
                 "クリップボード監視での前面化がOS側の制約により縮退しました（タスクバー通知等に切り替わった可能性があります）。" +
                 "多重起動検出時の前面化と同じ挙動です。");
-        }
-
-        if (activation != ClipboardActivationOutcome.Disabled) return;
-
-        if (autoParsed)
-        {
-            RestoreWindow(window);
-            return;
-        }
-
-        switch (_settings.ClipboardWatch.Action)
-        {
-            case "active":
-                RestoreWindow(window);
-                break;
-            case "passive":
-                window.Show();
-                break;
-            default:
-                _platform.Tray.ShowBalloon("Graft", "パッチ形式のテキストを検知しました。");
-                break;
         }
     }
 }

@@ -145,6 +145,84 @@ public class ClipboardActivationTests
         singleInstance.ActivateCallCount.Should().Be(0);
     }
 
+    [AvaloniaFact(DisplayName = "回帰修正: 前面化がOS側の制約で縮退し反応時の挙動が既定（トレイ通知のみ）なら、通知は届く")]
+    public void 縮退時に反応時の挙動が既定ならトレイ通知が届く()
+    {
+        // 0bb1b4eの回帰: OnClipboardPatchDetectedはActivateOnDetectがオンの間、Disabled以外
+        // （＝Degradedも含む）ならすべて早期returnしてしまい、「反応時の挙動＝トレイ通知のみ」を
+        // 選んでいる利用者に検知が一切伝わらなかった（前面化にも通知にも失敗する
+        // 「何も起きない」状態）。ここでは実際の分岐（StartupCoordinator.
+        // ActivateOrFallBackOnPatchDetected、OnClipboardPatchDetected本体が呼ぶのと同じもの）を
+        // 直接呼び、前面化がDegradedになる状況でもトレイ通知まで届くことを確認する。
+        var singleInstance = new FakeSingleInstanceGuard(activateSucceeds: false);
+        var tray = new FakeTrayIcon();
+        var window = new Window();
+        window.Show();
+
+        var activation = StartupCoordinator.ActivateOrFallBackOnPatchDetected(
+            singleInstance, tray, window, MainWindowTitle,
+            activateOnDetectSetting: true, isAlreadyForeground: false, autoParsed: false, action: "notify");
+
+        activation.Should().Be(ClipboardActivationOutcome.Degraded);
+        tray.BalloonCallCount.Should().Be(1, "前面化が縮退した代わりに、従来どおりトレイ通知だけは届く必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "前面化が成功したときはトレイ通知は呼ばれない")]
+    public void 前面化成功時はトレイ通知が呼ばれない()
+    {
+        var singleInstance = new FakeSingleInstanceGuard(activateSucceeds: true);
+        var tray = new FakeTrayIcon();
+        var window = new Window();
+        window.Show();
+
+        var activation = StartupCoordinator.ActivateOrFallBackOnPatchDetected(
+            singleInstance, tray, window, MainWindowTitle,
+            activateOnDetectSetting: true, isAlreadyForeground: false, autoParsed: false, action: "notify");
+
+        activation.Should().Be(ClipboardActivationOutcome.Activated);
+        tray.BalloonCallCount.Should().Be(0, "前面化に成功した場合はトレイ通知を追加で出す必要が無い");
+    }
+
+    [AvaloniaFact(DisplayName = "既に前面にあるときはトレイ通知は呼ばれない")]
+    public void 既に前面にある場合はトレイ通知が呼ばれない()
+    {
+        var singleInstance = new FakeSingleInstanceGuard(activateSucceeds: true);
+        var tray = new FakeTrayIcon();
+        var window = new Window();
+        window.Show();
+
+        var activation = StartupCoordinator.ActivateOrFallBackOnPatchDetected(
+            singleInstance, tray, window, MainWindowTitle,
+            activateOnDetectSetting: true, isAlreadyForeground: true, autoParsed: false, action: "notify");
+
+        activation.Should().Be(ClipboardActivationOutcome.AlreadyForeground);
+        tray.BalloonCallCount.Should().Be(0, "既に前面にある場合はトレイ通知を追加で出す必要が無い");
+    }
+
+    [AvaloniaFact(DisplayName = "縮退時、反応時の挙動が「アクティブ表示」でもRestoreWindowの二重呼び出しで例外は起きない")]
+    public void 縮退時にアクティブ表示設定でも例外は起きない()
+    {
+        // 依頼3: DegradedのフォールバックでAction=="active"の場合、ActivateWindowOnPatchDetected
+        // が既に行ったwindow.Show()・WindowState=Normalに続けてHandleClipboardActivation
+        // Fallback側のRestoreWindow（Show/WindowState/Activateを再度呼ぶ）が実行される。
+        // 冪等な操作の組み合わせのため例外は起きないことを確認する。
+        var singleInstance = new FakeSingleInstanceGuard(activateSucceeds: false);
+        var tray = new FakeTrayIcon();
+        var window = new Window();
+        window.Show();
+
+        var act = () => StartupCoordinator.ActivateOrFallBackOnPatchDetected(
+            singleInstance, tray, window, MainWindowTitle,
+            activateOnDetectSetting: true, isAlreadyForeground: false, autoParsed: false, action: "active");
+
+        var activation = act.Should().NotThrow(
+            "RestoreWindowの二重呼び出しは冪等な操作の組み合わせであり、例外を起こしてはならない").Which;
+
+        activation.Should().Be(ClipboardActivationOutcome.Degraded);
+        window.WindowState.Should().Be(WindowState.Normal);
+        tray.BalloonCallCount.Should().Be(0, "「アクティブ表示」設定ではトレイ通知は呼ばれず前面化のみ行われる");
+    }
+
     /// <summary>実際のクリップボードに触れないフェイク（ClipboardWatchTests.csと同じもの）。</summary>
     private sealed class FakeClipboardAccess : IClipboardAccess
     {
@@ -178,6 +256,35 @@ public class ClipboardActivationTests
             LastRequestedTitle = mainWindowTitle;
             return _activateSucceeds;
         }
+
+        public void Dispose()
+        {
+            // 何もしない。
+        }
+    }
+
+    /// <summary>
+    /// 実際のトレイ資源（D-Bus/NotifyIcon）に一切触れないフェイク。ShowBalloonの呼び出し回数だけを記録する。
+    /// </summary>
+    private sealed class FakeTrayIcon : ITrayIcon
+    {
+        public int BalloonCallCount { get; private set; }
+
+        public bool IsSupported => true;
+
+        public string? UnsupportedReason => null;
+
+        public void Configure(TrayMenuDescriptor menu)
+        {
+            // 何もしない。
+        }
+
+        public void Show()
+        {
+            // 何もしない。
+        }
+
+        public void ShowBalloon(string title, string text) => BalloonCallCount++;
 
         public void Dispose()
         {
