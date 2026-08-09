@@ -62,6 +62,15 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [System.IO.File]::WriteAllText($Path, $Text, $encoding)
 }
 
+# 生成する .ps1 は必ずBOM付きで書き出す。Windows PowerShell 5.1 は BOM の無い
+# スクリプトを ANSI（日本語環境では CP932）として読むため、UTF-8 の日本語が
+# 壊れる。単に表示が化けるだけでなく、化けた結果に引用符と同じバイトが現れると
+# 構文エラーでスクリプト自体が動かなくなる（実機で発生）。
+function Write-Utf8Bom([string]$Path, [string]$Text) {
+    $encoding = New-Object System.Text.UTF8Encoding($true)
+    [System.IO.File]::WriteAllText($Path, $Text, $encoding)
+}
+
 Write-Utf8NoBom (Join-Path $projectRoot 'note.txt') @"
 バージョン: 初期
 この行は毎回のパッチで書き換わります。
@@ -175,7 +184,7 @@ foreach ($name in 'note.txt','memo.txt') {
     "{0,-10} {1}" -f $name, $first
 }
 '@
-Write-Utf8NoBom (Join-Path $root '現在の内容を確認.ps1') $checkScript
+Write-Utf8Bom (Join-Path $root '現在の内容を確認.ps1') $checkScript
 Write-Host '生成: 現在の内容を確認.ps1'
 
 Write-Host ''
