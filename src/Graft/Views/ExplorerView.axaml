@@ -77,13 +77,13 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button Command="{Binding NewFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
                         local:HelpTip.Standard="新規ファイル"
-                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、空の新しいファイルを作成します。ファイル名を入力する欄が表示されるので、名前を付けて確定してください。作成したファイルはそのままエディタで開いて編集できます。"
+                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、空の新しいファイルを作成します（ファイルを選んでいる場合はその親フォルダの直下）。ファイル名を入力する欄が表示されるので、名前を付けて確定してください。拡張子（.mdなど）を付けるとその種類のファイルとして扱われますが、拡張子なしの名前（Dockerfileなど）でも作成できます。作成後は対象のフォルダが自動的に展開され、新しいファイルがツリー上で選択された状態でそのままエディタに開かれます。"
                         AutomationProperties.Name="新規ファイルを作成">
                     <local:IconGlyph Data="{DynamicResource IconFileGeometry}" />
                 </Button>
                 <Button Command="{Binding NewFolderCommand}" Padding="4" Background="Transparent" BorderThickness="0"
                         local:HelpTip.Standard="新規フォルダ"
-                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、新しい空のフォルダを作成します。フォルダ名を入力する欄が表示されるので、名前を付けて確定してください。"
+                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、新しい空のフォルダを作成します（ファイルを選んでいる場合はその親フォルダの直下）。フォルダ名を入力する欄が表示されるので、名前を付けて確定してください。作成後は対象のフォルダが自動的に展開され、新しいフォルダがツリー上で選択された状態になります。"
                         AutomationProperties.Name="新規フォルダを作成">
                     <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
                 </Button>

@@ -105,6 +105,19 @@ public sealed class FileNodeViewModel : ObservableObject
         foreach (var child in children) Children.Add(child);
     }
 
+    /// <summary>
+    /// 不具合2対応: 呼び出し元（<see cref="ExplorerViewModel"/>）が既に実列挙（子要素の反映）を
+    /// 済ませたうえで、この項目を展開済み表示にする。<see cref="IsExpanded"/>のsetterと異なり
+    /// <see cref="ExpandRequested"/>は発火させない（二重に列挙してしまうのを防ぐため）。
+    /// 折りたたまれたフォルダの直下に新規ファイル・フォルダを作成した直後、ツリー上に
+    /// 見えるようにする（自動展開）ために使う。
+    /// </summary>
+    public void MarkExpanded()
+    {
+        IsLoaded = true;
+        if (!_isExpanded) SetProperty(ref _isExpanded, true, nameof(IsExpanded));
+    }
+
     /// <summary>次に展開されたとき改めて実列挙させる（監視イベント・更新ボタンで使う）。</summary>
     public void ResetLoadState()
     {

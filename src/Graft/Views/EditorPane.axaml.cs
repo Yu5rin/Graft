@@ -356,6 +356,18 @@ public partial class EditorPane : UserControl
 
     // OnDiffDoubleTapped/FindDiffRowは EditorPane.Diff.axaml.cs（1ファイル400行上限のため分割）。
 
+    /// <summary>
+    /// 不具合3対応: 差分タブに常時表示する「閉じる」ボタン（DiffCloseButton）。
+    /// Ctrl+Wと同じCloseTabAsync経由で閉じる（差分タブは保存確認が無いため即座に閉じる）。
+    /// </summary>
+    private async void OnDiffCloseClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel?.ActiveTab is { Kind: EditorTabKind.Diff } tab)
+        {
+            await SafeHandler.RunAsync("差分表示を閉じる", () => _viewModel.CloseTabAsync(tab)).ConfigureAwait(true);
+        }
+    }
+
     /// <summary>4.3: 中クリックでタブを閉じ、タブ見出しのダブルクリックでプレビューを固定タブへ昇格する。</summary>
     private async void OnTabStripPointerPressed(object? sender, PointerPressedEventArgs e)
     {
