@@ -1,0 +1,405 @@
+using System;
+using System.IO;
+using System.Threading;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Threading;
+using FluentAssertions;
+using Graft.Core;
+using Graft.Features;
+using Graft.Infra;
+using Graft.Platform;
+using Graft.Platform.Null;
+using Graft.ViewModels;
+using Graft.Views;
+using Xunit;
+
+namespace Graft.UiTests;
+
+/// <summary>
+/// 利用者からの改善要望: 接ぎ木パネルをコードの下だけでなくコードの右（3列）にも配置できる
+/// ようにする機能の回帰テスト。ShellViewModel側の状態遷移（配置の切替・折りたたみとの両立）と、
+/// ShellWindow側のGrid付け替え・ドラッグ調整・layout.jsonへの保存/復元（後方互換を含む）を検証する。
+/// </summary>
+public class GraftPanelPlacementTests : IDisposable
+{
+    private readonly string _baseDirectory =
+        Path.Combine(Path.GetTempPath(), "graft-placement-tests", Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
+        }
+        catch (IOException)
+        {
+            // 後始末に失敗しても検証結果には影響しないため無視する。
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    private ShellViewModel BuildShell()
+    {
+        var appPaths = new AppPaths(_baseDirectory);
+        appPaths.EnsureCoreDirectoriesExist();
+        IDialogService dialogs = new NullDialogService();
+        IUiServices ui = new AvaloniaUiServices();
+        return StartupCoordinator.BuildShellViewModel(
+            appPaths, new Settings(), new SettingsStore(appPaths), new PatchQueue(appPaths),
+            new ProjectStore(appPaths), new RevisionStore(appPaths), new RevisionRestorer(appPaths),
+            dialogs, ui, openSettings: () => { });
+    }
+
+    /// <summary>
+    /// window.Show()直後のOnLoaded（ShellWindow.axaml.cs）は内部でGraft.InitializeAsync()の
+    /// 完了を待ってからApplyLayoutToWindow（layout.jsonの内容をViewModel・Gridへ反映する箇所。
+    /// 本テストが検証したい配置復元の中心）を呼ぶ。InitializeAsync自体は実ファイルI/Oを含む
+    /// 非同期処理のため、Dispatcher.UIThread.RunJobs()を1回呼ぶだけでは（他の多くの既存テストでは
+    /// たまたま間に合っていても）完了前に後続のアサーションへ進んでしまうことがある
+    /// （実測: RunJobsを5回呼んでもまだ完了していないケースを確認済み）。
+    /// ShellWindow.IsLayoutAppliedが立つまでRunJobsを繰り返して確実に待ち合わせる。
+    /// </summary>
+    private static void WaitForWindowLoaded(ShellWindow window, int maxIterations = 200)
+    {
+        for (var i = 0; i < maxIterations && !window.IsLayoutApplied; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            Thread.Sleep(5);
+        }
+        window.IsLayoutApplied.Should().BeTrue("ShellWindow.OnLoadedの初期化（保存済みレイアウトの反映）が時間内に完了しなかった");
+    }
+
+    /// <summary>実際のマウスと同じ「移動してから押す」順序で、複数ステップに分けてドラッグする（ShellWindowSplitterTestsと同じ手法）。</summary>
+    private static void Drag(Window window, Point from, Point to, int steps = 10)
+    {
+        window.MouseMove(from);
+        Dispatcher.UIThread.RunJobs();
+        window.MouseDown(from, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        for (var i = 1; i <= steps; i++)
+        {
+            var point = new Point(
+                from.X + (to.X - from.X) * i / steps,
+                from.Y + (to.Y - from.Y) * i / steps);
+            window.MouseMove(point);
+            Dispatcher.UIThread.RunJobs();
+        }
+        window.MouseUp(to, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    // ===================== ViewModelの状態遷移 =====================
+
+    [Fact(DisplayName = "既定の配置は下（Bottom）である")]
+    public void 既定の配置は下である()
+    {
+        var shell = BuildShell();
+        shell.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Bottom);
+        shell.IsGraftPanelPlacementRight.Should().BeFalse();
+    }
+
+    [Fact(DisplayName = "ToggleGraftPanelPlacementCommandを実行するたびに下と右が交互に切り替わる")]
+    public void トグルコマンドで下と右が交互に切り替わる()
+    {
+        var shell = BuildShell();
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        shell.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Right);
+        shell.IsGraftPanelPlacementRight.Should().BeTrue();
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        shell.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Bottom);
+        shell.IsGraftPanelPlacementRight.Should().BeFalse();
+    }
+
+    [Theory(DisplayName = "ParseGraftPanelPlacement/ToGraftPanelPlacementValueは往復変換できる")]
+    [InlineData(GraftPanelPlacementKind.Bottom, "bottom")]
+    [InlineData(GraftPanelPlacementKind.Right, "right")]
+    public void 配置の文字列変換は往復できる(GraftPanelPlacementKind kind, string text)
+    {
+        ShellViewModel.ToGraftPanelPlacementValue(kind).Should().Be(text);
+        ShellViewModel.ParseGraftPanelPlacement(text).Should().Be(kind);
+    }
+
+    [Theory(DisplayName = "未知の値・null（後方互換）は下配置として扱う")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("bottom")]
+    [InlineData("RIGHT")] // 大文字小文字違いも未知の値として下配置に倒れる（現行実装の仕様）。
+    [InlineData("center")]
+    public void 未知の値は下配置として扱う(string? value)
+    {
+        ShellViewModel.ParseGraftPanelPlacement(value).Should().Be(GraftPanelPlacementKind.Bottom);
+    }
+
+    // ===================== ShellWindow側のGrid付け替え =====================
+
+    [AvaloniaFact(DisplayName = "右配置に切り替えるとGraftPanelは列2・行0へ移動し、下配置用の行は畳まれる")]
+    public void 右配置に切り替えるとGraftPanelが列へ移動する()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        var editorGrid = window.GetControl<Grid>("EditorAreaGrid");
+        var graftPanel = window.GetControl<GraftPanel>("GraftPanelControl");
+
+        // 既定（下配置）: 行2・列0。
+        Grid.GetRow(graftPanel).Should().Be(2);
+        Grid.GetColumn(graftPanel).Should().Be(0);
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        // 右配置: 行0・列2。同じインスタンス（graftPanel）のまま位置だけが変わる。
+        Grid.GetRow(graftPanel).Should().Be(0);
+        Grid.GetColumn(graftPanel).Should().Be(2);
+
+        // 下配置用の行（[1]スプリッタ・[2]パネル）は使わないため高さ0へ畳まれる。
+        editorGrid.RowDefinitions[1].Height.Value.Should().Be(0);
+        editorGrid.RowDefinitions[2].Height.Value.Should().Be(0);
+
+        window.GetControl<GridSplitter>("GraftSplitter").IsVisible.Should().BeFalse("右配置中は下配置用スプリッタを隠す必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "右配置は3列（サイドバー・エディタ・接ぎ木パネル）として表示され、ブロック一覧が右パネルに描画される")]
+    public void 右配置は3列として描画される()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        shell.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        using var frame = window.CaptureRenderedFrame();
+        frame.Should().NotBeNull("右配置でも破綻せず描画できる必要がある");
+
+        var editorGrid = window.GetControl<Grid>("EditorAreaGrid");
+        editorGrid.ColumnDefinitions[2].ActualWidth.Should().BeGreaterThan(0, "右配置では接ぎ木パネルの列が実際に幅を持つ必要がある");
+
+        // BlockListBoxはGraftPanel（別のUserControl）自身のNameScopeに属するため、
+        // window.GetControl では見つからない。GraftPanel.axaml.csが公開するListBoxElement経由で参照する。
+        var graftPanel = window.GetControl<GraftPanel>("GraftPanelControl");
+        graftPanel.ListBoxElement.IsEffectivelyVisible.Should().BeTrue("右配置でもブロック一覧（パッチ解析結果）が表示される必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "下配置に戻すとGraftPanelは行2・列0へ戻り、右配置用の列は畳まれる")]
+    public void 下配置へ戻すとGraftPanelが行へ戻る()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        var editorGrid = window.GetControl<Grid>("EditorAreaGrid");
+        var graftPanel = window.GetControl<GraftPanel>("GraftPanelControl");
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null); // → 右
+        Dispatcher.UIThread.RunJobs();
+        shell.ToggleGraftPanelPlacementCommand.Execute(null); // → 下
+        Dispatcher.UIThread.RunJobs();
+
+        Grid.GetRow(graftPanel).Should().Be(2);
+        Grid.GetColumn(graftPanel).Should().Be(0);
+        editorGrid.ColumnDefinitions[1].Width.Value.Should().Be(0);
+        editorGrid.ColumnDefinitions[2].Width.Value.Should().Be(0);
+        window.GetControl<GridSplitter>("GraftSplitterRight").IsVisible.Should().BeFalse("下配置中は右配置用スプリッタを隠す必要がある");
+    }
+
+    // ===================== ドラッグ調整（右配置の垂直スプリッタ） =====================
+
+    [AvaloniaFact(DisplayName = "右配置では垂直スプリッタのドラッグで接ぎ木パネルの幅が変わる")]
+    public void 右配置の垂直スプリッタをドラッグすると幅が変わる()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        shell.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var graftColumn = window.GetControl<Grid>("EditorAreaGrid").ColumnDefinitions[2];
+        var before = graftColumn.ActualWidth;
+
+        var splitter = window.GetControl<GridSplitter>("GraftSplitterRight");
+        splitter.IsVisible.Should().BeTrue();
+        var from = splitter.TranslatePoint(new Point(splitter.Bounds.Width / 2, 200), window) ?? default;
+        Drag(window, from, from - new Vector(80, 0));
+
+        graftColumn.ActualWidth.Should().BeApproximately(before + 80, 1,
+            "境界を左へ80pxドラッグしたぶん、接ぎ木パネル（右配置）の幅も広がるはず");
+    }
+
+    [AvaloniaFact(DisplayName = "右配置の垂直スプリッタは下限（420px）より狭く潰せない")]
+    public void 右配置の垂直スプリッタは最小幅で止まる()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        shell.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var graftColumn = window.GetControl<Grid>("EditorAreaGrid").ColumnDefinitions[2];
+        var splitter = window.GetControl<GridSplitter>("GraftSplitterRight");
+        var from = splitter.TranslatePoint(new Point(splitter.Bounds.Width / 2, 200), window) ?? default;
+
+        // ウィンドウ外まで大きく右へドラッグしても、0まで潰れて戻せなくなることはない。
+        Drag(window, from, new Point(2000, from.Y));
+
+        // ShellWindow.GraftPanelMinWidth（内部定数、420px。実機検証で「適用」ボタンまで
+        // 収まる最小幅として確認済み）と一致させている。
+        graftColumn.ActualWidth.Should().Be(420, "ドラッグでの下限（420px）が効く必要がある");
+    }
+
+    // ===================== 折りたたみとの両立 =====================
+
+    [AvaloniaFact(DisplayName = "右配置での折りたたみは幅0まで畳み、展開すると幅が戻る")]
+    public void 右配置での折りたたみは幅0まで畳まれる()
+    {
+        var shell = BuildShell();
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        shell.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var graftColumn = window.GetControl<Grid>("EditorAreaGrid").ColumnDefinitions[2];
+        graftColumn.ActualWidth.Should().BeGreaterThan(0);
+
+        shell.IsGraftPanelOpen = false;
+        Dispatcher.UIThread.RunJobs();
+
+        graftColumn.ActualWidth.Should().Be(0, "右配置での折りたたみは幅0まで完全に畳む必要がある");
+
+        shell.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        graftColumn.ActualWidth.Should().BeApproximately(460, 1, "展開すると既定幅（460px）へ戻る必要がある");
+    }
+
+    // ===================== layout.jsonへの保存・復元（後方互換を含む） =====================
+
+    [AvaloniaFact(DisplayName = "右配置のまま閉じて開き直すと、配置と調整した幅が復元される")]
+    public void 右配置と幅は再起動後も復元される()
+    {
+        var shell1 = BuildShell();
+        var window1 = new ShellWindow(shell1) { Width = 1280, Height = 800 };
+        window1.Show();
+        WaitForWindowLoaded(window1);
+
+        shell1.ToggleGraftPanelPlacementCommand.Execute(null);
+        shell1.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var splitter = window1.GetControl<GridSplitter>("GraftSplitterRight");
+        var from = splitter.TranslatePoint(new Point(splitter.Bounds.Width / 2, 200), window1) ?? default;
+        Drag(window1, from, from - new Vector(60, 0));
+
+        var expectedWidth = window1.GetControl<Grid>("EditorAreaGrid").ColumnDefinitions[2].ActualWidth;
+
+        window1.Close();
+
+        var shell2 = BuildShell();
+        var window2 = new ShellWindow(shell2) { Width = 1280, Height = 800 };
+        window2.Show();
+        WaitForWindowLoaded(window2);
+
+        shell2.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Right, "前回右配置にしたまま閉じたので、再起動後も右配置のはず");
+
+        // 開閉状態（IsGraftPanelOpen）はGraft.State（パッチ解析結果の有無）に連動する値で
+        // layout.jsonへは保存しない（配置・寸法のみが保存対象）ため、新しいセッションでは
+        // 明示的に開いてから寸法を確認する（ShellWindowSplitterTestsの復元テストと同じ流儀）。
+        shell2.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        var graftPanel2 = window2.GetControl<GraftPanel>("GraftPanelControl");
+        Grid.GetColumn(graftPanel2).Should().Be(2);
+
+        var restoredWidth = window2.GetControl<Grid>("EditorAreaGrid").ColumnDefinitions[2].ActualWidth;
+        restoredWidth.Should().BeApproximately(expectedWidth, 1, "前回ドラッグで調整した接ぎ木パネル幅（右配置）が復元される必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "下配置に戻して閉じて開き直すと、下配置が復元される")]
+    public void 下配置へ戻すと再起動後も下配置になる()
+    {
+        var shell1 = BuildShell();
+        var window1 = new ShellWindow(shell1) { Width = 1280, Height = 800 };
+        window1.Show();
+        WaitForWindowLoaded(window1);
+
+        shell1.ToggleGraftPanelPlacementCommand.Execute(null); // → 右
+        Dispatcher.UIThread.RunJobs();
+        shell1.ToggleGraftPanelPlacementCommand.Execute(null); // → 下（既定へ戻す）
+        Dispatcher.UIThread.RunJobs();
+
+        window1.Close();
+
+        var shell2 = BuildShell();
+        var window2 = new ShellWindow(shell2) { Width = 1280, Height = 800 };
+        window2.Show();
+        WaitForWindowLoaded(window2);
+
+        shell2.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Bottom);
+        var graftPanel2 = window2.GetControl<GraftPanel>("GraftPanelControl");
+        Grid.GetRow(graftPanel2).Should().Be(2);
+        Grid.GetColumn(graftPanel2).Should().Be(0);
+    }
+
+    [AvaloniaFact(DisplayName = "後方互換: GraftPanelPlacementキーの無い既存layout.jsonを読み込んでも下配置になる")]
+    public async System.Threading.Tasks.Task 新キーの無いlayoutJsonは下配置になる()
+    {
+        var appPaths = new AppPaths(_baseDirectory);
+        appPaths.EnsureCoreDirectoriesExist();
+
+        // このタスクで追加する前のlayout.json相当（GraftPanelPlacement/GraftPanelWidthを含まない）。
+        var layoutPath = Path.Combine(_baseDirectory, "layout.json");
+        await File.WriteAllTextAsync(layoutPath, """
+            {
+              "width": 1280,
+              "height": 800,
+              "isMaximized": false,
+              "projectPaneWidths": {
+                "_default": {
+                  "sideViewWidth": 260,
+                  "graftPanelHeight": 300
+                }
+              }
+            }
+            """);
+
+        IDialogService dialogs = new NullDialogService();
+        IUiServices ui = new AvaloniaUiServices();
+        var shell = StartupCoordinator.BuildShellViewModel(
+            appPaths, new Settings(), new SettingsStore(appPaths), new PatchQueue(appPaths),
+            new ProjectStore(appPaths), new RevisionStore(appPaths), new RevisionRestorer(appPaths),
+            dialogs, ui, openSettings: () => { });
+        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        shell.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Bottom, "新キーの無い既存layout.jsonは下配置として復元される必要がある");
+
+        // 下配置時の既存の値（graftPanelHeight）もそのまま生きていることを確認する
+        // （新機能の追加が既存の保存値を壊していないことの回帰チェック）。
+        shell.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+        var graftRow = window.GetControl<Grid>("EditorAreaGrid").RowDefinitions[2];
+        graftRow.ActualHeight.Should().BeApproximately(300, 1);
+    }
+}

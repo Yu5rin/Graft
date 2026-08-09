@@ -14,8 +14,10 @@
     <!--
         9.2 レイアウト: 上からコマンドバー(40px)／本体／ステータスバー(24px)。
         本体は左からサイドバー(48px固定)／サイドビュー(幅可変・記憶)／エディタ領域＋
-        接ぎ木パネル(下部、高さ可変・記憶)。GridSplitterで幅・高さを調整できる。
-        実際の幅・高さの計算・記憶はShellWindow.axaml.csが担う。キーボード操作（9.5・附録A）は
+        接ぎ木パネル。接ぎ木パネルはコードの下（既定、高さ可変・記憶）とコードの右
+        （3列、幅可変・記憶）のどちらかに配置でき、切替は接ぎ木パネルのヘッダーボタンで行う
+        （利用者からの改善要望）。GridSplitterで幅・高さを調整できる。
+        実際の幅・高さ・配置の計算・記憶はShellWindow.axaml.csが担う。キーボード操作（9.5・附録A）は
         ShellWindow.Keyboard.csに分割する（1ファイル400行上限のため）。
         AutomationProperties.Nameはすべての操作可能要素に日本語で設定する（9.3・8.14）。
 
@@ -306,11 +308,21 @@
                           Background="{DynamicResource BorderSubtle}"
                           AutomationProperties.Name="サイドビューとエディタの境界" />
 
-            <!-- エディタ領域 ＋ 接ぎ木パネル（下部、高さ可変） -->
-            <!-- 行の定義はコードビハインドから寸法を書き換えるため、Gridに名前を付けて
-                 RowDefinitions[1]（スプリッタ）・[2]（接ぎ木パネル）として参照する
-                 （AvaloniaのXAMLコンパイラはRow/ColumnDefinitionのx:Nameに対して
-                 フィールドを生成しないため、v2.0のWPF版のように定義自体へ名前は付けられない）。 -->
+            <!--
+                エディタ領域 ＋ 接ぎ木パネル。配置（下／右）はGraftPanel.axamlのヘッダーボタンで
+                切り替えられる（利用者からの改善要望）。行・列の定義はコードビハインドから寸法を
+                書き換えるため、Gridに名前を付けてRowDefinitions[1]/[2]・ColumnDefinitions[1]/[2]を
+                位置で参照する（AvaloniaのXAMLコンパイラはRow/ColumnDefinitionのx:Nameに対して
+                フィールドを生成しないため、v2.0のWPF版のように定義自体へ名前は付けられない）。
+
+                下配置（既定）: 行方向を使う。[0]エディタ／[1]水平スプリッタ／[2]接ぎ木パネル。
+                列は[0]（*）のみを使い、[1][2]は幅0へたたんでおく。
+                右配置: 列方向を使う。[0]エディタ／[1]垂直スプリッタ／[2]接ぎ木パネル。
+                行は[0]（*、MinHeight=120）がGrid全体の高さを占め、[1][2]は高さ0へたたんでおく。
+                接ぎ木パネル（views:GraftPanel）自体は常に1つのインスタンスのままで、
+                ShellWindow.axaml.cs（ApplyGraftPanelState）がGrid.SetRow/Grid.SetColumnで
+                位置だけを付け替える（2枚のレイアウトを複製して片方を隠す方式は取らない）。
+            -->
             <Grid Grid.Column="3" x:Name="EditorAreaGrid">
                 <!-- エディタ行（[0]）のMinHeightは常時固定で構わない（折りたたみ対象ではないため）。
                      接ぎ木パネル行（[2]）のMinHeightは列1と同じ理由で折りたたみ（ヘッダーのみ32px）と
@@ -320,8 +332,17 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="32" />
                 </Grid.RowDefinitions>
+                <!-- 列側は右配置のときだけ使う。既定（下配置）は[1][2]とも幅0にたたみ、
+                     エディタ列（[0]）だけがGridの全幅を占める。エディタ列のMinWidthは、
+                     右配置で接ぎ木パネル側を広げ過ぎてもエディタが潰れきらないための下限
+                     （BodyGrid列3のMinWidth=320と同じ考え方）。 -->
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="200" />
+                    <ColumnDefinition Width="0" />
+                    <ColumnDefinition Width="0" />
+                </Grid.ColumnDefinitions>
 
-                <Border Grid.Row="0"
+                <Border Grid.Row="0" Grid.Column="0"
                         x:Name="EditorHost"
                         Focusable="True"
                         Background="{DynamicResource BgSurface}"
@@ -329,13 +350,15 @@
                     <views:EditorPane DataContext="{Binding Editor}" />
                 </Border>
 
-                <!-- クイックオープン（Ctrl+P）。エディタ領域の上部中央に浮かせて重ねる。 -->
-                <views:QuickOpenOverlay Grid.Row="0"
+                <!-- クイックオープン（Ctrl+P）。エディタ領域の上部中央に浮かせて重ねる
+                     （配置に関わらずエディタの真上にだけ重なればよいため、常にGrid.Column=0）。 -->
+                <views:QuickOpenOverlay Grid.Row="0" Grid.Column="0"
                                         x:Name="QuickOpenOverlayControl"
                                         DataContext="{Binding QuickOpen}" />
 
+                <!-- 下配置用（水平スプリッタ）。右配置中はShellWindow.axaml.csがIsVisible=Falseにする。 -->
                 <GridSplitter x:Name="GraftSplitter"
-                              Grid.Row="1"
+                              Grid.Row="1" Grid.Column="0"
                               Height="6"
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Center"
@@ -343,7 +366,20 @@
                               Background="{DynamicResource BorderSubtle}"
                               AutomationProperties.Name="エディタと接ぎ木パネルの境界" />
 
-                <views:GraftPanel Grid.Row="2" x:Name="GraftPanelControl" />
+                <!-- 右配置用（垂直スプリッタ）。下配置中はShellWindow.axaml.csがIsVisible=Falseにする。
+                     GridSplitterのControlTheme（Controls.Layout.axaml）はテンプレートを持つため、
+                     下配置のGraftSplitterと同じくドラッグが効く。 -->
+                <GridSplitter x:Name="GraftSplitterRight"
+                              Grid.Row="0" Grid.Column="1"
+                              Width="6"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Stretch"
+                              Cursor="SizeWestEast"
+                              Background="{DynamicResource BorderSubtle}"
+                              IsVisible="False"
+                              AutomationProperties.Name="エディタと接ぎ木パネルの境界（右配置）" />
+
+                <views:GraftPanel x:Name="GraftPanelControl" Grid.Row="2" Grid.Column="0" />
             </Grid>
         </Grid>
 
