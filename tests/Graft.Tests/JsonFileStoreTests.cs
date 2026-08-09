@@ -149,4 +149,68 @@ public class JsonFileStoreTests
 
         callCount.Should().Be(2);
     }
+
+    // ------------------------------------------------------------------
+    // 不具合1: 破損ファイルの並行読み取りが共有違反(IOException)で例外になる（Windows実機）
+    //
+    // Windowsはファイルへ強制的な共有ロックを掛けるため、あるタスクがQuarantineAsyncの
+    // File.Move等でファイルを掴んでいる瞬間に、別タスクのFile.ReadAllTextAsyncが
+    // 「The process cannot access the file ... because it is being used by another process.」
+    // というIOExceptionで失敗する。Linuxには強制共有ロックが無いため通常の並行読み取りでは
+    // 再現しないが、.NET自体はFileShareの解釈を（プロセス内に限り）Linux上でも自前で
+    // エミュレートしており、同一プロセス内でFileShare.Noneの排他ハンドルを開いておくと
+    // 同じIOExceptionを実際に再現できることを確認済みのため、フェイクではなく実ファイルI/Oで
+    // 検証する。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "不具合1: 読み取り中の共有違反はリトライで解消し、内容を壊れた扱いにしない")]
+    public async Task 共有違反から読み取りリトライで復旧する()
+    {
+        using var ws = new TempWorkspace();
+        var path = Path.Combine(ws.CreateDirectory("app"), "data.json");
+        var json = System.Text.Json.JsonSerializer.Serialize(new Box { Value = "本物" }, JsonFileStore.DefaultOptions);
+        await File.WriteAllTextAsync(path, json);
+
+        var store = new JsonFileStore();
+
+        // FileShare.Noneの排他ハンドルで、Windowsの共有違反IOExceptionと同じ状況を再現する。
+        var exclusiveHandle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+        try
+        {
+            var readTask = store.ReadWithRecoveryAsync(path, () => new Box { Value = "既定" });
+
+            // リトライの猶予（最大 5回 × 30ms ≒ 150ms）の範囲内で解放し、リトライ成功を検証する。
+            await Task.Delay(60);
+            exclusiveHandle.Dispose();
+
+            var result = await readTask;
+
+            result.IsSuccess.Should().BeTrue();
+            result.ValueOrDefault!.Value.Should().Be("本物",
+                "共有違反は一時的なものであり内容が壊れているわけではないため、リトライで正しい内容を読み取れるはず");
+            result.Issues.Should().BeEmpty("リトライで解決した場合は破損扱い（退避・既定値再生成）にしてはならない");
+        }
+        finally
+        {
+            exclusiveHandle.Dispose();
+        }
+    }
+
+    [Fact(DisplayName = "不具合1: 共有違反がリトライ上限まで解消しない場合は例外を漏らさず既定値へ穏当に倒す")]
+    public async Task 共有違反が解消しない場合は既定値へ倒す()
+    {
+        using var ws = new TempWorkspace();
+        var path = Path.Combine(ws.CreateDirectory("app"), "data.json");
+        await File.WriteAllTextAsync(path, "壊れている");
+
+        var store = new JsonFileStore();
+
+        // 排他ハンドルを最後まで解放せず、共有違反がリトライ上限まで解消しないケースを再現する。
+        using var exclusiveHandle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var result = await store.ReadWithRecoveryAsync(path, () => new Box { Value = "既定" });
+
+        result.IsSuccess.Should().BeTrue("共有違反が解消しなくても例外を外へ漏らさず既定値へ倒す必要がある");
+        result.ValueOrDefault!.Value.Should().Be("既定");
+    }
 }

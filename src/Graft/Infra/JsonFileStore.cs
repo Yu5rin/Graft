@@ -227,12 +227,26 @@ public sealed class JsonFileStore
         return true;
     }
 
+    /// <summary>TryParseAsyncでの読み取り共有違反(IOException)のリトライ上限回数。</summary>
+    private const int ReadShareViolationRetryCount = 5;
+
+    /// <summary>TryParseAsyncでの読み取り共有違反のリトライ間隔。</summary>
+    private static readonly TimeSpan ReadShareViolationRetryDelay = TimeSpan.FromMilliseconds(30);
+
     private static async Task<T?> TryParseAsync<T>(string path, JsonSerializerOptions options, CancellationToken ct)
         where T : class
     {
         try
         {
-            var text = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false);
+            var text = string.Empty;
+            // 不具合1対応: Windowsは読み取り中のファイルへ強制的な共有ロックを掛けるため、
+            // 別タスクがQuarantineAsyncのFile.Move等でこのファイルを掴んでいる瞬間に
+            // File.ReadAllTextAsyncが共有違反のIOExceptionで失敗することがある
+            // （Linuxには強制共有ロックが無いため通常は表面化しない）。既存のRetryOnIoOrAccessDeniedAsync
+            // を再利用し、短い間隔で数回だけ読み直しを試みる。
+            await RetryOnIoOrAccessDeniedAsync(
+                async () => text = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false),
+                ReadShareViolationRetryCount, ReadShareViolationRetryDelay, ct).ConfigureAwait(false);
             return JsonSerializer.Deserialize<T>(text, options);
         }
         catch (JsonException)
@@ -246,6 +260,15 @@ public sealed class JsonFileStore
             // 場合のTOCTOU（File.Exists後の隙間で対象が無くなる）。JsonExceptionと同様に
             // 「解析できなかった」扱いで返し、呼び出し側の復旧フロー（QuarantineAsyncは対象が
             // 既に無ければnullを返して「退避済み扱い」で続行する）へ委ねる。
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // RetryOnIoOrAccessDeniedAsyncの上限まで共有違反が解消しなかった場合。
+            // 「別タスクが処理中」とみなし、FileNotFoundException等と同様に「解析できなかった」
+            // 扱いで返すことで、呼び出し側の復旧フロー（既定値での再生成）へ穏当に委ねる。
+            // ここで例外をそのまま投げてしまうと、破損ファイルの並行復旧テストが意図する
+            // 「最終的に全タスクが既定値で成功する」という前提が崩れてしまう。
             return null;
         }
     }
