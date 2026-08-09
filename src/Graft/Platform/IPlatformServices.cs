@@ -108,6 +108,19 @@ public interface IClipboardMonitor : IPlatformService, IDisposable
     /// <summary>ブロックヘッダのパターンを含むテキストがクリップボードに現れたときに発火する。</summary>
     event EventHandler<string>? PatchDetected;
 
+    /// <summary>
+    /// 11件目の不具合修正: クリップボードの内容が変化したが、パッチ形式ではなかったときに
+    /// 発火する。以前は<see cref="PatchDetected"/>しか無く、「パッチ形式と判定したときだけ
+    /// 発火する」設計だったため、直前にパッチ検知の通知を出した後で通常のテキストを
+    /// コピーしても、それを知らせる経路が無く通知が出たままになっていた（実機報告）。
+    /// 通知を消すためのシグナルとしてのみ使う想定で、テキスト自体は渡さない
+    /// （クリップボードの中身を不必要に保持・ログ出力しない方針を維持するため）。
+    /// 非テキストのコピー（画像等）や、一時的な読み取り失敗（他アプリがクリップボードを
+    /// 保持中等）では発火しない（誤って通知を消してしまわないための保守的な判断。
+    /// 各実装のコメント参照）。
+    /// </summary>
+    event EventHandler? NonPatchTextChanged;
+
     /// <summary>クリップボード変更通知の受信を開始する。利用できない環境では何もせず失敗を返す。</summary>
     GraftResult<bool> Start();
 

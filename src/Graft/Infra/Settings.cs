@@ -126,6 +126,14 @@ public sealed record ClipboardWatchSettings
     /// "active"（アクティブ表示）のいずれか。
     /// </summary>
     public string Action { get; init; } = "notify";
+
+    /// <summary>
+    /// 機能追加: パッチ形式を検知したら、その場で自動的に解析するか。既定はオン。
+    /// オフの場合は従来どおり通知のみで、通知をクリックするまで解析しない。
+    /// オンでも、解析結果やパッチキューに未処理の内容が残っている間は自動解析せず通知に
+    /// 留める（StartupCoordinator.OnClipboardPatchDetected参照）。
+    /// </summary>
+    public bool AutoParse { get; init; } = true;
 }
 
 /// <summary>バックアップ・世代管理設定（7.4章）。</summary>

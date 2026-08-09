@@ -106,6 +106,55 @@ public class ClipboardWatchTests
         detectedCount.Should().Be(0, "パッチ形式らしいと判定できない通常のコピー内容には一切反応してはならない");
     }
 
+    [AvaloniaFact(DisplayName = "11件目の不具合修正: パッチ検知の後に通常のテキストへ変わるとNonPatchTextChangedが発火する")]
+    public async Task パッチ検知の後に通常テキストへ変わると非パッチ通知が発火する()
+    {
+        var clipboard = new FakeClipboardAccess();
+        using var monitor = new LinuxClipboardMonitor(clipboard);
+        string? patchDetected = null;
+        var nonPatchCount = 0;
+        monitor.PatchDetected += (_, text) => patchDetected = text;
+        monitor.NonPatchTextChanged += (_, _) => nonPatchCount++;
+
+        monitor.Start();
+        await WaitUntilAsync(() => monitor.IsEnabled);
+        await Task.Delay(1100); // 初回巡回を消化させる。
+
+        clipboard.SetText("<<<< FILE: src/a.cs\nusing System;\n");
+        await WaitUntilAsync(() => patchDetected is not null, TimeSpan.FromSeconds(5));
+        patchDetected.Should().NotBeNull();
+        nonPatchCount.Should().Be(0, "パッチ検知の時点ではNonPatchTextChangedは発火しない");
+
+        // 不具合の再現条件: パッチ検知の直後に通常テキストへコピーし直す。
+        clipboard.SetText("これはふつうの文章です。パッチ形式のヘッダは含みません。");
+        await WaitUntilAsync(() => nonPatchCount > 0, TimeSpan.FromSeconds(5));
+
+        nonPatchCount.Should().Be(1, "通常テキストへ変化したら通知を消すためのシグナルが1回発火するはず");
+    }
+
+    [AvaloniaFact(DisplayName = "パッチ形式のテキストからパッチ形式のテキストへ変わってもNonPatchTextChangedは発火しない")]
+    public async Task パッチからパッチへの変化では非パッチ通知は発火しない()
+    {
+        var clipboard = new FakeClipboardAccess();
+        using var monitor = new LinuxClipboardMonitor(clipboard);
+        var patchCount = 0;
+        var nonPatchCount = 0;
+        monitor.PatchDetected += (_, _) => patchCount++;
+        monitor.NonPatchTextChanged += (_, _) => nonPatchCount++;
+
+        monitor.Start();
+        await WaitUntilAsync(() => monitor.IsEnabled);
+        await Task.Delay(1100);
+
+        clipboard.SetText("<<<< FILE: src/a.cs\nusing System;\n");
+        await WaitUntilAsync(() => patchCount > 0, TimeSpan.FromSeconds(5));
+
+        clipboard.SetText("<<<< FILE: src/b.cs\nusing System.Linq;\n");
+        await WaitUntilAsync(() => patchCount > 1, TimeSpan.FromSeconds(5));
+
+        nonPatchCount.Should().Be(0, "パッチ形式同士の変化ではNonPatchTextChangedを発火させない");
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
         var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(2));

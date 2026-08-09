@@ -22,6 +22,18 @@ namespace Graft.ViewModels;
 ///     使えない環境（D-Bus非対応・Wayland等）でも必ず気付けるようにするための保険であり、
 ///     クリックしない限りクリップボードを読み直したり適用したりはしない
 ///     （要件: 確認なしに適用しない）。
+///
+/// 11件目の不具合修正: 以前は<see cref="HasClipboardPatchNotice"/>を消す経路が
+/// 「クリックして解析する」「監視そのものを止める」の2つしか無く、パッチ検知の直後に
+/// 通常のテキストをコピーしても通知が出たままになる不具合があった
+/// （<c>IClipboardMonitor.PatchDetected</c>は「パッチ形式と判定したときだけ」発火する
+/// 設計で、非パッチへの変化を知らせる経路が無かったのが真因）。
+/// <see cref="ClearClipboardPatchNotice"/>を追加し、<c>IClipboardMonitor.NonPatchTextChanged</c>
+/// （StartupCoordinator経由）から呼んでもらうことで解消する。
+///
+/// 機能追加: クリップボード監視で検知したら自動で解析する設定（既定オン）。判断自体は
+/// <see cref="HandleClipboardPatchDetected"/>に集約し、StartupCoordinatorはその戻り値
+/// （実際に自動解析したか）だけを見てウィンドウの前面化を判断する。
 /// </summary>
 public sealed partial class ShellViewModel
 {
@@ -65,9 +77,38 @@ public sealed partial class ShellViewModel
     /// <summary>StartupCoordinatorがPatchDetectedイベントを受け取るたびに呼ぶ。</summary>
     public void NotifyClipboardPatchDetected() => HasClipboardPatchNotice = true;
 
+    /// <summary>
+    /// 11件目の不具合修正: StartupCoordinatorがIClipboardMonitor.NonPatchTextChanged
+    /// （パッチ形式ではない内容へ変わった）を受け取るたびに呼ぶ。出しっぱなしになっていた
+    /// パッチ検知通知を消す。
+    /// </summary>
+    public void ClearClipboardPatchNotice() => HasClipboardPatchNotice = false;
+
+    /// <summary>
+    /// 機能追加: StartupCoordinatorがPatchDetectedイベントを受け取るたびに呼ぶ、
+    /// 「自動解析するかどうか」の判断込みの入口。<paramref name="autoParseEnabled"/>が
+    /// オン、かつ<see cref="MainViewModel.HasUnprocessedResult"/>がfalse（未処理の解析結果も
+    /// キューも無い）の場合のみ、その場で解析（<see cref="AnalyzeClipboardPatch"/>と同じ処理）
+    /// まで行いtrueを返す。それ以外は要件どおり通知に留め（従来のNotifyClipboardPatchDetected）
+    /// falseを返す。呼び出し元はtrueが返った場合のみウィンドウを前面化すればよい
+    /// （解析結果を接ぎ木パネルで見せる必要があるため。反応時の挙動設定には関わらず必ず
+    /// 前面化する。falseの場合の前面化可否は反応時の挙動設定に従う）。
+    /// </summary>
+    public bool HandleClipboardPatchDetected(bool autoParseEnabled)
+    {
+        if (autoParseEnabled && !Graft.HasUnprocessedResult)
+        {
+            AnalyzeClipboardPatch();
+            return true;
+        }
+
+        NotifyClipboardPatchDetected();
+        return false;
+    }
+
     private void AnalyzeClipboardPatch()
     {
-        HasClipboardPatchNotice = false;
+        ClearClipboardPatchNotice();
         if (Graft.PasteAndParseCommand.CanExecute(null)) Graft.PasteAndParseCommand.Execute(null);
     }
 }

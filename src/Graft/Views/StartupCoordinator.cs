@@ -311,6 +311,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 起動直後の状態に合わせる。以降はToggleClipboardWatchが開始・停止のたびに更新する。
         _shellViewModel?.SetClipboardWatchActive(_platform.Clipboard.IsEnabled);
         _platform.Clipboard.PatchDetected += (_, _) => OnClipboardPatchDetected(window);
+        // 11件目の不具合修正: パッチ検知の通知は出したままだと、その後に非パッチのテキストを
+        // コピーしても消える経路が無かった。NonPatchTextChanged（本タスクで追加）を購読し、
+        // ShellViewModel.ClearClipboardPatchNoticeへ橋渡しする。
+        _platform.Clipboard.NonPatchTextChanged += (_, _) => _shellViewModel?.ClearClipboardPatchNotice();
 
         // 10件目の不具合修正: 実際の登録処理はStartupCoordinator.Hotkey.csへ切り出した
         // （設定画面での変更を再起動なしで反映する再登録処理と、登録ロジックを共有するため）。
@@ -454,10 +458,25 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// 挙動の設定に関わらず常に立てる。トレイ通知はタスクトレイが使えない環境
     /// （D-Bus非対応・Wayland等）では見た目上の変化が起きず気付けないため、その保険となる。
     /// クリックするまではクリップボードを読み直さない（確認なしに解析・適用しない）。
+    ///
+    /// 機能追加: 「検知したら自動で解析する」（既定オン）。自動解析するかどうかの判断
+    /// （設定オン、かつ未処理の解析結果・キューが残っていない）自体は
+    /// <see cref="ShellViewModel.HandleClipboardPatchDetected"/>に集約しており、ここでは
+    /// その結果だけを見る。自動解析した場合は、反応時の挙動設定（トレイ通知のみ／
+    /// 非アクティブ／アクティブ）に関わらず必ずウィンドウを前面化する
+    /// （その場で解析した接ぎ木パネルの結果を見せる必要があるため。「トレイ通知のみ」を
+    /// 選んでいても、通知の代わりに結果そのものを見せる形になる点が唯一の例外）。
+    /// 自動解析しなかった場合（設定オフ、または未処理の内容がある場合）は、
+    /// 従来どおり反応時の挙動設定に従って通知するだけに留める。
     /// </summary>
     private void OnClipboardPatchDetected(Window window)
     {
-        _shellViewModel?.NotifyClipboardPatchDetected();
+        var autoParsed = _shellViewModel?.HandleClipboardPatchDetected(_settings.ClipboardWatch.AutoParse) ?? false;
+        if (autoParsed)
+        {
+            RestoreWindow(window);
+            return;
+        }
 
         switch (_settings.ClipboardWatch.Action)
         {

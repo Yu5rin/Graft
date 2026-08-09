@@ -69,6 +69,7 @@ public sealed class SettingsViewModel : ObservableObject
     private string _selectedLogLevel = "info";
     private bool _clipboardWatchEnabled;
     private string _selectedClipboardAction = "notify";
+    private bool _clipboardAutoParse = true;
     private string _maxRevisionsText = "0";
     private string _maxTotalMbText = "0";
     private bool _useRecycleBin;
@@ -264,6 +265,7 @@ public sealed class SettingsViewModel : ObservableObject
     public string SelectedLogLevel { get => _selectedLogLevel; set => SetEditableProperty(ref _selectedLogLevel, value); }
     public bool ClipboardWatchEnabled { get => _clipboardWatchEnabled; set => SetEditableProperty(ref _clipboardWatchEnabled, value); }
     public string SelectedClipboardAction { get => _selectedClipboardAction; set => SetEditableProperty(ref _selectedClipboardAction, value); }
+    public bool ClipboardAutoParse { get => _clipboardAutoParse; set => SetEditableProperty(ref _clipboardAutoParse, value); }
     public string MaxRevisionsText { get => _maxRevisionsText; set => SetEditableProperty(ref _maxRevisionsText, value); }
     public string MaxTotalMBText { get => _maxTotalMbText; set => SetEditableProperty(ref _maxTotalMbText, value); }
     public bool UseRecycleBin { get => _useRecycleBin; set => SetEditableProperty(ref _useRecycleBin, value); }
@@ -634,6 +636,7 @@ public sealed class SettingsViewModel : ObservableObject
         SelectedTheme = s.Theme; SelectedTooltipDetail = s.TooltipDetail; SelectedApplyMode = s.ApplyMode; ShowPreview = s.ShowPreview;
         RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; SelectedLogLevel = s.LogLevel;
         ClipboardWatchEnabled = s.ClipboardWatch.Enabled; SelectedClipboardAction = s.ClipboardWatch.Action;
+        ClipboardAutoParse = s.ClipboardWatch.AutoParse;
         MaxRevisionsText = s.Backup.MaxRevisions.ToString(CultureInfo.InvariantCulture);
         MaxTotalMBText = s.Backup.MaxTotalMB.ToString(CultureInfo.InvariantCulture); UseRecycleBin = s.Backup.UseRecycleBin;
         SimilarityThresholdText = s.Matching.SimilarityThreshold.ToString(CultureInfo.InvariantCulture);
@@ -681,7 +684,10 @@ public sealed class SettingsViewModel : ObservableObject
         LogLevel = _selectedLogLevel,
         CloseBehavior = _closeBehavior,
         LaunchAtStartup = _launchAtStartup,
-        ClipboardWatch = new ClipboardWatchSettings { Enabled = _clipboardWatchEnabled, Action = _selectedClipboardAction },
+        ClipboardWatch = new ClipboardWatchSettings
+        {
+            Enabled = _clipboardWatchEnabled, Action = _selectedClipboardAction, AutoParse = _clipboardAutoParse,
+        },
         Backup = new BackupSettings { MaxRevisions = ParseInt(_maxRevisionsText), MaxTotalMB = ParseInt(_maxTotalMbText), UseRecycleBin = _useRecycleBin },
         Matching = new MatchingSettings
         {
