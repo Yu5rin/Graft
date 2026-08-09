@@ -518,6 +518,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
             .RestoreThroughAsync(
                 _projectId, _projectRoot, target.Revision.Manifest.Revision, preview.RevisionsToUndo, newRevision.Value, force: false, ct)
             .ConfigureAwait(true);
+        // 不具合対応: このE301再試行はnewRevision.Valueを変えずに同じ番号でforce実行し直すだけ
+        // であり、この分岐に入った時点ではnextRevisionは既にnewRevision.Value+1のままで、
+        // 番号は「まだ記録されていない状態」で保留されているだけである。ここで番号を返却
+        // （＝nextRevisionをnewRevision.Valueへ戻す）してはいけない。返却してしまうと、
+        // 直後のforce再試行が同じnewRevision.Valueを使ってバックアップフォルダを作る一方、
+        // 万一この間に別の操作がConsumeNextRevisionAsyncを呼べば同じ番号を取得してしまい、
+        // 同一リビジョン番号のフォルダが衝突する。
         if (!result.IsSuccess && result.HasIssue(ErrorCode.E301))
         {
             var newestLabel = $"r{preview.RevisionsToUndo[0].Manifest.Revision}";
@@ -543,6 +550,16 @@ public sealed class HistoryPaneViewModel : ObservableObject
             // 「どこまで戻せたか」「次に何をすればよいか」を含めた日本語メッセージを組み立てて
             // 返すため、そのままダイアログへ出す。r{newRevision}としては記録済みのため、
             // 一覧を再読み込みして反映する（中途半端な状態であることが一覧からも分かるように）。
+            //
+            // 不具合対応: ここでnewRevision.Valueの番号を返却してはいけない。RevisionRestorer.
+            // RestoreThroughAsyncは、失敗するタイミングによっては既にBackupManager.BeginAsyncで
+            // r{newRevision}用のバックアップフォルダを作成済み（status: in_progress、6.3の中断復帰
+            // 検出の対象）であったり、一部のファイルを実際に書き換えた中途半端な状態のまま
+            // in_progressとしてhistory.jsonlへ記録済みだったりする（上記コメント「r{newRevision}
+            // としては記録済みのため」の通り）。この場合にnextRevisionをnewRevision.Valueへ戻すと、
+            // 次回の消費で同じ番号が再び使われ、既に存在するr{newRevision}のフォルダ・記録と
+            // 衝突する。空リビジョン抑止（Entries.Count == 0）のときだけ、フォルダごと破棄済みで
+            // 記録が一切残っていないことが保証されているため、その場合に限り返却してよい。
             Logger?.Error("restore-through", string.Join(" / ", result.Errors.Select(i => i.ToDisplayText())),
                 revision: newRevision.Value, durationMs: stopwatch.ElapsedMilliseconds);
             await _dialogs
@@ -558,6 +575,21 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // 増えないため、一覧の再読み込みやRevisionRestoredの発火は行わず、その旨だけを伝える。
         if (result.Value.Entries.Count == 0)
         {
+            // 不具合対応: 空リビジョン抑止が働き記録しなかった場合、事前に
+            // ConsumeNextRevisionAsyncで消費した番号（newRevision.Value）を返却し、履歴の欠番
+            // （r7 → r9のように見える見た目）を防ぐ。ReleaseRevisionAsync自身がnextRevisionが
+            // 既に他の操作で進んでいないかを安全確認するため、ここでは無条件に呼んでよい。
+            // 返却に失敗（または安全条件を満たさず何もしなかった）しても、「ここまで戻す」自体は
+            // 既に成功しているため利用者へはエラーにせず、ログにのみ残す（欠番が1つ残るだけで
+            // データの整合性への実害は無い）。
+            var released = await _projectStore.ReleaseRevisionAsync(_projectId, newRevision.Value, ct).ConfigureAwait(true);
+            if (!released.IsSuccess || !released.Value)
+            {
+                Logger?.Warn("restore-through",
+                    $"r{newRevision.Value}の番号を返却できませんでした（欠番として残ります）",
+                    revision: newRevision.Value, durationMs: stopwatch.ElapsedMilliseconds);
+            }
+
             Logger?.Info("restore-through",
                 $"{target.RevisionLabel}まで戻す操作を行いましたが、ファイルは既にこの状態のため変更はありませんでした（リビジョンは記録していません）",
                 durationMs: stopwatch.ElapsedMilliseconds);
