@@ -82,9 +82,12 @@
             <TextBlock Text="クリップボード監視" Classes="sectionHeading" />
             <CheckBox Classes="settingRow" Content="クリップボード監視を有効にする"
                       IsChecked="{Binding ClipboardWatchEnabled}"
+                      IsEnabled="{Binding IsClipboardWatchSupported}"
                       AutomationProperties.Name="クリップボード監視を有効にする"
                       views:HelpTip.Standard="AIの回答らしき内容がクリップボードにコピーされたことを自動的に検知します。既定はオフです。"
                       views:HelpTip.Detailed="オンにすると、Graftがバックグラウンドで動いている間、クリップボードにコピーされた内容を監視し、Graftが読み取れる形式のパッチらしき文章が見つかると自動的に反応します（反応時の挙動は下で選べます）。既定はオフです。「解析」ボタンを毎回押す手間を省きたい場合に使いますが、機密情報を含む文章をコピーした際にも反応してしまう可能性があるため、常時監視されることが気になる場合はオフのままにしてください。" />
+            <TextBlock Text="{Binding ClipboardWatchUnsupportedReason}" Classes="fieldHint"
+                       IsVisible="{Binding !IsClipboardWatchSupported}" TextWrapping="Wrap" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="反応時の挙動" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ClipboardActionOptions}" SelectedValueBinding="{Binding Value}"

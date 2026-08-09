@@ -73,6 +73,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
         ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
         OpenShortcutsCommand = new RelayCommand(() => RequestOpenShortcuts?.Invoke(this, EventArgs.Empty));
+        AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
     }
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>

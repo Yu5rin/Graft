@@ -303,6 +303,9 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         {
             issues.AddRange(_platform.Clipboard.Start().Issues);
         }
+        // ステータスバーの「クリップボード監視中」表示（ShellViewModel.ClipboardWatch.cs）を
+        // 起動直後の状態に合わせる。以降はToggleClipboardWatchが開始・停止のたびに更新する。
+        _shellViewModel?.SetClipboardWatchActive(_platform.Clipboard.IsEnabled);
         _platform.Clipboard.PatchDetected += (_, _) => OnClipboardPatchDetected(window);
 
         issues.AddRange(_platform.Hotkeys
@@ -325,11 +328,27 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         _platform.Tray.Show();
     }
 
-    /// <summary>トレイメニューからのクリップボード監視ON/OFF。設定にも反映して次回起動へ引き継ぐ。</summary>
-    private void SetClipboardWatchEnabled(bool enabled)
+    /// <summary>
+    /// クリップボード監視を実際に開始・停止し、ステータスバー表示（ShellViewModel.
+    /// ClipboardWatch.cs）を最新の状態へ合わせる共通処理。トレイメニューからのトグル
+    /// （<see cref="SetClipboardWatchEnabled"/>、設定の保存を伴う）と、設定画面での変更の伝播
+    /// （<see cref="ApplyLiveSettingsChange"/>、保存は既にSettingsViewModel側で完了済み）の
+    /// 両方から呼ぶ。開始・停止はApplyEngine・MatchEngineのいずれも参照せず、書き込み中の
+    /// ファイルへは一切影響しないため、MainViewModel.UpdateSettingsが行っている
+    /// 「適用処理中は反映を保留する」（_isApplyInProgress）とは無関係にその場で切り替えてよい。
+    /// </summary>
+    private void ToggleClipboardWatch(bool enabled)
     {
         if (enabled) _platform.Clipboard.Start();
         else _platform.Clipboard.Stop();
+
+        _shellViewModel?.SetClipboardWatchActive(_platform.Clipboard.IsEnabled);
+    }
+
+    /// <summary>トレイメニューからのクリップボード監視ON/OFF。設定にも反映して次回起動へ引き継ぐ。</summary>
+    private void SetClipboardWatchEnabled(bool enabled)
+    {
+        ToggleClipboardWatch(enabled);
 
         _settings = _settings with { ClipboardWatch = _settings.ClipboardWatch with { Enabled = enabled } };
 
@@ -356,12 +375,27 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// 自動コミットする」をオンにしても、その場の適用ではコミットされない）。ここから
     /// MainViewModel.UpdateSettingsへ伝播させる。反映のタイミング（適用処理の実行中は
     /// 完了まで保留する等）はMainViewModel側の責務とする（詳細はUpdateSettingsのコメント）。
+    ///
+    /// 9件目の不具合修正: クリップボード監視の有効/無効（15章）は、以前はここで
+    /// <c>_settings</c>を差し替えるだけで、実際に<c>IClipboardMonitor</c>のStart/Stopを
+    /// 呼んでいなかった。設定画面のトグルを保存できても監視は次回起動まで一切反応せず、
+    /// 実機で「オンにしても反応しない」不具合として報告された。トレイメニューからのトグル
+    /// （<see cref="SetClipboardWatchEnabled"/>）は元々動いていたため、その中身
+    /// （<see cref="ToggleClipboardWatch"/>）を切り出して共有し、設定画面での変更もここから
+    /// 同じ経路で反映する。
     /// </summary>
     private void ApplyLiveSettingsChange(AppSettings updated)
     {
+        var previousClipboardWatchEnabled = _settings.ClipboardWatch.Enabled;
+
         _settings = updated;
         if (MainWindow is not null) MainWindow.CloseBehavior = updated.CloseBehavior;
         _shellViewModel?.Graft.UpdateSettings(updated);
+
+        if (updated.ClipboardWatch.Enabled != previousClipboardWatchEnabled)
+        {
+            ToggleClipboardWatch(updated.ClipboardWatch.Enabled);
+        }
     }
 
     /// <summary>
@@ -399,9 +433,17 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>9章: 反応時の挙動（トレイ通知のみ／非アクティブ表示／アクティブ表示）。</summary>
+    /// <summary>
+    /// 9章: 反応時の挙動（トレイ通知のみ／非アクティブ表示／アクティブ表示）。
+    /// 設定の挙動に加え、ステータスバーの通知（ShellViewModel.ClipboardWatch.cs）は
+    /// 挙動の設定に関わらず常に立てる。トレイ通知はタスクトレイが使えない環境
+    /// （D-Bus非対応・Wayland等）では見た目上の変化が起きず気付けないため、その保険となる。
+    /// クリックするまではクリップボードを読み直さない（確認なしに解析・適用しない）。
+    /// </summary>
     private void OnClipboardPatchDetected(Window window)
     {
+        _shellViewModel?.NotifyClipboardPatchDetected();
+
         switch (_settings.ClipboardWatch.Action)
         {
             case "active":
