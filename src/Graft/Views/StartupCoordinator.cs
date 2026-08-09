@@ -308,10 +308,9 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         _shellViewModel?.SetClipboardWatchActive(_platform.Clipboard.IsEnabled);
         _platform.Clipboard.PatchDetected += (_, _) => OnClipboardPatchDetected(window);
 
-        issues.AddRange(_platform.Hotkeys
-            .Register(_settings.Hotkey, () => OnPasteHotkey(window, mainViewModel)).Issues);
-        issues.AddRange(_platform.Hotkeys
-            .Register(PromptCopyHotkey, () => OnCopyPromptHotkey(mainViewModel)).Issues);
+        // 10件目の不具合修正: 実際の登録処理はStartupCoordinator.Hotkey.csへ切り出した
+        // （設定画面での変更を再起動なしで反映する再登録処理と、登録ロジックを共有するため）。
+        RegisterInitialHotkeys(window, mainViewModel, issues);
 
         _platform.Tray.Configure(new TrayMenuDescriptor
         {
@@ -383,6 +382,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// （<see cref="SetClipboardWatchEnabled"/>）は元々動いていたため、その中身
     /// （<see cref="ToggleClipboardWatch"/>）を切り出して共有し、設定画面での変更もここから
     /// 同じ経路で反映する。
+    ///
+    /// 10件目の不具合修正: グローバルホットキー（8.10章）も同じ「設定の前後比較→変化があれば
+    /// 実際の資源へ反映」の流儀へ揃える。クリップボード監視との違い（失敗しうる操作であり、
+    /// 失敗時は握り潰さず古い組み合わせへ戻したうえで警告する必要がある）は
+    /// <see cref="ReapplyHotkeyIfChanged"/>（StartupCoordinator.Hotkey.cs）側の責務とする。
     /// </summary>
     private void ApplyLiveSettingsChange(AppSettings updated)
     {
@@ -395,6 +399,13 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         if (updated.ClipboardWatch.Enabled != previousClipboardWatchEnabled)
         {
             ToggleClipboardWatch(updated.ClipboardWatch.Enabled);
+        }
+
+        // MainWindow・_shellViewModelはStartAsync完了後（＝設定画面を開けている時点）なら
+        // 必ず両方揃っているはずだが、念のため両方揃っている場合のみ再登録を試みる。
+        if (MainWindow is not null && _shellViewModel is not null)
+        {
+            ReapplyHotkeyIfChanged(updated.Hotkey, MainWindow, _shellViewModel.Graft);
         }
     }
 
