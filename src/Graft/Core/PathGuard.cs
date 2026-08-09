@@ -116,7 +116,12 @@ public sealed class PathGuard
         if (checkExtension)
         {
             var extension = Path.GetExtension(combined);
-            if (!_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
+            // 不具合2対応: 拡張子ホワイトリストは「.exe/.bat等の危険な拡張子を遮断する」ことが
+            // 目的であり、"Dockerfile"やLICENSEのような拡張子そのものが無いファイル名は
+            // 遮断対象の想定外だった（エクスプローラで拡張子なしのファイルを新規作成できない
+            // 不具合の原因）。拡張子が付いている場合のみホワイトリストで判定する。
+            if (extension.Length > 0 &&
+                !_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
             {
                 return GraftResult<string>.Fail(ErrorCode.E202, $"拡張子 '{extension}' は許可されていません", path: relativePath);
             }

@@ -55,6 +55,18 @@ public class PathGuardTests
         result.Errors.Single().Code.Should().Be(ErrorCode.E202);
     }
 
+    [Fact(DisplayName = "不具合2: 拡張子の無いファイル名（Dockerfile等）はホワイトリストの対象外として許可される")]
+    public void 拡張子の無いファイル名は許可される()
+    {
+        using var ws = new TempWorkspace();
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        var result = guard.Resolve("Dockerfile");
+
+        result.IsSuccess.Should().BeTrue(
+            "拡張子ホワイトリストは危険な拡張子（.exe等）の遮断が目的であり、拡張子そのものが無い名前は対象外のはず");
+    }
+
     [Fact(DisplayName = "拡張子の比較は大文字小文字を無視する")]
     public void 拡張子の比較は大文字小文字を無視する()
     {

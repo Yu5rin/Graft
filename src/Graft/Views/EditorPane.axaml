@@ -19,11 +19,34 @@
         <Style Selector="TextBlock.tabTitle.preview">
             <Setter Property="FontStyle" Value="Italic" />
         </Style>
+        <!--
+            不具合3対応（副次的に見つかった不具合）: 閉じるボタンの既定非表示は、以前は
+            Button要素へ直接 IsVisible="False" を指定していた。AvaloniaはLocal値（XAML要素へ
+            直接指定した値）がStyleのSetterより優先されるため、この直接指定があると
+            :pointerover / :selected のStyleセレクタが一致してもIsVisible="True"へ上書きできず、
+            「ホバー中だけ表示」という既存のコメント・意図どおりには実際には動作していなかった
+            （実測で確認: ヘッドレステストでホバーさせても非表示のままだった）。既定値も含めて
+            Styleセレクタ側（優先順位が同じ階層）に揃えることで、後続の:pointerover/:selected
+            セレクタが正しく上書きできるようにする。
+        -->
+        <Style Selector="Button.tabClose">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
         <!-- 未保存を示す点は、ホバー中は閉じるボタンと入れ替える（v2.0のWPF版と同じ挙動）。 -->
         <Style Selector="ListBoxItem:pointerover TextBlock.modifiedDot">
             <Setter Property="IsVisible" Value="False" />
         </Style>
         <Style Selector="ListBoxItem:pointerover Button.tabClose">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <!--
+            不具合3対応: 閉じるボタンはホバー時のみ表示だと、マウスがそのタブの上に無い限り
+            閉じる手段が画面上に一切見えず（差分/マッチ失敗タブが唯一のタブの場合は特に）、
+            初見のユーザーには分からなかった（実機検証で発覚）。選択中のタブでは常時表示に
+            することで、少なくとも「今見ている画面をどう閉じるか」は常に見える状態にする。
+            それ以外の非選択タブは従来どおりホバー時のみ（見た目の変化を最小限にする）。
+        -->
+        <Style Selector="ListBoxItem:selected Button.tabClose">
             <Setter Property="IsVisible" Value="True" />
         </Style>
     </UserControl.Styles>
@@ -90,7 +113,6 @@
                                     Command="{Binding CloseCommand}"
                                     Theme="{StaticResource EditorTabCloseButtonTheme}"
                                     Margin="6,0,0,0"
-                                    IsVisible="False"
                                     local:HelpTip.Standard="このタブを閉じます。未保存の変更があれば保存するか確認します（Ctrl+W）。"
                                     local:HelpTip.Detailed="このファイルをエディタから閉じます。保存していない変更が残っている場合は、閉じる前に「保存する／保存しない／キャンセル」を確認するダイアログが出ます。ファイル自体（ディスク上のファイル）は削除されません。ショートカットはCtrl+Wです。"
                                     AutomationProperties.Name="タブを閉じる" />
@@ -175,6 +197,23 @@
                 <local:DiffView x:Name="DiffHost"
                                 IsVisible="False"
                                 AutomationProperties.Name="差分表示タブ" />
+
+                <!--
+                    不具合3対応: 差分／マッチ失敗タブから元のコード編集へ戻る手段が、タブの
+                    閉じるボタン（既定はホバー時のみ表示）以外に見当たらないという指摘への対応。
+                    差分タブの右上に常時見える「閉じる」ボタンを重ねて置く（タブ見出しの閉じる
+                    ボタンと同じ見た目を流用）。閉じた後の戻り先はEditorPaneViewModel.
+                    ResolveReturnTabが決める（元ファイルのタブ→直前のタブ→先頭タブの順）。
+                -->
+                <Button x:Name="DiffCloseButton"
+                        Theme="{StaticResource EditorTabCloseButtonTheme}"
+                        Click="OnDiffCloseClicked"
+                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,10,14,0"
+                        IsVisible="{Binding ActiveTab.IsDiffTab, FallbackValue=False}"
+                        local:HelpTip.Standard="差分表示を閉じて、直前のコード編集に戻ります（Ctrl+Wと同じ）。"
+                        local:HelpTip.Detailed="この差分（マッチ失敗の場合は下の再判定パネルも含む）を閉じ、元のコード編集画面に戻ります。差分の元になったファイルのタブが開いていればそこへ、無ければこの差分タブを開く直前に見ていたタブへ戻ります。ショートカットはCtrl+Wです。"
+                        AutomationProperties.Name="差分表示を閉じてコード編集に戻る" />
 
                 <TextBlock Text="開いているファイルはありません"
                            HorizontalAlignment="Center"

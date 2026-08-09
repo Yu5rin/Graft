@@ -282,16 +282,51 @@ public sealed class JsonFileStore
     {
         var corruptPath = await QuarantineAsync(path, ct).ConfigureAwait(false);
         var fallback = createDefault();
-        await WriteAsync(path, fallback, options, ct).ConfigureAwait(false);
 
         var detail = corruptPath is not null
             ? $"{path} をJSONとして解析できなかったため {corruptPath} へ退避し、既定値で再生成しました。"
             : $"{path} をJSONとして解析できなかったため、既定値で再生成しました。";
-        var issue = GraftIssue.Of(
-            ErrorCode.E404,
-            detail: detail,
-            path: path,
-            severity: Severity.Warning);
-        return GraftResult<T>.Ok(fallback, new[] { issue });
+        var issues = new List<GraftIssue>
+        {
+            GraftIssue.Of(ErrorCode.E404, detail: detail, path: path, severity: Severity.Warning),
+        };
+
+        // 不具合1対応: 「既定値を返す」ことと「既定値を永続化する」ことを分離する。
+        // 対象ファイルが他プロセス（ウイルス対策ソフト・同期ソフト・別のGraftインスタンス等）に
+        // 掴まれたまま共有違反が続くと、WriteAsyncのフォールバック（Copy+Delete）が
+        // RetryOnIoOrAccessDeniedAsyncの上限まで解消せず例外を投げることがある（Windows実機）。
+        // TryPersistDefaultAsyncでその例外を吸収し、書き戻しに失敗しても既定値そのものは
+        // 必ず呼び出し元へ返す。読み取り（起動）が書き込みの失敗に巻き込まれて例外で落ちてはならない。
+        var persistIssue = await TryPersistDefaultAsync(
+            () => WriteAsync(path, fallback, options, ct), path).ConfigureAwait(false);
+        if (persistIssue is not null)
+        {
+            issues.Add(persistIssue);
+        }
+
+        return GraftResult<T>.Ok(fallback, issues);
+    }
+
+    /// <summary>
+    /// 既定値の永続化アクションを実行し、失敗しても例外を投げず警告のGraftIssueへ変換する
+    /// （不具合1対応）。internalなのは、実機（Windows）でしか自然には再現しない共有違反からの
+    /// 回復を、例外を投げるフェイクの<paramref name="persistAction"/>を使ってLinux上でも
+    /// 検証できるようにするため。
+    /// </summary>
+    internal static async Task<GraftIssue?> TryPersistDefaultAsync(Func<Task> persistAction, string path)
+    {
+        try
+        {
+            await persistAction().ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return GraftIssue.Of(
+                ErrorCode.E402,
+                detail: $"既定値の書き戻しに失敗しました。ファイルの内容は既定値のまま次回の保存時まで更新されません。{ExceptionMessages.Describe(ex)}",
+                path: path,
+                severity: Severity.Warning);
+        }
     }
 }

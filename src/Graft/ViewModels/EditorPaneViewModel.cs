@@ -30,6 +30,10 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     private readonly Settings _settings;
     private readonly ObservableCollection<EditorTabViewModel> _tabs = new();
     private EditorTabViewModel? _diffTab;
+    // 不具合3対応: 差分タブへ切り替える直前にアクティブだったタブ。差分タブを閉じたときに
+    // 「元のファイルのタブが開いていなければ直前のタブへ戻る」ためのフォールバック先として使う
+    // （ResolveReturnTab参照）。
+    private EditorTabViewModel? _tabBeforeDiff;
     private EditorTabViewModel? _activeTab;
     private double _fontSize;
     private bool _wordWrap;
@@ -122,6 +126,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         ProjectRoot = projectRoot;
         _manager.SetProjectRoot(projectRoot);
         ActiveTab = null;
+        _tabBeforeDiff = null;
         OnPropertyChanged(nameof(ProjectRoot));
     }
 
@@ -149,6 +154,14 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         {
             _diffTab = new EditorTabViewModel(diff, tab => { CloseDiffTab(tab); return Task.CompletedTask; });
             _tabs.Add(_diffTab);
+        }
+
+        // 不具合3対応: 差分タブへ切り替える直前にアクティブだったタブを覚えておく
+        // （ResolveReturnTab参照）。既に差分タブを表示中の状態から別ブロックを選び直した場合
+        // （ブロック一覧の選択変更のたびにここを通る）は上書きしない。
+        if (!ReferenceEquals(ActiveTab, _diffTab))
+        {
+            _tabBeforeDiff = ActiveTab;
         }
 
         ActiveTab = _diffTab;
@@ -300,11 +313,43 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (!ReferenceEquals(tab, _diffTab)) return;
 
         var wasActive = ReferenceEquals(tab, ActiveTab);
+        var returnTo = wasActive ? ResolveReturnTab(tab) : null;
         _tabs.Remove(tab);
         _diffTab = null;
+        _tabBeforeDiff = null;
         tab.PropertyChanged -= OnTabPropertyChanged;
         tab.DetachEvents();
-        if (wasActive) ActiveTab = Tabs.Count > 0 ? Tabs[0] : null;
+        if (wasActive) ActiveTab = returnTo;
+    }
+
+    /// <summary>
+    /// 不具合3対応: 差分タブを閉じたときの戻り先を決める。マッチ失敗時の画面から
+    /// コード編集へ戻る手段が見当たらないという指摘への対応（差分タブ自体を閉じる導線は
+    /// EditorTabViewModel.CloseCommand・タブの閉じるボタン・Ctrl+Wに加えて用意する）。
+    /// 優先順位: 1. 差分の元になったファイルのタブが開いていればそこへ、
+    /// 2. 差分タブを開く直前にアクティブだったタブへ、3. それも無ければ先頭のタブへ。
+    /// </summary>
+    private EditorTabViewModel? ResolveReturnTab(EditorTabViewModel closedDiffTab)
+    {
+        var originalFullPath = ResolveDiffFullPath(closedDiffTab);
+        if (originalFullPath is not null)
+        {
+            var original = DocumentTabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, originalFullPath));
+            if (original is not null) return original;
+        }
+
+        if (_tabBeforeDiff is not null && !ReferenceEquals(_tabBeforeDiff, closedDiffTab) && _tabs.Contains(_tabBeforeDiff))
+        {
+            return _tabBeforeDiff;
+        }
+
+        return Tabs.Count > 0 ? Tabs[0] : null;
+    }
+
+    private string? ResolveDiffFullPath(EditorTabViewModel diffTab)
+    {
+        if (diffTab.Diff?.FilePath is not { } relativePath || ProjectRoot is null) return null;
+        return Path.Combine(ProjectRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
     }
 
     /// <summary>

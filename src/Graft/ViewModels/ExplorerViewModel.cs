@@ -349,7 +349,9 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     {
         if (_project is null) return;
         var (dirNode, relativeDir) = ResolveTargetDirectory(contextNode);
-        var name = await _dialogs.PromptAsync("新規ファイル", "ファイル名を入力してください。", null).ConfigureAwait(true);
+        var name = await _dialogs
+            .PromptAsync("新規ファイル", "ファイル名を入力してください（拡張子を含めてください。例: memo.md。拡張子なしのファイル名も作成できます）。", null)
+            .ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(name)) return;
 
         var created = await _treeService.CreateFileAsync(_project, relativeDir, name, _guardOptions).ConfigureAwait(true);
@@ -357,7 +359,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
 
         var fullPath = ToFullPath(created.Value);
         _fileWatch.SuppressPath(fullPath);
-        await ReconcileDirectoryAsync(dirNode, CancellationToken.None).ConfigureAwait(true);
+        await RevealCreatedNodeAsync(dirNode, created.Value).ConfigureAwait(true);
         await OpenFileNodeAsync(fullPath).ConfigureAwait(true);
     }
 
@@ -372,7 +374,29 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (!created.IsSuccess) { await ShowFailureAsync("フォルダを作成できませんでした", created.Issues).ConfigureAwait(true); return; }
 
         _fileWatch.SuppressPath(ToFullPath(created.Value));
+        await RevealCreatedNodeAsync(dirNode, created.Value).ConfigureAwait(true);
+        RequestFocus();
+    }
+
+    /// <summary>
+    /// 不具合2対応: 新規作成したファイル・フォルダをツリー上で実際に確認できるようにする。
+    /// 従来はReconcileDirectoryAsyncで内部データを更新するだけで、作成先の親フォルダが
+    /// 折りたたまれている（未展開・未読込）場合はツリーの見た目に反映されず、
+    /// 「作成しても何も表示されない」ように見えていた（真の原因）。
+    /// ここで親フォルダを自動展開し、作成した項目をツリー上で選択状態にする
+    /// （TreeView.AutoScrollToSelectedItemの既定値がtrueのため、選択に追従してスクロールもされる）。
+    /// </summary>
+    private async Task RevealCreatedNodeAsync(FileNodeViewModel? dirNode, string createdRelativePath)
+    {
         await ReconcileDirectoryAsync(dirNode, CancellationToken.None).ConfigureAwait(true);
+        // ReconcileDirectoryAsyncで既に実列挙を終えているため、MarkExpandedはIsExpanded/IsLoadedの
+        // 状態だけを追従させる（ExpandRequestedを再度発火させて二重列挙しないようにするため、
+        // IsExpanded=trueへの単純な代入ではなくこちらを使う）。
+        dirNode?.MarkExpanded();
+
+        var target = dirNode?.Children ?? RootNodes;
+        var created = target.FirstOrDefault(n => n.RelativePath == createdRelativePath);
+        if (created is not null) SelectedNode = created;
     }
 
     private async Task RenameNodeAsync(FileNodeViewModel? node)
