@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using Graft.Core;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.Features;
 
@@ -37,6 +38,21 @@ public sealed record FileTreeEntry
 /// </summary>
 public sealed class FileTreeService
 {
+    private readonly ITrashService? _trash;
+
+    /// <param name="trash">
+    /// ごみ箱への削除（<see cref="DeleteAsync"/>）。省略時（テスト等）はごみ箱を使わず常に
+    /// 通常削除する（10件目の不具合修正。従来はWindows専用の<c>Core.RecycleBin</c>を
+    /// <c>OperatingSystem.IsWindows()</c>で直呼びしており、Linuxでは<c>LinuxTrashService</c>が
+    /// 一度も呼ばれず「ごみ箱への削除」が常に完全削除にフォールバックしていた。呼び出し元
+    /// （ExplorerViewModel）は実行中のOSに応じた実装を <c>PlatformServices.Current.Trash</c>
+    /// から渡す）。
+    /// </param>
+    public FileTreeService(ITrashService? trash = null)
+    {
+        _trash = trash;
+    }
+
     /// <summary>コンテキスト収集と共通の除外規則からフィルタを構築する（仕様書4.2・10.2）。</summary>
     public static async Task<GitignoreFilter> BuildFilterAsync(Project project, CancellationToken ct = default)
     {
@@ -149,7 +165,7 @@ public sealed class FileTreeService
         }, oldRelativePath));
     }
 
-    /// <summary>ファイルまたはフォルダを削除する。常にごみ箱経由（非Windowsは通常削除、仕様書14章）。</summary>
+    /// <summary>ファイルまたはフォルダを削除する。常にごみ箱経由（未対応環境は通常削除、仕様書14章）。</summary>
     public Task<GraftResult<bool>> DeleteAsync(
         Project project, string relativePath, bool isDirectory, PathGuardOptions guardOptions)
     {
@@ -163,7 +179,10 @@ public sealed class FileTreeService
 
         try
         {
-            if (!OperatingSystem.IsWindows() || !RecycleBin.Send(fullPath))
+            // 10件目の不具合修正: 従来はWindows専用のRecycleBinを直呼びしており、Linuxでは
+            // 常に通常削除（完全削除）にフォールバックしていた。ITrashService経由に揃え、
+            // ごみ箱へ送れない・未対応（_trashがnullまたはSendが失敗）の場合のみ通常削除する。
+            if (_trash is null || !_trash.Send(fullPath))
             {
                 if (isDirectory) Directory.Delete(LongPath.Extended(fullPath), recursive: true);
                 else File.Delete(LongPath.Extended(fullPath));

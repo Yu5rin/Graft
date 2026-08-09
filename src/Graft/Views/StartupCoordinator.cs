@@ -144,7 +144,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         }
 
         var projectStore = new ProjectStore(_appPaths);
-        var revisionStore = new RevisionStore(_appPaths);
+        var revisionStore = new RevisionStore(_appPaths, _platform.Trash);
         var revisionRestorer = new RevisionRestorer(_appPaths);
 
         void OpenSettings()
@@ -159,7 +159,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
         var shellViewModel = BuildShellViewModel(
             _appPaths, _settings, _settingsStore, patchQueue, projectStore, revisionStore, revisionRestorer,
-            dialogService, _ui, OpenSettings);
+            dialogService, _ui, OpenSettings, _platform.Trash);
         var mainViewModel = shellViewModel.Graft;
         _shellViewModel = shellViewModel;
 
@@ -257,20 +257,24 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// ShellViewModel以下の依存グラフを組み立てる（附録A.3: DIコンテナを使わない手動構築）。
     /// 起動処理本体とUIテストの双方から使い、実際の起動と同じ組み合わせを検証できるようにする。
     /// </summary>
+    /// <param name="trash">
+    /// ごみ箱への削除。省略時（UIテスト等）はごみ箱を使わない（10件目の不具合修正）。
+    /// 実際の起動（<see cref="StartAsync"/>）は <c>PlatformServices.Current.Trash</c> を渡す。
+    /// </param>
     public static ShellViewModel BuildShellViewModel(
         AppPaths appPaths, AppSettings settings, SettingsStore settingsStore, PatchQueue patchQueue,
         ProjectStore projectStore, RevisionStore revisionStore, RevisionRestorer revisionRestorer,
-        IDialogService dialogService, IUiServices ui, Action openSettings)
+        IDialogService dialogService, IUiServices ui, Action openSettings, ITrashService? trash = null)
     {
-        var applyEngine = BuildApplyEngine(appPaths, settings);
+        var applyEngine = BuildApplyEngine(appPaths, settings, trash);
         var mainViewModel = new MainViewModel(
             applyEngine, projectStore, revisionStore, revisionRestorer,
             settingsStore, new WindowLayoutStore(appPaths), dialogService, patchQueue, openSettings, ui);
         var editorViewModel = new EditorPaneViewModel(settings, dialogService, ui);
-        return new ShellViewModel(mainViewModel, editorViewModel, dialogService, settings, ui);
+        return new ShellViewModel(appPaths, mainViewModel, editorViewModel, dialogService, settings, ui);
     }
 
-    private static ApplyEngine BuildApplyEngine(AppPaths appPaths, AppSettings settings)
+    private static ApplyEngine BuildApplyEngine(AppPaths appPaths, AppSettings settings, ITrashService? trash)
     {
         var matchEngine = new MatchEngine(new MatchOptions
         {
@@ -278,7 +282,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             AllowSimilarityMatch = settings.Matching.AllowSimilarityMatch,
             RangeWarningLines = settings.Matching.RangeWarningLines,
         });
-        return new ApplyEngine(new BackupManager(appPaths), new RevisionStore(appPaths), matchEngine);
+        return new ApplyEngine(new BackupManager(appPaths), new RevisionStore(appPaths, trash), matchEngine);
     }
 
     private static void RestoreWindow(Window window)

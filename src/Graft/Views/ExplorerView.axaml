@@ -104,11 +104,19 @@
                   local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイル」画面）には影響しません。既定はオフです。" />
 
         <Grid Grid.Row="3">
+            <!--
+                課題2: Focusable="True"を明示する（既定はItemsControl由来でFalse）。削除・削除の
+                取り消し直後はツリーの再構築（ExplorerViewModel.ReconcileDirectoryAsync/
+                RefreshAsync）で選択中の項目のコンテナが作り直されてフォーカスを失うため、
+                ExplorerView.axaml.cs（OnFocusRequested）がこのTreeView自体へフォーカスを戻す。
+                そのための受け皿としてTreeView自身がフォーカスを持てるようにしておく必要がある。
+            -->
             <TreeView x:Name="FileTreeView"
                       ItemsSource="{Binding RootNodes}"
                       SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
                       ItemContainerTheme="{StaticResource FileTreeItemTheme}"
                       Background="Transparent" BorderThickness="0"
+                      Focusable="True"
                       AutomationProperties.Name="ファイルツリー">
                 <TreeView.ContextMenu>
                     <ContextMenu>
@@ -134,6 +142,11 @@
                                   Command="{Binding DeleteCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="ごみ箱へ削除" />
+                        <MenuItem Header="削除を元に戻す (Ctrl+Z)"
+                                  Command="{Binding UndoDeleteCommand}"
+                                  local:HelpTip.Standard="直前にこのエクスプローラから削除した項目を元の場所へ戻します"
+                                  local:HelpTip.Detailed="直前にこのエクスプローラから削除したファイルまたはフォルダを、Graftが退避しておいた内容から元の場所へ書き戻します。Ctrl+Z（エクスプローラにフォーカスがあるとき）でも同じ操作ができます。連続で削除した場合は、新しい方から順に1件ずつ戻ります。復元先に同名の項目が既にある場合は上書きせず、失敗として通知します。"
+                                  AutomationProperties.Name="削除を元に戻す" />
                         <Separator />
                         <MenuItem Header="パスをコピー"
                                   Command="{Binding CopyPathCommand}"
@@ -167,6 +180,14 @@
                 <TreeView.KeyBindings>
                     <KeyBinding Gesture="F2" Command="{Binding RenameCommand}" CommandParameter="{Binding SelectedNode}" />
                     <KeyBinding Gesture="Delete" Command="{Binding DeleteCommand}" CommandParameter="{Binding SelectedNode}" />
+                    <!--
+                        課題2: 削除の取り消し。F2/Deleteと同じ仕組み（バブリング段階のKeyBindings）で、
+                        ツリー（またはその子孫）にフォーカスがあるときだけ発火する。ShellWindow.Keyboard.cs
+                        （トンネリング段階）側は、フォーカスがエクスプローラのペイン内にあるプレーンな
+                        Ctrl+Zをここまで素通りさせるよう明示的に除外している（エディタのCtrl+Z＝
+                        テキスト取り消しとは別経路のため衝突しない）。
+                    -->
+                    <KeyBinding Gesture="Ctrl+Z" Command="{Binding UndoDeleteCommand}" />
                     <KeyBinding Gesture="Enter" Command="{Binding OpenCommand}" CommandParameter="{Binding SelectedNode}" />
                 </TreeView.KeyBindings>
             </TreeView>

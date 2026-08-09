@@ -75,6 +75,24 @@
                            FontSize="{DynamicResource StatusBarFontSize}"
                            IsVisible="{Binding HasStatusBarWarning}"
                            ToolTip.Tip="{Binding StatusBarWarningTooltip}" />
+
+                <!--
+                    課題2: エクスプローラでの削除直後、数秒間だけ出す案内（ExplorerViewModel参照）。
+                    クリップボード監視の通知（上のButton）と同じ考え方で、クリックすると
+                    そのままExplorer.UndoDeleteCommandを実行して元に戻せる。数秒で自動的に
+                    消えるが、消えた後もCtrl+Zや右クリックメニューの「削除を元に戻す」は使える。
+                -->
+                <Button Content="{Binding Explorer.DeleteUndoNoticeText}"
+                        Command="{Binding Explorer.UndoDeleteCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Explorer.HasDeleteUndoNotice}"
+                        AutomationProperties.Name="{Binding Explorer.DeleteUndoNoticeText}"
+                        ToolTip.Tip="クリックすると直前の削除を元に戻します。" />
             </StackPanel>
 
             <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->

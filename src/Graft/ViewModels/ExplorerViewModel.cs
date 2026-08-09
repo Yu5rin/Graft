@@ -15,14 +15,22 @@ namespace Graft.ViewModels;
 /// ファイル操作（新規・リネーム・削除・パスコピー・エクスプローラで表示）・
 /// <see cref="FileWatchService"/>と連携した自動更新／外部変更検知（4.6）を担う。
 /// 除外判定・ファイルI/Oの実処理は<see cref="FileTreeService"/>（WPF非依存）へ委譲する。
+/// 課題2: 削除の取り消し（Ctrl+Z）は<see cref="DeleteUndoStore"/>へ委譲し、このクラスは
+/// 退避・復元のタイミング（削除前後）とステータスバー通知・フォーカス要求の橋渡しに徹する。
 /// </summary>
 public sealed class ExplorerViewModel : ObservableObject, IDisposable
 {
     private readonly EditorPaneViewModel _editor;
     private readonly IDialogService _dialogs;
     private readonly IUiServices _ui;
-    private readonly FileTreeService _treeService = new();
+    private readonly FileTreeService _treeService;
     private readonly FileWatchService _fileWatch = new();
+    private readonly DeleteUndoStore _undoStore;
+    private readonly IUiTimer _deleteNoticeTimer;
+
+    // 課題2: 削除直後のステータスバー案内（「Ctrl+Zで元に戻せます」）を数秒で自動的に消す。
+    // 消えても取り消しスタック自体は残るため、Ctrl+Zや右クリックメニューはそのまま使える。
+    private static readonly TimeSpan DeleteNoticeDuration = TimeSpan.FromSeconds(6);
 
     private Project? _project;
     private GitignoreFilter _filter = GitignoreFilter.Empty;
@@ -30,12 +38,22 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private bool _showExcludedFiles;
     private bool _isLoading;
     private FileNodeViewModel? _selectedNode;
+    private bool _hasDeleteUndoNotice;
+    private string _deleteUndoNoticeText = string.Empty;
 
-    public ExplorerViewModel(EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
+    public ExplorerViewModel(
+        Graft.Infra.AppPaths appPaths, EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
     {
+        ArgumentNullException.ThrowIfNull(appPaths);
         _editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+        // 10件目の不具合修正: ごみ箱への削除をITrashService経由に揃える。
+        _treeService = new FileTreeService(PlatformServices.Current.Trash);
+        _undoStore = new DeleteUndoStore(appPaths);
+        // CreateTimerは反復タイマー（デバウンス用）のため、1回消したらStopして次の削除まで
+        // 眠らせておく（Restartで毎回数え直す、SearchOverlayViewModel等と同じ使い方）。
+        _deleteNoticeTimer = ui.CreateTimer(DeleteNoticeDuration, OnDeleteNoticeTimeout);
         _guardOptions = FileTreeService.BuildGuardOptions(settings);
         _fileWatch.DirectoriesChanged += OnDirectoriesChanged;
         _fileWatch.FileContentChanged += OnFileContentChanged;
@@ -49,6 +67,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         DeleteCommand = new RelayCommand<FileNodeViewModel>(node => _ = DeleteNodeAsync(node ?? SelectedNode));
         CopyPathCommand = new RelayCommand<FileNodeViewModel>(node => CopyPath(node ?? SelectedNode));
         RevealCommand = new RelayCommand<FileNodeViewModel>(node => RevealInExplorer(node ?? SelectedNode));
+        UndoDeleteCommand = new AsyncRelayCommand(UndoDeleteAsync, () => _undoStore.CanUndo);
     }
 
     /// <summary>ツリーの最上位（プロジェクトルート直下）のノード一覧。</summary>
@@ -69,6 +88,15 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     /// <summary>右クリック・キー操作の対象になる、現在選択中のノード。</summary>
     public FileNodeViewModel? SelectedNode { get => _selectedNode; set => SetProperty(ref _selectedNode, value); }
 
+    /// <summary>
+    /// 課題2: 削除直後、数秒間だけステータスバーに「Ctrl+Zで元に戻せます」を出すかどうか。
+    /// 消えても<see cref="UndoDeleteCommand"/>自体は（取り消せる削除がある限り）実行できる。
+    /// </summary>
+    public bool HasDeleteUndoNotice { get => _hasDeleteUndoNotice; private set => SetProperty(ref _hasDeleteUndoNotice, value); }
+
+    /// <summary>削除の取り消し案内の文言。</summary>
+    public string DeleteUndoNoticeText { get => _deleteUndoNoticeText; private set => SetProperty(ref _deleteUndoNoticeText, value); }
+
     public ICommand RefreshCommand { get; }
     public ICommand OpenCommand { get; }
     public ICommand NewFileCommand { get; }
@@ -78,8 +106,35 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     public ICommand CopyPathCommand { get; }
     public ICommand RevealCommand { get; }
 
-    /// <summary>ファイル監視を停止して解放する。アプリ終了時にShellViewModelから呼ばれる。</summary>
-    public void Dispose() => _fileWatch.Dispose();
+    /// <summary>
+    /// 課題2: 直近の削除を元に戻す（Ctrl+Z、右クリックメニュー、ステータスバー通知のクリック）。
+    /// エクスプローラにフォーカスがあるときだけ届くようにする配線はShellWindow.Keyboard.cs・
+    /// ExplorerView.axaml（UserControl.KeyBindings）側の責務で、ここでは純粋にコマンドとして
+    /// 公開するだけに留める（エディタのCtrl+Z＝テキスト取り消しとは衝突しない）。
+    /// </summary>
+    public ICommand UndoDeleteCommand { get; }
+
+    /// <summary>
+    /// 課題2: ツリーの再構築でフォーカスが失われた直後にViewへ再フォーカスを促す
+    /// （削除・削除の取り消しの双方で発火する）。ExplorerView.axaml.csがこのイベントを購読し、
+    /// TreeView自身へフォーカスを戻す（TreeView自体はItemsControl由来でFocusable="True"を
+    /// 明示している）。
+    /// </summary>
+    public event EventHandler? FocusRequested;
+
+    /// <summary>
+    /// ファイル監視・削除取り消しの案内タイマーを停止して解放する。アプリ終了時にShellViewModelから
+    /// 呼ばれる。取り消し用の退避（back/trash/）自体の後始末は<see cref="DeleteUndoStore.Cleanup"/>
+    /// （StartupCoordinator.DisposeAsync経由でこのDisposeから呼ぶ）。
+    /// </summary>
+    public void Dispose()
+    {
+        _fileWatch.Dispose();
+        _deleteNoticeTimer.Dispose();
+        // セッション内のみ保持する方針（DeleteUndoStoreのクラスコメント参照）のため、
+        // アプリ終了時に退避コピーを必ず空にする。
+        _undoStore.Cleanup();
+    }
 
     /// <summary>
     /// ファイル監視の開始結果（成功・失敗いずれも）の通知先を差し替えるフック（不具合4対応）。
@@ -347,15 +402,76 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
             .ConfigureAwait(true);
         if (!confirmed) return;
 
+        // 課題2: 実際の削除（ごみ箱送り／完全削除）より前に、アプリ内Ctrl+Zで戻せるよう
+        // 退避コピーを取っておく。退避自体に失敗しても（ディスク容量不足等）、OSのごみ箱という
+        // 別の安全網があるため削除自体は続行する。取り消し通知は退避に成功した場合のみ出す。
+        var staged = await _undoStore.StageAsync(node.FullPath, node.IsDirectory).ConfigureAwait(true);
+
         _fileWatch.SuppressPath(node.FullPath);
         var deleted = await _treeService.DeleteAsync(_project, node.RelativePath, node.IsDirectory, _guardOptions).ConfigureAwait(true);
-        if (!deleted.IsSuccess) { await ShowFailureAsync("削除できませんでした", deleted.Issues).ConfigureAwait(true); return; }
+        if (!deleted.IsSuccess)
+        {
+            if (staged.IsSuccess) _undoStore.DiscardLast(); // 実際には削除されなかったので退避コピーだけ後始末する
+            await ShowFailureAsync("削除できませんでした", deleted.Issues).ConfigureAwait(true);
+            return;
+        }
 
         // 削除されたファイルのタブは開いたままにできないため閉じる（4.2・4.3）。
         if (!node.IsDirectory) await _editor.NotifyDeletedAsync(node.FullPath).ConfigureAwait(true);
         await ReconcileDirectoryAsync(node.Parent, CancellationToken.None).ConfigureAwait(true);
         if (ReferenceEquals(SelectedNode, node)) SelectedNode = null;
+
+        if (staged.IsSuccess)
+        {
+            DeleteUndoNoticeText = $"「{node.Name}」を削除しました。Ctrl+Zで元に戻せます";
+            HasDeleteUndoNotice = true;
+            _deleteNoticeTimer.Restart();
+
+            // 課題2: ツリーの再構築（直前のReconcileDirectoryAsync）で選択中だった項目の
+            // コンテナが作り直され、フォーカスを失っている。エクスプローラにフォーカスがある
+            // 状態でのCtrl+Zが削除直後も引き続き届くよう、Viewへツリーへの再フォーカスを促す。
+            RequestFocus();
+        }
     }
+
+    private void OnDeleteNoticeTimeout()
+    {
+        HasDeleteUndoNotice = false;
+        _deleteNoticeTimer.Stop();
+    }
+
+    /// <summary>
+    /// 課題2: 直近の削除を元に戻す。<see cref="UndoDeleteCommand"/>の実体。取り消せる削除が
+    /// 無ければ何もしない（キー入力・クリックのたびに呼ばれても安全なようにするため）。
+    /// </summary>
+    private async Task UndoDeleteAsync()
+    {
+        if (!_undoStore.CanUndo) return;
+
+        _deleteNoticeTimer.Stop();
+        HasDeleteUndoNotice = false;
+
+        var result = await _undoStore.UndoAsync().ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            await ShowFailureAsync("削除を元に戻せませんでした", result.Issues).ConfigureAwait(true);
+            return;
+        }
+
+        var outcome = result.Value;
+        if (outcome is null) return; // CanUndoの直後のため通常はここに来ない
+
+        _fileWatch.SuppressPath(outcome.OriginalFullPath);
+        // 復元先の親ディレクトリがツリー上でどこまで読み込まれているか（未展開の可能性がある）を
+        // 逐一調べるよりも、常に全体をやり直す方が単純で確実（附録A: 並行実装を増やさない）。
+        await RefreshAsync().ConfigureAwait(true);
+
+        // 削除時と同じ理由（RefreshAsyncのツリー再構築でフォーカスを失う）で、連続でCtrl+Zを
+        // 押しても2回目以降が引き続きエクスプローラへ届くよう、Viewへ再フォーカスを促す。
+        RequestFocus();
+    }
+
+    private void RequestFocus() => FocusRequested?.Invoke(this, EventArgs.Empty);
 
     private void CopyPath(FileNodeViewModel? node)
     {
