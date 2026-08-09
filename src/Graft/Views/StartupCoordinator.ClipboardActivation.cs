@@ -42,6 +42,12 @@ namespace Graft.Views;
 /// それをエラー扱いにせず（ダイアログ等は出さない）、ログにのみ記録する。多重起動検出時の
 /// 前面化はこの戻り値を見ないため、その経路の挙動はこれまでどおり変わらない。
 ///
+/// 回帰修正: 当初はDegradedのときもOnClipboardPatchDetectedがそのまま早期returnしており、
+/// 「反応時の挙動＝トレイ通知のみ」を選んでいる利用者には検知そのものが一切伝わらなくなって
+/// いた（前面化にも通知にも失敗する「何も起きない」状態）。前面化が拒否された場合、
+/// 利用者へ検知を伝える手段は従来の通知経路（<see cref="HandleClipboardActivationFallback"/>）
+/// しか残っていないため、Degradedのときはログ記録に加えてその経路へ必ずフォールバックする。
+///
 /// 【テスト容易性】
 /// StartupCoordinator.Hotkey.cs（<see cref="ReapplyHotkey"/>）と同じ理由・同じ形で、実際のOS資源
 /// （Windows/Linuxの具象<see cref="ISingleInstanceGuard"/>）に触れる経路は既存方針
@@ -79,6 +85,86 @@ public sealed partial class StartupCoordinator
             ? ClipboardActivationOutcome.Activated
             : ClipboardActivationOutcome.Degraded;
     }
+
+    /// <summary>
+    /// 前面化が行われなかった（<see cref="ClipboardActivationOutcome.Disabled"/>）、または
+    /// OS側の制約で拒否された（<see cref="ClipboardActivationOutcome.Degraded"/>）場合の、
+    /// 従来からある通知経路。0bb1b4eより前の<see cref="OnClipboardPatchDetected"/>の中身を
+    /// そのまま切り出したもので、挙動は変えていない。
+    ///
+    /// 自動解析済みなら結果を見せるためウィンドウを前面化し、それ以外は「反応時の挙動」設定
+    /// （<see cref="Infra.ClipboardWatchSettings.Action"/>）に従って通知するだけに留める。
+    ///
+    /// 回帰修正でDegradedからも呼ばれるようになった点について: <paramref name="action"/>が
+    /// <c>"active"</c>のとき<see cref="RestoreWindow"/>で前面化を再度試みることになるが、
+    /// 危険はない。<see cref="ActivateWindowOnPatchDetected"/>が既に行った<c>window.Show()</c>・
+    /// <c>WindowState = Normal</c>はここでも同じ状態へ設定し直すだけの冪等な操作であり、
+    /// 残る<c>Window.Activate()</c>はOSへ直接前面化を要求するAvalonia側のAPIで、
+    /// <see cref="ISingleInstanceGuard.ActivateExistingInstance"/>（ウィンドウタイトルを
+    /// 探して<c>SetForegroundWindow</c>等を呼ぶ別経路）とは別の仕組みのため、例外や
+    /// 無限ループにはならない（最悪でもOS側に再度拒否されるだけで、多重起動検出時の
+    /// 前面化と同じ「静かな縮退」に留まる）。
+    /// </summary>
+    /// <param name="tray">トレイ通知の呼び出し先。本番は<c>_platform.Tray</c>。</param>
+    /// <param name="window">対象ウィンドウ。</param>
+    /// <param name="autoParsed">このクリップボード検知で自動解析まで行われたかどうか。</param>
+    /// <param name="action">「反応時の挙動」設定の現在値（<see cref="Infra.ClipboardWatchSettings.Action"/>）。</param>
+    public static void HandleClipboardActivationFallback(ITrayIcon tray, Window window, bool autoParsed, string action)
+    {
+        if (autoParsed)
+        {
+            RestoreWindow(window);
+            return;
+        }
+
+        switch (action)
+        {
+            case "active":
+                RestoreWindow(window);
+                break;
+            case "passive":
+                window.Show();
+                break;
+            default:
+                tray.ShowBalloon("Graft", "パッチ形式のテキストを検知しました。");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="OnClipboardPatchDetected"/>本体。<see cref="ActivateWindowOnPatchDetected"/>を
+    /// 呼んだうえで、その結果に応じて<see cref="HandleClipboardActivationFallback"/>（従来の
+    /// 通知経路）へ合流させるかどうかを判定する。
+    ///
+    /// 回帰修正: 0bb1b4eでは<see cref="ClipboardActivationOutcome.Activated"/>・
+    /// <see cref="ClipboardActivationOutcome.Disabled"/>以外の判定を持たず、実質的に
+    /// <c>Disabled</c>以外はすべて早期returnしていた。これにより<see cref="
+    /// ClipboardActivationOutcome.Degraded"/>（OS側の制約で前面化が拒否された縮退）でも
+    /// 通知経路へ合流せず、「反応時の挙動＝トレイ通知のみ」を選んでいる利用者には検知が
+    /// 一切伝わらなくなっていた。前面化できた（<c>Activated</c>）・既に前面だった
+    /// （<c>AlreadyForeground</c>）場合のみ追加の通知が不要であり、それ以外
+    /// （<c>Disabled</c>・<c>Degraded</c>）は必ず通知経路へ合流させる、という分岐そのものを
+    /// ここに切り出すことで、単体テスト（ClipboardActivationTests.cs）から直接検証できるように
+    /// している。呼び出し側（<see cref="OnClipboardPatchDetected"/>）は戻り値を見て
+    /// <c>Degraded</c>のログ記録だけを行う。
+    /// </summary>
+    public static ClipboardActivationOutcome ActivateOrFallBackOnPatchDetected(
+        ISingleInstanceGuard singleInstance, ITrayIcon tray, Window window, string mainWindowTitle,
+        bool activateOnDetectSetting, bool isAlreadyForeground, bool autoParsed, string action)
+    {
+        var activation = ActivateWindowOnPatchDetected(
+            singleInstance, window, mainWindowTitle, activateOnDetectSetting, isAlreadyForeground);
+
+        // 前面化できた・既に前面だった場合のみ追加の通知は不要（要件4）。それ以外
+        // （設定オフ・OS側の制約による縮退）は必ず従来の通知経路へ合流させる。
+        if (activation is ClipboardActivationOutcome.Activated or ClipboardActivationOutcome.AlreadyForeground)
+        {
+            return activation;
+        }
+
+        HandleClipboardActivationFallback(tray, window, autoParsed, action);
+        return activation;
+    }
 }
 
 /// <summary>
@@ -98,7 +184,10 @@ public enum ClipboardActivationOutcome
     /// <summary>
     /// 前面化を要求したが、OS側の制約等で縮退した（要件6）。Windowsではフォーカス窃取防止で
     /// <c>SetForegroundWindow</c>が拒否されタスクバーのアイコン点滅になったケースが典型。
-    /// エラー扱いにはせず、呼び出し側でログにのみ記録する。
+    /// エラー扱いにはせず、呼び出し側でログにのみ記録したうえで、前面化できなかった代わりに
+    /// 従来の通知経路（<see cref="StartupCoordinator.HandleClipboardActivationFallback"/>）へ
+    /// フォールバックする（回帰修正: 以前はここで早期returnしてしまい、「トレイ通知のみ」を
+    /// 選んでいる利用者に検知が一切伝わらなかった）。
     /// </summary>
     Degraded,
 }
