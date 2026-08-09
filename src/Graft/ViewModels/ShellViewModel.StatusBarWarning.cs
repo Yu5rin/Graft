@@ -6,7 +6,8 @@ namespace Graft.ViewModels;
 /// <see cref="ShellViewModel"/> の分割ファイル（1ファイル400行上限のため）。
 ///
 /// ステータスバーの警告表示（課題1の書き込み不可・8.6のシンタックスハイライト無効化・
-/// 課題3の極端に長い行の無効化）を1箇所へ集約する。
+/// 課題3の極端に長い行の無効化・10件目の不具合修正のグローバルホットキー再登録失敗）を
+/// 1箇所へ集約する。
 ///
 /// 経緯: これらはもともとステータスバーの同じ行へ、警告ごとに独立したTextBlockとして
 /// 並べて実装されていた（担当が別々だったため、実装のタイミングもばらばらだった）。
@@ -25,9 +26,19 @@ namespace Graft.ViewModels;
 /// </summary>
 public sealed partial class ShellViewModel
 {
+    // 10件目の不具合修正: グローバルホットキーの再登録に失敗した際の警告文（成功中・未変更中は
+    // null）。StartupCoordinator.ReapplyHotkeyIfChanged（StartupCoordinator.Hotkey.cs）が
+    // 設定変更のたびに呼び直す。他の警告源（Diff/Editorのプロパティ）と違い、この情報を持つ
+    // 別のViewModelが存在しない（StartupCoordinatorが直接の当事者）ため、中継用の
+    // PropertyChangedハンドラを介さず<see cref="SetHotkeyRegistrationWarning"/>から
+    // 直接NotifyStatusBarWarningChangedを呼ぶ。
+    private string? _hotkeyRegistrationWarning;
+
     /// <summary>
     /// ステータスバーに出しうる警告の定義。判定関数と、短い表示用テキスト・詳細
     /// （ToolTip用、書き込み不可のみ対処方法を含む長文）の組。上から優先順位順。
+    /// ホットキー再登録失敗はデータ喪失こそ伴わないがアプリ全体（1タブに留まらない）の機能低下
+    /// のため、書き込み不可の次・タブ固有の警告2件より前に置く。
     /// </summary>
     private (Func<bool> IsActive, string Text, string Detail)[] BuildStatusBarWarningSources() => new (Func<bool>, string, string)[]
     {
@@ -35,6 +46,11 @@ public sealed partial class ShellViewModel
             () => Graft.IsDataDirectoryReadOnly,
             "書き込み不可のため設定・履歴・バックアップは保存されません",
             "実行ファイルと同じフォルダへ書き込む権限がありません。書き込み権限のあるフォルダへGraftのフォルダ一式を移動してから起動し直してください。"
+        ),
+        (
+            () => _hotkeyRegistrationWarning is not null,
+            "グローバルホットキーの登録に失敗しました",
+            _hotkeyRegistrationWarning ?? string.Empty
         ),
         (
             () => Graft.Diff.SyntaxHighlightDisabled,
@@ -108,5 +124,17 @@ public sealed partial class ShellViewModel
         OnPropertyChanged(nameof(HasStatusBarWarning));
         OnPropertyChanged(nameof(StatusBarWarningText));
         OnPropertyChanged(nameof(StatusBarWarningTooltip));
+    }
+
+    /// <summary>
+    /// 10件目の不具合修正: StartupCoordinatorがホットキーの再登録を試みるたびに呼ぶ。成功時・
+    /// 何も変化がなければnullを渡す（警告を消す）。失敗時は理由を含む日本語文言を渡す
+    /// （StartupCoordinator.Hotkey.cs の ReapplyHotkey 参照）。
+    /// </summary>
+    public void SetHotkeyRegistrationWarning(string? message)
+    {
+        if (_hotkeyRegistrationWarning == message) return;
+        _hotkeyRegistrationWarning = message;
+        NotifyStatusBarWarningChanged();
     }
 }
