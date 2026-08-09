@@ -39,6 +39,7 @@ public class SettingsStoreTests
         s.ClipboardWatch.Enabled.Should().BeFalse();
         s.ClipboardWatch.Action.Should().Be("notify");
         s.ClipboardWatch.AutoParse.Should().BeTrue();
+        s.ClipboardWatch.ActivateOnDetect.Should().BeTrue();
         s.Hotkey.Should().Be("Ctrl+Alt+V");
         s.Backup.MaxRevisions.Should().Be(100);
         s.Backup.MaxTotalMB.Should().Be(500);

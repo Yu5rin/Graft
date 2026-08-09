@@ -464,16 +464,38 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// 機能追加: 「検知したら自動で解析する」（既定オン）。自動解析するかどうかの判断
     /// （設定オン、かつ未処理の解析結果・キューが残っていない）自体は
     /// <see cref="ShellViewModel.HandleClipboardPatchDetected"/>に集約しており、ここでは
-    /// その結果だけを見る。自動解析した場合は、反応時の挙動設定（トレイ通知のみ／
-    /// 非アクティブ／アクティブ）に関わらず必ずウィンドウを前面化する
-    /// （その場で解析した接ぎ木パネルの結果を見せる必要があるため。「トレイ通知のみ」を
-    /// 選んでいても、通知の代わりに結果そのものを見せる形になる点が唯一の例外）。
-    /// 自動解析しなかった場合（設定オフ、または未処理の内容がある場合）は、
+    /// その結果だけを見る。
+    ///
+    /// 機能追加: 「検知したら前面に表示する」（既定オン、StartupCoordinator.
+    /// ClipboardActivation.cs参照）。この設定がオンの間は、自動解析の有無に関わらず必ず
+    /// ここで前面化を完結させる（要件4: 検知したことを伝えるのが目的で、解析の有無は別軸の
+    /// ため）。オフの場合のみ、以下の従来どおりの挙動へフォールバックする:
+    /// 自動解析した場合は、反応時の挙動設定（トレイ通知のみ／非アクティブ／アクティブ）に
+    /// 関わらず必ずウィンドウを前面化する（その場で解析した接ぎ木パネルの結果を見せる必要が
+    /// あるため。「トレイ通知のみ」を選んでいても、通知の代わりに結果そのものを見せる形に
+    /// なる点が唯一の例外）。自動解析しなかった場合（設定オフ、または未処理の内容がある場合）は、
     /// 従来どおり反応時の挙動設定に従って通知するだけに留める。
     /// </summary>
     private void OnClipboardPatchDetected(Window window)
     {
         var autoParsed = _shellViewModel?.HandleClipboardPatchDetected(_settings.ClipboardWatch.AutoParse) ?? false;
+
+        var isAlreadyForeground = window.IsVisible && window.WindowState != WindowState.Minimized && window.IsActive;
+        var activation = ActivateWindowOnPatchDetected(
+            _platform.SingleInstance, window, MainWindowTitle,
+            _settings.ClipboardWatch.ActivateOnDetect, isAlreadyForeground);
+
+        if (activation == ClipboardActivationOutcome.Degraded)
+        {
+            // 要件6: OS側の制約（Windowsのフォーカス窃取防止等）による縮退はエラー扱いにせず、
+            // ログにのみ記録する（利用者へダイアログ等は出さない）。
+            _logger?.Warn("clipboard",
+                "クリップボード監視での前面化がOS側の制約により縮退しました（タスクバー通知等に切り替わった可能性があります）。" +
+                "多重起動検出時の前面化と同じ挙動です。");
+        }
+
+        if (activation != ClipboardActivationOutcome.Disabled) return;
+
         if (autoParsed)
         {
             RestoreWindow(window);

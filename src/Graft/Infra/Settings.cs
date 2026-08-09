@@ -134,6 +134,17 @@ public sealed record ClipboardWatchSettings
     /// 留める（StartupCoordinator.OnClipboardPatchDetected参照）。
     /// </summary>
     public bool AutoParse { get; init; } = true;
+
+    /// <summary>
+    /// 機能追加: パッチ形式を検知したら、Graftのウィンドウを前面に表示するか。既定はオン。
+    /// <see cref="AutoParse"/>の有無に関わらず、この設定がオンの間は常に前面化する
+    /// （検知したこと自体を伝えるのが目的であり、解析の有無は別軸のため）。オフの場合、
+    /// 前面化するかどうかは<see cref="Action"/>（「アクティブ表示」を選んだ場合のみ）に従うほか、
+    /// 自動解析した結果は従来どおり確認できるよう前面化される。前面化そのものは
+    /// 多重起動検出時の前面化（<c>ISingleInstanceGuard.ActivateExistingInstance</c>）と
+    /// 同じ経路を再利用する（StartupCoordinator.ClipboardActivation.cs参照）。
+    /// </summary>
+    public bool ActivateOnDetect { get; init; } = true;
 }
 
 /// <summary>バックアップ・世代管理設定（7.4章）。</summary>
