@@ -6,11 +6,14 @@ namespace Graft.ViewModels;
 /// <summary>
 /// エディタ領域のタブ種別（仕様書9.2）。<see cref="Document"/>は通常の編集対象ファイル、
 /// <see cref="Diff"/>は接ぎ木ブロックの差分プレビュー（読み取り専用・保存確認の対象外）を表す。
+/// <see cref="HistoryDiff"/>は修正1: 履歴のリビジョン選択に連動する差分専用タブ（1リビジョンが
+/// 変更した複数ファイルをまとめて表示する。<see cref="Diff"/>とは異なるビューモデルを持つ）。
 /// </summary>
 public enum EditorTabKind
 {
     Document,
     Diff,
+    HistoryDiff,
 }
 
 /// <summary>
@@ -62,6 +65,22 @@ public sealed class EditorTabViewModel : ObservableObject
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
     }
 
+    /// <summary>
+    /// 修正1: 履歴差分タブ（履歴のリビジョン選択に連動する複数ファイルぶんの差分表示）。
+    /// 通常の差分タブ（<see cref="Diff"/>）とは異なり<see cref="HistoryDiffViewModel"/>を持つ。
+    /// </summary>
+    public EditorTabViewModel(HistoryDiffViewModel historyDiff, Func<EditorTabViewModel, Task> closeRequested)
+    {
+        Kind = EditorTabKind.HistoryDiff;
+        HistoryDiff = historyDiff ?? throw new ArgumentNullException(nameof(historyDiff));
+        _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
+        HistoryDiff.PropertyChanged += OnHistoryDiffPropertyChanged;
+
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
+        ReloadDiscardingChangesCommand = new RelayCommand(() => { });
+        DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+    }
+
     /// <summary>タブ種別。<see cref="Views.EditorPane"/>がこれに応じて表示を切り替える。</summary>
     public EditorTabKind Kind { get; }
 
@@ -70,6 +89,15 @@ public sealed class EditorTabViewModel : ObservableObject
 
     /// <summary>差分タブかどうか。</summary>
     public bool IsDiffTab => Kind == EditorTabKind.Diff;
+
+    /// <summary>修正1: 履歴差分タブかどうか。</summary>
+    public bool IsHistoryDiffTab => Kind == EditorTabKind.HistoryDiff;
+
+    /// <summary>
+    /// 不具合3対応の常時表示closeButtonを差分系タブ全般（通常のdiffタブ・履歴差分タブ）で
+    /// 共通に使うための判定（EditorPane.axamlのDiffCloseButton参照）。
+    /// </summary>
+    public bool IsAnyDiffTab => Kind is EditorTabKind.Diff or EditorTabKind.HistoryDiff;
 
     /// <summary>
     /// このタブが編集しているファイルのセッション。<see cref="Kind"/>が<see cref="EditorTabKind.Diff"/>
@@ -81,10 +109,24 @@ public sealed class EditorTabViewModel : ObservableObject
     /// <summary>差分タブの表示内容。<see cref="Kind"/>が<see cref="EditorTabKind.Document"/>のタブでは null。</summary>
     public DiffViewModel? Diff { get; }
 
-    /// <summary>タブ見出しに表示するファイル名（Documentタブ）または「差分: パス」（Diffタブ）。</summary>
-    public string Title => Kind == EditorTabKind.Document
-        ? Session.FileName
-        : Diff is { } d ? BuildDiffTitle(d) : "差分";
+    /// <summary>
+    /// 修正1: 履歴差分タブの表示内容。<see cref="Kind"/>が<see cref="EditorTabKind.HistoryDiff"/>の
+    /// タブでのみ非null。
+    /// </summary>
+    public HistoryDiffViewModel? HistoryDiff { get; }
+
+    /// <summary>
+    /// タブ見出しに表示するファイル名（Documentタブ）・「差分: パス」（Diffタブ）・
+    /// 「差分: r3」（履歴差分タブ。修正1: ファイル名だけだとどのリビジョンか分からないため
+    /// リビジョンラベルを出す）。
+    /// </summary>
+    public string Title => Kind switch
+    {
+        EditorTabKind.Document => Session.FileName,
+        EditorTabKind.Diff => Diff is { } d ? BuildDiffTitle(d) : "差分",
+        EditorTabKind.HistoryDiff => HistoryDiff is { RevisionLabel.Length: > 0 } h ? $"差分: {h.RevisionLabel}" : "差分",
+        _ => "差分",
+    };
 
     /// <summary>ツールチップ・読み上げ（AutomationProperties.Name）に表示するプロジェクト相対パス。</summary>
     public string ToolTipText => Kind == EditorTabKind.Document
@@ -158,9 +200,13 @@ public sealed class EditorTabViewModel : ObservableObject
         {
             Session.ModifiedChanged -= OnSessionModifiedChanged;
         }
-        else if (Diff is not null)
+        else if (Kind == EditorTabKind.Diff && Diff is not null)
         {
             Diff.PropertyChanged -= OnDiffPropertyChanged;
+        }
+        else if (Kind == EditorTabKind.HistoryDiff && HistoryDiff is not null)
+        {
+            HistoryDiff.PropertyChanged -= OnHistoryDiffPropertyChanged;
         }
     }
 
@@ -196,4 +242,15 @@ public sealed class EditorTabViewModel : ObservableObject
 
     private static string BuildDiffTitle(DiffViewModel diff)
         => diff.FilePath is { } path ? $"差分: {path}" : "差分";
+
+    /// <summary>
+    /// 修正1: 履歴のリビジョン選択が変わる（<see cref="HistoryDiffViewModel.Load"/>の再実行）たびに、
+    /// 同じタブを使い回しながらタブ見出し（「差分: r3」）を追従させる（OnDiffPropertyChangedと同じ考え方）。
+    /// </summary>
+    private void OnHistoryDiffPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(HistoryDiffViewModel.RevisionLabel)) return;
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(ToolTipText));
+    }
 }

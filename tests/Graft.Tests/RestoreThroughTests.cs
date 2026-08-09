@@ -232,6 +232,51 @@ public class RestoreThroughTests
     // 要件6: 最新リビジョンを選んだ場合は取り消す対象が無い
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // 修正4: 取り消した結果ファイルが1つも変わらなかった場合は空リビジョンを記録しない
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ここまで戻す: 取り消した結果ファイルが1つも変わらなかった場合は空リビジョンとして記録せず、バックアップフォルダも残さない")]
+    public async Task 変化ゼロなら空リビジョンを記録しない()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+
+        await ApplyRealAsync(harness, 1, BuildFullPatch("noop.txt", "same"));
+        await ApplyRealAsync(harness, 2, BuildFullPatch("noop.txt", "changed"));
+        // r3はr1と同一内容へ戻す（パッチ本文もr1と同一のため、そのままだとE302の二重適用検知で
+        // ブロックされる。実機でも「同じ内容へ戻すパッチを再度貼り付ける」操作はforceReapply経由で
+        // 通せるため、ここでも同様にforceReapply:trueで適用する）。
+        var ctx3 = harness.MakeContext(3, forceReapply: true);
+        var dryRun3 = await harness.DryRunAsync(BuildFullPatch("noop.txt", "same"), ctx3);
+        var applied3 = await harness.ApplyAsync(dryRun3, ctx3);
+        applied3.IsSuccess.Should().BeTrue(string.Join(",", applied3.Issues.Select(i => i.ToDisplayText())));
+
+        var backupDir = harness.Paths.GetProjectBackupDirectory(harness.ProjectId);
+        Directory.EnumerateDirectories(backupDir).Should().HaveCount(3, "ここまではr1・r2・r3の3件のはず");
+
+        var list = await harness.Revisions.ListAsync(harness.ProjectId);
+        // r1直後まで戻す（r3・r2を取り消す）。r3はr1と同一内容のため、取り消し後の内容は
+        // 取り消し開始前の内容（r3適用直後="same"）と一致し、実質的な変化が無いはず。
+        var preview = RevisionRestorer.BuildRestoreThroughPreview(list.Value, targetRevision: 1);
+        preview.RevisionsToUndo.Select(r => r.Manifest.Revision).Should().Equal(new[] { 3, 2 });
+
+        var restorer = new RevisionRestorer(harness.Paths);
+        var result = await restorer.RestoreThroughAsync(
+            harness.ProjectId, harness.ProjectRoot, targetRevision: 1, preview.RevisionsToUndo, newRevisionNumber: 4, force: false);
+
+        result.IsSuccess.Should().BeTrue(string.Join(",", result.Issues.Select(i => i.ToDisplayText())));
+        result.Value.Entries.Should().BeEmpty("ファイルは1つも変わらなかったはず");
+
+        System.Text.Encoding.UTF8.GetString(harness.ReadProjectBytes("noop.txt")).Should().Contain("same");
+
+        // r4は新規リビジョンとして記録されない（フォルダも残らない・一覧にも現れない）。
+        Directory.EnumerateDirectories(backupDir).Should().HaveCount(3,
+            "変化ゼロのため、r4用に作成しかけたバックアップフォルダは破棄され増えないはず");
+        var listAfter = await harness.Revisions.ListAsync(harness.ProjectId);
+        listAfter.Value.Select(r => r.Manifest.Revision).Should().NotContain(4, "空リビジョンとして記録してはならない");
+    }
+
     [Fact(DisplayName = "ここまで戻す: 最新リビジョンを選ぶと取り消し対象が無く実行不可になる")]
     public async Task 最新リビジョン選択時は対象なし()
     {

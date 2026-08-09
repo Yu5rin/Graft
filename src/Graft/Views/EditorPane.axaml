@@ -198,19 +198,25 @@
                                 IsVisible="False"
                                 AutomationProperties.Name="差分表示タブ" />
 
+                <!-- 修正1: 履歴のリビジョン選択に連動する履歴差分タブ（複数ファイルぶんの差分）。 -->
+                <local:HistoryDiffView x:Name="HistoryDiffHost"
+                                       IsVisible="False"
+                                       AutomationProperties.Name="履歴差分表示タブ" />
+
                 <!--
                     不具合3対応: 差分／マッチ失敗タブから元のコード編集へ戻る手段が、タブの
                     閉じるボタン（既定はホバー時のみ表示）以外に見当たらないという指摘への対応。
                     差分タブの右上に常時見える「閉じる」ボタンを重ねて置く（タブ見出しの閉じる
                     ボタンと同じ見た目を流用）。閉じた後の戻り先はEditorPaneViewModel.
                     ResolveReturnTabが決める（元ファイルのタブ→直前のタブ→先頭タブの順）。
+                    修正1: 履歴差分タブでも同じボタンを使い回す（IsAnyDiffTab）。
                 -->
                 <Button x:Name="DiffCloseButton"
                         Theme="{StaticResource EditorTabCloseButtonTheme}"
                         Click="OnDiffCloseClicked"
                         HorizontalAlignment="Right" VerticalAlignment="Top"
                         Margin="0,10,14,0"
-                        IsVisible="{Binding ActiveTab.IsDiffTab, FallbackValue=False}"
+                        IsVisible="{Binding ActiveTab.IsAnyDiffTab, FallbackValue=False}"
                         local:HelpTip.Standard="差分表示を閉じて、直前のコード編集に戻ります（Ctrl+Wと同じ）。"
                         local:HelpTip.Detailed="この差分（マッチ失敗の場合は下の再判定パネルも含む）を閉じ、元のコード編集画面に戻ります。差分の元になったファイルのタブが開いていればそこへ、無ければこの差分タブを開く直前に見ていたタブへ戻ります。ショートカットはCtrl+Wです。"
                         AutomationProperties.Name="差分表示を閉じてコード編集に戻る" />

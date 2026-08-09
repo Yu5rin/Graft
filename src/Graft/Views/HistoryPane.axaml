@@ -147,6 +147,33 @@
                      AutomationProperties.Name="リビジョン履歴一覧"
                      local:HelpTip.Standard="これまでに適用・復元した変更の一覧です。選んで上の復元ボタンを押すと、その時点の直前の状態に戻せます。"
                      local:HelpTip.Detailed="これまでGraftで行った変更（パッチの適用や、以前の状態への復元）が新しい順に並びます。1件選ぶと、上の「復元」ボタンでその変更を適用する直前の状態へファイルを戻せます。オレンジ色の注意文が付いている項目は、何らかの理由で復元できない（元のファイルが既に大きく変わっている等）ことを示します。">
+                <!--
+                    修正2: 履歴の行の右クリックメニュー。右クリック時にその行を選択状態にしてから
+                    開く（既定では右クリックだけでは選択が変わらないため、HistoryPane.axaml.csの
+                    OnRevisionListPointerPressedで先に選択させる）ため、ここではSelectedItem
+                    ベースの既存コマンド（RestoreThroughCommand/RestoreCommand/ShowDiffCommand）を
+                    そのまま束縛でき、既存ボタンと同じ有効/無効条件に自然と揃う。
+                    ContextMenuの項目へのHelpTip適用については、汎用の添付プロパティ
+                    （Control全般に効く）のため機構上は付けられるが、実機確認の結果はPRの
+                    報告を参照。
+                -->
+                <ListBox.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="ここまで戻す"
+                                  Command="{Binding RestoreThroughCommand}"
+                                  local:HelpTip.Standard="選択したリビジョンより新しい変更をすべて取り消し、その時点まで一気に戻します。"
+                                  AutomationProperties.Name="選択したリビジョンまでまとめて戻す" />
+                        <MenuItem Header="このリビジョンを取り消す"
+                                  Command="{Binding RestoreCommand}"
+                                  local:HelpTip.Standard="このリビジョンだけを取り消し、適用する直前の状態へ戻します。"
+                                  AutomationProperties.Name="このリビジョンを取り消す" />
+                        <Separator />
+                        <MenuItem Header="差分を表示"
+                                  Command="{Binding ShowDiffCommand}"
+                                  local:HelpTip.Standard="このリビジョンの差分を、専用のタブで表示します。選択するだけでも自動的に開きます。"
+                                  AutomationProperties.Name="このリビジョンの差分を表示" />
+                    </ContextMenu>
+                </ListBox.ContextMenu>
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />

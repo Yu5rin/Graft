@@ -21,7 +21,7 @@
         <!-- ヘッダー: 開閉トグル・タイトル・状態サマリ・プレビュー/適用・失敗再依頼 -->
         <Border Grid.Row="0" DataContext="{Binding Graft}"
                 BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0">
-            <Grid Margin="8,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto">
+            <Grid Margin="8,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
 
                 <Button Grid.Column="0"
                         Command="{Binding DataContext.ToggleGraftPanelCommand, ElementName=Root}"
@@ -84,7 +84,24 @@
                         views:HelpTip.Detailed="一覧の中に赤い×印（適用できなかったブロック）があるときに使います。押すと、失敗した理由と対象ファイルの今の中身を含んだ修正依頼文がクリップボードへコピーされます。それをAIとの会話に貼り付けて再度質問すれば、状況を説明し直す手間なく修正案をもらえます。失敗したブロックが無いときはこのボタンは押せません。"
                         AutomationProperties.Name="失敗ブロックの再依頼プロンプトをコピー" />
 
-                <Button Grid.Column="5" Margin="4,0" Command="{Binding PreviewCommand}"
+                <!--
+                    修正3: 「破棄」ボタン。DiscardCommand自体は既存実装済みだったが、Escキー以外の
+                    露出が接ぎ木パネルのどこにも無く「実装はあるのに見えない」状態だった（13件目）。
+                    プレビュー・適用と並べ、解析結果が無いときは無効化する（DiscardCommandの
+                    CanExecute参照）。
+                -->
+                <Button Grid.Column="5" Margin="4,0" Command="{Binding DiscardCommand}"
+                        views:HelpTip.Standard="解析した内容を取り消します。ファイルは変更されません。"
+                        views:HelpTip.Detailed="接ぎ木パネルに表示されている解析結果（ブロック一覧・プレビュー）を取り消し、パネルを空の状態に戻します。ここまでの操作はまだファイルへは一切書き込んでいないため、ファイルの内容には何も影響しません。Escキーでも同じ操作ができます。解析結果が無いときはこのボタンは押せません。"
+                        AutomationProperties.Name="解析結果を破棄">
+                    <StackPanel Orientation="Horizontal">
+                        <views:IconGlyph Data="{DynamicResource IconXGeometry}"
+                                         Width="14" Height="14" Margin="0,0,4,0" />
+                        <TextBlock Text="破棄" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
+                <Button Grid.Column="6" Margin="4,0" Command="{Binding PreviewCommand}"
                         views:HelpTip.Standard="解析した変更をもう一度ドライラン（試し適用）し、各ブロックの適用可否と差分を最新の状態に更新します。対象ファイルを編集した後に使います。"
                         views:HelpTip.Detailed="解析済みの変更が、今のファイルの中身に対して問題なく適用できるかどうかを、実際には書き込まずに試します（ドライラン）。エディタで対象ファイルを直接編集したあとにこのボタンを押すと、各ブロックの状態（適用可能・要確認・失敗）と差分表示が最新の内容に更新されます。"
                         AutomationProperties.Name="プレビューを再実行">
@@ -96,7 +113,7 @@
                 </Button>
 
                 <!-- F6ペイン巡回の最後の停留先（GraftPanel.axaml.cs: DiffHost）。 -->
-                <Button x:Name="ApplyButtonElement" Grid.Column="6" Command="{Binding ApplyCommand}"
+                <Button x:Name="ApplyButtonElement" Grid.Column="7" Command="{Binding ApplyCommand}"
                         views:HelpTip.Standard="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます（Ctrl+Enter）。"
                         views:HelpTip.Detailed="一覧に並んでいる、チェックが入ったブロックを実際のファイルへ書き込みます。書き込む前には自動でバックアップが作られるため、結果が気に入らなければサイドバーの「履歴」からいつでも元に戻せます。ショートカットはCtrl+Enterです。"
                         AutomationProperties.Name="適用を実行">

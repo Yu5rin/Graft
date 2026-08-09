@@ -1,5 +1,8 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -11,7 +14,34 @@ namespace Graft.Views;
 /// </summary>
 public partial class HistoryPane : UserControl
 {
-    public HistoryPane() => InitializeComponent();
+    public HistoryPane()
+    {
+        InitializeComponent();
+        // 修正2: 右クリックメニュー。Avaloniaの既定動作では右クリックだけでは選択行が
+        // 変わらないため（左クリックのみ選択を更新する）、ContextMenuが開く前に
+        // 明示的にその行を選択状態へ更新する（EditorPane.axaml.csのOnTabStripPointerPressed
+        // と同じトンネル段階での先取り処理）。
+        RevisionListBox.AddHandler(PointerPressedEvent, OnRevisionListPointerPressed, RoutingStrategies.Tunnel);
+    }
+
+    private void OnRevisionListPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(RevisionListBox);
+        if (!point.Properties.IsRightButtonPressed) return;
+        if (FindAncestor<ListBoxItem>(e.Source as Visual) is not { DataContext: RevisionRowViewModel row }) return;
+
+        RevisionListBox.SelectedItem = row;
+    }
+
+    private static T? FindAncestor<T>(Visual? node) where T : Visual
+    {
+        while (node is not null and not T)
+        {
+            node = node.GetVisualParent();
+        }
+
+        return node as T;
+    }
 
     /// <summary>F6でのペイン間フォーカス移動先として、外部（ShellWindow）から参照する。</summary>
     public ListBox ListBoxElement => RevisionListBox;
