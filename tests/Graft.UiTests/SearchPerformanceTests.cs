@@ -48,11 +48,29 @@ public class SearchPerformanceTests
         {
             GenerateFiles(root);
 
-            var vm = new SearchViewModel(new CrossFileSearchEngine(), new NullDialogService())
+            var project = new Project { Id = "p", Name = "p", Root = root };
+            var settings = new Settings();
+            var engine = new CrossFileSearchEngine();
+            var options = new CrossFileSearchOptions { Query = Query };
+
+            // ウォームアップ（初回JIT・初回ファイルI/Oのゆらぎを計測対象から除く）。
+            await CollectAsync(engine, project, settings, options);
+
+            // 基準: エンジン単体（画面バインドなし）での横断検索時間。
+            // tests/Graft.Tests/CrossFileSearchPerformanceTestsで検証済みのとおりエンジン単体は
+            // 高速であり、ここで見たいのはUI側の追加コスト（結果ツリーへのバインド・バッチ反映）が
+            // 基準の何倍かという点。同じデータ・同じハードウェアで測るため、CI環境そのものの
+            // 速さのばらつきには左右されない。
+            var baselineSw = Stopwatch.StartNew();
+            var baselineHits = await CollectAsync(engine, project, settings, options);
+            baselineSw.Stop();
+            baselineHits.Should().HaveCount(HitFileCount);
+
+            var vm = new SearchViewModel(engine, new NullDialogService())
             {
                 Query = Query,
             };
-            vm.SetContext(new Project { Id = "p", Name = "p", Root = root }, new Settings());
+            vm.SetContext(project, settings);
 
             var view = new SearchView { DataContext = vm };
             var window = new Window { Width = 900, Height = 700, Content = view };
@@ -65,17 +83,40 @@ public class SearchPerformanceTests
             window.CaptureRenderedFrame();
             sw.Stop();
 
-            _output.WriteLine($"{FileCount}ファイル中「{Query}」の横断検索（画面バインド込み）: {sw.ElapsedMilliseconds} ms");
+            var baselineMs = Math.Max(1, baselineSw.ElapsedMilliseconds);
+            var ratio = (double)sw.ElapsedMilliseconds / baselineMs;
+            _output.WriteLine(
+                $"{FileCount}ファイル中「{Query}」の横断検索: エンジン単体={baselineSw.ElapsedMilliseconds} ms / "
+                + $"画面バインド込み={sw.ElapsedMilliseconds} ms（倍率 {ratio:F1}倍）");
 
             vm.IsSearching.Should().BeFalse("タイムアウトせず検索が完了していること");
             vm.Groups.Should().HaveCount(HitFileCount);
-            sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2),
-                $"実測 {sw.ElapsedMilliseconds}ms。結果ツリーの仮想化とバッチ反映により製品水準の速度を保つこと");
+
+            // 実機で確認された遅さ（エンジン単体は高速なのに画面バインド込みで6秒超）を
+            // 大きく下回ることを確認する回帰ガード。エンジン単体の時間との倍率で判定するため、
+            // 絶対時間ではなくCI環境の遅さそのものには左右されない。
+            ratio.Should().BeLessThan(15,
+                $"エンジン単体（{baselineSw.ElapsedMilliseconds}ms）に対し画面バインド込み"
+                + $"（{sw.ElapsedMilliseconds}ms）が{ratio:F1}倍かかっている。"
+                + "結果ツリーの仮想化とバッチ反映が効いていない可能性がある");
         }
         finally
         {
             try { Directory.Delete(root, recursive: true); } catch (IOException) { }
         }
+    }
+
+    /// <summary>エンジン単体（画面バインドなし）で検索し、全ヒットを収集する。</summary>
+    private static async Task<List<SearchHit>> CollectAsync(
+        CrossFileSearchEngine engine, Project project, Settings settings, CrossFileSearchOptions options)
+    {
+        var state = new SearchRunState();
+        var hits = new List<SearchHit>();
+        await foreach (var hit in engine.SearchAsync(project, settings, options, state))
+        {
+            hits.Add(hit);
+        }
+        return hits;
     }
 
     [AvaloniaFact(DisplayName = "バッチ反映後も検索を中止ボタンで中断できる")]
