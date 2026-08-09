@@ -78,7 +78,16 @@ public sealed class GitIntegration
         return GitCommitPreflight.Ready;
     }
 
-    /// <summary>git 管理下かどうか、未コミットの変更があるかを調べる。</summary>
+    /// <summary>
+    /// git 管理下かどうか、未コミットの変更があるかを調べる。
+    ///
+    /// 実装点検メモ（クリップボード監視配線の調査で判明）: 現時点ではアプリ本流
+    /// （MainViewModel.Git.cs等）からは呼ばれておらず、<c>GitIntegrationTests</c>からのみ
+    /// 使われている。<see cref="CommitAsync"/>の前提確認には<see cref="CheckCommitPreflightAsync"/>
+    /// を使っており、こちらは未コミット差分の有無や変更ファイル一覧まで含む上位互換のAPIとして
+    /// 将来（例: 適用前に「未コミットの変更がある」ことを警告する機能等）のために残している。
+    /// 既存テストを削除しない方針のため、本メソッドも削除せずここに留める。
+    /// </summary>
     public async Task<GraftResult<GitStatus>> GetStatusAsync(string projectRoot, CancellationToken ct = default)
     {
         var inside = await RunGitAsync(projectRoot, new[] { "rev-parse", "--is-inside-work-tree" }, ct)

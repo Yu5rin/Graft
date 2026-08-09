@@ -219,6 +219,16 @@ public sealed class SettingsViewModel : ObservableObject
     public string? AutoStartUnsupportedReason => PlatformServices.Current.AutoStart.UnsupportedReason;
 
     /// <summary>
+    /// 9件目の不具合修正: この環境でクリップボード監視に対応しているか。非対応（Wayland等）
+    /// ならチェックボックスを無効化する。15章「利用不可の環境では設定値にかかわらず無効として
+    /// 扱い、設定画面にその理由を表示する」に従い、Tray/AutoStartと同じ扱いに揃える。
+    /// </summary>
+    public bool IsClipboardWatchSupported { get; } = PlatformServices.Current.Clipboard.IsSupported;
+
+    /// <summary>クリップボード監視が使えない場合に画面へ表示する理由（利用可能なら null）。</summary>
+    public string? ClipboardWatchUnsupportedReason => PlatformServices.Current.Clipboard.UnsupportedReason;
+
+    /// <summary>
     /// テーマ。ComboBoxの選択が変わった瞬間にsetterへ届き、<see cref="ThemeManager"/> 経由で
     /// 即時プレビュー反映しつつ、他の項目と同じ経路で保存もスケジュールする。
     /// </summary>

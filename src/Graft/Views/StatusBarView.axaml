@@ -27,6 +27,33 @@
                            FontSize="{DynamicResource StatusBarFontSize}" />
                 <TextBlock Text="{Binding Editor.LanguageText}" Margin="12,0,0,0"
                            FontSize="{DynamicResource StatusBarFontSize}" />
+
+                <!--
+                    クリップボード監視（9章・10章）。警告スロット（StatusBarWarningText）とは
+                    別の独立したスロットにする（ShellViewModel.ClipboardWatch.cs参照）。
+                    「監視中」は平常状態の控えめな表示、パッチ検知の通知はクリックで解析できる
+                    アクセント色のボタンにする（確認なしに解析・適用はしない。押した瞬間に
+                    ShellViewModel.AnalyzeClipboardPatchCommandがクリップボードを読み直す）。
+                -->
+                <TextBlock Text="{Binding ClipboardWatchStatusText}"
+                           Margin="12,0,0,0"
+                           Foreground="{DynamicResource TextSecondary}"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding IsClipboardWatchActive}"
+                           AutomationProperties.Name="クリップボード監視中"
+                           ToolTip.Tip="クリップボードの内容を監視しています。パッチ形式のテキストをコピーすると検知します。" />
+                <Button Content="{Binding ClipboardPatchNoticeText}"
+                        Command="{Binding AnalyzeClipboardPatchCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding HasClipboardPatchNotice}"
+                        AutomationProperties.Name="パッチ形式のテキストを検知しました。クリックで解析"
+                        ToolTip.Tip="クリックすると、コマンドバーの「解析」と同じ処理でクリップボードの内容を読み直します。自動では解析・適用しません。" />
+
                 <!--
                     ステータスバーの警告表示について: 書き込み不可（課題1）・シンタックス
                     ハイライト無効化（8.6）・極端に長い行の無効化（課題3）は、もとはそれぞれ
