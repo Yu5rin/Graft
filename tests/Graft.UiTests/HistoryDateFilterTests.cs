@@ -174,6 +174,7 @@ public class HistoryDateFilterTests
     private static HistoryPaneViewModel CreateViewModel(Func<DateTimeOffset>? now = null)
         => new(new Graft.Core.RevisionStore(new Graft.Infra.AppPaths(Path.GetTempPath())),
             new Graft.Core.RevisionRestorer(new Graft.Infra.AppPaths(Path.GetTempPath())),
+            new Graft.Features.ProjectStore(new Graft.Infra.AppPaths(Path.GetTempPath())),
             new NullDialogService(),
             now);
 }

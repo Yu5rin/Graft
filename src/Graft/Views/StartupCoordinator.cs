@@ -166,6 +166,8 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 課題3: Git自動コミットの失敗理由をlogs/<日付>.logへ記録できるよう、window.Loggerと
         // 同じ流儀（生成後に設定するnullableプロパティ）でロガーを渡す。
         mainViewModel.Logger = _logger;
+        // 「ここまで戻す」の成否をログへ残すため、History側にも同じロガーを渡す。
+        mainViewModel.History.Logger = _logger;
 
         // 課題1: 起動時ダイアログは1回きりで、その後は画面から見えなくなってしまう。
         // 「保存されない」状態が続いている間はステータスバーに常時表示し続けることで、
