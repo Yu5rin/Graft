@@ -74,9 +74,15 @@
             M15,12 A3,3 0 1,1 9,12 A3,3 0 1,1 15,12
         </StreamGeometry>
 
-        <!-- rotate-ccw: 復元 -->
+        <!-- rotate-ccw: 復元（単発。「このリビジョンを取り消す」） -->
         <StreamGeometry x:Key="IconRotateCcwGeometry">
             M4,12 A8,8 0 1,0 10,4.6 M4,12 L4,6 M4,12 L10,12
+        </StreamGeometry>
+
+        <!-- rewind: まとめ戻し（「ここまで戻す」）。単発復元のrotate-ccw（円弧の矢印）とは
+             見た目をはっきり区別するため、早戻し（≪）の意匠にした（塗りなしの三角形2つ）。 -->
+        <StreamGeometry x:Key="IconRewindGeometry">
+            M12,5 L12,19 L4,12 Z M21,5 L21,19 L13,12 Z
         </StreamGeometry>
 
         <!-- refresh: 更新（ツリーの再読み込み）。rotate-ccwは「復元（元に戻す）」で

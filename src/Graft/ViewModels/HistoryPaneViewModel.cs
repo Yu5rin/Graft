@@ -3,6 +3,8 @@ using System.Globalization;
 using System.IO;
 using System.Windows.Input;
 using Graft.Core;
+using Graft.Features;
+using Graft.Infra;
 using Graft.Platform;
 
 namespace Graft.ViewModels;
@@ -84,8 +86,15 @@ public sealed class HistoryPaneViewModel : ObservableObject
 {
     private readonly RevisionStore _revisionStore;
     private readonly RevisionRestorer _restorer;
+    private readonly ProjectStore _projectStore;
     private readonly IDialogService _dialogs;
     private readonly Func<DateTimeOffset> _now;
+
+    /// <summary>
+    /// 「ここまで戻す」の成否・所要時間をlogs/へ記録する（直近でapplyのログを追加した前例
+    /// （MainViewModel.Apply.cs）と同じ流儀）。StartupCoordinatorが生成後に設定する。
+    /// </summary>
+    public Logger? Logger { get; set; }
 
     private string? _projectId;
     private string? _projectRoot;
@@ -104,15 +113,20 @@ public sealed class HistoryPaneViewModel : ObservableObject
     private bool _isApplyingPreset;
 
     public HistoryPaneViewModel(
-        RevisionStore revisionStore, RevisionRestorer restorer, IDialogService dialogs, Func<DateTimeOffset>? now = null)
+        RevisionStore revisionStore, RevisionRestorer restorer, ProjectStore projectStore, IDialogService dialogs,
+        Func<DateTimeOffset>? now = null)
     {
         _revisionStore = revisionStore ?? throw new ArgumentNullException(nameof(revisionStore));
         _restorer = restorer ?? throw new ArgumentNullException(nameof(restorer));
+        _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         // 現在時刻を注入可能にしているのは、期間プリセット（過去7日等）の計算をテストで
         // 日付をまたがずに固定できるようにするため。既定はローカル時刻の DateTimeOffset.Now。
         _now = now ?? (() => DateTimeOffset.Now);
         RestoreCommand = new AsyncRelayCommand(RestoreSelectedAsync, () => SelectedItem is { CanRestore: true });
+        // 「ここまで戻す」: 単発復元（RestoreCommand）とは別の操作として追加する（仕様）。
+        // 取り消し対象が無い（最新リビジョンを選んでいる）場合は無効化する（8番目の要件）。
+        RestoreThroughCommand = new AsyncRelayCommand(RestoreThroughSelectedAsync, HasRestoreThroughTarget);
     }
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
@@ -161,6 +175,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
             {
                 RevisionSelected?.Invoke(this, value);
                 ((AsyncRelayCommand)RestoreCommand).RaiseCanExecuteChanged();
+                ((AsyncRelayCommand)RestoreThroughCommand).RaiseCanExecuteChanged();
             }
         }
     }
@@ -336,6 +351,19 @@ public sealed class HistoryPaneViewModel : ObservableObject
 
     public ICommand RestoreCommand { get; }
 
+    /// <summary>
+    /// 「ここまで戻す」（まとめ戻し）。選択リビジョンより新しいリビジョンをすべて新しい順に
+    /// 取り消し、選択リビジョンを適用した直後の状態を再現する。単発復元（RestoreCommand）とは
+    /// 別の操作であり、既存の単発復元の挙動には影響しない。
+    /// </summary>
+    public ICommand RestoreThroughCommand { get; }
+
+    /// <summary>選択中のリビジョンより新しいリビジョンが1件でもあるか（＝取り消す対象があるか）。
+    /// 最新リビジョンを選んでいるときは対象が無いため false（RestoreThroughCommandを無効化する）。
+    /// フィルタで一覧が絞られていても、判定は常に全リビジョン（<see cref="_allRevisions"/>）基準で行う。</summary>
+    private bool HasRestoreThroughTarget()
+        => SelectedItem is not null && _allRevisions.Any(r => r.Manifest.Revision > SelectedItem.Revision.Manifest.Revision);
+
     /// <summary>指定プロジェクトのリビジョン一覧を読み込む。</summary>
     public async Task LoadAsync(string projectId, string projectRoot, CancellationToken ct = default)
     {
@@ -419,6 +447,130 @@ public sealed class HistoryPaneViewModel : ObservableObject
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
         return true;
+    }
+
+    private Task RestoreThroughSelectedAsync()
+        => SelectedItem is null ? Task.CompletedTask : RestoreThroughAsync(SelectedItem, CancellationToken.None).AsTask();
+
+    /// <summary>
+    /// 「ここまで戻す」の実体。事前確認（対象リビジョン数・影響ファイル・復元不可の検出）→
+    /// 確認ダイアログ→リビジョン番号の消費→<see cref="RevisionRestorer.RestoreThroughAsync"/>の
+    /// 順で進める。既存の<see cref="RestoreAsync"/>（単発復元）と同じくE301（適用後の変更検出）は
+    /// forceで再試行できるようにする。
+    /// </summary>
+    private async ValueTask<bool> RestoreThroughAsync(RevisionRowViewModel target, CancellationToken ct)
+    {
+        if (_projectId is null || _projectRoot is null)
+        {
+            return false;
+        }
+
+        var preview = RevisionRestorer.BuildRestoreThroughPreview(_allRevisions, target.Revision.Manifest.Revision);
+        if (preview.RevisionsToUndo.Count == 0)
+        {
+            await _dialogs
+                .ShowMessageAsync("ここまで戻す", $"{target.RevisionLabel} は最新のリビジョンのため、取り消す対象がありません。")
+                .ConfigureAwait(true);
+            return false;
+        }
+        if (preview.NotRestorable.Count > 0)
+        {
+            var names = string.Join("、", preview.NotRestorable.Select(r => $"r{r.Manifest.Revision}"));
+            await _dialogs
+                .ShowMessageAsync(
+                    "ここまで戻せません",
+                    $"取り消し対象にバックアップの実体が失われているリビジョンが含まれるため中止しました（{names}）。" +
+                    "順序を保ったまま取り消せないリビジョンを飛ばして続行すると内容が壊れるため、この操作は実行できません。")
+                .ConfigureAwait(true);
+            return false;
+        }
+
+        if (!await ConfirmRestoreThroughAsync(target, preview).ConfigureAwait(true))
+        {
+            return false;
+        }
+
+        var newRevision = await _projectStore.ConsumeNextRevisionAsync(_projectId, ct).ConfigureAwait(true);
+        if (!newRevision.IsSuccess)
+        {
+            await _dialogs
+                .ShowMessageAsync("ここまで戻せません", string.Join(Environment.NewLine, newRevision.Errors.Select(i => i.ToDisplayText())))
+                .ConfigureAwait(true);
+            return false;
+        }
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await _restorer
+            .RestoreThroughAsync(
+                _projectId, _projectRoot, target.Revision.Manifest.Revision, preview.RevisionsToUndo, newRevision.Value, force: false, ct)
+            .ConfigureAwait(true);
+        if (!result.IsSuccess && result.Errors.Any(i => i.Code == ErrorCode.E301))
+        {
+            var force = await _dialogs
+                .ConfirmAsync(
+                    "適用後の変更を検出",
+                    "取り消しの起点となる最新リビジョンのファイルが、適用後にさらに変更されています。上書きしてここまで戻しますか？")
+                .ConfigureAwait(true);
+            if (!force)
+            {
+                return false;
+            }
+            result = await _restorer
+                .RestoreThroughAsync(
+                    _projectId, _projectRoot, target.Revision.Manifest.Revision, preview.RevisionsToUndo, newRevision.Value, force: true, ct)
+                .ConfigureAwait(true);
+        }
+        stopwatch.Stop();
+
+        if (!result.IsSuccess)
+        {
+            // 6番目の要件: 途中で失敗しても成功したとは報告しない。RevisionRestorer側で
+            // 「どこまで戻せたか」「次に何をすればよいか」を含めた日本語メッセージを組み立てて
+            // 返すため、そのままダイアログへ出す。r{newRevision}としては記録済みのため、
+            // 一覧を再読み込みして反映する（中途半端な状態であることが一覧からも分かるように）。
+            Logger?.Error("restore-through", string.Join(" / ", result.Errors.Select(i => i.ToDisplayText())),
+                revision: newRevision.Value, durationMs: stopwatch.ElapsedMilliseconds);
+            await _dialogs
+                .ShowMessageAsync("ここまで戻せませんでした", string.Join(Environment.NewLine, result.Errors.Select(i => i.ToDisplayText())))
+                .ConfigureAwait(true);
+            await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
+            return false;
+        }
+
+        Logger?.Info("restore-through",
+            $"{target.RevisionLabel}まで戻し、r{result.Value.Revision}として記録しました（{result.Value.Entries.Count}件）",
+            revision: result.Value.Revision, durationMs: stopwatch.ElapsedMilliseconds);
+        foreach (var issue in result.Issues.Where(i => i.Severity != Severity.Error))
+        {
+            Logger?.Warn("restore-through", issue.ToDisplayText(), revision: result.Value.Revision, targetPath: issue.Path);
+        }
+
+        RevisionRestored?.Invoke(this, EventArgs.Empty);
+        await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
+        await _dialogs
+            .ShowMessageAsync("ここまで戻しました", $"{target.RevisionLabel} を適用した直後の状態まで戻し、r{result.Value.Revision} として記録しました。")
+            .ConfigureAwait(true);
+        return true;
+    }
+
+    /// <summary>
+    /// 3番目の要件: 実行前に「何を・いくつ・どのファイルに対して行うか」を示す確認ダイアログ。
+    /// 取り消し対象のリビジョン数と影響ファイル一覧（多ければ件数集約）を含める。
+    /// </summary>
+    private Task<bool> ConfirmRestoreThroughAsync(RevisionRowViewModel target, RestoreThroughPreview preview)
+    {
+        const int MaxFilesToList = 10;
+        var revisionList = string.Join("、", preview.RevisionsToUndo.Select(r => $"r{r.Manifest.Revision}"));
+        var fileList = preview.AffectedPaths.Count <= MaxFilesToList
+            ? string.Join("\n", preview.AffectedPaths)
+            : string.Join("\n", preview.AffectedPaths.Take(MaxFilesToList)) + $"\n…ほか{preview.AffectedPaths.Count - MaxFilesToList}件";
+
+        var message =
+            $"{target.RevisionLabel} を適用した直後の状態まで戻します。\n\n" +
+            $"取り消すリビジョン（{preview.RevisionsToUndo.Count}件、新しい順）:\n{revisionList}\n\n" +
+            $"影響を受けるファイル（{preview.AffectedPaths.Count}件）:\n{fileList}\n\n" +
+            "この操作自体も新しいリビジョンとして記録されるため、後から「このリビジョンを取り消す」で元に戻せます。よろしいですか？";
+        return _dialogs.ConfirmAsync("ここまで戻す確認", message);
     }
 
     /// <summary>

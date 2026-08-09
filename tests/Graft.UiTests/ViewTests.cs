@@ -61,6 +61,8 @@ public class ViewTests
                     Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
                 new Graft.Core.RevisionRestorer(new Graft.Infra.AppPaths(
                     Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
+                new Graft.Features.ProjectStore(new Graft.Infra.AppPaths(
+                    Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
                 new Graft.Platform.Null.NullDialogService()),
         };
         RenderInWindow(pane);

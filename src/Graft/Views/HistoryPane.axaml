@@ -13,8 +13,14 @@
     -->
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
 
-        <!-- 見出しと復元ボタン -->
-        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
+        <!--
+            見出しと復元ボタン。2種類の復元操作を並べる。
+            - 「このリビジョンを取り消す」（RestoreCommand）: 選んだ1件だけを取り消す（従来からの単発復元）。
+            - 「ここまで戻す」（RestoreThroughCommand）: 選んだリビジョンより新しいものをすべて
+              新しい順に取り消し、選んだ時点の状態まで一気に戻す（追加機能）。
+            アイコン・文言（HelpTip・AutomationProperties.Name）の両方で明確に区別する。
+        -->
+        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto,Auto">
             <TextBlock Grid.Column="0"
                        Text="履歴"
                        VerticalAlignment="Center"
@@ -26,10 +32,21 @@
                     Padding="4"
                     Background="Transparent"
                     BorderThickness="0"
-                    local:HelpTip.Standard="選択したリビジョン直前の状態へ復元"
-                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョン（適用の記録）を適用する直前の状態へ、ファイルを元に戻します。適用した結果が思っていたものと違ったときのやり直し手段です。一覧から復元したい時点を選んでからこのボタンを押してください。"
-                    AutomationProperties.Name="選択したリビジョンへ復元">
+                    local:HelpTip.Standard="このリビジョンだけを取り消し、適用する直前の状態へ戻します。"
+                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョン（適用の記録）だけを取り消し、そのリビジョンを適用する直前の状態へファイルを戻します。それより新しいリビジョンには影響しません。選んだリビジョンより新しい変更もまとめて取り消したい場合は、隣の「ここまで戻す」ボタンを使ってください。"
+                    AutomationProperties.Name="このリビジョンを取り消す">
                 <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
+            </Button>
+            <Button Grid.Column="2"
+                    Command="{Binding RestoreThroughCommand}"
+                    Margin="2,0,0,0"
+                    Padding="4"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    local:HelpTip.Standard="選択したリビジョンより新しい変更をすべて取り消し、その時点まで一気に戻します。"
+                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョンより新しいリビジョンをすべて新しい順に取り消し、選んだリビジョンを適用した直後の状態を再現します。「このリビジョンを取り消す」が1件だけを取り消すのに対し、こちらは選んだ地点までまとめて戻します。実行前に対象のリビジョン数と影響するファイルの一覧を確認するダイアログが出ます。この操作自体も新しいリビジョンとして記録されるため、戻しすぎた場合は「このリビジョンを取り消す」であとから元に戻せます。最新のリビジョンを選んでいるときは取り消す対象が無いため無効になります。"
+                    AutomationProperties.Name="選択したリビジョンまでまとめて戻す">
+                <local:IconGlyph Data="{DynamicResource IconRewindGeometry}" />
             </Button>
         </Grid>
 

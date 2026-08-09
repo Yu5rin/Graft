@@ -76,7 +76,7 @@ public sealed partial class MainViewModel : ObservableObject
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
-        History = new HistoryPaneViewModel(revisionStore, revisionRestorer, dialogService);
+        History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
         // DiffViewModelは構築時にSettingsを固定するため、設定読み込み前は既定値で仮に構築し、
         // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
         Diff = new DiffViewModel(new Settings(), _ui);
