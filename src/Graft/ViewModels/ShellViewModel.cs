@@ -17,6 +17,18 @@ public enum SideViewKind
 }
 
 /// <summary>
+/// 接ぎ木パネルの配置（利用者からの改善要望: コードの下だけでなく右にも置けるようにする）。
+/// 既定は<see cref="Bottom"/>（従来どおりコードの下、2列＋下段）。<see cref="Right"/>は
+/// サイドバー｜エディタ｜接ぎ木パネルの3列になる。切替はGraftPanel.axamlのヘッダーボタン
+/// （ShellViewModel.ToggleGraftPanelPlacementCommand）で行う。
+/// </summary>
+public enum GraftPanelPlacementKind
+{
+    Bottom,
+    Right,
+}
+
+/// <summary>
 /// 旧キー（v1.5のショートカット）の種別。附録A「キーマップ移行」の一度きり通知に使う
 /// （9.5: 素のCtrl+V・Ctrl+Z・Ctrl+H・素の1〜9）。
 /// </summary>
@@ -45,6 +57,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private SideViewKind _selectedSideView = SideViewKind.Project;
     private bool _isSideViewCollapsed;
     private bool _isGraftPanelOpen;
+    private GraftPanelPlacementKind _graftPanelPlacement = GraftPanelPlacementKind.Bottom;
     private string? _currentProjectId;
 
     public ShellViewModel(
@@ -70,6 +83,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         SelectSideViewCommand = new RelayCommand<SideViewKind>(SelectSideView);
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
+        ToggleGraftPanelPlacementCommand = new RelayCommand(() => GraftPanelPlacement =
+            GraftPanelPlacement == GraftPanelPlacementKind.Bottom ? GraftPanelPlacementKind.Right : GraftPanelPlacementKind.Bottom);
         OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
         ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
         OpenShortcutsCommand = new RelayCommand(() => RequestOpenShortcuts?.Invoke(this, EventArgs.Empty));
@@ -136,11 +151,44 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _isGraftPanelOpen, value);
     }
 
+    /// <summary>
+    /// 接ぎ木パネルの配置（下／右）。既定は<see cref="GraftPanelPlacementKind.Bottom"/>。
+    /// 実際のGrid行・列の付け替えはShellWindow.axaml.csが担う（Viewは1インスタンスのまま
+    /// Grid.Row/Grid.Columnだけ動かすため、このプロパティ自体はUIフレームワークを知らない）。
+    /// </summary>
+    public GraftPanelPlacementKind GraftPanelPlacement
+    {
+        get => _graftPanelPlacement;
+        set => SetProperty(ref _graftPanelPlacement, value, NotifyGraftPanelPlacementChanged);
+    }
+
+    /// <summary>
+    /// GraftPanel.axamlのヘッダーアイコン出し分け用。「右配置かどうか」をbool一つで持たせ、
+    /// XAML側でMultiDataTrigger相当の分岐を組まずに済むようにする（IsExplorerActive等と同じ考え方）。
+    /// </summary>
+    public bool IsGraftPanelPlacementRight => GraftPanelPlacement == GraftPanelPlacementKind.Right;
+
+    private void NotifyGraftPanelPlacementChanged() => OnPropertyChanged(nameof(IsGraftPanelPlacementRight));
+
+    /// <summary>
+    /// ProjectPaneLayout.GraftPanelPlacement（文字列）をenumへ変換する。後方互換のため、
+    /// 未知の値・null（新キーの無い既存layout.jsonを読んだ場合を含む）は既定の下配置として扱う。
+    /// </summary>
+    public static GraftPanelPlacementKind ParseGraftPanelPlacement(string? value)
+        => value == "right" ? GraftPanelPlacementKind.Right : GraftPanelPlacementKind.Bottom;
+
+    /// <summary><see cref="ParseGraftPanelPlacement"/>の逆変換。layout.jsonへ書き戻す文字列を返す。</summary>
+    public static string ToGraftPanelPlacementValue(GraftPanelPlacementKind placement)
+        => placement == GraftPanelPlacementKind.Right ? "right" : "bottom";
+
     /// <summary>サイドバーのアイコンクリック（CommandParameterに<see cref="SideViewKind"/>）。</summary>
     public ICommand SelectSideViewCommand { get; }
 
     /// <summary>Ctrl+J・接ぎ木パネルのヘッダーボタン。</summary>
     public ICommand ToggleGraftPanelCommand { get; }
+
+    /// <summary>接ぎ木パネルのヘッダーの配置切替ボタン。下配置と右配置を1クリックで切り替える。</summary>
+    public ICommand ToggleGraftPanelPlacementCommand { get; }
 
     /// <summary>4.8: ブロック一覧の「エディタで開く」。マッチ位置をエディタで開く。</summary>
     public ICommand OpenBlockInEditorCommand { get; }

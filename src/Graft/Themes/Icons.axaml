@@ -183,9 +183,15 @@
             M6,7 L6,11 C6,14 9,15 12,15 L18,15
         </StreamGeometry>
 
-        <!-- panel-bottom: 接ぎ木パネルの開閉 -->
+        <!-- panel-bottom: 接ぎ木パネルの開閉・下配置（画面下寄りの帯を強調） -->
         <StreamGeometry x:Key="IconPanelBottomGeometry">
             M3,4 L21,4 L21,20 L3,20 Z M3,15 L21,15
+        </StreamGeometry>
+
+        <!-- panel-right: 接ぎ木パネルの配置切替（右配置。IconPanelBottomGeometryと対で使う。
+             画面右寄りの帯を強調した意匠で、区切り線の向きだけを90度変えて揃えている） -->
+        <StreamGeometry x:Key="IconPanelRightGeometry">
+            M3,4 L21,4 L21,20 L3,20 Z M15,4 L15,20
         </StreamGeometry>
 
         <!-- help-circle: ショートカット一覧を開く（円はIconXCircleGeometryと同じ描き方に揃えた） -->

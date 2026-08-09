@@ -29,11 +29,21 @@ public partial class ShellWindow : Window
     internal const double SideViewMinWidth = 180;
     // 接ぎ木パネル: ヘッダー32px＋パッチ行が最低2〜3件見える高さとして120pxを採用。
     internal const double GraftPanelMinHeight = 120;
+    // 接ぎ木パネル（右配置）: ヘッダーのボタン群（開閉・配置切替・失敗を再依頼・プレビュー・適用）が
+    // 横一列に並ぶため、下配置の120pxのような狭さは許容できない。仕様書の目安値は240pxだったが、
+    // 実機検証（Xvfb）でボタンを1つずつ幅を変えながら実測したところ、240pxは疎か350pxでも
+    // 「適用」ボタン（最重要の操作）自体が右パネルの外へはみ出して押せなくなることを確認した。
+    // 420pxで初めて「適用」まで含めた全ボタンが収まったため、この実測値を最小幅として採用する
+    // （目安の240pxをそのまま使うと、右配置で唯一の操作手段である「適用」が押せない状態に
+    // なってしまうため、実機の結果を優先した）。
+    internal const double GraftPanelMinWidth = 420;
 
-    // 9.2/3.2: サイドビュー幅・接ぎ木パネル高さは ProjectPaneLayout の
-    // SideViewWidth/GraftPanelHeight に記憶する。
+    // 9.2/3.2: サイドビュー幅・接ぎ木パネルの高さ・幅は ProjectPaneLayout の
+    // SideViewWidth/GraftPanelHeight/GraftPanelWidth に記憶する。
+    // 既定の460pxはGraftPanelMinWidth（420px、実機検証済み）にヘッダーの余白分を足した値。
     private double _sideViewWidth = 260;
     private double _graftPanelHeight = 260;
+    private double _graftPanelWidth = 460;
 
     // 課題2: 「閉じたときの動作」設定。既定は"exit"（終了する）。StartupCoordinatorが
     // 起動時・設定変更時に設定する。設定は即時反映のため、ここは可変プロパティにする。
@@ -80,6 +90,8 @@ public partial class ShellWindow : Window
     private ColumnDefinition SideViewColumn => BodyGrid.ColumnDefinitions[1];
     private RowDefinition GraftSplitterRow => EditorAreaGrid.RowDefinitions[1];
     private RowDefinition GraftPanelRow => EditorAreaGrid.RowDefinitions[2];
+    private ColumnDefinition GraftSplitterColumn => EditorAreaGrid.ColumnDefinitions[1];
+    private ColumnDefinition GraftPanelColumn => EditorAreaGrid.ColumnDefinitions[2];
 
     /// <summary>headlessテスト・デザイナ用の引数なしコンストラクタ。</summary>
     public ShellWindow()
@@ -171,12 +183,25 @@ public partial class ShellWindow : Window
         Dispatcher.UIThread.Post(() => QuickOpenOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
     }
 
+    /// <summary>
+    /// ApplyLayoutToWindow（保存済みレイアウトの反映）が完了したかどうか。既定はfalse。
+    /// OnLoadedはGraft.InitializeAsync()（実ファイルI/Oを含む非同期処理）の完了を待ってから
+    /// ApplyLayoutToWindowを呼ぶ非同期の経路のため、headlessテストがShow()直後に
+    /// Dispatcher.UIThread.RunJobs()を1回呼ぶだけでは、まだこの反映が終わっていないことがある
+    /// （実測で確認済み）。テストが「保存済みレイアウトの反映が確実に終わった状態」を
+    /// 待ち合わせるための目印として公開する（GraftPanelPlacementTests.WaitForWindowLoaded参照）。
+    /// publicなのは、CloseBehavior/IsTraySupported等ここまでのテスト向け公開プロパティと
+    /// 同じ理由（Graft.UiTestsプロジェクトにInternalsVisibleToが無いため）。
+    /// </summary>
+    public bool IsLayoutApplied { get; private set; }
+
     private async void OnLoaded(object? sender, RoutedEventArgs e)
     {
         await SafeHandler.RunAsync("シェルの初期化", async () =>
         {
             await ViewModel.Graft.InitializeAsync().ConfigureAwait(true);
             ApplyLayoutToWindow();
+            IsLayoutApplied = true;
         }).ConfigureAwait(true);
     }
 
@@ -193,7 +218,14 @@ public partial class ShellWindow : Window
 
         var paneLayout = ViewModel.Graft.GetCurrentPaneLayout();
         _sideViewWidth = SafeLength(paneLayout.SideViewWidth, 260);
+        // 配置（下／右）は先に反映する。IsGraftPanelOpenが既に真（パッチ解析済み等）だと
+        // このSetterがOnShellViewModelPropertyChanged経由で一時的にApplyGraftPanelStateを
+        // 呼ぶことがあるが、そのときの捕捉値（CaptureGraftPanelActualSize）は初期化前の
+        // 仮の寸法でしかないため、直後の_graftPanelHeight/_graftPanelWidthへの代入で
+        // 必ず上書きされる（保存値が最終的に勝つ）。
+        ViewModel.GraftPanelPlacement = ShellViewModel.ParseGraftPanelPlacement(paneLayout.GraftPanelPlacement);
         _graftPanelHeight = SafeLength(paneLayout.GraftPanelHeight, 260);
+        _graftPanelWidth = SafeLength(paneLayout.GraftPanelWidth, 460);
         ApplySideViewState();
         ApplyGraftPanelState();
     }
@@ -222,11 +254,34 @@ public partial class ShellWindow : Window
     }
 
     /// <summary>
-    /// 接ぎ木パネルの折りたたみ・展開をRowDefinitionへ反映する。
-    /// 要望1: MinHeightもサイドビューと同じ理由で開閉に合わせて切り替える。
+    /// 接ぎ木パネルの折りたたみ・展開・配置（下／右）をRow/ColumnDefinitionへ反映し、
+    /// パネル自体（GraftPanelControl、1インスタンスのみ）のGrid.Row/Grid.Columnを
+    /// 現在の配置に合わせて付け替える。配置切替時は<see cref="OnShellViewModelPropertyChanged"/>
+    /// が事前に<see cref="CaptureGraftPanelActualSize"/>で移動元の実寸を記憶してから呼ぶ。
     /// </summary>
     private void ApplyGraftPanelState()
     {
+        if (ViewModel.GraftPanelPlacement == GraftPanelPlacementKind.Right)
+        {
+            ApplyGraftPanelStateRight();
+        }
+        else
+        {
+            ApplyGraftPanelStateBottom();
+        }
+    }
+
+    /// <summary>
+    /// 下配置（既定）。要望1: MinHeightもサイドビューと同じ理由で開閉に合わせて切り替える。
+    /// 列側（右配置用）は常に幅0へたたみ、右配置用スプリッタも隠す。
+    /// </summary>
+    private void ApplyGraftPanelStateBottom()
+    {
+        GraftSplitterColumn.Width = new GridLength(0);
+        GraftPanelColumn.MinWidth = 0;
+        GraftPanelColumn.Width = new GridLength(0);
+        GraftSplitterRight.IsVisible = false;
+
         if (ViewModel.IsGraftPanelOpen)
         {
             GraftPanelRow.MinHeight = GraftPanelMinHeight;
@@ -240,6 +295,64 @@ public partial class ShellWindow : Window
             GraftPanelRow.Height = new GridLength(GraftPanelHeaderHeight);
             GraftSplitterRow.Height = new GridLength(0);
             GraftSplitter.IsVisible = false;
+        }
+
+        Grid.SetRow(GraftPanelControl, 2);
+        Grid.SetColumn(GraftPanelControl, 0);
+    }
+
+    /// <summary>
+    /// 右配置（3列: サイドバー｜エディタ｜接ぎ木パネル）。行側（下配置用）は常に高さ0へたたみ、
+    /// エディタ行[0]がGrid全体の高さを占めるようにする。
+    ///
+    /// 折りたたみ時は下配置のようにヘッダー分（32px）だけ残さず、幅0まで完全にたたむ
+    /// （サイドビュー列の折りたたみと同じ扱い）。接ぎ木パネルのヘッダーはプレビュー・適用・
+    /// 失敗を再依頼など複数のボタンが横一列に並ぶため、下配置の32px高のような細い帯へ
+    /// 押し込めると実機で崩れる（ボタンが重なる／はみ出す）ことを確認済み。折りたたみ中でも
+    /// Ctrl+J、またはサイドバー等から再度パネルを開けば元に戻るため、再展開の手段は失われない。
+    /// </summary>
+    private void ApplyGraftPanelStateRight()
+    {
+        GraftSplitterRow.Height = new GridLength(0);
+        GraftPanelRow.MinHeight = 0;
+        GraftPanelRow.Height = new GridLength(0);
+        GraftSplitter.IsVisible = false;
+
+        if (ViewModel.IsGraftPanelOpen)
+        {
+            GraftPanelColumn.MinWidth = GraftPanelMinWidth;
+            GraftPanelColumn.Width = new GridLength(_graftPanelWidth);
+            GraftSplitterColumn.Width = GridLength.Auto;
+            GraftSplitterRight.IsVisible = true;
+        }
+        else
+        {
+            GraftPanelColumn.MinWidth = 0;
+            GraftPanelColumn.Width = new GridLength(0);
+            GraftSplitterColumn.Width = new GridLength(0);
+            GraftSplitterRight.IsVisible = false;
+        }
+
+        Grid.SetRow(GraftPanelControl, 0);
+        Grid.SetColumn(GraftPanelControl, 2);
+    }
+
+    /// <summary>
+    /// 接ぎ木パネルが展開中に限り、現在の配置（移動元）での実寸を記憶する。
+    /// 折りたたみ直前・配置切替直前のどちらからも呼ばれる共通処理
+    /// （<see cref="OnShellViewModelPropertyChanged"/>参照）。
+    /// </summary>
+    private void CaptureGraftPanelActualSize()
+    {
+        if (!ViewModel.IsGraftPanelOpen) return;
+
+        if (Grid.GetColumn(GraftPanelControl) == 2)
+        {
+            _graftPanelWidth = SafeLength(GraftPanelColumn.ActualWidth, _graftPanelWidth);
+        }
+        else
+        {
+            _graftPanelHeight = SafeLength(GraftPanelRow.ActualHeight, _graftPanelHeight);
         }
     }
 
@@ -258,8 +371,13 @@ public partial class ShellWindow : Window
             case nameof(ShellViewModel.IsGraftPanelOpen):
                 if (!ViewModel.IsGraftPanelOpen)
                 {
-                    _graftPanelHeight = SafeLength(GraftPanelRow.ActualHeight, _graftPanelHeight);
+                    CaptureGraftPanelActualSize();
                 }
+                ApplyGraftPanelState();
+                break;
+            case nameof(ShellViewModel.GraftPanelPlacement):
+                // 移動元（切替前の配置）の実寸を、行き先を切り替える前に記憶しておく。
+                CaptureGraftPanelActualSize();
                 ApplyGraftPanelState();
                 break;
         }
@@ -312,14 +430,14 @@ public partial class ShellWindow : Window
         {
             _sideViewWidth = SafeLength(SideViewColumn.ActualWidth, _sideViewWidth);
         }
-        if (ViewModel.IsGraftPanelOpen)
-        {
-            _graftPanelHeight = SafeLength(GraftPanelRow.ActualHeight, _graftPanelHeight);
-        }
+        // 終了時点の配置での実寸を記憶する（下配置なら高さ、右配置なら幅）。
+        CaptureGraftPanelActualSize();
 
         var paneLayout = ViewModel.Graft.GetCurrentPaneLayout();
         paneLayout.SideViewWidth = _sideViewWidth;
         paneLayout.GraftPanelHeight = _graftPanelHeight;
+        paneLayout.GraftPanelWidth = _graftPanelWidth;
+        paneLayout.GraftPanelPlacement = ShellViewModel.ToGraftPanelPlacementValue(ViewModel.GraftPanelPlacement);
 
         // 3章: 終了時点で選択中のプロジェクトのタブ構成・展開状態を取り込んでから保存する
         // （プロジェクト切替時にしか取り込まれず、最後に使っていたプロジェクトのタブが
