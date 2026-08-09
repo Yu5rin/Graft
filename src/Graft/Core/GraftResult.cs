@@ -81,6 +81,15 @@ public sealed class GraftResult<T>
     public IEnumerable<GraftIssue> Errors => Issues.Where(i => i.Severity == Severity.Error);
 
     /// <summary>
+    /// 指定コードの問題が、深刻度を問わず含まれているかどうか。
+    /// 特定のエラーコードの有無で分岐したい場合はこちらを使うこと。<see cref="Errors"/>は
+    /// Severity.Error のみを対象とするため、Warning で発行されるコード（例:
+    /// リビジョン復元時の適用後変更検知E301）を条件にすると常にfalseになり、
+    /// 分岐が到達不能になる（実際に一度この不具合が起きている）。
+    /// </summary>
+    public bool HasIssue(ErrorCode code) => Issues.Any(i => i.Code == code);
+
+    /// <summary>
     /// 成功値。失敗時に参照すると例外を投げる。
     /// 成功していれば、値が null であってもそのまま返す（T が null を許す型の場合）。
     /// </summary>

@@ -424,10 +424,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
         }
 
         var result = await _restorer.RestoreAsync(_projectId, _projectRoot, target.Revision, force: false, ct).ConfigureAwait(true);
-        if (!result.IsSuccess && result.Errors.Any(i => i.Code == ErrorCode.E301))
+        if (!result.IsSuccess && result.HasIssue(ErrorCode.E301))
         {
             var force = await _dialogs
-                .ConfirmAsync("適用後の変更を検出", "復元対象のファイルが適用後にさらに変更されています。上書きして復元しますか？")
+                .ConfirmAsync("適用後の変更を検出", BuildAppliedAfterChangeMessage(target.RevisionLabel, result.Issues, "復元すると"))
                 .ConfigureAwait(true);
             if (!force)
             {
@@ -504,12 +504,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
             .RestoreThroughAsync(
                 _projectId, _projectRoot, target.Revision.Manifest.Revision, preview.RevisionsToUndo, newRevision.Value, force: false, ct)
             .ConfigureAwait(true);
-        if (!result.IsSuccess && result.Errors.Any(i => i.Code == ErrorCode.E301))
+        if (!result.IsSuccess && result.HasIssue(ErrorCode.E301))
         {
+            var newestLabel = $"r{preview.RevisionsToUndo[0].Manifest.Revision}";
             var force = await _dialogs
                 .ConfirmAsync(
                     "適用後の変更を検出",
-                    "取り消しの起点となる最新リビジョンのファイルが、適用後にさらに変更されています。上書きしてここまで戻しますか？")
+                    BuildAppliedAfterChangeMessage(newestLabel, result.Issues, "「ここまで戻す」を続行すると"))
                 .ConfigureAwait(true);
             if (!force)
             {
@@ -551,6 +552,31 @@ public sealed class HistoryPaneViewModel : ObservableObject
             .ShowMessageAsync("ここまで戻しました", $"{target.RevisionLabel} を適用した直後の状態まで戻し、r{result.Value.Revision} として記録しました。")
             .ConfigureAwait(true);
         return true;
+    }
+
+    /// <summary>
+    /// E301（適用後の変更検出）で復元が止まったときの確認ダイアログの本文を組み立てる。
+    /// 「何が起きているか」（<paramref name="revisionLabel"/>適用後に対象ファイルが手作業で
+    /// 変更・削除されている）と、「続行すると何が失われるか」（その手直しが上書きされて消える）
+    /// の両方を明示する。影響ファイルが多い場合は件数集約する（<see cref="ConfirmRestoreThroughAsync"/>
+    /// と同じ方針）。
+    /// </summary>
+    private static string BuildAppliedAfterChangeMessage(string revisionLabel, IReadOnlyList<GraftIssue> issues, string continuation)
+    {
+        const int MaxFilesToList = 10;
+        var paths = issues
+            .Where(i => i.Code == ErrorCode.E301 && i.Path is not null)
+            .Select(i => i.Path!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var fileList = paths.Count <= MaxFilesToList
+            ? string.Join("\n", paths)
+            : string.Join("\n", paths.Take(MaxFilesToList)) + $"\n…ほか{paths.Count - MaxFilesToList}件";
+
+        return $"{revisionLabel} を適用した後に、次の{paths.Count}件のファイルが手作業で変更されています（削除されたものを含みます）。\n\n" +
+               $"{fileList}\n\n" +
+               $"このまま{continuation}、これらの変更は失われます。続行しますか？";
     }
 
     /// <summary>
