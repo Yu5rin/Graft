@@ -14,9 +14,10 @@ public sealed class NullSingleInstanceGuard : ISingleInstanceGuard
 
     public bool TryAcquire(string name) => true;
 
-    public void ActivateExistingInstance(string mainWindowTitle)
+    public bool ActivateExistingInstance(string mainWindowTitle)
     {
-        // 何もしない。
+        // 何もしない（対応していない環境のため常に失敗扱い）。
+        return false;
     }
 
     public void Dispose()

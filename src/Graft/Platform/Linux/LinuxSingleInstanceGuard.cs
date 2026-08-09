@@ -36,10 +36,10 @@ public sealed class LinuxSingleInstanceGuard : ISingleInstanceGuard
         return _guard is not null;
     }
 
-    public void ActivateExistingInstance(string mainWindowTitle)
+    public bool ActivateExistingInstance(string mainWindowTitle)
     {
-        if (TryActivateWithWmctrl(mainWindowTitle)) return;
-        if (X11WindowActivator.TryActivate(mainWindowTitle)) return;
+        if (TryActivateWithWmctrl(mainWindowTitle)) return true;
+        if (X11WindowActivator.TryActivate(mainWindowTitle)) return true;
 
         // ここまで来ると前面化はできなかった（多重起動の防止自体は成立済み）。
         // 利用者からは「ダブルクリックしても何も起きない」ように見えるため、
@@ -48,6 +48,7 @@ public sealed class LinuxSingleInstanceGuard : ISingleInstanceGuard
             $"Graft: 既存ウィンドウ「{mainWindowTitle}」の前面化に失敗しました" +
             "（wmctrl未導入、またはウィンドウマネージャがEWMHの_NET_ACTIVE_WINDOWに未対応の可能性があります）。" +
             "多重起動の防止自体は機能しています。");
+        return false;
     }
 
     /// <summary>wmctrlでの前面化を試みる。成功したら true。</summary>

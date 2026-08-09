@@ -190,8 +190,15 @@ public interface ISingleInstanceGuard : IPlatformService, IDisposable
     /// <summary>
     /// 既に起動している既存ウィンドウを前面表示する。<see cref="TryAcquire"/> が false を
     /// 返した場合に呼び出す想定。利用できない環境では何もしない。
+    ///
+    /// 機能追加: クリップボード監視でのパッチ検知時の前面化（<c>Views/StartupCoordinator.
+    /// ClipboardActivation.cs</c>）でも同じ経路を再利用するため、成否を戻り値で返す。
+    /// Windowsでは<c>SetForegroundWindow</c>がOSのフォーカス窃取防止で拒否されタスクバーの
+    /// アイコン点滅に縮退することがあり、その場合は false（呼び出し側はエラー扱いにせず
+    /// ログにのみ記録する。多重起動検出時の前面化はこの戻り値を見ない＝従来どおり静かに
+    /// 縮退するのみで挙動は変わらない）。
     /// </summary>
-    void ActivateExistingInstance(string mainWindowTitle);
+    bool ActivateExistingInstance(string mainWindowTitle);
 }
 
 /// <summary>

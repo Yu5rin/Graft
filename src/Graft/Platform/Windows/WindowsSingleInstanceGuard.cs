@@ -37,16 +37,22 @@ public sealed class WindowsSingleInstanceGuard : ISingleInstanceGuard
         return _guard is not null;
     }
 
-    public void ActivateExistingInstance(string mainWindowTitle)
+    public bool ActivateExistingInstance(string mainWindowTitle)
     {
         var hwnd = FindWindow(null, mainWindowTitle);
         if (hwnd == IntPtr.Zero)
         {
-            return;
+            return false;
         }
 
         ShowWindow(hwnd, SwRestore);
-        SetForegroundWindow(hwnd);
+
+        // 機能追加: クリップボード監視での前面化はこの戻り値を見て縮退をログに残す
+        // （呼び出し側のコメント参照）。SetForegroundWindowはOSのフォーカス窃取防止により
+        // 他アプリが作業中だと拒否されることがあり、その場合はタスクバーのアイコン点滅に
+        // 縮退する（falseを返す）。多重起動検出時の前面化はこれまでどおり戻り値を見ないため、
+        // この変更によるWindows側の既存挙動の差は無い。
+        return SetForegroundWindow(hwnd);
     }
 
     public void Dispose()
