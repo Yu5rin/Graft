@@ -188,6 +188,47 @@ public class RestoreThroughTests
     }
 
     // ------------------------------------------------------------------
+    // 不具合回帰: 起点リビジョン適用後にさらに変更されている場合、force無しでは中止し
+    // forceで続行すると戻せる（単発復元RestoreAsyncと同じくE301はSeverity.Warningで返る）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ここまで戻す: 起点となる最新リビジョンの適用後にさらに変更されているとforce指定がなければ中止し、forceで続行すると戻せる")]
+    public async Task 適用後変更はforce無しでは中止しforceで戻せる()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+
+        await ApplyRealAsync(harness, 1, BuildFullPatch("t.txt", "v1"));
+        await ApplyRealAsync(harness, 2, BuildFullPatch("t.txt", "v2"));
+
+        // r2適用後にさらに手で変更する（取り消し対象の起点＝最新リビジョンr2の変更として検知される）。
+        File.WriteAllText(Path.Combine(harness.ProjectRoot, "t.txt"), "手で変更した内容");
+
+        var list = await harness.Revisions.ListAsync(harness.ProjectId);
+        var preview = RevisionRestorer.BuildRestoreThroughPreview(list.Value, targetRevision: 1);
+
+        var restorer = new RevisionRestorer(harness.Paths);
+        var withoutForce = await restorer.RestoreThroughAsync(
+            harness.ProjectId, harness.ProjectRoot, targetRevision: 1, preview.RevisionsToUndo, newRevisionNumber: 3, force: false);
+
+        withoutForce.IsSuccess.Should().BeFalse();
+        // 単発復元と同じくE301はSeverity.Warningとして返るため、Errorsではなくissues全体を確認する。
+        withoutForce.Issues.Should().Contain(i => i.Code == ErrorCode.E301);
+        File.ReadAllText(Path.Combine(harness.ProjectRoot, "t.txt")).Should().Be("手で変更した内容",
+            "force指定なしでは警告が出た時点で取り消しを行わないはず");
+        // 中止した場合は新規リビジョン用フォルダも作られない（BeginAsyncより前に中止するため）。
+        var backupDir = harness.Paths.GetProjectBackupDirectory(harness.ProjectId);
+        Directory.EnumerateDirectories(backupDir).Should().HaveCount(2, "r1・r2の実体のみで、r3用フォルダは作られないはず");
+
+        var withForce = await restorer.RestoreThroughAsync(
+            harness.ProjectId, harness.ProjectRoot, targetRevision: 1, preview.RevisionsToUndo, newRevisionNumber: 3, force: true);
+
+        withForce.IsSuccess.Should().BeTrue(string.Join(",", withForce.Issues.Select(i => i.ToDisplayText())));
+        File.ReadAllText(Path.Combine(harness.ProjectRoot, "t.txt")).Should().Contain("v1").And.NotContain("v2")
+            .And.NotContain("手で変更した内容", "r1適用直後の内容へ戻るはず");
+    }
+
+    // ------------------------------------------------------------------
     // 要件6: 最新リビジョンを選んだ場合は取り消す対象が無い
     // ------------------------------------------------------------------
 
