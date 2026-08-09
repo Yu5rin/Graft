@@ -118,17 +118,66 @@ public class LongLineTests : IDisposable
     [AvaloniaFact(DisplayName = "課題3: 極端に長い行を含むファイルを開いても実用的な時間で完了する（回帰ガード）")]
     public async Task 極端に長い行でも実用的な時間で開ける()
     {
-        var stopwatch = Stopwatch.StartNew();
-        var (_, window, _) = await OpenLongLineFileAsync();
-        stopwatch.Stop();
+        var appPaths = new AppPaths(_baseDirectory);
+        appPaths.EnsureCoreDirectoriesExist();
+        var (shell, window) = BuildShellAndWindow(appPaths);
+        window.Show();
+        await shell.Graft.InitializeAsync();
 
-        _output.WriteLine($"1行10万文字のファイルを開く: {stopwatch.ElapsedMilliseconds} ms");
+        // ウォームアップ（初回JIT・初回アセット読み込みの費用を計測対象から除く）。
+        // 基準測定と同じファイルを開くと「既に開いているタブへの切替」という別経路になり
+        // 測定にならないため、ウォームアップ専用の別ファイルを使う。
+        var warmupPath = Path.Combine(_baseDirectory, "Warmup.cs");
+        await File.WriteAllTextAsync(warmupPath, "class Warmup { void M() { } }\n");
+        (await shell.Editor.OpenFileAsync(warmupPath)).IsSuccess.Should().BeTrue();
 
-        // 実機での報告値（6.2秒）を大きく下回ることを確認する回帰ガード。環境差を考慮し
-        // 緩めの上限とする（性能が桁で悪化したときだけ気付ければよい、PerformanceTestsと同方針）。
-        stopwatch.ElapsedMilliseconds.Should().BeLessThan(3000);
+        // 基準: 極端に長い行を含むファイルと総文字数を揃えた（約10万文字）、
+        // ただし通常の行長（1行80文字程度）に分けたファイル。総データ量を揃えたうえで
+        // 「1行が極端に長い」ことそのものの影響だけを取り出す。
+        var normalPath = Path.Combine(_baseDirectory, "Normal.cs");
+        await File.WriteAllTextAsync(normalPath, BuildNormalShapedContent());
+
+        var baselineStopwatch = Stopwatch.StartNew();
+        var baselineResult = await shell.Editor.OpenFileAsync(normalPath);
+        baselineStopwatch.Stop();
+        baselineResult.IsSuccess.Should().BeTrue();
+
+        var longLinePath = Path.Combine(_baseDirectory, "LongLine.cs");
+        await File.WriteAllTextAsync(longLinePath, "class L { /* " + new string('x', 100_000) + " */ }\n");
+
+        var targetStopwatch = Stopwatch.StartNew();
+        var targetResult = await shell.Editor.OpenFileAsync(longLinePath);
+        targetStopwatch.Stop();
+        targetResult.IsSuccess.Should().BeTrue();
+
+        var baselineMs = Math.Max(1, baselineStopwatch.ElapsedMilliseconds);
+        var ratio = (double)targetStopwatch.ElapsedMilliseconds / baselineMs;
+        _output.WriteLine(
+            $"基準（総文字数同等・通常の行長）を開く: {baselineStopwatch.ElapsedMilliseconds} ms / "
+            + $"1行10万文字のファイルを開く: {targetStopwatch.ElapsedMilliseconds} ms（倍率 {ratio:F1}倍）");
+
+        // 実機での報告値（6.2秒、総データ量が同等の通常ファイルの10倍以上）を大きく下回ることを
+        // 確認する回帰ガード。絶対時間ではなく総データ量が同等な基準との倍率で判定するため、
+        // CI環境そのものの速さのばらつきには左右されない（性能が桁で悪化したときだけ
+        // 気付ければよい、PerformanceTestsと同方針）。
+        ratio.Should().BeLessThan(8,
+            $"総データ量が同等の通常ファイルに比べて{ratio:F1}倍かかっている"
+            + $"（基準{baselineStopwatch.ElapsedMilliseconds}ms→対象{targetStopwatch.ElapsedMilliseconds}ms）。"
+            + "構文強調・折り返し・括弧対応付けの自動無効化が効いていない可能性がある");
 
         window.Close();
+    }
+
+    /// <summary>1行10万文字のファイルと総文字数を揃えた、通常の行長（1行80文字）のファイル内容を生成する。</summary>
+    private static string BuildNormalShapedContent()
+    {
+        var builder = new System.Text.StringBuilder();
+        var oneLine = "// " + new string('a', 76) + "\n"; // 80文字（末尾の改行込み）
+        for (var i = 0; i < 1250; i++) // 1250行 * 80文字 = 100,000文字
+        {
+            builder.Append(oneLine);
+        }
+        return builder.ToString();
     }
 
     /// <summary>1行10万文字のファイル（課題3の再現ファイルそのもの）を開いた状態を作る共通処理。</summary>
