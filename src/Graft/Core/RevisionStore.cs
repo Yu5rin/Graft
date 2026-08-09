@@ -2,6 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.Core;
 
@@ -16,11 +17,21 @@ public sealed partial class RevisionStore
     private readonly AppPaths _paths;
     private readonly JsonFileStore _jsonStore = new();
     private readonly RevisionIndex _revisionIndex;
+    private readonly ITrashService? _trash;
 
-    public RevisionStore(AppPaths paths)
+    /// <param name="paths">アプリのデータフォルダ。</param>
+    /// <param name="trash">
+    /// ごみ箱への削除（<see cref="EnforceRetentionAsync"/>）。省略時（テスト等）は
+    /// ごみ箱を使わず常に通常削除へフォールバックする（Windows専用実装を直呼びしていた
+    /// 従来のRecycleBinをここへ置き換えた10件目の不具合修正。呼び出し元
+    /// （StartupCoordinator）は実行中のOSに応じた実装を <c>PlatformServices.Current.Trash</c>
+    /// から渡す）。
+    /// </param>
+    public RevisionStore(AppPaths paths, ITrashService? trash = null)
     {
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _revisionIndex = new RevisionIndex(paths);
+        _trash = trash;
     }
 
     /// <summary>
@@ -118,7 +129,9 @@ public sealed partial class RevisionStore
         return GraftResult<IReadOnlyList<RevisionSummary>>.Ok(inProgress, listResult.Issues);
     }
 
-    /// <summary>7.4の世代管理。上限超過分を古い順にゴミ箱（非Windowsでは通常削除）へ送る。</summary>
+    /// <summary>
+    /// 7.4の世代管理。上限超過分を古い順にゴミ箱（対応OS。未対応環境では通常削除）へ送る。
+    /// </summary>
     public async Task<GraftResult<int>> EnforceRetentionAsync(string projectId, BackupSettings settings, CancellationToken ct = default)
     {
         var listResult = await ListAsync(projectId, ct).ConfigureAwait(false);
@@ -134,7 +147,7 @@ public sealed partial class RevisionStore
         var maxCount = settings.MaxRevisions > 0 ? settings.MaxRevisions : int.MaxValue;
         var maxBytes = settings.MaxTotalMB > 0 ? (long)settings.MaxTotalMB * 1024 * 1024 : long.MaxValue;
 
-        return await RemoveUntilWithinLimitsAsync(oldestFirst, maxCount, maxBytes, settings.UseRecycleBin, ct).ConfigureAwait(false);
+        return await RemoveUntilWithinLimitsAsync(oldestFirst, maxCount, maxBytes, settings.UseRecycleBin, _trash, ct).ConfigureAwait(false);
     }
 
     /// <summary>同じ patchHash を持つ成功済みリビジョンを探す（仕様書6.2）。見つからなければ null。</summary>
@@ -344,7 +357,8 @@ public sealed partial class RevisionStore
     }
 
     private static async Task<GraftResult<int>> RemoveUntilWithinLimitsAsync(
-        IReadOnlyList<RevisionSummary> oldestFirst, int maxCount, long maxBytes, bool useRecycleBin, CancellationToken ct)
+        IReadOnlyList<RevisionSummary> oldestFirst, int maxCount, long maxBytes, bool useRecycleBin,
+        ITrashService? trash, CancellationToken ct)
     {
         var totalBytes = oldestFirst.Sum(s => s.SizeBytes);
         var removed = 0;
@@ -354,7 +368,7 @@ public sealed partial class RevisionStore
         while (index < oldestFirst.Count && (oldestFirst.Count - index > maxCount || totalBytes > maxBytes))
         {
             var target = oldestFirst[index];
-            var ok = await RemoveRevisionFolderAsync(target.FolderPath, useRecycleBin, ct).ConfigureAwait(false);
+            var ok = await RemoveRevisionFolderAsync(target.FolderPath, useRecycleBin, trash, ct).ConfigureAwait(false);
             if (ok)
             {
                 totalBytes -= target.SizeBytes;
@@ -370,7 +384,7 @@ public sealed partial class RevisionStore
         return GraftResult<int>.Ok(removed, issues);
     }
 
-    private static Task<bool> RemoveRevisionFolderAsync(string folderPath, bool useRecycleBin, CancellationToken ct)
+    private static Task<bool> RemoveRevisionFolderAsync(string folderPath, bool useRecycleBin, ITrashService? trash, CancellationToken ct)
         => Task.Run(() =>
         {
             try
@@ -382,13 +396,19 @@ public sealed partial class RevisionStore
                     return true;
                 }
 
-                if (useRecycleBin && OperatingSystem.IsWindows())
+                if (useRecycleBin && trash is { IsSupported: true })
                 {
-                    return RecycleBin.Send(folderPath);
+                    // 10件目の不具合修正: 従来はWindows専用のRecycleBinを直呼びしており、
+                    // Linuxでは useRecycleBin の設定に関わらず常に通常削除にフォールバックして
+                    // いた（LinuxTrashServiceが一度も呼ばれない未配線）。ITrashService経由に
+                    // 揃えたことで対応OSはすべてここを通る。Windows実装（WindowsTrashService）は
+                    // 移設元のRecycleBinと同一ロジックのため、Windowsの挙動はそのまま変わらない。
+                    // ごみ箱へ送れなかった場合は（従来のWindows専用実装と同じく）通常削除への
+                    // フォールバックはせず、失敗として呼び出し元へ伝える。
+                    return trash.Send(folderPath);
                 }
 
-                // 非Windows環境（Linux/macOS。テスト実行環境含む）にはごみ箱APIが存在しないため
-                // 通常削除にフォールバックする。Windows実行時に useRecycleBin=false の場合も同様。
+                // ごみ箱が使えない環境（Null実装）、またはuseRecycleBin=falseの場合は通常削除。
                 Directory.Delete(LongPath.Extended(folderPath), recursive: true);
                 return true;
             }

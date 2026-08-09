@@ -95,7 +95,8 @@ public class ExplorerWatchFailureAggregationTests : IDisposable
     {
         var ui = new AvaloniaUiServices();
         var editor = new EditorPaneViewModel(new Settings(), dialogs, ui);
-        return new ExplorerViewModel(editor, dialogs, new Settings(), ui);
+        var appPaths = new AppPaths(Path.Combine(_root, "_app"));
+        return new ExplorerViewModel(appPaths, editor, dialogs, new Settings(), ui);
     }
 
     private Project BuildMissingRootProject()

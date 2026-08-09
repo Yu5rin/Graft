@@ -61,13 +61,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private string? _currentProjectId;
 
     public ShellViewModel(
-        MainViewModel graft, EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
+        Graft.Infra.AppPaths appPaths, MainViewModel graft, EditorPaneViewModel editor, IDialogService dialogs,
+        Graft.Infra.Settings settings, IUiServices ui)
     {
         Graft = graft ?? throw new ArgumentNullException(nameof(graft));
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
-        Explorer = new ExplorerViewModel(Editor, _dialogs, settings, ui);
+        Explorer = new ExplorerViewModel(appPaths, Editor, _dialogs, settings, ui);
         Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs);
         Search.JumpRequested += OnSearchJumpRequested;
         QuickOpen = new QuickOpenViewModel();

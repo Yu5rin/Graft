@@ -30,6 +30,15 @@ public sealed class AppPaths
     /// <summary>バックアップの起点ディレクトリ（back/）。</summary>
     public string BackupRootDirectory => Path.Combine(BaseDirectory, "back");
 
+    /// <summary>
+    /// 削除の取り消し（Ctrl+Z、エクスプローラ）用の退避ディレクトリ（back/trash/）。
+    /// OSのごみ箱（<see cref="Graft.Platform.ITrashService"/>）とは別に、Graftが自前で
+    /// 退避コピーを保持する場所。back/ 配下に置くのはリビジョンのバックアップと同じ
+    /// 「アプリのデータフォルダ配下」の流儀に合わせるため。セッション内のみ保持し、
+    /// アプリ終了時に空にする（<see cref="Graft.Features.DeleteUndoStore.Cleanup"/>）。
+    /// </summary>
+    public string TrashStagingDirectory => Path.Combine(BackupRootDirectory, "trash");
+
     /// <summary>プロンプトテンプレート定義（仕様書4.8）の保存先。</summary>
     public string TemplatesFilePath => Path.Combine(BaseDirectory, "templates.json");
 

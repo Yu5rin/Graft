@@ -76,6 +76,13 @@ public partial class ShellWindow
 
         if (e.KeyModifiers == KeyModifiers.Control)
         {
+            // 課題2: エクスプローラにフォーカスがあるときのCtrl+Zは「削除の取り消し」に使うため、
+            // ここでは横取りしない（Handledをtrueにしない）。ExplorerView.axamlの
+            // UserControl.KeyBindings（バブリング段階）へそのまま届かせ、
+            // ExplorerViewModel.UndoDeleteCommandを実行させる。エディタ内のCtrl+Z
+            // （テキストの取り消し）はこれより前のinTextInput分岐で既に処理済みのため衝突しない。
+            if (e.Key == Key.Z && IsDescendant(focused, ExplorerViewControl)) return;
+
             e.Handled = HandlePlainCtrlGatedShortcut(e.Key);
             return;
         }
