@@ -104,6 +104,79 @@ public class HistoryRestoreThroughScenarioTests : IDisposable
         shell.Graft.History.Items.Should().Contain(i => i.RevisionLabel == "r4", "一覧が再読み込みされているはず");
     }
 
+    // ------------------------------------------------------------------
+    // 不具合回帰: 空リビジョン抑止が働いた場合にnextRevisionの番号が欠番にならない
+    // （ProjectStore.ReleaseRevisionAsync・HistoryPaneViewModel.RestoreThroughAsync）
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "ここまで戻す: 変更が1件も無かった場合はnextRevisionを消費前の値へ戻し、欠番を作らない")]
+    public async Task 変化ゼロならnextRevisionを消費前へ戻し欠番にならない()
+    {
+        var target = Path.Combine(_projectDirectory, "sample.txt");
+        await File.WriteAllTextAsync(target, "same\n").ConfigureAwait(true);
+
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
+
+        await ApplyFullAsync(shell, "sample.txt", "same").ConfigureAwait(true); // r1
+        await ApplyFullAsync(shell, "sample.txt", "changed").ConfigureAwait(true); // r2
+        // r3はr1と同一内容へ戻す。FULL形式で同じパッチ本文を再送するとE302の二重適用検知
+        // （パッチ本文のハッシュで判定）に引っかかるため、パッチ本文が異なるSR形式で
+        // 同じ結果（r1と同一内容）になるようにする。
+        await ApplySrAsync(shell, "sample.txt", "changed", "same").ConfigureAwait(true); // r3
+
+        var projectStore = new ProjectStore(new AppPaths(_appDirectory));
+        var beforeNextRevision = (await projectStore.LoadAsync().ConfigureAwait(true))
+            .Value.Single(p => p.Id == projectId).NextRevision;
+        beforeNextRevision.Should().Be(4, "r1〜r3を消費した直後なので次に使う番号は4のはず");
+
+        shell.Graft.History.SelectedItem = shell.Graft.History.Items.Single(i => i.RevisionLabel == "r1");
+        await ExecuteAsync(shell.Graft.History.RestoreThroughCommand).ConfigureAwait(true);
+
+        _dialogs.Notices.Should().Contain(n => n.Title == "変更はありませんでした",
+            "r3の内容はr1と同一のため、取り消し（r3を戻す）後は実質的な変化が無いはず");
+
+        var afterNextRevision = (await projectStore.LoadAsync().ConfigureAwait(true))
+            .Value.Single(p => p.Id == projectId).NextRevision;
+        afterNextRevision.Should().Be(beforeNextRevision,
+            "空リビジョン抑止で記録しなかった番号（4）は返却され、projects.jsonのnextRevisionは操作前と同じ値のままのはず");
+
+        // 続けて通常の適用を行うと、欠番なく次の番号（r4）が使われる。
+        await ApplyFullAsync(shell, "sample.txt", "next").ConfigureAwait(true);
+
+        shell.Graft.History.Items.Select(i => i.RevisionLabel).Should().Contain("r4",
+            "返却した番号（4）が欠番にならず、次の適用でそのまま使われるはず");
+        shell.Graft.History.Items.Select(i => i.RevisionLabel).Should().NotContain("r5",
+            "番号が返却されず欠番のまま進んでいれば、本来r4になるはずの適用がr5になってしまう");
+    }
+
+    [AvaloniaFact(DisplayName = "ここまで戻す: 正常に記録された場合は従来どおりnextRevisionが消費されたまま進む")]
+    public async Task 正常記録時はnextRevisionが消費されたまま()
+    {
+        var target = Path.Combine(_projectDirectory, "sample.txt");
+        await File.WriteAllTextAsync(target, "v1\n").ConfigureAwait(true);
+
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
+
+        await ApplyFullAsync(shell, "sample.txt", "v1").ConfigureAwait(true); // r1
+        await ApplyFullAsync(shell, "sample.txt", "v2").ConfigureAwait(true); // r2
+        await ApplyFullAsync(shell, "sample.txt", "v3").ConfigureAwait(true); // r3
+
+        shell.Graft.History.SelectedItem = shell.Graft.History.Items.Single(i => i.RevisionLabel == "r1");
+        await ExecuteAsync(shell.Graft.History.RestoreThroughCommand).ConfigureAwait(true);
+
+        shell.Graft.History.Items.Should().Contain(i => i.RevisionLabel == "r4", "まとめ戻し自体がr4として記録されているはず");
+
+        var projectStore = new ProjectStore(new AppPaths(_appDirectory));
+        var nextRevision = (await projectStore.LoadAsync().ConfigureAwait(true))
+            .Value.Single(p => p.Id == projectId).NextRevision;
+        nextRevision.Should().Be(5,
+            "r4として実際に記録された（空リビジョン抑止は働いていない）ので、消費した番号は返却せずそのまま進んだままのはず");
+    }
+
     [AvaloniaFact(DisplayName = "ここまで戻す: 最新リビジョンを選んでいるときはボタンが無効化される")]
     public async Task 最新リビジョン選択時は無効()
     {
@@ -159,6 +232,18 @@ public class HistoryRestoreThroughScenarioTests : IDisposable
     private async Task ApplyFullAsync(ShellViewModel shell, string relativePath, string content)
     {
         _clipboard.Text = $"<<<< FILE: {relativePath} MODE=FULL\n{content}\n>>>> END\n";
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// SEARCH/REPLACE形式のパッチを貼り付け→解析→適用まで実際に通す。ApplyFullAsyncと違い
+    /// パッチ本文に既存内容の一部（search）を含むため、結果として同じ内容になる場合でも
+    /// パッチ本文のハッシュ（E302二重適用検知の判定材料）はFULL形式と異なる値になる。
+    /// </summary>
+    private async Task ApplySrAsync(ShellViewModel shell, string relativePath, string search, string replace)
+    {
+        _clipboard.Text = $"<<<< FILE: {relativePath}\n<<<<<<< SEARCH\n{search}\n=======\n{replace}\n>>>>>>> REPLACE\n";
         await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
         await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
     }

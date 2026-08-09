@@ -252,6 +252,62 @@ public class ProjectStoreTests
     }
 
     // ------------------------------------------------------------------
+    // 不具合対応: 消費した番号の返却（ReleaseRevisionAsync）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ReleaseRevisionAsyncはNextRevisionが消費直後（revision+1）のときだけ番号を戻す")]
+    public async Task 番号返却は消費直後のときだけ戻す()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+        await store.SaveAsync(new[] { new Project { Id = "p_a", Root = ws.CreateDirectory("a"), NextRevision = 1 } });
+
+        var consumed = await store.ConsumeNextRevisionAsync("p_a");
+        consumed.Value.Should().Be(1);
+        (await store.LoadAsync()).Value.Single(p => p.Id == "p_a").NextRevision.Should().Be(2);
+
+        var released = await store.ReleaseRevisionAsync("p_a", consumed.Value);
+
+        released.IsSuccess.Should().BeTrue();
+        released.Value.Should().BeTrue("消費直後（NextRevision=2=revision+1）なので返却できるはず");
+        var reloaded = await store.LoadAsync();
+        reloaded.Value.Single(p => p.Id == "p_a").NextRevision.Should().Be(1, "返却により消費前の番号へ戻るはず");
+    }
+
+    [Fact(DisplayName = "ReleaseRevisionAsyncはNextRevisionが既に進んでいる場合は何もしない（番号の重複を避ける）")]
+    public async Task 番号返却は既に進んでいる場合は何もしない()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+        await store.SaveAsync(new[] { new Project { Id = "p_a", Root = ws.CreateDirectory("a"), NextRevision = 1 } });
+
+        var consumed = await store.ConsumeNextRevisionAsync("p_a"); // consumed.Value == 1, NextRevisionは2へ
+        await store.ConsumeNextRevisionAsync("p_a"); // 別操作が続けて消費し、NextRevisionは3へ進む
+
+        var released = await store.ReleaseRevisionAsync("p_a", consumed.Value); // revision=1で返却を試みる
+
+        released.IsSuccess.Should().BeTrue();
+        released.Value.Should().BeFalse("NextRevisionは既に3（revision+1=2ではない）まで進んでいるため返却してはならない");
+        var reloaded = await store.LoadAsync();
+        reloaded.Value.Single(p => p.Id == "p_a").NextRevision.Should().Be(3,
+            "ここで1へ戻すと次の消費が既に使用済みの番号2と重複するため、何もせずNextRevisionは3のままのはず");
+    }
+
+    [Fact(DisplayName = "ReleaseRevisionAsyncは存在しないプロジェクトIDに対して失敗を返す")]
+    public async Task 番号返却は未知のプロジェクトIDでは失敗する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+
+        var result = await store.ReleaseRevisionAsync("p_不存在", 1);
+
+        result.IsSuccess.Should().BeFalse();
+    }
+
+    // ------------------------------------------------------------------
     // 3.1 overrides の +/- 解決
     // ------------------------------------------------------------------
 

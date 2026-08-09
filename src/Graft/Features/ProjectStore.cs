@@ -183,6 +183,53 @@ public sealed class ProjectStore
         return GraftResult<int>.Ok(consumed, loaded.Issues);
     }
 
+    /// <summary>
+    /// 不具合対応: <see cref="ConsumeNextRevisionAsync"/> で消費したものの、結局リビジョンとして
+    /// 記録しなかった番号（例: 「ここまで戻す」で変更が1件も無く、空リビジョン抑止が働いた場合）を
+    /// 安全に返却する。呼び出し元が消費した <paramref name="revision"/> を再び nextRevision へ戻し、
+    /// 次回の消費で同じ番号が使われるようにすることで、履歴の欠番（r7 → r9 のように見える見た目）を防ぐ。
+    ///
+    /// 安全条件（<c>NextRevision == revision + 1</c> のときだけ返却する）について:
+    /// 消費してから返却するまでの間に、同じプロジェクトへの別の操作（並行するもう1つの
+    /// ConsumeNextRevisionAsync呼び出しや、通常の適用など）が既にnextRevisionを進めていた場合、
+    /// ここで無条件に revision を書き戻すと、次にConsumeNextRevisionAsyncが返す番号が
+    /// その別操作が既に使い始めている番号と重複してしまう。番号が重複すると、
+    /// back/{projectId}/配下のバックアップフォルダが同一番号でタイムスタンプ違いに2つ作られ、
+    /// 履歴一覧・世代管理が一方のフォルダを見失う実害につながる
+    /// （<see cref="ConsumeNextRevisionAsync"/>のコメントで説明している「番号を消費せずに
+    /// 同じ番号で再適用してはいけない」理由と同じ種類の衝突）。
+    /// そのため、「自分が消費した番号がまだ他の誰にも使われていない
+    /// （nextRevisionがちょうど1つだけ進んだ状態のまま）」ことを確認できたときに限り、
+    /// 安全に巻き戻す。既に他の操作が番号を進めていた場合は、欠番を許容してここでは何もしない
+    /// （13.1「フォルダが後で削除されても番号を再利用しない」と同じ、欠番を許容する既存方針に合わせる）。
+    ///
+    /// 戻り値: 実際に巻き戻せた場合は true、安全条件を満たさず何もしなかった場合は false を返す
+    /// （どちらも失敗ではないため IsSuccess=true）。対象プロジェクトが見つからない場合のみ失敗を返す。
+    /// </summary>
+    public async Task<GraftResult<bool>> ReleaseRevisionAsync(string projectId, int revision, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+
+        var loaded = await LoadAsync(ct).ConfigureAwait(false);
+        var projects = loaded.Value.ToList();
+        var index = projects.FindIndex(p => p.Id == projectId);
+        if (index < 0)
+        {
+            return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+        }
+
+        if (projects[index].NextRevision != revision + 1)
+        {
+            // 既に他の操作がnextRevisionを進めている（＝revision+1から動いている）ため、
+            // ここで戻すと番号の重複を招く。何もせず、返却しなかったことをfalseで伝える。
+            return GraftResult<bool>.Ok(false, loaded.Issues);
+        }
+
+        projects[index] = projects[index] with { NextRevision = revision };
+        await SaveAsync(projects, ct).ConfigureAwait(false);
+        return GraftResult<bool>.Ok(true, loaded.Issues);
+    }
+
     private static Project BuildOrUpdateProject(List<Project> projects, string fullRoot, string? name)
     {
         var id = CreateId(fullRoot);
