@@ -59,11 +59,33 @@ public sealed class LinuxFileManagerLauncher : IFileManagerLauncher
     /// </summary>
     public static (string Method, string Uri) BuildDbusCall(string fullPath, bool isDirectory)
     {
-        var uri = new Uri(fullPath).AbsoluteUri;
+        var uri = BuildFileUri(fullPath);
         var method = isDirectory
             ? "org.freedesktop.FileManager1.ShowFolders"
             : "org.freedesktop.FileManager1.ShowItems";
         return (method, uri);
+    }
+
+    /// <summary>
+    /// file:// URIを自前で組み立てる。
+    ///
+    /// 不具合3対応: 以前は<c>new Uri(fullPath).AbsoluteUri</c>で組み立てていたが、
+    /// System.UriコンストラクタはOSのパス解釈規則に依存しており、Windows上で
+    /// Linux形式の絶対パス（<c>/home/...</c>）を渡すと<see cref="UriFormatException"/>に
+    /// なる（ドライブレターの無いパスをWindowsは解釈できない）。BuildDbusCall自体は
+    /// プロセスを起動しない純粋な文字列組み立てのため、本来OSを問わずテストできるはずが、
+    /// この依存のせいでWindows上でのテスト実行が壊れていた。
+    ///
+    /// パスの各セグメントを"/"で区切り、それぞれを<see cref="Uri.EscapeDataString"/>で
+    /// パーセントエスケープしてから"/"で連結し直すことで、実行環境のUri解釈に左右されない
+    /// 組み立てにする。先頭の空セグメント（絶対パスの先頭"/"由来）はエスケープしても
+    /// 空文字のままなので、"file://" + 連結結果で"file:///home/..."の形になる。
+    /// </summary>
+    private static string BuildFileUri(string fullPath)
+    {
+        var segments = fullPath.Split('/');
+        var escaped = string.Join('/', segments.Select(Uri.EscapeDataString));
+        return "file://" + escaped;
     }
 
     /// <summary>プロセスを起動し、終了コード0で完了したかどうかを返す。</summary>
