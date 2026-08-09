@@ -139,7 +139,7 @@ public class GraftPanelPlacementTests : IDisposable
 
     // ===================== ShellWindow側のGrid付け替え =====================
 
-    [AvaloniaFact(DisplayName = "右配置に切り替えるとGraftPanelは列2・行0へ移動し、下配置用の行は畳まれる")]
+    [AvaloniaFact(DisplayName = "展開中に右配置へ切り替えるとGraftPanelは列2・行0へ移動し、下配置用の行は畳まれる")]
     public void 右配置に切り替えるとGraftPanelが列へ移動する()
     {
         var shell = BuildShell();
@@ -153,6 +153,12 @@ public class GraftPanelPlacementTests : IDisposable
         // 既定（下配置）: 行2・列0。
         Grid.GetRow(graftPanel).Should().Be(2);
         Grid.GetColumn(graftPanel).Should().Be(0);
+
+        // 指摘2対応: 折りたたみ中の切替は下配置と同じ見た目（行2・列0）のまま据え置く
+        // 仕様（右配置での折りたたみはヘッダー帯を下部に表示する）のため、この検証では
+        // 展開してから配置を切り替える。
+        shell.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
 
         shell.ToggleGraftPanelPlacementCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
@@ -267,9 +273,13 @@ public class GraftPanelPlacementTests : IDisposable
 
     // ===================== 折りたたみとの両立 =====================
 
-    [AvaloniaFact(DisplayName = "右配置での折りたたみは幅0まで畳み、展開すると幅が戻る")]
-    public void 右配置での折りたたみは幅0まで畳まれる()
+    [AvaloniaFact(DisplayName = "右配置での折りたたみは下配置と同じ32pxのヘッダー帯を下部に表示し、展開すると右配置へ戻る")]
+    public void 右配置での折りたたみはヘッダー帯を下部に表示する()
     {
+        // 利用者からの指摘2対応: 右配置で折りたたむと幅0まで完全に消えて掴む対象を失い、
+        // Ctrl+Jか配置切替ボタンの存在を知らないと二度と展開できなかった。下配置の折りたたみと
+        // 同じ32pxのヘッダー帯を画面下部に表示し、配置の設定値（Right）自体は保持したまま、
+        // 展開すると右配置へ戻ることを確認する。
         var shell = BuildShell();
         var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
         window.Show();
@@ -279,18 +289,32 @@ public class GraftPanelPlacementTests : IDisposable
         shell.IsGraftPanelOpen = true;
         Dispatcher.UIThread.RunJobs();
 
-        var graftColumn = window.GetControl<Grid>("EditorAreaGrid").ColumnDefinitions[2];
+        var editorGrid = window.GetControl<Grid>("EditorAreaGrid");
+        var graftPanel = window.GetControl<GraftPanel>("GraftPanelControl");
+        var graftColumn = editorGrid.ColumnDefinitions[2];
         graftColumn.ActualWidth.Should().BeGreaterThan(0);
 
         shell.IsGraftPanelOpen = false;
         Dispatcher.UIThread.RunJobs();
 
-        graftColumn.ActualWidth.Should().Be(0, "右配置での折りたたみは幅0まで完全に畳む必要がある");
+        // 配置の設定値は変わらず右配置のまま（アイコン表示・次回展開先の判断基準）。
+        shell.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Right, "折りたたんでも配置の設定値（右）は保持する必要がある");
+        shell.IsGraftPanelPlacementRight.Should().BeTrue();
+
+        // 見た目は下配置の折りたたみと同じ（列は幅0、パネルは行2・列0、行の高さは32pxのヘッダーのみ）。
+        graftColumn.ActualWidth.Should().Be(0, "折りたたみ中は列側の幅を占有しない");
+        Grid.GetRow(graftPanel).Should().Be(2, "折りたたみ中は下配置と同じ行へ一時的に移す");
+        Grid.GetColumn(graftPanel).Should().Be(0);
+        editorGrid.RowDefinitions[2].ActualHeight.Should().Be(32, "折りたたみ中は下配置と同じ32pxのヘッダー帯を下部に表示する必要がある");
+        window.GetControl<GridSplitter>("GraftSplitterRight").IsVisible.Should().BeFalse("折りたたみ中は右配置用の垂直スプリッタも隠す");
 
         shell.IsGraftPanelOpen = true;
         Dispatcher.UIThread.RunJobs();
 
-        graftColumn.ActualWidth.Should().BeApproximately(460, 1, "展開すると既定幅（460px）へ戻る必要がある");
+        // 展開すると右配置（列2）へ戻る。配置の設定値を保持していたことがここで効いてくる。
+        Grid.GetRow(graftPanel).Should().Be(0);
+        Grid.GetColumn(graftPanel).Should().Be(2);
+        graftColumn.ActualWidth.Should().BeApproximately(460, 1, "展開すると右配置・既定幅（460px）へ戻る必要がある");
     }
 
     // ===================== layout.jsonへの保存・復元（後方互換を含む） =====================
@@ -333,6 +357,52 @@ public class GraftPanelPlacementTests : IDisposable
 
         var restoredWidth = window2.GetControl<Grid>("EditorAreaGrid").ColumnDefinitions[2].ActualWidth;
         restoredWidth.Should().BeApproximately(expectedWidth, 1, "前回ドラッグで調整した接ぎ木パネル幅（右配置）が復元される必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "右配置かつ折りたたんだまま閉じて開き直すと、下部にヘッダー帯が出て展開すると右へ戻る")]
+    public void 右配置かつ折りたたみは再起動後もヘッダー帯として復元される()
+    {
+        // 完了条件3・実機確認6対応: 「右配置かつ折りたたみ」で終了した場合、再起動直後は
+        // 開閉状態（IsGraftPanelOpen）自体はlayout.jsonへ保存されない値のため既定の折りたたみで
+        // 始まるが、配置（GraftPanelPlacement=Right）はlayout.jsonから復元されるため、
+        // 起動直後から下部に32pxのヘッダー帯が表示され、展開すると右配置へ戻ることを確認する。
+        var shell1 = BuildShell();
+        var window1 = new ShellWindow(shell1) { Width = 1280, Height = 800 };
+        window1.Show();
+        WaitForWindowLoaded(window1);
+
+        shell1.ToggleGraftPanelPlacementCommand.Execute(null); // → 右
+        shell1.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+        shell1.IsGraftPanelOpen = false; // → 右配置のまま折りたたむ
+        Dispatcher.UIThread.RunJobs();
+
+        window1.Close();
+
+        var shell2 = BuildShell();
+        var window2 = new ShellWindow(shell2) { Width = 1280, Height = 800 };
+        window2.Show();
+        WaitForWindowLoaded(window2);
+
+        shell2.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Right, "右配置のまま閉じたので再起動後も右配置のはず");
+        shell2.IsGraftPanelOpen.Should().BeFalse("開閉状態は保存対象ではないため、既定どおり折りたたまれた状態で始まる");
+
+        var editorGrid2 = window2.GetControl<Grid>("EditorAreaGrid");
+        var graftPanel2 = window2.GetControl<GraftPanel>("GraftPanelControl");
+
+        // 復元直後（右配置・折りたたみ）は下部に32pxのヘッダー帯として表示される。
+        Grid.GetRow(graftPanel2).Should().Be(2);
+        Grid.GetColumn(graftPanel2).Should().Be(0);
+        editorGrid2.RowDefinitions[2].ActualHeight.Should().Be(32, "復元直後も右配置の折りたたみは下部の32pxヘッダー帯になる必要がある");
+        editorGrid2.ColumnDefinitions[2].ActualWidth.Should().Be(0);
+
+        shell2.IsGraftPanelOpen = true;
+        Dispatcher.UIThread.RunJobs();
+
+        // 展開すると配置の設定値（右）どおり列2へ戻る。
+        Grid.GetRow(graftPanel2).Should().Be(0);
+        Grid.GetColumn(graftPanel2).Should().Be(2);
+        editorGrid2.ColumnDefinitions[2].ActualWidth.Should().BeGreaterThan(0);
     }
 
     [AvaloniaFact(DisplayName = "下配置に戻して閉じて開き直すと、下配置が復元される")]

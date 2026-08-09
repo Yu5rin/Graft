@@ -62,15 +62,10 @@
                     </Panel>
                 </Button>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="4,0,12,0">
-                    <views:IconGlyph Width="14" Height="14"
-                                     Data="{DynamicResource IconPanelBottomGeometry}"
-                                     Stroke="{DynamicResource TextSecondary}" Margin="0,0,4,0" />
-                    <TextBlock Text="接ぎ木" VerticalAlignment="Center"
-                               FontSize="{DynamicResource PaneHeadingFontSize}"
-                               FontWeight="{DynamicResource PaneHeadingFontWeight}"
-                               Foreground="{DynamicResource TextSecondary}" />
-                </StackPanel>
+                <TextBlock Grid.Column="2" Text="接ぎ木" VerticalAlignment="Center" Margin="4,0,12,0"
+                           FontSize="{DynamicResource PaneHeadingFontSize}"
+                           FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                           Foreground="{DynamicResource TextSecondary}" />
 
                 <!--
                     件数の要約（8.2「2件適用可 / 1件要確認」）はステータスバーの担当。
