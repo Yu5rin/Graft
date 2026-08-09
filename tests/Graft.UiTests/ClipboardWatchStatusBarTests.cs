@@ -99,6 +99,108 @@ public class ClipboardWatchStatusBarTests : IDisposable
         shell.Graft.Blocks.Should().ContainSingle("クリックでコマンドバーの「解析」と同じ処理が実行され、パッチが読み込まれる必要がある");
     }
 
+    [AvaloniaFact(DisplayName = "機能追加: 自動解析オンかつ未処理が無ければ、検知した瞬間に自動で解析され通知は出ない")]
+    public async Task 自動解析オンかつ未処理無しなら自動で解析される()
+    {
+        var projectDirectory = Path.Combine(_root, "project");
+        Directory.CreateDirectory(projectDirectory);
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "sample.txt"), "old\n").ConfigureAwait(true);
+
+        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectDirectory).ConfigureAwait(true);
+        shell.SetClipboardWatchActive(true);
+
+        _clipboard.Text = BuildPatch("sample.txt", "old", "new");
+
+        var autoParsed = shell.HandleClipboardPatchDetected(autoParseEnabled: true);
+
+        autoParsed.Should().BeTrue("自動解析の設定がオンで未処理の内容も無いため、その場で解析される必要がある");
+        shell.HasClipboardPatchNotice.Should().BeFalse("自動解析した場合はクリック待ちの通知を出す必要が無い");
+
+        await WaitUntilAsync(() => shell.Graft.Blocks.Count > 0).ConfigureAwait(true);
+        shell.Graft.Blocks.Should().ContainSingle("検知した瞬間に解析まで済ませ、接ぎ木パネルへ結果が反映される必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "機能追加: 自動解析オフのときは、従来どおり通知のみで自動では解析されない")]
+    public async Task 自動解析オフなら通知のみに留まる()
+    {
+        var projectDirectory = Path.Combine(_root, "project");
+        Directory.CreateDirectory(projectDirectory);
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "sample.txt"), "old\n").ConfigureAwait(true);
+
+        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectDirectory).ConfigureAwait(true);
+        shell.SetClipboardWatchActive(true);
+
+        _clipboard.Text = BuildPatch("sample.txt", "old", "new");
+
+        var autoParsed = shell.HandleClipboardPatchDetected(autoParseEnabled: false);
+
+        autoParsed.Should().BeFalse("自動解析の設定がオフのため、検知しても自動では解析しない");
+        shell.HasClipboardPatchNotice.Should().BeTrue("従来どおり通知だけを出す必要がある");
+        shell.Graft.Blocks.Should().BeEmpty("クリックする前にブロック一覧が変化してはならない");
+    }
+
+    [AvaloniaFact(DisplayName = "機能追加: 自動解析オンでも、未処理の解析結果が残っていれば自動解析せず通知に留まる")]
+    public async Task 自動解析オンでも未処理の解析結果があれば通知に留まる()
+    {
+        var projectDirectory = Path.Combine(_root, "project");
+        Directory.CreateDirectory(projectDirectory);
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "sample.txt"), "old\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "other.txt"), "foo\n").ConfigureAwait(true);
+
+        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectDirectory).ConfigureAwait(true);
+        shell.SetClipboardWatchActive(true);
+
+        // 1件目のパッチを解析させ、「適用」も「破棄」もされていない未処理の状態を作る。
+        _clipboard.Text = BuildPatch("sample.txt", "old", "new");
+        shell.AnalyzeClipboardPatchCommand.Execute(null);
+        await WaitUntilAsync(() => shell.Graft.Blocks.Count > 0).ConfigureAwait(true);
+        shell.Graft.HasUnprocessedResult.Should().BeTrue("解析結果が接ぎ木パネルに残ったまま（未適用）のはず");
+
+        // 2件目のパッチを検知させる。1件目を先頭から差し替えてはならない。
+        _clipboard.Text = BuildPatch("other.txt", "foo", "bar");
+        var autoParsed = shell.HandleClipboardPatchDetected(autoParseEnabled: true);
+
+        autoParsed.Should().BeFalse("未処理の解析結果が残っている間は、自動解析で先頭から差し替えてはならない");
+        shell.HasClipboardPatchNotice.Should().BeTrue("自動解析を見送った分、従来どおり通知を出す必要がある");
+
+        // 2件目を解析するかどうかは利用者の判断に委ねるため、1件目の結果がそのまま残ることを確認する。
+        await Task.Delay(200); // 誤って裏で解析が走っていないことを確認するための猶予。
+        shell.Graft.Blocks.Should().ContainSingle(b => b.Plan.Path == "sample.txt",
+            "未処理だった1件目の解析結果が、自動解析によって勝手に差し替わってはならない");
+    }
+
+    [AvaloniaFact(DisplayName = "機能追加: 自動解析オンでも、パッチキューに未適用のブロックが残っていれば自動解析せず通知に留まる")]
+    public async Task 自動解析オンでもキューに未適用があれば通知に留まる()
+    {
+        var projectDirectory = Path.Combine(_root, "project");
+        Directory.CreateDirectory(projectDirectory);
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "sample.txt"), "old\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(Path.Combine(projectDirectory, "other.txt"), "foo\n").ConfigureAwait(true);
+
+        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectDirectory).ConfigureAwait(true);
+        shell.SetClipboardWatchActive(true);
+
+        // 1件目のパッチを解析し、手動でキューへ追加する（4.10）。キューへ追加すると
+        // DiscardCurrentPatchが呼ばれ_currentPatchはnullへ戻るため、
+        // 「キューに残っている」ことだけを未処理条件として検証できる。
+        _clipboard.Text = BuildPatch("sample.txt", "old", "new");
+        shell.AnalyzeClipboardPatchCommand.Execute(null);
+        await WaitUntilAsync(() => shell.Graft.Blocks.Count > 0).ConfigureAwait(true);
+        shell.Graft.AddCurrentPatchToQueueCommand.Execute(null);
+        await WaitUntilAsync(() => shell.Graft.PatchQueue.Items.Count > 0).ConfigureAwait(true);
+        shell.Graft.HasUnprocessedResult.Should().BeTrue("キューに未適用のブロックが残っているはず");
+
+        _clipboard.Text = BuildPatch("other.txt", "foo", "bar");
+        var autoParsed = shell.HandleClipboardPatchDetected(autoParseEnabled: true);
+
+        autoParsed.Should().BeFalse("キューに未適用のブロックが残っている間は自動解析しない");
+        shell.HasClipboardPatchNotice.Should().BeTrue();
+    }
+
     /// <summary>SEARCH/REPLACE形式のパッチ本文を組み立てる（仕様書4.1）。</summary>
     private static string BuildPatch(string relativePath, string search, string replace)
         => $"""

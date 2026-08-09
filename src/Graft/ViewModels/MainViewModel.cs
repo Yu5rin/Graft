@@ -131,6 +131,18 @@ public sealed partial class MainViewModel : ObservableObject
         private set => SetProperty(ref _centerError, value);
     }
 
+    /// <summary>
+    /// 機能追加（クリップボード監視の自動解析）: 「未処理」とみなせる内容が残っているかどうか。
+    /// 中央ペインに未適用の解析結果が残っている（<see cref="_currentPatch"/>が非null。
+    /// パースしただけで「適用」も「破棄」もされていない状態）か、パッチキューに
+    /// 未適用のブロックが残っている場合にtrue。自動解析（設定オン時にパッチ検知の瞬間
+    /// 解析まで自動で行う機能）は、この間は先頭の内容を勝手に差し替えてしまわないよう
+    /// 見送り、従来どおり通知のみに留める（呼び出し元: ShellViewModel.
+    /// HandleClipboardPatchDetected）。適用完了直後は<see cref="DiscardCurrentPatch"/>で
+    /// _currentPatchがnullへ戻るため、この判定にも自動で追従する。
+    /// </summary>
+    public bool HasUnprocessedResult => _currentPatch is not null || PatchQueue.Items.Count > 0;
+
     public BlockItemViewModel? SelectedBlock
     {
         get => _selectedBlock;

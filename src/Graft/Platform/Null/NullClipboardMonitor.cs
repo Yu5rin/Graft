@@ -22,6 +22,12 @@ public sealed class NullClipboardMonitor : IClipboardMonitor
         remove { }
     }
 
+    public event EventHandler? NonPatchTextChanged
+    {
+        add { }
+        remove { }
+    }
+
     public void Attach(IntPtr hwnd)
     {
         // 何もしない。
