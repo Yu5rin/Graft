@@ -81,6 +81,9 @@ public sealed partial class MainViewModel : ObservableObject
         // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
         Diff = new DiffViewModel(new Settings(), _ui);
         Diff.PropertyChanged += OnDiffPropertyChanged;
+        // 修正1: 履歴差分タブ専用の表示状態。接ぎ木パネル（Diff/Blocks/State）とは完全に独立させ、
+        // 履歴を閲覧しても接ぎ木パネルには一切触れないようにする（OnRevisionSelected参照）。
+        HistoryDiff = new HistoryDiffViewModel(new Settings(), _ui);
 
         PatchQueue = patchQueue;
         Queue = new QueueViewModel(patchQueue, dialogService);
@@ -95,7 +98,11 @@ public sealed partial class MainViewModel : ObservableObject
         ApplyCommand = new AsyncRelayCommand(ApplyAsync, () => _dryRun is { ApplicableCount: > 0 });
         UndoCommand = new AsyncRelayCommand(UndoLastAsync);
         OpenSettingsCommand = new RelayCommand(() => _openSettingsRequested());
-        DiscardCommand = new RelayCommand(DiscardCurrentPatch);
+        // 修正3: 接ぎ木パネルのヘッダーに露出させる「破棄」ボタン用。解析結果が無いときは無効化する
+        // （PreviewCommand/ApplyCommandと同じ、_currentPatch/_dryRunを見るだけの簡易判定。
+        // CanExecuteの再評価はCommandRequery.Invalidateがポインタ・キー操作のたびに全コマンドへ
+        // 促す既存の仕組みに乗る）。
+        DiscardCommand = new RelayCommand(DiscardCurrentPatch, () => _currentPatch is not null);
         FocusSearchCommand = new RelayCommand(() => RequestFocusSearch?.Invoke(this, EventArgs.Empty));
         ShowHistoryCommand = new RelayCommand(() => RequestFocusHistory?.Invoke(this, EventArgs.Empty));
         AddCurrentPatchToQueueCommand = new AsyncRelayCommand(AddCurrentPatchToQueueAsync, () => _currentPatch is not null);
@@ -109,6 +116,10 @@ public sealed partial class MainViewModel : ObservableObject
     public ProjectPaneViewModel ProjectPane { get; }
     public HistoryPaneViewModel History { get; }
     public DiffViewModel Diff { get; }
+
+    /// <summary>修正1: 履歴のリビジョン選択に連動する履歴差分タブの表示内容（Diffとは別インスタンス）。</summary>
+    public HistoryDiffViewModel HistoryDiff { get; }
+
     public WindowLayoutStore LayoutStore { get; }
 
     // PatchQueue/Queue等はMainViewModel.Queue.cs、BeforeApplyAsync/AfterApplyAsync（4.8/7章）は
@@ -187,6 +198,14 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Ctrl+H・「履歴」ボタン。View側で履歴ペインへフォーカスする。</summary>
     public event EventHandler? RequestFocusHistory;
 
+    /// <summary>
+    /// 修正1: <see cref="HistoryDiff"/>の内容（Files/RevisionLabel）が変わったことの通知。
+    /// HistoryDiffは選択のたびに同じインスタンスを使い回す（プロパティの参照自体は変わらない）
+    /// ため、ShellViewModel側が「いつタブを開閉すべきか」を知るための専用イベントとして持つ
+    /// （ShellViewModel.OnHistoryDiffChanged参照）。
+    /// </summary>
+    public event EventHandler? HistoryDiffChanged;
+
     /// <summary>起動直後の初期化。設定・レイアウト・プロジェクト一覧を読み込む。</summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
@@ -197,6 +216,7 @@ public sealed partial class MainViewModel : ObservableObject
         // （WordWrap/ShowWhitespaceだけでなくシンタックス・マッチング設定も含めて丸ごと。
         // DiffViewModel.UpdateSettings参照）。
         Diff.UpdateSettings(_settings);
+        HistoryDiff.UpdateSettings(_settings);
 
         Layout = await LoadLayoutSafeAsync(ct).ConfigureAwait(true);
         await ProjectPane.LoadAsync(ct).ConfigureAwait(true);
@@ -230,6 +250,7 @@ public sealed partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(settings);
 
         Diff.UpdateSettings(settings);
+        HistoryDiff.UpdateSettings(settings);
 
         if (_isApplyInProgress)
         {
@@ -312,17 +333,33 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CurrentProjectName));
     }
 
+    /// <summary>
+    /// 修正1: 履歴のリビジョン選択に連動して<see cref="HistoryDiff"/>（履歴差分タブ専用の表示）を
+    /// 更新する。以前はここで<see cref="Diff"/>・<see cref="Blocks"/>・<see cref="State"/>
+    /// （＝接ぎ木パネル一式）を履歴の内容で置き換えていたため、「これから適用するもの」の
+    /// 置き場である接ぎ木パネルに履歴の内容が流れ込み、適用不可の×印が誤って表示される・
+    /// 現在のファイル内容と誤解される、という2つの混乱を生んでいた（今回の要望の発端）。
+    /// 接ぎ木パネル側は一切触れず、履歴の閲覧中でも現在の解析結果がそのまま残るようにする
+    /// （逆に、履歴を閲覧中に新しいパッチを解析してもこちらは接ぎ木パネル側だけを更新するため
+    /// 衝突しない）。
+    /// </summary>
     private async void OnRevisionSelected(object? sender, RevisionRowViewModel? row)
     {
-        if (row is null) { Diff.Clear(); return; }
+        if (row is null)
+        {
+            HistoryDiff.Clear();
+            HistoryDiffChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
 
-        State = CenterPaneState.Loading;
         var plans = await History.BuildDiffPlansAsync(row, _settings.Diff.ContextLines).ConfigureAwait(true);
-        _currentPatch = null;
-        _dryRun = null;
-        ReplaceBlocks(plans);
-        OnPropertyChanged(nameof(StatusSummaryText));
-        OnPropertyChanged(nameof(TargetSummaryText));
+        // 選択が非同期待ちの間に別のリビジョンへ変わっていたら、後から選ばれた側の結果を
+        // 古い結果で上書きしてしまわないよう、ここで打ち切る（History.SelectedItemが呼び出し
+        // 時点のrowから変わっていないかで判定する）。
+        if (!ReferenceEquals(History.SelectedItem, row)) return;
+
+        HistoryDiff.Load(row, plans);
+        HistoryDiffChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>diff側の変更を反映する。IsIncludedは選択ブロックへ、CodeFontSizeは8.4のペイン記憶へ。</summary>

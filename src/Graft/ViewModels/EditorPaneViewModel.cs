@@ -30,6 +30,8 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     private readonly Settings _settings;
     private readonly ObservableCollection<EditorTabViewModel> _tabs = new();
     private EditorTabViewModel? _diffTab;
+    // 修正1: 履歴差分タブ（1個だけ使い回す。ShowHistoryDiffTab/CloseHistoryDiffTab参照）。
+    private EditorTabViewModel? _historyDiffTab;
     // 不具合3対応: 差分タブへ切り替える直前にアクティブだったタブ。差分タブを閉じたときに
     // 「元のファイルのタブが開いていなければ直前のタブへ戻る」ためのフォールバック先として使う
     // （ResolveReturnTab参照）。
@@ -120,6 +122,13 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     /// <summary>いずれかのタブが保存された（4.7 Gitガターの更新契機）。</summary>
     public event EventHandler<EditorTabViewModel>? TabSaved;
 
+    /// <summary>
+    /// 修正1: 履歴差分タブが閉じられた（×・Ctrl+W・タブ全閉じ等いずれの経路でも）ことの通知。
+    /// ShellViewModelがこれを受けて履歴側の選択（History.SelectedItem）を解除し、
+    /// 「タブは無いのに履歴側は選択済みのまま」という状態の矛盾を防ぐ。
+    /// </summary>
+    public event EventHandler? HistoryDiffTabClosed;
+
     /// <summary>プロジェクト切替。開いていたタブは呼び出し側が閉じてから設定する。</summary>
     public void SetProject(string? projectRoot)
     {
@@ -173,12 +182,41 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (_diffTab is { } tab) CloseDiffTab(tab);
     }
 
+    /// <summary>
+    /// 修正1: 履歴のリビジョン選択に連動して履歴差分タブを開く。既に開いていれば
+    /// アクティブ化するだけで新しいタブは増やさない（<paramref name="historyDiff"/>は
+    /// 呼び出し側で使い回される単一インスタンスのため、内容の差し替え自体はそちら側で完結する。
+    /// HistoryDiffViewModel.Load参照）。
+    /// </summary>
+    public void ShowHistoryDiffTab(HistoryDiffViewModel historyDiff)
+    {
+        ArgumentNullException.ThrowIfNull(historyDiff);
+        if (_historyDiffTab is null)
+        {
+            _historyDiffTab = new EditorTabViewModel(historyDiff, tab => { CloseHistoryDiffTab(tab); return Task.CompletedTask; });
+            _tabs.Add(_historyDiffTab);
+        }
+
+        ActiveTab = _historyDiffTab;
+    }
+
+    /// <summary>修正1: 履歴の選択解除等で、確認なしに履歴差分タブを閉じる。</summary>
+    public void CloseHistoryDiffTabIfOpen()
+    {
+        if (_historyDiffTab is { } tab) CloseHistoryDiffTab(tab);
+    }
+
     /// <summary>未保存なら確認ダイアログを出す。falseはユーザーがキャンセルしたことを表す。</summary>
     public async Task<bool> CloseTabAsync(EditorTabViewModel tab)
     {
         if (tab.Kind == EditorTabKind.Diff)
         {
             CloseDiffTab(tab);
+            return true;
+        }
+        if (tab.Kind == EditorTabKind.HistoryDiff)
+        {
+            CloseHistoryDiffTab(tab);
             return true;
         }
 
@@ -197,6 +235,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (!closed) return false;
 
         if (_diffTab is { } tab) CloseDiffTab(tab);
+        if (_historyDiffTab is { } historyTab) CloseHistoryDiffTab(historyTab);
         ActiveTab = null;
         return true;
     }
@@ -323,6 +362,25 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 修正1: 履歴差分タブを閉じる。通常の差分タブ（ResolveReturnTabで元ファイルへ戻る等）と
+    /// 異なり「戻るべき元のタブ」という概念が無いため、フォールバック先は単純に先頭のタブとする。
+    /// 閉じた後は<see cref="HistoryDiffTabClosed"/>で履歴側の選択解除をShellViewModelへ委ねる。
+    /// </summary>
+    private void CloseHistoryDiffTab(EditorTabViewModel tab)
+    {
+        if (!ReferenceEquals(tab, _historyDiffTab)) return;
+
+        var wasActive = ReferenceEquals(tab, ActiveTab);
+        _tabs.Remove(tab);
+        _historyDiffTab = null;
+        tab.PropertyChanged -= OnTabPropertyChanged;
+        tab.DetachEvents();
+        if (wasActive) ActiveTab = Tabs.Count > 0 ? Tabs[0] : null;
+
+        HistoryDiffTabClosed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
     /// 不具合3対応: 差分タブを閉じたときの戻り先を決める。マッチ失敗時の画面から
     /// コード編集へ戻る手段が見当たらないという指摘への対応（差分タブ自体を閉じる導線は
     /// EditorTabViewModel.CloseCommand・タブの閉じるボタン・Ctrl+Wに加えて用意する）。
@@ -373,9 +431,16 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// ドキュメントタブは常に差分系タブ（通常の差分タブ・履歴差分タブ）より前に並べる。
+    /// 修正1で履歴差分タブが増えたことにより、通常の差分タブと同時に開いている場合もあるため、
+    /// 両者のうち一覧内で最も手前（インデックスが小さい）の位置の直前へ挿入する。
+    /// </summary>
     private void InsertDocumentTab(EditorTabViewModel tab)
     {
-        var insertIndex = _diffTab is not null ? _tabs.IndexOf(_diffTab) : _tabs.Count;
+        var specialTabs = new[] { _diffTab, _historyDiffTab };
+        var insertIndex = specialTabs.Where(t => t is not null).Select(t => _tabs.IndexOf(t!))
+            .DefaultIfEmpty(_tabs.Count).Min();
         _tabs.Insert(Math.Max(0, insertIndex), tab);
     }
 

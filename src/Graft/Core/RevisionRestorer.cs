@@ -112,6 +112,12 @@ public sealed class RevisionRestorer
     /// entriesとして記録し、status は success にせず in_progress のまま確定する
     /// （仕様書6.3の中断復帰の仕組みと同じ扱い。次回起動時に「未完了の適用」として検出され、
     /// ロールバックを提案できる）。この場合は E403 を伴う失敗として返し、成功したとは報告しない。
+    ///
+    /// 4番目の要件: 全ての取り消しが成功した（<c>failedAt</c>がnull）にもかかわらず、
+    /// 結果としてentriesが1件も無い（＝どのファイルも実質的には変わらなかった。既にその状態
+    /// だった場合）は、空のリビジョンとして記録せず<see cref="TryDeleteAbandonedSessionFolder"/>
+    /// でバックアップフォルダごと破棄する。戻り値は成功（IsSuccess=true）のまま、
+    /// <c>Value.Entries.Count == 0</c>で呼び出し側が「記録しなかった」ことを判別できるようにする。
     /// </summary>
     public async Task<GraftResult<RevisionManifest>> RestoreThroughAsync(
         string projectId, string projectRoot, int targetRevision, IReadOnlyList<RevisionSummary> revisionsToUndo,
@@ -187,6 +193,20 @@ public sealed class RevisionRestorer
 
         var entries = await BuildRestoreThroughEntriesAsync(session.FolderPath, projectRoot, affectedPaths, existedBefore, ct)
             .ConfigureAwait(false);
+
+        // 4番目の要件: 取り消し処理の結果、ファイルが1つも変わらなかった場合（既にその状態
+        // だった場合）は空リビジョンとして記録しない。BeginAsyncが既に作成済みのバックアップ
+        // フォルダ（status: in_progress）をそのまま残すと、次回起動時の6.3中断検出
+        // （StartupCoordinator）に「未完了の適用」として引っかかってしまうため、
+        // CompleteAsyncで確定させず、フォルダごと削除して安全に中断する
+        // （history.jsonlへはまだ何も書いていないため、フォルダを消せば記録は残らない）。
+        if (failedAt is null && entries.Count == 0)
+        {
+            TryDeleteAbandonedSessionFolder(session.FolderPath);
+            var noopManifest = initial with { Status = RevisionStatus.Success, Entries = entries, Stats = initial.Stats with { Files = 0 } };
+            return GraftResult<RevisionManifest>.Ok(noopManifest, issues);
+        }
+
         var status = failedAt is null ? RevisionStatus.Success : RevisionStatus.InProgress;
         var finalManifest = initial with { Status = status, Entries = entries, Stats = initial.Stats with { Files = entries.Count } };
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
@@ -208,6 +228,29 @@ public sealed class RevisionRestorer
         }
 
         return GraftResult<RevisionManifest>.Ok(finalManifest, issues);
+    }
+
+    /// <summary>
+    /// 4番目の要件: 実質的な変更が無かった「ここまで戻す」操作で、BeginAsyncが既に作成した
+    /// バックアップフォルダ（status: in_progressのmanifest.json含む）を破棄する。
+    /// 削除に失敗しても致命的扱いにはしない（次回起動時の6.3中断検出に引っかかるだけの
+    /// ベストエフォートな後始末のため）。
+    /// </summary>
+    private static void TryDeleteAbandonedSessionFolder(string folderPath)
+    {
+        try
+        {
+            var ioPath = LongPath.Extended(folderPath);
+            if (Directory.Exists(ioPath))
+            {
+                Directory.Delete(ioPath, recursive: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 削除できなくても、次回起動時の6.3中断検出でロールバック提案の対象になるだけで
+            // 実害は無いため、ここで例外を上位へ伝播させる必要は無い。
+        }
     }
 
     /// <summary>単発復元の中核。指定リビジョンのentriesを新しい順の取り消し順序で書き戻す。

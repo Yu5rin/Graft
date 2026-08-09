@@ -127,6 +127,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // 「ここまで戻す」: 単発復元（RestoreCommand）とは別の操作として追加する（仕様）。
         // 取り消し対象が無い（最新リビジョンを選んでいる）場合は無効化する（8番目の要件）。
         RestoreThroughCommand = new AsyncRelayCommand(RestoreThroughSelectedAsync, HasRestoreThroughTarget);
+        // 修正2: 右クリックメニュー「差分を表示」。選択自体は変えず、同じ選択に対して
+        // RevisionSelectedを明示的に再発火する（修正1の履歴差分タブを開き直す入口）。
+        // 選択を変えたときは自動でタブが開く／更新されるが、タブを×で閉じた後に選択は
+        // そのままという状況では選択の変化が起きないため、この明示的な入口が要る。
+        ShowDiffCommand = new RelayCommand(
+            () => { if (SelectedItem is { } item) RevisionSelected?.Invoke(this, item); },
+            () => SelectedItem is not null);
     }
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
@@ -176,6 +183,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
                 RevisionSelected?.Invoke(this, value);
                 ((AsyncRelayCommand)RestoreCommand).RaiseCanExecuteChanged();
                 ((AsyncRelayCommand)RestoreThroughCommand).RaiseCanExecuteChanged();
+                ((RelayCommand)ShowDiffCommand).RaiseCanExecuteChanged();
             }
         }
     }
@@ -358,6 +366,12 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// </summary>
     public ICommand RestoreThroughCommand { get; }
 
+    /// <summary>
+    /// 修正2: 履歴の右クリックメニュー「差分を表示」。選択を変えずに、修正1の履歴差分タブを
+    /// 明示的に開き直す（選択済みリビジョンでタブだけを×で閉じた後の再表示手段）。
+    /// </summary>
+    public ICommand ShowDiffCommand { get; }
+
     /// <summary>選択中のリビジョンより新しいリビジョンが1件でもあるか（＝取り消す対象があるか）。
     /// 最新リビジョンを選んでいるときは対象が無いため false（RestoreThroughCommandを無効化する）。
     /// フィルタで一覧が絞られていても、判定は常に全リビジョン（<see cref="_allRevisions"/>）基準で行う。</summary>
@@ -536,6 +550,22 @@ public sealed class HistoryPaneViewModel : ObservableObject
                 .ConfigureAwait(true);
             await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
             return false;
+        }
+
+        // 4番目の要件: 取り消した結果ファイルが1つも変わらなかった場合（既にその状態だった
+        // 場合）、RevisionRestorer.RestoreThroughAsyncは空リビジョンを記録せずバックアップ
+        // フォルダを破棄済み（result.Value.Entries.Count == 0がその目印）。履歴には何も
+        // 増えないため、一覧の再読み込みやRevisionRestoredの発火は行わず、その旨だけを伝える。
+        if (result.Value.Entries.Count == 0)
+        {
+            Logger?.Info("restore-through",
+                $"{target.RevisionLabel}まで戻す操作を行いましたが、ファイルは既にこの状態のため変更はありませんでした（リビジョンは記録していません）",
+                durationMs: stopwatch.ElapsedMilliseconds);
+            await _dialogs
+                .ShowMessageAsync("変更はありませんでした",
+                    $"ファイルは既に {target.RevisionLabel} を適用した直後の状態のため、変更はありませんでした。リビジョンは記録していません。")
+                .ConfigureAwait(true);
+            return true;
         }
 
         Logger?.Info("restore-through",

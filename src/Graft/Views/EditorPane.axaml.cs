@@ -108,16 +108,19 @@ public partial class EditorPane : UserControl
 
         if (tab is null) { ApplyEmptyTab(); return; }
         if (tab.Kind == EditorTabKind.Diff) { ApplyDiffTab(tab); return; }
+        if (tab.Kind == EditorTabKind.HistoryDiff) { ApplyHistoryDiffTab(tab); return; }
         ApplyDocumentTab(tab);
     }
 
-    // ApplyEmptyTab/ApplyDiffTabは EditorPane.Diff.axaml.cs（1ファイル400行上限のため分割）。
+    // ApplyEmptyTab/ApplyDiffTab/ApplyHistoryDiffTabは EditorPane.Diff.axaml.cs（1ファイル400行上限のため分割）。
 
     private void ApplyDocumentTab(EditorTabViewModel tab)
     {
         Editor.IsVisible = true;
         DiffHost.IsVisible = false;
         DiffHost.DataContext = null;
+        HistoryDiffHost.IsVisible = false;
+        HistoryDiffHost.DataContext = null;
 
         Editor.IsEnabled = true;
         Editor.Document = tab.Session.Document;
@@ -362,7 +365,7 @@ public partial class EditorPane : UserControl
     /// </summary>
     private async void OnDiffCloseClicked(object? sender, RoutedEventArgs e)
     {
-        if (_viewModel?.ActiveTab is { Kind: EditorTabKind.Diff } tab)
+        if (_viewModel?.ActiveTab is { Kind: EditorTabKind.Diff or EditorTabKind.HistoryDiff } tab)
         {
             await SafeHandler.RunAsync("差分表示を閉じる", () => _viewModel.CloseTabAsync(tab)).ConfigureAwait(true);
         }

@@ -78,6 +78,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Graft.PropertyChanged += OnGraftPropertyChanged;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
+        Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
+        Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
+        Editor.HistoryDiffTabClosed += OnHistoryDiffTabClosed; // 修正1: タブの×で閉じたら履歴側の選択も解除する。
         Graft.BeforeApplyAsync = EnsureTargetsSavedAsync; // 4.8: ドライラン開始前の未保存確認。
         Graft.AfterApplyAsync = files => Editor.ReloadIfOpenAsync(files); // 4.8: 適用後の自動再読込。
         WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
@@ -263,6 +266,27 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             NotifyStatusBarWarningChanged();
         }
     }
+
+    /// <summary>
+    /// 修正1: <see cref="MainViewModel.HistoryDiff"/>の内容が変わるたびに、履歴差分タブを
+    /// 開く／内容を更新する（HasFilesがtrue）か、閉じる（false。選択解除・タブの×で閉じた
+    /// 直後の再クリア等）。HistoryDiffは選択のたびに同じインスタンスを使い回すため、この
+    /// イベント経由でしか「今開くべきか」を知る手段が無い（OnGraftPropertyChangedの
+    /// SelectedBlock分岐と同じ考え方）。
+    /// </summary>
+    private void OnHistoryDiffChanged(object? sender, EventArgs e)
+    {
+        if (Graft.HistoryDiff.HasFiles) Editor.ShowHistoryDiffTab(Graft.HistoryDiff);
+        else Editor.CloseHistoryDiffTabIfOpen();
+    }
+
+    /// <summary>
+    /// 修正1: 履歴差分タブがタブの×・Ctrl+W等で閉じられたら、履歴側の選択も解除する
+    /// （「タブは無いのに履歴一覧では選択済みのまま」という状態の矛盾を防ぐ）。
+    /// 既に選択解除済み（HistoryDiff.Clear経由でこのタブが閉じられた場合）はSelectedItemの
+    /// setterが変化なしとして何もしないため、ここから無限にイベントが往復することは無い。
+    /// </summary>
+    private void OnHistoryDiffTabClosed(object? sender, EventArgs e) => Graft.History.SelectedItem = null;
 
     /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
     private async void OnDiffJumpRequested(object? sender, (string RelativePath, int Line) target)
