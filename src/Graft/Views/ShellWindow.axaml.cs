@@ -302,39 +302,52 @@ public partial class ShellWindow : Window
     }
 
     /// <summary>
-    /// 右配置（3列: サイドバー｜エディタ｜接ぎ木パネル）。行側（下配置用）は常に高さ0へたたみ、
-    /// エディタ行[0]がGrid全体の高さを占めるようにする。
+    /// 右配置（3列: サイドバー｜エディタ｜接ぎ木パネル）。展開時は列側を使い、行側（下配置用）は
+    /// 常に高さ0へたたんで、エディタ行[0]がGrid全体の高さを占めるようにする。
     ///
-    /// 折りたたみ時は下配置のようにヘッダー分（32px）だけ残さず、幅0まで完全にたたむ
-    /// （サイドビュー列の折りたたみと同じ扱い）。接ぎ木パネルのヘッダーはプレビュー・適用・
-    /// 失敗を再依頼など複数のボタンが横一列に並ぶため、下配置の32px高のような細い帯へ
-    /// 押し込めると実機で崩れる（ボタンが重なる／はみ出す）ことを確認済み。折りたたみ中でも
-    /// Ctrl+J、またはサイドバー等から再度パネルを開けば元に戻るため、再展開の手段は失われない。
+    /// 折りたたみ時（利用者からの指摘2対応）: 以前は幅0まで完全にたたんでいたが、それだと
+    /// 掴む対象が画面から消えてしまい、Ctrl+Jか配置切替ボタンの存在を知らないと二度と
+    /// 展開できず「復帰しづらい」という利用者からの指摘があった。下配置の折りたたみと同じ
+    /// 32pxのヘッダー帯を画面下部に表示する（列側は幅0のまま・行側[2]をヘッダー高さへ）ことで、
+    /// 右配置のままでも下配置と同じ手がかりで再展開できるようにする。
+    /// 配置の設定値（GraftPanelPlacement）自体はRightのまま変えない。展開すると
+    /// ApplyGraftPanelStateRightのIsGraftPanelOpen=true側の分岐へ戻り、列（右）配置が復活する。
     /// </summary>
     private void ApplyGraftPanelStateRight()
     {
-        GraftSplitterRow.Height = new GridLength(0);
-        GraftPanelRow.MinHeight = 0;
-        GraftPanelRow.Height = new GridLength(0);
-        GraftSplitter.IsVisible = false;
-
         if (ViewModel.IsGraftPanelOpen)
         {
+            GraftSplitterRow.Height = new GridLength(0);
+            GraftPanelRow.MinHeight = 0;
+            GraftPanelRow.Height = new GridLength(0);
+            GraftSplitter.IsVisible = false;
+
             GraftPanelColumn.MinWidth = GraftPanelMinWidth;
             GraftPanelColumn.Width = new GridLength(_graftPanelWidth);
             GraftSplitterColumn.Width = GridLength.Auto;
             GraftSplitterRight.IsVisible = true;
+
+            Grid.SetRow(GraftPanelControl, 0);
+            Grid.SetColumn(GraftPanelControl, 2);
         }
         else
         {
+            // 折りたたみ中は下配置の折りたたみ（ApplyGraftPanelStateBottomのelse側）と
+            // 見た目を完全に揃える: 列側は幅0、行側[2]はヘッダー高さ(32px)のみ、
+            // パネル自体もGrid.Row=2/Grid.Column=0へ一時的に移す。
             GraftPanelColumn.MinWidth = 0;
             GraftPanelColumn.Width = new GridLength(0);
             GraftSplitterColumn.Width = new GridLength(0);
             GraftSplitterRight.IsVisible = false;
-        }
 
-        Grid.SetRow(GraftPanelControl, 0);
-        Grid.SetColumn(GraftPanelControl, 2);
+            GraftPanelRow.MinHeight = 0;
+            GraftPanelRow.Height = new GridLength(GraftPanelHeaderHeight);
+            GraftSplitterRow.Height = new GridLength(0);
+            GraftSplitter.IsVisible = false;
+
+            Grid.SetRow(GraftPanelControl, 2);
+            Grid.SetColumn(GraftPanelControl, 0);
+        }
     }
 
     /// <summary>
