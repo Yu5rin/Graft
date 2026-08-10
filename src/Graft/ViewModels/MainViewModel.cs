@@ -110,7 +110,6 @@ public sealed partial class MainViewModel : ObservableObject
         // CanExecuteの再評価はCommandRequery.Invalidateがポインタ・キー操作のたびに全コマンドへ
         // 促す既存の仕組みに乗る）。
         DiscardCommand = new RelayCommand(DiscardCurrentPatch, () => _currentPatch is not null);
-        FocusSearchCommand = new RelayCommand(() => RequestFocusSearch?.Invoke(this, EventArgs.Empty));
         ShowHistoryCommand = new RelayCommand(() => RequestFocusHistory?.Invoke(this, EventArgs.Empty));
         AddCurrentPatchToQueueCommand = new AsyncRelayCommand(AddCurrentPatchToQueueAsync, () => _currentPatch is not null);
         OpenQueueCommand = new RelayCommand(() => RequestOpenQueue?.Invoke(this, EventArgs.Empty));
@@ -196,11 +195,7 @@ public sealed partial class MainViewModel : ObservableObject
     public ICommand UndoCommand { get; }
     public ICommand OpenSettingsCommand { get; }
     public ICommand DiscardCommand { get; }
-    public ICommand FocusSearchCommand { get; }
     public ICommand ShowHistoryCommand { get; }
-
-    /// <summary>Ctrl+F。View側でどの検索ボックスへフォーカスするかを判断する。</summary>
-    public event EventHandler? RequestFocusSearch;
 
     /// <summary>Ctrl+H・「履歴」ボタン。View側で履歴ペインへフォーカスする。</summary>
     public event EventHandler? RequestFocusHistory;

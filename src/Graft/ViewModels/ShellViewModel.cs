@@ -86,6 +86,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
         Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
         Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
+        // 機能改善: エディタ本文・差分表示（通常＋履歴）いずれかでのCtrl+マウスホイールに
+        // よるフォントサイズ確定を1つのイベントへ集約し、StartupCoordinatorへ伝える
+        // （そこから常駐のSettingsViewModel経由で永続化・全画面への同期を行う）。
+        Editor.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
+        Graft.Diff.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
+        Graft.HistoryDiff.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
         Editor.HistoryDiffTabClosed += OnHistoryDiffTabClosed; // 修正1: タブの×で閉じたら履歴側の選択も解除する。
         // ファイル単位の変更履歴: エクスプローラの右クリック「このファイルの変更履歴」を、
         // 履歴ペイン（Graft.History）の絞り込みと連動させる。ExplorerViewModelはHistoryPane
@@ -226,6 +232,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>ショートカット一覧ウィンドウを開くタイミングの通知。View側（ShellWindow）が購読する。</summary>
     public event EventHandler? RequestOpenShortcuts;
+
+    /// <summary>
+    /// 機能改善: エディタ本文・差分表示（通常＋履歴）のいずれかでCtrl+マウスホイールにより
+    /// フォントサイズが確定した（ドラッグ中の連続変化ではなく、1回のホイール操作の結果）ことの
+    /// 通知。StartupCoordinatorが購読し、常駐のSettingsViewModel経由で設定への永続化
+    /// （デバウンス保存）を行う。
+    /// </summary>
+    public event EventHandler<double>? EditorFontSizeChangeRequested;
 
     /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを

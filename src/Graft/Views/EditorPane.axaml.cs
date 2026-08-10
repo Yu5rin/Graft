@@ -34,6 +34,16 @@ public partial class EditorPane : UserControl
     // スクロール位置等を退避してから、次のタブへ切り替える。
     private EditorTabViewModel? _loadedTab;
 
+    // 機能改善（タブのドラッグ並べ替え）: ドラッグ中の状態。ポインタが押された時点では
+    // まだドラッグと確定させず（単なるクリック＝タブ切替を邪魔しないため）、しきい値
+    // （DragThresholdPixels）を超えて動いて初めてドラッグ表示に切り替える。
+    private const double DragThresholdPixels = 4;
+    private EditorTabViewModel? _dragTab;
+    private Point _dragStartPoint;
+    private bool _isDragging;
+    private int _dragTargetIndex = -1;
+    private ListBoxItem? _dragIndicatorItem;
+
     public EditorPane()
     {
         InitializeComponent();
@@ -60,6 +70,11 @@ public partial class EditorPane : UserControl
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
         Editor.AddHandler(PointerWheelChangedEvent, OnEditorPointerWheelChanged, RoutingStrategies.Tunnel);
         TabStrip.AddHandler(PointerPressedEvent, OnTabStripPointerPressed, RoutingStrategies.Tunnel);
+        // 機能改善（タブのドラッグ並べ替え）: 押下後の移動・離しをトンネル段階で拾う
+        // （OnEditorPointerWheelChanged等、既存のCtrl+マウスホイールと同じ理由）。
+        TabStrip.AddHandler(PointerMovedEvent, OnTabStripPointerMoved, RoutingStrategies.Tunnel);
+        TabStrip.AddHandler(PointerReleasedEvent, OnTabStripPointerReleased, RoutingStrategies.Tunnel);
+        TabStrip.PointerCaptureLost += (_, _) => ResetDragState();
         DiffHost.DoubleTapped += OnDiffDoubleTapped;
 
         DataContextChanged += OnDataContextChanged;
@@ -262,7 +277,7 @@ public partial class EditorPane : UserControl
     private void OnEditorPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
         if (e.KeyModifiers != KeyModifiers.Control || _viewModel is null) return;
-        _viewModel.FontSize += e.Delta.Y > 0 ? 1 : -1;
+        _viewModel.AdjustFontSize(e.Delta.Y > 0 ? 1 : -1);
         e.Handled = true;
     }
 
@@ -371,7 +386,13 @@ public partial class EditorPane : UserControl
         }
     }
 
-    /// <summary>4.3: 中クリックでタブを閉じ、タブ見出しのダブルクリックでプレビューを固定タブへ昇格する。</summary>
+    /// <summary>
+    /// 4.3: 中クリックでタブを閉じ、タブ見出しのダブルクリックでプレビューを固定タブへ昇格する。
+    /// 機能改善（タブのドラッグ並べ替え）: 左ボタン単発の押下はまだ並べ替えと確定させず、
+    /// ドラッグ候補として開始位置だけ記録する（実際にドラッグと認めるのは
+    /// <see cref="OnTabStripPointerMoved"/>がしきい値超えの移動を検知してから。閉じるボタン上の
+    /// 押下は対象外とし、ボタン自体のクリックを妨げない）。
+    /// </summary>
     private async void OnTabStripPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (_viewModel is null) return;
@@ -387,6 +408,120 @@ public partial class EditorPane : UserControl
         {
             tab.IsPreview = false;
         }
+        else if (point.Properties.IsLeftButtonPressed && e.ClickCount == 1
+                 && tab.Kind == EditorTabKind.Document
+                 && FindAncestor<Button>(e.Source as Visual) is null)
+        {
+            _dragTab = tab;
+            _dragStartPoint = e.GetCurrentPoint(TabStrip).Position;
+            _isDragging = false;
+        }
+    }
+
+    /// <summary>
+    /// 機能改善（タブのドラッグ並べ替え）: しきい値を超えて動いた時点でドラッグへ移行し、
+    /// 挿入位置のインジケータ（ドロップ先タブの左端／末尾なら最後のタブの右端の縦線）を更新する。
+    /// ドラッグ中はListBoxの通常のポインタ処理（選択の再評価等）と衝突しないようe.Handledを立てる。
+    /// </summary>
+    private void OnTabStripPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_dragTab is null || _viewModel is null) return;
+
+        var point = e.GetCurrentPoint(TabStrip);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            ResetDragState();
+            return;
+        }
+
+        if (!_isDragging)
+        {
+            var dx = point.Position.X - _dragStartPoint.X;
+            var dy = point.Position.Y - _dragStartPoint.Y;
+            if (dx * dx + dy * dy < DragThresholdPixels * DragThresholdPixels) return;
+            _isDragging = true;
+        }
+
+        e.Handled = true;
+        UpdateDragIndicator(point.Position.X);
+    }
+
+    /// <summary>ドラッグ中に離されたら、記録済みの挿入先へ実際に並べ替える。</summary>
+    private void OnTabStripPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_dragTab is null) return;
+
+        if (_isDragging && _viewModel is not null && _dragTargetIndex >= 0)
+        {
+            _viewModel.ReorderTab(_dragTab, _dragTargetIndex);
+            e.Handled = true;
+        }
+
+        ResetDragState();
+    }
+
+    /// <summary>
+    /// ポインタのX座標（TabStrip基準）から挿入先インデックス（ドキュメントタブのみを数えた
+    /// 0起点、ドラッグ開始前の並び順での位置）を決め、対応するタブ項目へ視覚的な
+    /// インジケータ（Classes.dragInsertBefore/After、Editor.axamlのStyle参照）を付ける。
+    /// </summary>
+    private void UpdateDragIndicator(double pointerX)
+    {
+        var containers = TabStrip.GetVisualDescendants().OfType<ListBoxItem>()
+            .Where(c => c.DataContext is EditorTabViewModel { Kind: EditorTabKind.Document })
+            .OrderBy(c => c.TranslatePoint(new Point(0, 0), TabStrip)?.X ?? 0)
+            .ToList();
+
+        ClearDragIndicator();
+        if (containers.Count == 0) { _dragTargetIndex = -1; return; }
+
+        var centers = containers
+            .Select(c => (c.TranslatePoint(new Point(0, 0), TabStrip)?.X ?? 0) + c.Bounds.Width / 2)
+            .ToList();
+        var index = ResolveDropIndex(centers, pointerX);
+        _dragTargetIndex = index;
+
+        if (index < containers.Count)
+        {
+            containers[index].Classes.Add("dragInsertBefore");
+            _dragIndicatorItem = containers[index];
+        }
+        else
+        {
+            containers[^1].Classes.Add("dragInsertAfter");
+            _dragIndicatorItem = containers[^1];
+        }
+    }
+
+    /// <summary>
+    /// 各タブ中心のX座標一覧とポインタのX座標から、挿入先インデックスを求める
+    /// （一般的なタブUIの規則: 中心より左側にかかったらそのタブの前へ挿入）。
+    /// 実ドラッグ座標に依存する部分をここへ切り出し、UITestsから直接検証できるようにする
+    /// （ProjectPane.ResolveDropTargetと同じ考え方）。
+    /// </summary>
+    public static int ResolveDropIndex(IReadOnlyList<double> centersX, double pointerX)
+    {
+        for (var i = 0; i < centersX.Count; i++)
+        {
+            if (pointerX < centersX[i]) return i;
+        }
+        return centersX.Count;
+    }
+
+    private void ClearDragIndicator()
+    {
+        if (_dragIndicatorItem is null) return;
+        _dragIndicatorItem.Classes.Remove("dragInsertBefore");
+        _dragIndicatorItem.Classes.Remove("dragInsertAfter");
+        _dragIndicatorItem = null;
+    }
+
+    private void ResetDragState()
+    {
+        ClearDragIndicator();
+        _dragTab = null;
+        _isDragging = false;
+        _dragTargetIndex = -1;
     }
 
     private static T? FindAncestor<T>(Visual? node) where T : Visual

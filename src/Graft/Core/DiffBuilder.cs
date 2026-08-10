@@ -10,6 +10,19 @@ namespace Graft.Core;
 /// </summary>
 public static class DiffBuilder
 {
+    /// <summary>
+    /// 機能改善（単語レベルの差分強調）: 行内の文字単位ハイライト計算（<see cref="PairInlineSpans"/>）を
+    /// 行う上限の行長。DiffPlexの<c>CreateCharacterDiffs</c>はMyers法ベースで、2行の内容が
+    /// 大きく異なるほど（一致する共通部分が少ないほど）計算量が行の文字数に対して悪化する
+    /// （このリポジトリには「極端に長い行」で構文強調・折り返し・括弧対応付けが指数的に遅くなる
+    /// 既知の性能問題があり、LongLineTests・TextNormalizerLongLineTestsで回帰を防いでいる。
+    /// 文字単位diffも同種の入力に弱いアルゴリズムのため、同じ考え方で上限を設ける）。
+    /// 通常のコード行（数十〜数百文字）はこの上限を大きく下回るため実害は無く、1行2000文字を
+    /// 超えるような行（ミニファイ済みJS・長い1行のJSON等）だけ行単位の色分けのみに留め、
+    /// 単語レベル強調の計算そのものを打ち切る。
+    /// </summary>
+    private const int MaxInlineDiffLineLength = 2000;
+
     /// <summary>差分を生成する。変更のない範囲は前後 contextLines 行を残して折りたたむ。</summary>
     public static DiffModel Build(string path, string? before, string? after, int contextLines)
         => BuildCore(path, before, after, contextLines);
@@ -121,6 +134,13 @@ public static class DiffBuilder
     {
         var oldText = lines[removedIndex].Text;
         var newText = lines[addedIndex].Text;
+
+        // 性能対策: どちらかの行が極端に長い場合は文字単位diffの計算そのものを打ち切り、
+        // 行単位の色分け（既存のGrid.diffCell.added/removed背景）だけに留める
+        // （MaxInlineDiffLineLengthのコメント参照）。InlineSpansを空のままにするだけで、
+        // 行の追加・削除種別（Kind）や表示自体には一切影響しない。
+        if (oldText.Length > MaxInlineDiffLineLength || newText.Length > MaxInlineDiffLineLength) return;
+
         var charDiff = Differ.Instance.CreateCharacterDiffs(oldText, newText, false);
 
         var oldSpans = new List<InlineSpan>();

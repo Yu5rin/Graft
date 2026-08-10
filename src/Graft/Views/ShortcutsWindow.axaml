@@ -122,9 +122,13 @@
                             <Border Classes="keyBadge" Grid.Column="0"><TextBlock Classes="keyText" Text="Ctrl+Shift+K" /></Border>
                             <TextBlock Grid.Column="1" Classes="descText" Text="現在行を削除します。" />
                         </Grid>
-                        <Grid Classes="shortcutRow last" ColumnDefinitions="150,*">
+                        <Grid Classes="shortcutRow" ColumnDefinitions="150,*">
                             <Border Classes="keyBadge" Grid.Column="0"><TextBlock Classes="keyText" Text="Ctrl+Space" /></Border>
                             <TextBlock Grid.Column="1" Classes="descText" Text="単語補完の候補を表示します。" />
+                        </Grid>
+                        <Grid Classes="shortcutRow last" ColumnDefinitions="150,*">
+                            <Border Classes="keyBadge" Grid.Column="0"><TextBlock Classes="keyText" Text="Ctrl+マウスホイール" /></Border>
+                            <TextBlock Grid.Column="1" Classes="descText" Text="エディタ本文・差分表示の文字サイズを変えます（8〜32、設定にも記憶されます）。" />
                         </Grid>
                     </StackPanel>
                 </Border>

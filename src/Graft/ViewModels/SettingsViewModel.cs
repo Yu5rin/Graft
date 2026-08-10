@@ -374,6 +374,18 @@ public sealed class SettingsViewModel : ObservableObject
         await CommitPendingSaveAsync().ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 機能改善: エディタ・差分表示のCtrl+マウスホイールでのフォントサイズ変更を、設定画面の
+    /// 「フォントサイズ」欄と全く同じ経路（<see cref="EditorFontSizeText"/>のsetter→
+    /// <see cref="ScheduleSave"/>の300msデバウンス→検証→保存→onLiveSettingsChanged）に乗せて
+    /// 永続化する。保存ロジックを別途持つ（並行実装する）と、設定画面での変更と食い違う
+    /// タイミング・検証規則で保存してしまう恐れがあるため、既存のテキスト欄用setterを
+    /// そのまま呼ぶだけに留める（StartupCoordinator.ApplyLiveSettingsChangeが常駐の
+    /// SettingsViewModelインスタンスに対してこれを呼ぶ。ShellViewModel.
+    /// EditorFontSizeChangeRequested参照）。
+    /// </summary>
+    public void SetEditorFontSizeLive(double fontSize) => EditorFontSizeText = fontSize.ToString(CultureInfo.InvariantCulture);
+
     private async Task LoadAsync(CancellationToken ct)
     {
         await RunBusyAsync(async () =>

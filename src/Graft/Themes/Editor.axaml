@@ -69,6 +69,19 @@
         <Style Selector="^:pointerover /template/ Border#PART_Root">
             <Setter Property="Background" Value="{DynamicResource BgHover}" />
         </Style>
+        <!--
+            機能改善（タブのドラッグ並べ替え）: 挿入位置の最小限の視覚フィードバック。
+            ドラッグ先の左端（末尾ドロップ時は最後のタブの右端）に縦線を出す。
+            EditorPane.axaml.cs の UpdateDragIndicator が Classes を都度付け替える。
+        -->
+        <Style Selector="^.dragInsertBefore /template/ Border#PART_Root">
+            <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+            <Setter Property="BorderThickness" Value="2,0,0,2" />
+        </Style>
+        <Style Selector="^.dragInsertAfter /template/ Border#PART_Root">
+            <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+            <Setter Property="BorderThickness" Value="0,0,2,2" />
+        </Style>
     </ControlTheme>
 
     <!-- タブを閉じるボタン（9.4のxアイコンを使用）。 -->
