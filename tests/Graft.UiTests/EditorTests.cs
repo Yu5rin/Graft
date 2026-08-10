@@ -10,6 +10,7 @@ using Graft.Core;
 using Graft.Editor;
 using Graft.Features;
 using Graft.Themes;
+using Graft.UiTests.TestSupport;
 
 namespace Graft.UiTests;
 
@@ -19,8 +20,21 @@ namespace Graft.UiTests;
 /// 4.5節のエンコーディング・改行保持と4.1節のシンタックスハイライト接続が
 /// v2.0のWPF版と同じ挙動を保つことを検証する。代表画面のスクリーンショットも保存する。
 /// </summary>
-public class EditorTests
+public class EditorTests : IDisposable
 {
+    // 課題（CIで不定期に再発する「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」）:
+    // 本クラスはAvaloniaEditのTextEditor（TextViewを内包）を載せたWindowをShow()するテストを
+    // 複数持つが、以前はどれもClose()せず、ShownWindowTrackerにも乗せていなかった
+    // （閉じ忘れの実例。TestSupport/ShownWindowTracker.cs参照）。他のシナリオテストと
+    // 同じ後始末に揃える。
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "TextEditorを含むウィンドウを構築して描画しても例外が出ない")]
     public void TextEditorを含むウィンドウを構築して描画できる()
     {
@@ -281,10 +295,10 @@ public class EditorTests
         return result;
     }
 
-    private static (Window Window, TextEditor Editor) CreateEditorWindow()
+    private (Window Window, TextEditor Editor) CreateEditorWindow()
     {
         var editor = new TextEditor { Width = 800, Height = 600 };
-        var window = new Window { Width = 800, Height = 600, Content = editor };
+        var window = _windows.Track(new Window { Width = 800, Height = 600, Content = editor });
         return (window, editor);
     }
 

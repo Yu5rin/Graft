@@ -7,6 +7,7 @@ using Avalonia.Controls.Presenters;
 using Avalonia.Layout;
 using Avalonia.VisualTree;
 using FluentAssertions;
+using Graft.UiTests.TestSupport;
 
 namespace Graft.UiTests;
 
@@ -14,8 +15,18 @@ namespace Graft.UiTests;
 /// 共通コントロールの見た目に関する要件（仕様書9.1、v2.0で利用者から指摘された不具合）を
 /// 実際にレイアウトさせて検証する。
 /// </summary>
-public class ControlThemeTests
+public class ControlThemeTests : IDisposable
 {
+    // 各テストがWindowをShow()するが、以前はどれもClose()もShownWindowTrackerへの登録も
+    // しないまま終わっていた（閉じ忘れの実例）。他のシナリオテストと同じ後始末に揃える。
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "セレクトボックスは一番長い項目と矢印が収まる幅を確保する")]
     public void セレクトボックスは最長項目の幅を確保する()
     {
@@ -28,7 +39,7 @@ public class ControlThemeTests
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
         };
-        var window = new Window { Width = 800, Height = 200, Content = combo };
+        var window = _windows.Track(new Window { Width = 800, Height = 200, Content = combo });
         window.Show();
         window.CaptureRenderedFrame().Should().NotBeNull();
 
@@ -58,7 +69,7 @@ public class ControlThemeTests
                 new TabItem { Header = "プロンプトテンプレート", Content = new TextBlock { Text = "本文" } },
             },
         };
-        var window = new Window { Width = 800, Height = 400, Content = tabs };
+        var window = _windows.Track(new Window { Width = 800, Height = 400, Content = tabs });
         window.Show();
         window.CaptureRenderedFrame().Should().NotBeNull();
 
@@ -82,7 +93,7 @@ public class ControlThemeTests
         // 他のボタンと揃わない見た目になる（ライトテーマで灰色に塗られる不具合が出た）。
         // 自前テンプレートの目印である PART_FocusRing の有無で判定する。
         var toggle = new ToggleButton { Content = "折り返し" };
-        var window = new Window { Width = 400, Height = 200, Content = toggle };
+        var window = _windows.Track(new Window { Width = 400, Height = 200, Content = toggle });
         window.Show();
         window.CaptureRenderedFrame().Should().NotBeNull();
 
@@ -104,7 +115,7 @@ public class ControlThemeTests
         // 履歴の期間絞り込みは書式の例を透かし文字で示す。共通テーマが透かし文字を
         // 描画しないと、利用者は入力すべき書式を知る手がかりを失う。
         var box = new TextBox { Watermark = "2026-01-01", Width = 200 };
-        var window = new Window { Width = 400, Height = 200, Content = box };
+        var window = _windows.Track(new Window { Width = 400, Height = 200, Content = box });
         window.Show();
         window.CaptureRenderedFrame().Should().NotBeNull();
 
@@ -132,7 +143,7 @@ public class ControlThemeTests
         };
         ScrollViewer.SetVerticalScrollBarVisibility(box, ScrollBarVisibility.Auto);
 
-        var window = new Window { Width = 400, Height = 300, Content = box };
+        var window = _windows.Track(new Window { Width = 400, Height = 300, Content = box });
         window.Show();
         window.CaptureRenderedFrame().Should().NotBeNull();
 

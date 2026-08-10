@@ -8,6 +8,7 @@ using FluentAssertions;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 using Xunit.Abstractions;
@@ -42,7 +43,7 @@ namespace Graft.UiTests;
 /// （見たいのは画面バインドが載せる追加コストの倍率であり、行数・ファイル数に対する
 /// アルゴリズムの計算量ではないため）。
 /// </summary>
-public class SearchPerformanceTests
+public class SearchPerformanceTests : IDisposable
 {
     private const int FileCount = 1000;
     private const int HitFileCount = 869;
@@ -50,9 +51,19 @@ public class SearchPerformanceTests
 
     private readonly ITestOutputHelper _output;
 
+    // 各テストがSearchViewを載せたWindowをShow()するが、以前はどれもClose()もShownWindowTracker
+    // への登録もしないまま終わっていた（閉じ忘れの実例）。他のシナリオテストと同じ後始末に揃える。
+    private readonly ShownWindowTracker _windows = new();
+
     public SearchPerformanceTests(ITestOutputHelper output)
     {
         _output = output;
+    }
+
+    public void Dispose()
+    {
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>基準1回・対象1回を1組として、この組数だけ交互に計測し、組ごとの倍率の中央値を採用する
@@ -96,7 +107,7 @@ public class SearchPerformanceTests
             vm.SetContext(project, settings);
 
             var view = new SearchView { DataContext = vm };
-            var window = new Window { Width = 900, Height = 700, Content = view };
+            var window = _windows.Track(new Window { Width = 900, Height = 700, Content = view });
             window.Show();
             window.CaptureRenderedFrame();
 
@@ -218,7 +229,7 @@ public class SearchPerformanceTests
             vm.SetContext(new Project { Id = "p", Name = "p", Root = root }, new Settings());
 
             var view = new SearchView { DataContext = vm };
-            var window = new Window { Width = 900, Height = 700, Content = view };
+            var window = _windows.Track(new Window { Width = 900, Height = 700, Content = view });
             window.Show();
             window.CaptureRenderedFrame();
 
@@ -258,7 +269,7 @@ public class SearchPerformanceTests
             vm.SetContext(project, settings);
 
             var view = new SearchView { DataContext = vm };
-            var window = new Window { Width = 900, Height = 700, Content = view };
+            var window = _windows.Track(new Window { Width = 900, Height = 700, Content = view });
             window.Show();
             window.CaptureRenderedFrame();
 
