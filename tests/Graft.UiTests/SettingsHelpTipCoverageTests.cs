@@ -70,6 +70,11 @@ public class SettingsHelpTipCoverageTests : IDisposable
     [AvaloniaFact(DisplayName = "設定画面「JSON編集」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
     public void JSON編集設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new RawJsonSettingsView());
 
+    // 機能1（オープンソースライセンス表記）: 「バージョン情報」タブの「オープンソースライセンスを
+    // 表示」ボタンにHelpTip.Standardを付け忘れていないかをここで機械的に確認する。
+    [AvaloniaFact(DisplayName = "設定画面「バージョン情報」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void バージョン情報のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new AboutView());
+
     [AvaloniaFact(DisplayName = "設定ウィンドウ本体（タブ・トークン統計・下部ボタン）は全てHelpTip.Standardを持つ")]
     public void 設定ウィンドウ本体のコントロールは全てHelpTipを持つ()
     {

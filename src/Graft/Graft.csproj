@@ -86,8 +86,22 @@
 
 
   <ItemGroup>
+    <!--
+      機能1（オープンソースライセンス表記）。依存関係一式のライセンス全文を実行ファイルへ
+      埋め込みリソースとして持つ。埋め込みリソースはコンパイル時にアセンブリ本体へ含まれるため、
+      単一ファイル発行（PublishSingleFile=true、上のPropertyGroup参照）でも追加の設定なしに
+      配布物へ同梱される（外部ファイルにすると同梱漏れの恐れがあるため、あえて埋め込みにする
+      方針は既存のDiffPlex-LICENSE.txt/AvalonEdit-LICENSE.txtから踏襲）。
+      各ファイルの出どころ・対象パッケージはViews/OpenSourceLicensesWindow.axaml.csのコメント参照。
+    -->
     <EmbeddedResource Include="Assets\DiffPlex-LICENSE.txt" />
     <EmbeddedResource Include="Assets\AvalonEdit-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\Avalonia-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\SkiaSharp-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\DotnetRuntime-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\MicroCom-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\TmdsDBus-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\Angle-LICENSE.txt" />
   </ItemGroup>
 
 </Project>

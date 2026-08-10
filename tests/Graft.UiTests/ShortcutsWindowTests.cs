@@ -90,6 +90,8 @@ public class ShortcutsWindowTests : IDisposable
         texts.Should().Contain("F6");
         texts.Should().Contain("Ctrl+Shift+F");
         texts.Should().Contain("Ctrl+/", "行コメント切り替えとショートカット一覧を開く操作の両方で登場する");
+        // 製品としての使い勝手3件のうち機能3: 直前に閉じたタブを開き直す。
+        texts.Should().Contain("Ctrl+Shift+T");
     }
 
     [AvaloniaFact(DisplayName = "Escapeキーで閉じる")]

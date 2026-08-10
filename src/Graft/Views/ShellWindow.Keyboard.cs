@@ -113,6 +113,11 @@ public partial class ShellWindow
             case Key.E: ViewModel.SelectSideView(SideViewKind.Explorer); return true;
             case Key.F: ViewModel.SelectSideView(SideViewKind.Search); return true;
             case Key.S: _ = ViewModel.Editor.SaveAllAsync(); return true;
+            // 機能3: 直前に閉じたタブを開き直す（ブラウザのCtrl+Shift+Tと同じ操作感）。
+            // AvaloniaEdit・TextBox等の標準操作にCtrl+Shift+Tは無く、アプリ内の他のキーとも
+            // 衝突しないことを確認済み（ShortcutsWindow.axaml・本ファイルの既存switch文を
+            // 検索して確認。詳細はEditorPaneViewModel.RecentlyClosed.cs参照）。
+            case Key.T: _ = ViewModel.Editor.ReopenLastClosedTabAsync(); return true;
             default: return false;
         }
     }

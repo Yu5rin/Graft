@@ -1,0 +1,91 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Graft.Views"
+        x:Class="Graft.Views.OpenSourceLicensesWindow"
+        Title="オープンソースライセンス"
+        Width="720" Height="640"
+        MinWidth="480" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        AutomationProperties.Name="オープンソースライセンス">
+    <!--
+        機能1（オープンソースライセンス表記）。設定画面「バージョン情報」タブ（AboutView）の
+        「オープンソースライセンスを表示」から開く専用ウィンドウ。ShortcutsWindow・
+        LogViewerWindowと同じくViewModelを持たない静的表示で、一覧項目は
+        コードビハインド（OpenSourceLicensesWindow.axaml.csのSources）に持ち、
+        DataTemplateで見た目だけをここに定義する。
+
+        調査方法・確認できたこと／できなかったことの詳細はOpenSourceLicensesWindow.axaml.csの
+        クラスコメント参照。要点: dotnet list packageコマンド（推移的依存も含めるオプション付き）で
+        Graft.csprojの直接・推移的依存パッケージを実際に列挙し、各パッケージのnuspec（ライセンス種別・
+        著作権表示）と該当プロジェクトの実際のLICENSEファイルを突き合わせて確認した。
+        ビルド時のみ使用され発行物（配布物）に含まれないツール
+        （Avalonia.BuildServices・Microsoft.NET.ILLink.Tasks）およびDebug構成専用の
+        Avalonia.Diagnosticsは対象外（下部の注記で明示する）。
+    -->
+    <Window.Resources>
+        <DataTemplate x:Key="LicenseEntryTemplate" DataType="local:OpenSourceLicensesWindowEntry">
+            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12">
+                <StackPanel>
+                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding LicenseAndCopyright}" Foreground="{DynamicResource TextSecondary}"
+                               TextWrapping="Wrap" Margin="0,2,0,0" />
+                    <TextBlock Text="{Binding Summary}" Foreground="{DynamicResource TextSecondary}"
+                               TextWrapping="Wrap" Margin="0,2,0,8" />
+                    <Expander Header="ライセンス全文を表示"
+                              AutomationProperties.Name="{Binding ExpanderAutomationName}">
+                        <Border Background="{DynamicResource BgSurface}" BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1" Margin="0,8,0,0" MaxHeight="260">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBlock Text="{Binding LicenseText}" Margin="8" TextWrapping="Wrap"
+                                           FontFamily="{DynamicResource CodeFontFamily}"
+                                           FontSize="{DynamicResource CodeFontSize}"
+                                           AutomationProperties.Name="{Binding LicenseTextAutomationName}" />
+                            </ScrollViewer>
+                        </Border>
+                    </Expander>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Margin="16,16,16,8">
+            <TextBlock Text="使用しているオープンソースソフトウェア"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}" />
+            <TextBlock Text="Graftの配布物に実際に含まれる依存ライブラリの一覧です。各項目を開くとライセンス全文を確認できます。"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       TextWrapping="Wrap"
+                       Margin="0,4,0,0" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="16,0,16,8" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="EntriesList" ItemTemplate="{StaticResource LicenseEntryTemplate}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Spacing="8" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Margin="16,0,16,16">
+            <TextBlock Text="ビルド時のみ使用され配布物には含まれないツール（Avalonia.BuildServices、Microsoft.NET.ILLink.Tasks）、およびDebug構成専用でRelease発行物には含まれないAvalonia.Diagnosticsは、この一覧に含めていません。"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,12"
+                       AutomationProperties.Name="対象外のパッケージについての注記" />
+            <Button Content="閉じる" Click="OnCloseClicked" HorizontalAlignment="Right"
+                    AutomationProperties.Name="閉じる"
+                    local:HelpTip.Standard="このウィンドウを閉じます。"
+                    local:HelpTip.Detailed="オープンソースライセンスの一覧ウィンドウを閉じます。Escapeキーでも閉じられます。" />
+        </StackPanel>
+    </Grid>
+</Window>
