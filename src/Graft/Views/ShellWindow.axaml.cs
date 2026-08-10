@@ -114,6 +114,7 @@ public partial class ShellWindow : Window
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
         viewModel.RequestOpenShortcuts += OnRequestOpenShortcuts;
         viewModel.QuickOpen.Opened += OnQuickOpenOpened;
+        viewModel.CommandPalette.Opened += OnCommandPaletteOpened;
     }
 
     private ShellViewModel ViewModel => (ShellViewModel)DataContext!;
@@ -181,6 +182,15 @@ public partial class ShellWindow : Window
     private void OnQuickOpenOpened(object? sender, EventArgs e)
     {
         Dispatcher.UIThread.Post(() => QuickOpenOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// コマンドパレット（Ctrl+Shift+P）を開いた瞬間に検索欄へフォーカスする
+    /// （<see cref="OnQuickOpenOpened"/>と同じ理由・同じ作法）。
+    /// </summary>
+    private void OnCommandPaletteOpened(object? sender, EventArgs e)
+    {
+        Dispatcher.UIThread.Post(() => CommandPaletteOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
     }
 
     /// <summary>

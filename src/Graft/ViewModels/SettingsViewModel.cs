@@ -85,6 +85,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _contextLinesText = "0";
     private bool _wordWrap;
     private bool _showWhitespace;
+    private bool _sideBySide = true;
     private string _allowedExtensionsText = string.Empty;
     private string _maxFileSizeMbText = "0";
     private string _maxFilesPerRevisionText = "0";
@@ -309,6 +310,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     public string ContextLinesText { get => _contextLinesText; set => SetEditableProperty(ref _contextLinesText, value); }
     public bool WordWrap { get => _wordWrap; set => SetEditableProperty(ref _wordWrap, value); }
     public bool ShowWhitespace { get => _showWhitespace; set => SetEditableProperty(ref _showWhitespace, value); }
+    /// <summary>機能改善: diff表示を並列（左右）にするか統合（上下）にするか。既定はtrue（並列）。</summary>
+    public bool SideBySide { get => _sideBySide; set => SetEditableProperty(ref _sideBySide, value); }
     public string AllowedExtensionsText { get => _allowedExtensionsText; set => SetEditableProperty(ref _allowedExtensionsText, value); }
     public string MaxFileSizeMBText { get => _maxFileSizeMbText; set => SetEditableProperty(ref _maxFileSizeMbText, value); }
     public string MaxFilesPerRevisionText { get => _maxFilesPerRevisionText; set => SetEditableProperty(ref _maxFilesPerRevisionText, value); }
@@ -407,6 +410,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// EditorFontSizeChangeRequested参照）。
     /// </summary>
     public void SetEditorFontSizeLive(double fontSize) => EditorFontSizeText = fontSize.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// 機能改善（差分の左右並列表示）: diff表示ヘッダーでの並列／統合表示の切り替えを、
+    /// 設定画面の「diff表示」チェックボックスと全く同じ経路（<see cref="SideBySide"/>のsetter→
+    /// ScheduleSaveの300msデバウンス→検証→保存→onLiveSettingsChanged）に乗せて永続化する
+    /// （<see cref="SetEditorFontSizeLive"/>と同じ考え方・同じ理由。ShellViewModel.
+    /// DiffSideBySideChangeRequested参照）。
+    /// </summary>
+    public void SetSideBySideLive(bool value) => SideBySide = value;
 
     private async Task LoadAsync(CancellationToken ct)
     {
@@ -695,7 +707,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         NewFileEncoding = s.Encoding.NewFileEncoding; NewFileBom = s.Encoding.NewFileBom;
         SyntaxEnabled = s.Syntax.Enabled; ShowLineNumbers = s.Syntax.ShowLineNumbers;
         ContextLinesText = s.Diff.ContextLines.ToString(CultureInfo.InvariantCulture);
-        WordWrap = s.Diff.WordWrap; ShowWhitespace = s.Diff.ShowWhitespace;
+        WordWrap = s.Diff.WordWrap; ShowWhitespace = s.Diff.ShowWhitespace; SideBySide = s.Diff.SideBySide;
         AllowedExtensionsText = string.Join(", ", s.Safety.AllowedExtensions);
         MaxFileSizeMBText = s.Safety.MaxFileSizeMB.ToString(CultureInfo.InvariantCulture);
         MaxFilesPerRevisionText = s.Safety.MaxFilesPerRevision.ToString(CultureInfo.InvariantCulture);
@@ -750,7 +762,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         },
         Encoding = new EncodingSettings { NewFileEncoding = _newFileEncoding, NewFileBom = _newFileBom },
         Syntax = new SyntaxSettings { Enabled = _syntaxEnabled, ShowLineNumbers = _showLineNumbers },
-        Diff = new DiffSettings { ContextLines = ParseInt(_contextLinesText), WordWrap = _wordWrap, ShowWhitespace = _showWhitespace },
+        Diff = new DiffSettings { ContextLines = ParseInt(_contextLinesText), WordWrap = _wordWrap, ShowWhitespace = _showWhitespace, SideBySide = _sideBySide },
         Safety = new SafetySettings
         {
             AllowedExtensions = ParseExtensions(_allowedExtensionsText),

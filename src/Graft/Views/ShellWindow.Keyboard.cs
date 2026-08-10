@@ -35,6 +35,14 @@ public partial class ShellWindow
             return;
         }
 
+        // 機能改善: コマンドパレット（Ctrl+Shift+P）が開いている間も同様に、上下キー・Enter・
+        // Escapeをフォーカス位置に関わらずここで処理する（QuickOpenと同じ理由）。
+        if (ViewModel.CommandPalette.IsOpen && HandleCommandPaletteKey(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
             ViewModel.Graft.DiscardCommand.Execute(null);
@@ -118,6 +126,9 @@ public partial class ShellWindow
             // 衝突しないことを確認済み（ShortcutsWindow.axaml・本ファイルの既存switch文を
             // 検索して確認。詳細はEditorPaneViewModel.RecentlyClosed.cs参照）。
             case Key.T: _ = ViewModel.Editor.ReopenLastClosedTabAsync(); return true;
+            // 機能改善: コマンドパレット。既存のCtrl+Shift+*と衝突しないことを確認済み
+            // （このswitch文・全axamlのKeyBindingを検索して確認。ShortcutCatalog.cs参照）。
+            case Key.P: ViewModel.ToggleCommandPaletteCommand.Execute(null); return true;
             default: return false;
         }
     }
@@ -160,6 +171,19 @@ public partial class ShellWindow
             case Key.Down: ViewModel.QuickOpen.MoveSelection(1); return true;
             case Key.Up: ViewModel.QuickOpen.MoveSelection(-1); return true;
             case Key.Enter: ViewModel.QuickOpen.ConfirmSelection(); return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>コマンドパレットが開いている間の上下キー・Enter・Escape（HandleQuickOpenKeyと同じ操作感）。</summary>
+    private bool HandleCommandPaletteKey(Key key)
+    {
+        switch (key)
+        {
+            case Key.Escape: ViewModel.CommandPalette.Close(); return true;
+            case Key.Down: ViewModel.CommandPalette.MoveSelection(1); return true;
+            case Key.Up: ViewModel.CommandPalette.MoveSelection(-1); return true;
+            case Key.Enter: ViewModel.CommandPalette.ConfirmSelection(); return true;
             default: return false;
         }
     }

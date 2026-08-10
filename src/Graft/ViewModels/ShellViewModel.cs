@@ -92,6 +92,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Editor.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
         Graft.Diff.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
         Graft.HistoryDiff.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
+        // 機能改善（差分の左右並列表示）: FontSizeChangeCommittedと同じ経路で、diff表示ヘッダーでの
+        // 並列／統合表示の切り替えを設定へ永続化する（StartupCoordinator.ApplyLiveSettingsChange参照）。
+        Graft.Diff.SideBySideChangeCommitted += (_, v) => DiffSideBySideChangeRequested?.Invoke(this, v);
+        Graft.HistoryDiff.SideBySideChangeCommitted += (_, v) => DiffSideBySideChangeRequested?.Invoke(this, v);
         Editor.HistoryDiffTabClosed += OnHistoryDiffTabClosed; // 修正1: タブの×で閉じたら履歴側の選択も解除する。
         // ファイル単位の変更履歴: エクスプローラの右クリック「このファイルの変更履歴」を、
         // 履歴ペイン（Graft.History）の絞り込みと連動させる。ExplorerViewModelはHistoryPane
@@ -109,6 +113,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
         OpenShortcutsCommand = new RelayCommand(() => RequestOpenShortcuts?.Invoke(this, EventArgs.Empty));
         AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
+        InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
     }
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>
@@ -240,6 +245,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// （デバウンス保存）を行う。
     /// </summary>
     public event EventHandler<double>? EditorFontSizeChangeRequested;
+
+    /// <summary>
+    /// 機能改善（差分の左右並列表示）: diff表示（通常＋履歴）のいずれかで並列／統合表示の
+    /// 切り替えが確定したことの通知。EditorFontSizeChangeRequestedと同じ経路でStartupCoordinatorが
+    /// 購読し、常駐のSettingsViewModel経由で設定への永続化を行う。
+    /// </summary>
+    public event EventHandler<bool>? DiffSideBySideChangeRequested;
 
     /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
@@ -419,8 +431,16 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         => await SafeHandler.RunAsync("クイックオープンからのファイルを開く", () =>
             Editor.OpenFileAsync(fullPath, preview: true)).ConfigureAwait(true);
 
-    /// <summary>Ctrl+P。プロジェクト未選択時は何もしない（QuickOpenViewModel.ToggleAsyncが判定する）。</summary>
-    private async Task ToggleQuickOpenAsync() => await QuickOpen.ToggleAsync().ConfigureAwait(true);
+    /// <summary>
+    /// Ctrl+P。プロジェクト未選択時は何もしない（QuickOpenViewModel.ToggleAsyncが判定する）。
+    /// コマンドパレット（Ctrl+Shift+P）が開いていれば、同時に2つのオーバーレイが重なって
+    /// 表示されないよう先に閉じる（ShellViewModel.CommandPalette.csのToggleCommandPaletteと対）。
+    /// </summary>
+    private async Task ToggleQuickOpenAsync()
+    {
+        if (CommandPalette.IsOpen) CommandPalette.Close();
+        await QuickOpen.ToggleAsync().ConfigureAwait(true);
+    }
 
     private async void OnProjectSelected(object? sender, Project project)
         => await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>

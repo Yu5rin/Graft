@@ -232,6 +232,15 @@ public sealed record DiffSettings
 
     /// <summary>空白文字（タブ・行末空白）を可視化するか。</summary>
     public bool ShowWhitespace { get; init; } = false;
+
+    /// <summary>
+    /// 機能改善: diff表示を並列（左右、既定）にするか統合（上下）にするか。
+    /// DiffViewModel.IsSideBySideの初期値・既定値として使う。diff表示ヘッダーの
+    /// 切り替えボタンで変更すると即座にここへ永続化される（DiffViewModel.
+    /// SideBySideChangeCommitted参照。既存のCtrl+マウスホイールでのフォントサイズ確定と
+    /// 同じ即時反映の作法）。
+    /// </summary>
+    public bool SideBySide { get; init; } = true;
 }
 
 /// <summary>安全機構設定（13章）。</summary>

@@ -1,0 +1,92 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.CommandPaletteOverlay"
+             Focusable="False"
+             HorizontalAlignment="Center"
+             VerticalAlignment="Top"
+             Margin="0,16,0,0"
+             Width="560"
+             ZIndex="100"
+             IsVisible="{Binding IsOpen, FallbackValue=False}"
+             AutomationProperties.Name="コマンドパレット">
+    <!--
+        コマンドパレット（Ctrl+Shift+P、機能改善）オーバーレイ。既存のクイックオープン
+        （QuickOpenOverlay.axaml、Ctrl+P）と同じ配置・見た目・操作感に揃える（エディタ領域の
+        上部中央に浮かせる。開閉・上下キー・Enter・EscはShellWindow.Keyboard.csが
+        CommandPaletteViewModelを直接操作する。あいまい一致はFuzzyMatcher（Features、
+        UI非依存）を流用する）。
+        実行できない項目（CanExecuteがfalse）はClasses.disabledで薄く表示し、選べない
+        （実行しても何も起きない）ことが見た目で分かるようにする。
+    -->
+    <Border Background="{DynamicResource BgElevated}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="1"
+            Padding="8"
+            AutomationProperties.Name="コマンドパレット: 操作を検索して実行">
+        <StackPanel>
+            <TextBox x:Name="QueryBox"
+                     Text="{Binding Query, Mode=TwoWay}"
+                     Watermark="操作名を入力..."
+                     AutomationProperties.Name="コマンドパレットの検索文字列" />
+
+            <TextBlock Text="一致する操作がありません"
+                       Margin="4,8,0,0"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       IsVisible="{Binding Results.Count,
+                                   Converter={x:Static local:Converters.CountIsZero}}"
+                       AutomationProperties.Name="一致する操作がありません" />
+
+            <ListBox x:Name="ResultsList"
+                     ItemsSource="{Binding Results}"
+                     SelectedItem="{Binding SelectedResult, Mode=TwoWay}"
+                     Margin="0,6,0,0"
+                     MaxHeight="320"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     IsVisible="{Binding Results.Count,
+                                 Converter={x:Static local:Converters.CountIsNotZero}}"
+                     AutomationProperties.Name="コマンドパレットの候補一覧（スクロール可）">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        <Setter Property="Padding" Value="6,4" />
+                    </Style>
+                    <!-- CanExecuteがfalseの項目は薄く表示し、押しても実行されないことを示す
+                         （DiffView.axamlのGrid.diffCell.addedと同じ「行のルート要素へ
+                         Classesを条件付きで立てる」作法）。 -->
+                    <Style Selector="Grid.disabled">
+                        <Setter Property="Opacity" Value="0.45" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <!-- マウスクリックでも確定（クイックオープンと同じ操作感）。 -->
+                        <Grid Tapped="OnResultTapped"
+                              Classes.disabled="{Binding !IsEnabled}"
+                              ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding Title}"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       FontSize="{DynamicResource BodyFontSize}" />
+                            <Border Grid.Column="1"
+                                    Background="{DynamicResource BgSurface}"
+                                    BorderBrush="{DynamicResource BorderSubtle}"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="6,1"
+                                    Margin="8,0,0,0"
+                                    IsVisible="{Binding HasGesture}">
+                                <TextBlock Text="{Binding GestureText}"
+                                           FontFamily="{DynamicResource CodeFontFamily}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                            </Border>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </StackPanel>
+    </Border>
+</UserControl>
