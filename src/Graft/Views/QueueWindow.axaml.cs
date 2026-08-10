@@ -16,6 +16,19 @@ public partial class QueueWindow : Window
     {
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        // 細かいユーザビリティ改善5: 入力欄が無いウィンドウのため既定ボタンへ初期フォーカスを
+        // 当てる。ただしキューが空のとき「結合して適用へ進む」はCanExecute=falseで無効化される
+        // （MergeCommand参照）ため、その場合は代わりに「閉じる」へフォーカスする
+        // （無効なコントロールへのFocus()は静かに無視されるだけで例外にはならないが、
+        // それだと結局どこにもフォーカスが当たらずキーボード操作の起点を失ってしまうため）。
+        // IsEnabledではなくIsEffectivelyEnabledを見るのは、Commandバインディングによる
+        // 無効化はIsEnabled自体は変えずIsEffectivelyEnabledにのみ反映されるため
+        // （DialogKeyboardCoverageTests.パッチキューのキー操作が揃っている参照）。
+        Loaded += (_, _) =>
+        {
+            if (MergeButton.IsEffectivelyEnabled) MergeButton.Focus();
+            else CloseButton.Focus();
+        };
     }
 
     public QueueWindow(QueueViewModel viewModel) : this()

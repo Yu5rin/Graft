@@ -28,6 +28,8 @@ public partial class LogViewerWindow : Window
         LogContentText.Text = tailText;
 
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        // 細かいユーザビリティ改善5: ログ内容は読み取り専用の閲覧欄のため、初期フォーカスは既定ボタンへ。
+        Loaded += (_, _) => CloseButton.Focus();
     }
 
     private void OnCopyClicked(object? sender, RoutedEventArgs e)

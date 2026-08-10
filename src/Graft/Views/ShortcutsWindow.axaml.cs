@@ -22,6 +22,8 @@ public partial class ShortcutsWindow : Window
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
         BuildShortcutList();
+        // 細かいユーザビリティ改善5: 入力欄が無いウィンドウのため、初期フォーカスは既定ボタンへ。
+        Loaded += (_, _) => CloseButton.Focus();
     }
 
     private void OnCloseClicked(object? sender, RoutedEventArgs e) => Close();

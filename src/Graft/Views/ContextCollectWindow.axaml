@@ -33,7 +33,14 @@
                        FontWeight="{DynamicResource PaneHeadingFontWeight}" />
             <Grid Margin="0,8,0,0" ColumnDefinitions="Auto,*,Auto,*">
                 <TextBlock Grid.Column="0" Text="収集モード" VerticalAlignment="Center" Margin="0,0,8,0" />
-                <ComboBox Grid.Column="1" ItemsSource="{Binding Modes}" SelectedValue="{Binding SelectedMode}"
+                <!--
+                    細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 開いた直後の
+                    初期フォーカスをここへ当てる（ContextCollectWindow.axaml.cs参照）。
+                    「プレビュー」「コピー」「ファイルへ保存」の3つはどれも対等な出力先の
+                    選択であり、どれか1つを唯一の既定ボタン（Enterで実行）に決め打つと
+                    かえって誤操作を招くため、意図的にIsDefaultは与えていない。
+                -->
+                <ComboBox x:Name="ModeComboBox" Grid.Column="1" ItemsSource="{Binding Modes}" SelectedValue="{Binding SelectedMode}"
                           SelectedValueBinding="{Binding Mode}"
                           ItemTemplate="{StaticResource LabelItemTemplate}"
                           MaxWidth="220" HorizontalAlignment="Left"

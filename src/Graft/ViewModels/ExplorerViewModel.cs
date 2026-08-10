@@ -28,9 +28,18 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private readonly DeleteUndoStore _undoStore;
     private readonly IUiTimer _deleteNoticeTimer;
 
+    // 細かいユーザビリティ改善4: エクスプローラのファイル名絞り込み。
+    private readonly ExplorerFilterService _filterService = new();
+    private readonly IUiTimer _filterDebounceTimer;
+
     // 課題2: 削除直後のステータスバー案内（「Ctrl+Zで元に戻せます」）を数秒で自動的に消す。
     // 消えても取り消しスタック自体は残るため、Ctrl+Zや右クリックメニューはそのまま使える。
     private static readonly TimeSpan DeleteNoticeDuration = TimeSpan.FromSeconds(6);
+
+    // 細かいユーザビリティ改善4: 入力のたびにディスクを再走査すると大きなプロジェクトで
+    // 固まるため300msデバウンスする（SearchOverlayViewModelの150ms・DebounceMsと同じ考え方だが、
+    // こちらはメモリ上の正規表現走査ではなくディスクI/Oを伴う分、やや長めに取った）。
+    private const int FilterDebounceMs = 300;
 
     private Project? _project;
     private GitignoreFilter _filter = GitignoreFilter.Empty;
@@ -40,6 +49,24 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private FileNodeViewModel? _selectedNode;
     private bool _hasDeleteUndoNotice;
     private string _deleteUndoNoticeText = string.Empty;
+    private string _filterText = string.Empty;
+    private bool _filterHasNoMatches;
+    private bool _filterTruncated;
+    private IReadOnlyList<string>? _expandedPathsBeforeFilter;
+    private CancellationTokenSource? _filterCts;
+
+    /// <summary>
+    /// 絞り込み中の一致パス集合（一致ファイル自身＋その祖先フォルダ）。nullは絞り込み無し。
+    /// <see cref="ApplyFilterToLevel"/>がこれを見て、ツリーに載せるノード自体を絞り込む
+    /// （見た目だけの非表示にしない理由は同メソッドのコメント参照）。
+    /// </summary>
+    private HashSet<string>? _activeFilterVisiblePaths;
+
+    /// <summary>
+    /// プロジェクトルート直下を最後に実列挙したときの、絞り込みに関わらない全ノード（ディスク順）。
+    /// <see cref="FileNodeViewModel.AllChildrenCache"/>のルート版。
+    /// </summary>
+    private List<FileNodeViewModel>? _rootChildrenCache;
 
     public ExplorerViewModel(
         Graft.Infra.AppPaths appPaths, EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
@@ -54,6 +81,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         // CreateTimerは反復タイマー（デバウンス用）のため、1回消したらStopして次の削除まで
         // 眠らせておく（Restartで毎回数え直す、SearchOverlayViewModel等と同じ使い方）。
         _deleteNoticeTimer = ui.CreateTimer(DeleteNoticeDuration, OnDeleteNoticeTimeout);
+        _filterDebounceTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(FilterDebounceMs), OnFilterDebounceTick);
         _guardOptions = FileTreeService.BuildGuardOptions(settings);
         _fileWatch.DirectoriesChanged += OnDirectoriesChanged;
         _fileWatch.FileContentChanged += OnFileContentChanged;
@@ -72,6 +100,8 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         ShowFileHistoryCommand = new RelayCommand<FileNodeViewModel>(
             node => RequestShowFileHistory(node ?? SelectedNode),
             node => (node ?? SelectedNode) is { IsDirectory: false, IsPlaceholder: false });
+        // 細かいユーザビリティ改善4: 絞り込みボックスの「×」。
+        ClearFilterCommand = new RelayCommand(() => FilterText = string.Empty, () => FilterText.Length > 0);
     }
 
     /// <summary>ツリーの最上位（プロジェクトルート直下）のノード一覧。</summary>
@@ -86,8 +116,58 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     /// <summary>ツリーを読み込み中かどうか（9.2の不確定プログレスバー表示用）。</summary>
     public bool IsLoading { get => _isLoading; private set => SetProperty(ref _isLoading, value); }
 
-    /// <summary>除外ファイルを表示するトグル（仕様書4.2）。表示可否はViewの変換のみで切り替わるため再読込は不要。</summary>
-    public bool ShowExcludedFiles { get => _showExcludedFiles; set => SetProperty(ref _showExcludedFiles, value); }
+    /// <summary>
+    /// 除外ファイルを表示するトグル（仕様書4.2）。表示可否はViewの変換のみで切り替わるため再読込は不要。
+    /// 細かいユーザビリティ改善4: 絞り込み中に切り替えた場合、除外ファイル配下も検索対象に
+    /// 含めるかどうかが変わるため、絞り込み結果を作り直す（ExplorerFilterService.FindMatchesAsync
+    /// のincludeExcluded引数参照）。
+    /// </summary>
+    public bool ShowExcludedFiles
+    {
+        get => _showExcludedFiles;
+        set
+        {
+            if (!SetProperty(ref _showExcludedFiles, value)) return;
+            if (HasFilterText) ScheduleFilterRecompute();
+        }
+    }
+
+    /// <summary>
+    /// 細かいユーザビリティ改善4: ファイル名絞り込みの入力文字列。設定のたびに
+    /// <see cref="FilterDebounceMs"/>だけデバウンスしてから再検索する（<see cref="ScheduleFilterRecompute"/>）。
+    /// Ctrl+Pのクイックオープン（「開く」ための一覧）とは別物で、こちらはツリー上の表示を
+    /// 絞り込むためのもの。
+    /// </summary>
+    public string FilterText
+    {
+        get => _filterText;
+        set
+        {
+            if (!SetProperty(ref _filterText, value, OnFilterTextChanged)) return;
+        }
+    }
+
+    private void OnFilterTextChanged()
+    {
+        OnPropertyChanged(nameof(HasFilterText));
+        ((RelayCommand)ClearFilterCommand).RaiseCanExecuteChanged();
+        ScheduleFilterRecompute();
+    }
+
+    /// <summary>絞り込み中かどうか（「×」ボタンの表示・自動テストの判定に使う）。</summary>
+    public bool HasFilterText => _filterText.Length > 0;
+
+    /// <summary>
+    /// 絞り込み中で、かつ1件も一致しなかったかどうか（「一致するファイルがありません」表示用）。
+    /// 検索が完了するまではfalseのまま（検索中に一瞬「0件」を出して点滅させないため）。
+    /// </summary>
+    public bool FilterHasNoMatches { get => _filterHasNoMatches; private set => SetProperty(ref _filterHasNoMatches, value); }
+
+    /// <summary>
+    /// 一致件数が<see cref="ExplorerFilterService.MaxMatches"/>に達し、途中で打ち切られたかどうか。
+    /// 「一部のみ表示しています」の注記に使う。
+    /// </summary>
+    public bool FilterTruncated { get => _filterTruncated; private set => SetProperty(ref _filterTruncated, value); }
 
     /// <summary>右クリック・キー操作の対象になる、現在選択中のノード。</summary>
     public FileNodeViewModel? SelectedNode { get => _selectedNode; set => SetProperty(ref _selectedNode, value); }
@@ -109,6 +189,9 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     public ICommand DeleteCommand { get; }
     public ICommand CopyPathCommand { get; }
     public ICommand RevealCommand { get; }
+
+    /// <summary>細かいユーザビリティ改善4: ファイル名絞り込みボックスの「×」（<see cref="FilterText"/>を空にする）。</summary>
+    public ICommand ClearFilterCommand { get; }
 
     /// <summary>
     /// 課題2: 直近の削除を元に戻す（Ctrl+Z、右クリックメニュー、ステータスバー通知のクリック）。
@@ -151,6 +234,8 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     {
         _fileWatch.Dispose();
         _deleteNoticeTimer.Dispose();
+        _filterDebounceTimer.Dispose();
+        _filterCts?.Cancel();
         // セッション内のみ保持する方針（DeleteUndoStoreのクラスコメント参照）のため、
         // アプリ終了時に退避コピーを必ず空にする。
         _undoStore.Cleanup();
@@ -183,6 +268,18 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         RootNodes.Clear();
         OnPropertyChanged(nameof(Project));
         OnPropertyChanged(nameof(HasProject));
+        // 細かいユーザビリティ改善4: プロジェクトを切り替えたら絞り込みも一旦解除する
+        // （RootNodesを丸ごと作り直すため、切替前の絞り込み・退避した展開状態は意味を失う）。
+        _filterDebounceTimer.Stop();
+        _filterCts?.Cancel();
+        _expandedPathsBeforeFilter = null;
+        _activeFilterVisiblePaths = null;
+        _rootChildrenCache = null;
+        _filterText = string.Empty;
+        OnPropertyChanged(nameof(FilterText));
+        OnPropertyChanged(nameof(HasFilterText));
+        FilterHasNoMatches = false;
+        FilterTruncated = false;
         if (project is null) return;
 
         IsLoading = true;
@@ -248,6 +345,197 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ------------------------------------------------------------------
+    // 細かいユーザビリティ改善4: ファイル名絞り込み。
+    //
+    // 遅延読み込みのツリー（未展開のフォルダは子を持たない）とは独立に、プロジェクト全体を
+    // ExplorerFilterService でディスクから直接走査して一致ファイルを探す。見つかった一致の
+    // 祖先フォルダだけを ExpandPathAsync で自動展開し、一致しないノードは
+    // ツリー（Children/RootNodes）に載せないことで絞り込む（詳しくはApplyFilterToLevel参照。
+    // 当初はIsVisibleの見た目だけの非表示にしていたが、実機Xvfb環境で描画が更新されずに
+    // 残る不具合があったため、ノード自体を絞り込む方式に変更した）。
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 入力の変化を受けて呼ばれる。絞り込みを解除した場合は即座に元へ戻し、それ以外は
+    /// デバウンス（<see cref="FilterDebounceMs"/>）してから<see cref="ApplyFilterAsync"/>を呼ぶ。
+    /// </summary>
+    private void ScheduleFilterRecompute()
+    {
+        if (_project is null) return;
+
+        if (!HasFilterText)
+        {
+            _filterDebounceTimer.Stop();
+            _filterCts?.Cancel();
+            _activeFilterVisiblePaths = null;
+            FilterHasNoMatches = false;
+            FilterTruncated = false;
+            // ディスクを再走査せず、既知の全項目キャッシュ（AllChildrenCache/_rootChildrenCache）から
+            // 絞り込み無しの状態を復元する。
+            ApplyFilterToLoadedTree();
+            // 絞り込みを始める前の展開状態へ戻す（要件: 「絞り込みを消したら元の展開状態へ戻る」）。
+            if (_expandedPathsBeforeFilter is { } saved)
+            {
+                _expandedPathsBeforeFilter = null;
+                CollapseNotIn(RootNodes, new HashSet<string>(saved, StringComparer.Ordinal));
+            }
+            return;
+        }
+
+        // 絞り込みを開始した瞬間（空→非空への変化）にだけ、現在の展開状態を退避する。
+        // 以降、文字を1つ足す・消すたびに呼ばれても、退避済みなら上書きしない。
+        _expandedPathsBeforeFilter ??= GetExpandedFolderPaths();
+        _filterDebounceTimer.Restart();
+    }
+
+    private void OnFilterDebounceTick()
+    {
+        _filterDebounceTimer.Stop();
+        _ = SafeHandler.RunAsync("ファイルの絞り込み", ApplyFilterAsync);
+    }
+
+    private async Task ApplyFilterAsync()
+    {
+        if (_project is null) return;
+        var query = _filterText;
+        if (query.Length == 0) return; // ScheduleFilterRecomputeが既に処理済み。
+
+        _filterCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _filterCts = cts;
+
+        ExplorerFilterResult result;
+        try
+        {
+            result = await _filterService.FindMatchesAsync(_project, _filter, query, ShowExcludedFiles, cts.Token)
+                .ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            return; // 新しい入力（または絞り込み解除・プロジェクト切替）に置き換えられた。
+        }
+
+        // 検索が完了するまでの間に、より新しい検索へ差し替えられていたら結果を捨てる
+        // （入力し続けている間に古い結果で表示を上書きしないため）。
+        if (!ReferenceEquals(_filterCts, cts) || _filterText != query) return;
+
+        var visiblePaths = BuildVisiblePathSet(result.MatchedRelativePaths);
+        _activeFilterVisiblePaths = visiblePaths;
+
+        // ExpandPathAsyncは「未展開だった経路」の初回列挙（ReconcileDirectoryAsync）をトリガする
+        // ためのものであり、既に読み込み済みのフォルダの子には効かない（FileNodeViewModel.IsExpanded
+        // のsetterは初回のみExpandRequestedを発火するため）。そのため、ここで先に「既にロード済みの
+        // 全フォルダ」へディスクを再走査せず絞り込みを適用しておく。新規に展開される経路は
+        // ReconcileDirectoryAsync自身が都度絞り込みを適用する（同メソッド参照）。
+        ApplyFilterToLoadedTree();
+
+        // 一致したファイルの祖先フォルダを自動的に展開する（重複を除いた一意なフォルダ単位で）。
+        var dirsToExpand = result.MatchedRelativePaths
+            .Select(GetParentRelativePath)
+            .Where(d => d.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        foreach (var dir in dirsToExpand)
+        {
+            await ExpandPathAsync(dir).ConfigureAwait(true);
+        }
+
+        if (!ReferenceEquals(_filterCts, cts) || _filterText != query) return; // 展開中に差し替えられた場合の再ガード。
+
+        FilterHasNoMatches = result.MatchedRelativePaths.Count == 0;
+        FilterTruncated = result.Truncated;
+    }
+
+    private static HashSet<string> BuildVisiblePathSet(IReadOnlyList<string> matchedRelativePaths)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var path in matchedRelativePaths)
+        {
+            set.Add(path);
+            for (var dir = GetParentRelativePath(path); dir.Length > 0; dir = GetParentRelativePath(dir))
+            {
+                set.Add(dir);
+            }
+        }
+
+        return set;
+    }
+
+    private static string GetParentRelativePath(string relativePath)
+    {
+        var idx = relativePath.LastIndexOf('/');
+        return idx < 0 ? string.Empty : relativePath[..idx];
+    }
+
+    /// <summary>
+    /// ディスクを再走査せず、既知の全項目キャッシュ（<see cref="_rootChildrenCache"/>・
+    /// <see cref="FileNodeViewModel.AllChildrenCache"/>）から現在の絞り込み条件
+    /// （<see cref="_activeFilterVisiblePaths"/>）を再適用する。絞り込み文字列の変更・解除の
+    /// たびに呼ぶ（新規に展開されるフォルダの初回列挙自体はReconcileDirectoryAsyncが担当する）。
+    /// </summary>
+    private void ApplyFilterToLoadedTree()
+    {
+        if (_rootChildrenCache is { } rootFull) ApplyFilterToLevel(RootNodes, rootFull);
+    }
+
+    /// <summary>
+    /// 細かいユーザビリティ改善4の要（不具合の直接の修正箇所）: <paramref name="fullList"/>
+    /// （このフォルダの絞り込みに関わらない全子ノード）から、現在の絞り込み条件に一致する
+    /// ものだけを<paramref name="target"/>（実際にツリーへバインドされているコレクション。
+    /// Children/RootNodes）へ反映する。
+    /// <para>
+    /// 経緯（実機Xvfb環境で発見した不具合）: 当初は全ノードを常にChildrenへ入れたうえで、
+    /// 一致しないものだけFileNodeViewModel.IsVisible（IsExcluded・ShowExcludedFilesと同じ
+    /// MultiBinding経由）をfalseにして見た目だけ隠す設計だった。しかし展開済みフォルダの
+    /// 直下で、既に実体化済みの兄弟ノードのうち一部だけをIsVisible=falseへ切り替えても、
+    /// 実機（Xvfb）では描画が更新されず残ってしまう事例が確認された（ヘッドレス自動テストは
+    /// ウィンドウを実際に描画しないため、この症状は再現しなかった）。VirtualizingStackPanel
+    /// 配下での、既に実体化済みの項目に対するIsVisible変更が、ヒットテストは正しく無効化される
+    /// （クリックしても選択されない）一方で再描画までは反映されない、という描画パス固有の
+    /// 問題と見られる。この問題を回避するため、絞り込みは「見た目を隠す」のではなく
+    /// 「そもそもツリーへ載せない」データレベルの絞り込みに変更した。
+    /// </para>
+    /// <para>
+    /// ノードインスタンス自体は<see cref="ReconcileDirectoryAsync"/>側で既存のものを使い回す
+    /// （<c>fullList</c>を都度作り直すのではなく、同一パスの既存インスタンスを更新して積む）ため、
+    /// 一時的にツリーから外れても展開状態・読み込み済みフラグ・孫ノードは保持される。絞り込みを
+    /// 解除・変更したときに再列挙せず即座に元へ戻せるのはこのため。
+    /// </para>
+    /// </summary>
+    private void ApplyFilterToLevel(ObservableCollection<FileNodeViewModel> target, List<FileNodeViewModel> fullList)
+    {
+        var visible = _activeFilterVisiblePaths is { } visiblePaths
+            ? fullList.Where(n => visiblePaths.Contains(n.RelativePath)).ToList()
+            : fullList;
+
+        if (!target.SequenceEqual(visible))
+        {
+            target.Clear();
+            foreach (var node in visible) target.Add(node);
+        }
+
+        // 現在ロード済みの子フォルダについてのみ再帰する（未ロードのフォルダはプレースホルダのみで
+        // AllChildrenCacheを持たないため対象外。展開されたときにReconcileDirectoryAsyncが
+        // 現在の絞り込みを反映して初回列挙する）。target（絞り込み後）ではなくfullList（絞り込みに
+        // 関わらない全項目）を辿るのは、現在は非表示のフォルダの中身も、後で絞り込みが変わった
+        // ときに正しい状態へ戻せるようにするため。
+        foreach (var dir in fullList.Where(n => n.IsDirectory && n.IsLoaded))
+        {
+            if (dir.AllChildrenCache is { } dirFull) ApplyFilterToLevel(dir.Children, dirFull);
+        }
+    }
+
+    /// <summary>絞り込み中に自動展開されたフォルダのうち、元々（絞り込み開始前に）開いていなかったものを閉じ直す。</summary>
+    private static void CollapseNotIn(IEnumerable<FileNodeViewModel> nodes, HashSet<string> savedPaths)
+    {
+        foreach (var node in nodes.Where(n => n.IsDirectory))
+        {
+            if (node.IsExpanded && !savedPaths.Contains(node.RelativePath)) node.IsExpanded = false;
+            CollapseNotIn(node.Children, savedPaths);
+        }
+    }
+
     private async Task RefreshAsync()
     {
         if (_project is null) return;
@@ -270,7 +558,15 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         foreach (var child in loadedChildren) await ReconcileRecursivelyAsync(child).ConfigureAwait(true);
     }
 
-    /// <summary>指定ディレクトリ（nullはプロジェクトルート）の子要素を実体と突き合わせて更新する。</summary>
+    /// <summary>
+    /// 指定ディレクトリ（nullはプロジェクトルート）の子要素を実体と突き合わせて更新する。
+    /// 細かいユーザビリティ改善4: 既存インスタンスの検索元を、現在ツリーへ表示中の
+    /// <c>target</c>（絞り込みで一部が除外されている可能性がある）ではなく、絞り込みに
+    /// 関わらない直近の全項目キャッシュ（<see cref="FileNodeViewModel.AllChildrenCache"/>・
+    /// <see cref="_rootChildrenCache"/>）から探す。これにより、絞り込みで一時的にツリーから
+    /// 除外されていたノードも同一インスタンスを使い回せ、展開状態等を失わない
+    /// （<see cref="ApplyFilterToLevel"/>のコメント参照）。
+    /// </summary>
     private async Task ReconcileDirectoryAsync(FileNodeViewModel? dirNode, CancellationToken ct)
     {
         if (_project is null) return;
@@ -279,11 +575,15 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (!listed.IsSuccess) return; // 監視イベントで頻発するため、消失等は静かに諦める
 
         var target = dirNode?.Children ?? RootNodes;
-        var existing = target.Where(n => !n.IsPlaceholder).ToDictionary(n => n.RelativePath);
+        var previousFull = dirNode is null ? _rootChildrenCache : dirNode.AllChildrenCache;
+        var previousByPath = previousFull is null
+            ? new Dictionary<string, FileNodeViewModel>()
+            : previousFull.ToDictionary(n => n.RelativePath);
+
         var merged = new List<FileNodeViewModel>(listed.Value.Count);
         foreach (var entry in listed.Value)
         {
-            if (existing.TryGetValue(entry.RelativePath, out var node))
+            if (previousByPath.TryGetValue(entry.RelativePath, out var node))
             {
                 node.UpdateEntry(entry);
             }
@@ -295,8 +595,9 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
             merged.Add(node);
         }
 
-        target.Clear();
-        foreach (var node in merged) target.Add(node);
+        if (dirNode is null) _rootChildrenCache = merged; else dirNode.AllChildrenCache = merged;
+
+        ApplyFilterToLevel(target, merged);
     }
 
     private async void OnNodeExpandRequested(object? sender, EventArgs e)

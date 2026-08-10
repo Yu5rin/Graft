@@ -53,6 +53,11 @@ public partial class EditorPane : UserControl
         Editor.TextArea.IndentationStrategy = new DefaultIndentationStrategy();
         Editor.Options.EnableRectangularSelection = true; // 4.4: 矩形選択（Alt+ドラッグ）
         Editor.TextArea.Caret.PositionChanged += OnCaretPositionChanged;
+        // 細かいユーザビリティ改善1: 選択文字数のステータスバー表示用。TextArea.SelectionChangedは
+        // ドラッグ選択中も連続発火するが、Editor.SelectionLengthはAvalonEdit内部で維持済みの
+        // O(1)プロパティを読むだけ（文書を走査しない）なので、既存のCaret.PositionChanged
+        // （同様に非デバウンスで購読済み）と同じ考え方でそのまま購読してよいと判断した。
+        Editor.TextArea.SelectionChanged += OnSelectionChanged;
 
         _bridge = new SyntaxHighlightBridge(Editor);
         Editor.TextArea.TextView.LineTransformers.Add(_bridge);
@@ -295,6 +300,14 @@ public partial class EditorPane : UserControl
         if (_viewModel?.ActiveTab is not { } tab) return;
         tab.CaretLine = Editor.TextArea.Caret.Line;
         tab.CaretColumn = Editor.TextArea.Caret.Column;
+    }
+
+    /// <summary>細かいユーザビリティ改善1: 選択範囲が変わるたびにステータスバー表示用の文字数を更新する。</summary>
+    private void OnSelectionChanged(object? sender, EventArgs e)
+    {
+        if (_viewModel?.ActiveTab is not { } tab) return;
+        tab.SelectionStart = Editor.SelectionStart;
+        tab.SelectionLength = Editor.SelectionLength;
     }
 
     /// <summary>4.4: Ctrl+マウスホイールでフォントサイズを変更する。</summary>
@@ -561,6 +574,7 @@ public partial class EditorPane : UserControl
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
         Editor.TextArea.Caret.PositionChanged -= OnCaretPositionChanged;
+        Editor.TextArea.SelectionChanged -= OnSelectionChanged;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;

@@ -34,11 +34,23 @@ namespace Graft.ViewModels;
 /// 機能追加: クリップボード監視で検知したら自動で解析する設定（既定オン）。判断自体は
 /// <see cref="HandleClipboardPatchDetected"/>に集約し、StartupCoordinatorはその戻り値
 /// （実際に自動解析したか）だけを見てウィンドウの前面化を判断する。
+///
+/// 細かいユーザビリティ改善2: ステータスバーの「クリップボード監視中」表示をクリックすると
+/// 一時停止／再開できるようにした（パスワードをコピーする間だけ止めたい、という用途。設定画面
+/// まで行かせないのが目的）。<see cref="IsClipboardWatchPaused"/>は表示専用の一時的な状態であり、
+/// <c>Settings.ClipboardWatch.Enabled</c>そのものは一切変更しない。アプリを再起動すれば設定
+/// どおりに戻る（＝一時停止したまま再起動しても、次回起動時は通常どおり監視が始まる）。
+/// 実際に<c>IClipboardMonitor.Start/Stop</c>を呼ぶのはStartupCoordinator側の責務（ViewModel層を
+/// Platformの具体実装へ直接依存させない方針、附録A.5）で、ここではクリックを
+/// <see cref="ClipboardWatchPauseToggleRequested"/>イベントとして中継し、実際の開始・停止結果を
+/// <see cref="SetClipboardWatchPaused"/>で受け取って表示へ反映するだけに徹する
+/// （<see cref="SetClipboardWatchActive"/>・<see cref="NotifyClipboardPatchDetected"/>と同じ流儀）。
 /// </summary>
 public sealed partial class ShellViewModel
 {
     private bool _isClipboardWatchActive;
     private bool _hasClipboardPatchNotice;
+    private bool _isClipboardWatchPaused;
 
     /// <summary>クリップボード監視が現在有効かどうか。<see cref="SetClipboardWatchActive"/>で更新する。</summary>
     public bool IsClipboardWatchActive
@@ -47,8 +59,38 @@ public sealed partial class ShellViewModel
         private set => SetProperty(ref _isClipboardWatchActive, value);
     }
 
-    /// <summary>監視中インジケータの表示文言。</summary>
-    public string ClipboardWatchStatusText => "クリップボード監視中";
+    /// <summary>
+    /// 細かいユーザビリティ改善2: 一時停止中かどうか（表示専用。設定は変えない）。
+    /// <see cref="SetClipboardWatchActive"/>（設定・トレイ経由でのオン/オフ）が呼ばれると、
+    /// 新しい明示的な状態が来たとみなして必ずfalseへリセットする。
+    /// </summary>
+    public bool IsClipboardWatchPaused
+    {
+        get => _isClipboardWatchPaused;
+        private set
+        {
+            if (SetProperty(ref _isClipboardWatchPaused, value)) OnPropertyChanged(nameof(ClipboardWatchStatusText));
+        }
+    }
+
+    /// <summary>監視中インジケータの表示文言。一時停止中は文言を変えてひと目で分かるようにする。</summary>
+    public string ClipboardWatchStatusText => IsClipboardWatchPaused
+        ? "クリップボード監視: 一時停止中（クリックで再開）"
+        : "クリップボード監視中（クリックで一時停止）";
+
+    /// <summary>
+    /// 細かいユーザビリティ改善2: ステータスバーの監視中インジケータをクリックしたときの
+    /// 一時停止／再開コマンド。監視自体が無効（<see cref="IsClipboardWatchActive"/>がfalse）の
+    /// 間はインジケータ自体が非表示のため実質呼ばれないが、念のため内部でもガードする。
+    /// </summary>
+    public ICommand ToggleClipboardWatchPauseCommand { get; }
+
+    /// <summary>
+    /// 一時停止／再開が要求されたことをStartupCoordinatorへ伝える。引数は「一時停止にしたいか」
+    /// （true=一時停止・false=再開）。実際の<c>IClipboardMonitor.Stop/Start</c>呼び出しと、
+    /// その結果を<see cref="SetClipboardWatchPaused"/>で折り返す処理はStartupCoordinator側で行う。
+    /// </summary>
+    public event EventHandler<bool>? ClipboardWatchPauseToggleRequested;
 
     /// <summary>パッチ検知の通知を表示すべきかどうか。</summary>
     public bool HasClipboardPatchNotice
@@ -72,6 +114,23 @@ public sealed partial class ShellViewModel
     {
         IsClipboardWatchActive = isActive;
         if (!isActive) HasClipboardPatchNotice = false;
+        // 設定・トレイ経由の明示的なオン/オフは、それ以前のクリックによる一時停止状態を上書きする。
+        IsClipboardWatchPaused = false;
+    }
+
+    /// <summary>
+    /// 細かいユーザビリティ改善2: StartupCoordinatorが実際にIClipboardMonitor.Stop/Startを
+    /// 呼んだ結果を受けて、一時停止表示を更新する。<see cref="SetClipboardWatchActive"/>とは
+    /// 独立させており、こちらは<c>Settings.ClipboardWatch.Enabled</c>にも<see
+    /// cref="IsClipboardWatchActive"/>にも影響しない。
+    /// </summary>
+    public void SetClipboardWatchPaused(bool paused) => IsClipboardWatchPaused = paused;
+
+    /// <summary>ステータスバーのインジケータをクリックしたときの入口。</summary>
+    private void ToggleClipboardWatchPause()
+    {
+        if (!IsClipboardWatchActive) return; // 監視自体が無効な間は一時停止の概念が無い。
+        ClipboardWatchPauseToggleRequested?.Invoke(this, !IsClipboardWatchPaused);
     }
 
     /// <summary>StartupCoordinatorがPatchDetectedイベントを受け取るたびに呼ぶ。</summary>

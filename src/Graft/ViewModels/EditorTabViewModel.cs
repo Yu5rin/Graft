@@ -35,6 +35,7 @@ public sealed class EditorTabViewModel : ObservableObject
     private int _indentWidth = 4;
     private bool _hasExternalConflict;
     private bool _wordWrapDisabledForTab;
+    private int _selectionLength;
 
     /// <summary>通常のドキュメントタブ（4.3節）。</summary>
     public EditorTabViewModel(Graft.Editor.DocumentSession session, Func<EditorTabViewModel, Task> closeRequested)
@@ -168,8 +169,13 @@ public sealed class EditorTabViewModel : ObservableObject
     /// <summary>選択範囲の開始オフセット（文字単位）。</summary>
     public int SelectionStart { get; set; }
 
-    /// <summary>選択範囲の長さ（文字単位）。0は選択なし。</summary>
-    public int SelectionLength { get; set; }
+    /// <summary>
+    /// 選択範囲の長さ（文字単位）。0は選択なし。機能改善1（ステータスバーの選択文字数表示）で
+    /// 通知プロパティ化した。<see cref="Views.EditorPane"/>がTextArea.SelectionChangedのたびに
+    /// ここへ書き込み、<see cref="EditorPaneViewModel"/>がPropertyChangedを購読して
+    /// SelectionTextへ反映する（EditorPaneViewModel.OnTabPropertyChanged参照）。
+    /// </summary>
+    public int SelectionLength { get => _selectionLength; set => SetProperty(ref _selectionLength, value); }
 
     /// <summary>
     /// 一度でもこのタブが非表示側へ回り、スクロール位置が退避されたかどうか。falseのままなら

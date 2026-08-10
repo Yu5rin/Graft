@@ -24,6 +24,10 @@ public partial class OnboardingWindow : Window
     private readonly IDialogService _dialogService;
     private int _step;
 
+    // 細かいユーザビリティ改善6: 「サンプルで試す」で生成した一時プロジェクトのルート。
+    // 「サンプルを削除」ボタンの有効化・削除対象の特定に使う。未生成の間はnull。
+    private string? _sampleProjectRoot;
+
     /// <summary>headlessテスト・デザイナ用の引数なしコンストラクタ。プロジェクト登録はできるが、
     /// シェル側の一覧とは連携しない（<see cref="_projectPane"/> がnullのため）。</summary>
     public OnboardingWindow() : this(new AppPaths())
@@ -44,6 +48,11 @@ public partial class OnboardingWindow : Window
         TemplatePreviewText.Text = PromptTemplateStore.BuiltIns.First(t => t.Id == "builtin-full").Body;
         UpdateStepUi();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        // 細かいユーザビリティ改善5: 開いた直後の初期フォーカスを既定ボタン（次へ）へ当てる。
+        // NextButtonは既にIsDefault="True"（axaml）のためEnterキーはこれが無くても効くが、
+        // 開いた直後にどこにもフォーカスが無い状態を避けるために明示する。画面が切り替わっても
+        // （UpdateStepUi）NextButton自体は常に存在するため、ステップごとに配線し直す必要は無い。
+        Loaded += (_, _) => NextButton.Focus();
     }
 
     /// <summary>
@@ -128,6 +137,85 @@ public partial class OnboardingWindow : Window
                 : "プロジェクトの登録に失敗しました。";
         }).ConfigureAwait(true);
     }
+
+    /// <summary>
+    /// 細かいユーザビリティ改善6: 「サンプルで試す」。実データを一切触らずに、
+    /// 登録→貼り付け→適用→履歴確認の流れを1回体験できるようにする。<see cref="OnboardingSample"/>が
+    /// 一時フォルダへサンプルプロジェクト（1ファイル）とサンプルパッチを生成し、ここではそれを
+    /// （フォルダ選択登録と同じ経路で）登録し、パッチ本文をクリップボードへコピーするところまでを
+    /// 行う。そこから先（貼り付け・解析・適用・履歴確認）は、実際のGraftの画面操作をそのまま
+    /// 体験してもらうため、あえて自動化しない。
+    /// </summary>
+    private async void OnTryOnboardingSampleClicked(object? sender, RoutedEventArgs e)
+    {
+        await SafeHandler.RunAsync("サンプルの生成", async () =>
+        {
+            var sample = OnboardingSample.Create();
+
+            // 登録の経路はOnRegisterProjectClickedと同じ（_projectPaneがあればシェルの一覧・
+            // ドロップダウンへ即座に反映、無ければ従来どおり登録のみ）。
+            var result = _projectPane is not null
+                ? await _projectPane.RegisterFolderAsync(sample.ProjectRoot).ConfigureAwait(true)
+                : await _projectStore.RegisterAsync(sample.ProjectRoot, null).ConfigureAwait(true);
+
+            if (!result.IsSuccess)
+            {
+                OnboardingSample.Cleanup(sample.ProjectRoot);
+                ProjectResultText.Text = "サンプルの登録に失敗しました。";
+                return;
+            }
+
+            _sampleProjectRoot = sample.ProjectRoot;
+            DeleteSampleButton.IsVisible = true;
+
+            if (Clipboard is not null)
+            {
+                await Clipboard.SetTextAsync(sample.PatchText).ConfigureAwait(true);
+            }
+
+            ProjectResultText.Text =
+                $"サンプルプロジェクト「{result.Value.Name}」を登録し、サンプルパッチをクリップボードへ" +
+                $"コピーしました（生成先: {sample.ProjectRoot}）。ツールバーの「解析」→「適用」を押すと、" +
+                "greeting.pyへの変更を体験できます。適用後は履歴タブでも確認できます。一時フォルダに" +
+                "生成したものなので、あとで削除して構いません（下の「サンプルを削除」でもまとめて消せます）。";
+        }).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 細かいユーザビリティ改善6: 体験後にサンプルを片付ける導線。プロジェクト一覧からも取り除く
+    /// （登録したまま一時フォルダだけ消すと、存在しないフォルダを指すプロジェクトが一覧に残って
+    /// しまうため）。
+    /// </summary>
+    private async void OnDeleteSampleClicked(object? sender, RoutedEventArgs e)
+    {
+        await SafeHandler.RunAsync("サンプルの削除", async () =>
+        {
+            if (_sampleProjectRoot is not { } root) return;
+
+            var projects = await _projectStore.LoadAsync().ConfigureAwait(true);
+            if (projects.IsSuccess)
+            {
+                var match = projects.Value.FirstOrDefault(p => PathsEqual(p.Root, root));
+                if (match is not null)
+                {
+                    await _projectStore.RemoveAsync(match.Id, deleteHistory: true).ConfigureAwait(true);
+                    // _projectStoreへ直接書き込んだだけでは、シェルが保持する一覧（メモリ上）には
+                    // 反映されない（OnRegisterProjectClickedのコメントと同じ理由）。_projectPaneが
+                    // あれば再読み込みして同期する。
+                    if (_projectPane is not null) await _projectPane.LoadAsync().ConfigureAwait(true);
+                }
+            }
+
+            OnboardingSample.Cleanup(root);
+            _sampleProjectRoot = null;
+            DeleteSampleButton.IsVisible = false;
+            ProjectResultText.Text = "サンプルを削除しました。";
+        }).ConfigureAwait(true);
+    }
+
+    private static bool PathsEqual(string a, string b) => OperatingSystem.IsWindows()
+        ? string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
+        : string.Equals(a, b, StringComparison.Ordinal);
 
     private async void OnCopyTemplateClicked(object? sender, RoutedEventArgs e)
     {

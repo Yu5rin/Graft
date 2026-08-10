@@ -80,14 +80,24 @@
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,12,0,0">
+            <!--
+                細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 「適用」をEnterで実行できる
+                既定ボタンにし（IsDefault）、「キャンセル」をIsCancel="True"にする（機能的には
+                OnTunnelKeyDownのEscハンドラで既にキャンセルできていたが、他のダイアログ・ウィンドウ
+                との一貫性のため明示する）。開いた直後の初期フォーカスは「適用」へ当てる
+                （AvaloniaDialogService.ConfirmAsyncが肯定的な既定ボタンへ焦点を当てるのと同じ方針。
+                入力欄が無いウィンドウのため。ApplyPreviewWindow.axaml.cs参照）。
+            -->
             <Button Content="キャンセル"
                     Click="OnCancelClicked"
+                    IsCancel="True"
                     Margin="0,0,8,0"
                     views:HelpTip.Standard="適用を取りやめ、接ぎ木パネルに戻ります。まだ何も書き込まれていません（Esc）。"
                     AutomationProperties.Name="適用をキャンセル" />
             <Button x:Name="ApplyConfirmButton"
                     Content="適用"
                     Click="OnApplyClicked"
+                    IsDefault="True"
                     views:HelpTip.Standard="表示した内容で実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
                     AutomationProperties.Name="この内容で適用" />
         </StackPanel>

@@ -47,7 +47,13 @@
         </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">
-            <Button Content="閉じる" Click="OnCloseClicked" AutomationProperties.Name="閉じる" />
+            <!--
+                細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 唯一の操作である
+                「閉じる」をEnterでも実行できるようにする（IsDefault）。開いた直後の初期フォーカスも
+                この既定ボタンへ当てる（入力欄が無いウィンドウのため。ShortcutsWindow.axaml.cs参照）。
+            -->
+            <Button x:Name="CloseButton" Content="閉じる" Click="OnCloseClicked" IsDefault="True"
+                    AutomationProperties.Name="閉じる" />
         </StackPanel>
     </Grid>
 

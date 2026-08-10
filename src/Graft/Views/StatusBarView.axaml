@@ -21,7 +21,19 @@
 
             <!-- 左: エディタの状態（行:列・エンコーディング・改行コード・言語） -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <!--
+                    細かいユーザビリティ改善1: カーソル位置「行:列」（例: "12:34"）。ドキュメント
+                    タブ以外（差分・履歴差分タブ）ではEditor.CaretTextが空文字になる
+                    （EditorPaneViewModel.CaretText参照。カーソルの概念が無いタブでは出さない。
+                    他のEditor.*Textと同じく、空文字は見た目上そのまま非表示になるためIsVisibleは
+                    使わない）。
+                -->
                 <TextBlock Text="{Binding Editor.CaretText}" FontSize="{DynamicResource StatusBarFontSize}" />
+                <!-- 選択中のみ「(選択 128文字)」を追加表示する（選択なしは空文字。EditorPaneViewModel.SelectionText参照）。 -->
+                <TextBlock Text="{Binding Editor.SelectionText}"
+                           Margin="6,0,0,0"
+                           Foreground="{DynamicResource TextSecondary}"
+                           FontSize="{DynamicResource StatusBarFontSize}" />
                 <TextBlock Text="{Binding Editor.EncodingText}" Margin="12,0,0,0"
                            FontSize="{DynamicResource StatusBarFontSize}" />
                 <TextBlock Text="{Binding Editor.NewLineText}" Margin="12,0,0,0"
@@ -35,14 +47,26 @@
                     「監視中」は平常状態の控えめな表示、パッチ検知の通知はクリックで解析できる
                     アクセント色のボタンにする（確認なしに解析・適用はしない。押した瞬間に
                     ShellViewModel.AnalyzeClipboardPatchCommandがクリップボードを読み直す）。
+
+                    細かいユーザビリティ改善2: 平常状態の表示（従来はTextBlock）をButtonへ
+                    変更し、クリックで一時停止／再開できるようにした（パスワードをコピーする間
+                    だけ止めたい、という用途）。Settings.ClipboardWatch.Enabledそのものは
+                    変更しない一時的な状態のため、アプリを再起動すると設定どおりに戻る
+                    （ShellViewModel.ClipboardWatch.csのコメント参照）。一時停止中は文言と
+                    色を変えてひと目で分かるようにする。
                 -->
-                <TextBlock Text="{Binding ClipboardWatchStatusText}"
-                           Margin="12,0,0,0"
-                           Foreground="{DynamicResource TextSecondary}"
-                           FontSize="{DynamicResource StatusBarFontSize}"
-                           IsVisible="{Binding IsClipboardWatchActive}"
-                           AutomationProperties.Name="クリップボード監視中"
-                           ToolTip.Tip="クリップボードの内容を監視しています。パッチ形式のテキストをコピーすると検知します。" />
+                <Button Content="{Binding ClipboardWatchStatusText}"
+                        Command="{Binding ToggleClipboardWatchPauseCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Classes="clipboardWatchToggle"
+                        Classes.paused="{Binding IsClipboardWatchPaused}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding IsClipboardWatchActive}"
+                        AutomationProperties.Name="{Binding ClipboardWatchStatusText}"
+                        local:HelpTip.Standard="クリックすると、クリップボード監視を一時停止／再開できます。設定自体は変わらず、アプリを再起動すると元に戻ります。"
+                        local:HelpTip.Detailed="クリップボードの内容を監視し、パッチ形式のテキストをコピーすると検知します。パスワードなど、コピーした内容を読み取られたくない間だけ一時的に止めたいときに使います。クリックのたびに一時停止・再開が切り替わり、一時停止中は文言と色が変わります。これは表示上・実行中だけの一時的な状態で、設定画面の「クリップボード監視」は変更しません。アプリを再起動すると、常に設定どおりの状態（既定はオン）で監視が始まります。"
+                        ToolTip.Tip="{Binding ClipboardWatchStatusText}" />
                 <Button Content="{Binding ClipboardPatchNoticeText}"
                         Command="{Binding AnalyzeClipboardPatchCommand}"
                         Margin="12,0,0,0"
@@ -122,4 +146,20 @@
                        VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
         </Grid>
     </Border>
+
+    <UserControl.Styles>
+        <!--
+            細かいユーザビリティ改善2: クリップボード監視インジケータ（Button化）の見た目。
+            平常時は他のステータスバー項目と同じ控えめな色、一時停止中はStateWarn（既存の
+            警告色。ContextCollectWindow.axamlのstatusMessage.warnと同じ考え方）で目立たせる。
+        -->
+        <Style Selector="Button.clipboardWatchToggle">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <Style Selector="Button.clipboardWatchToggle.paused">
+            <Setter Property="Foreground" Value="{DynamicResource StateWarn}" />
+        </Style>
+    </UserControl.Styles>
 </UserControl>

@@ -76,6 +76,16 @@ public sealed class FileNodeViewModel : ObservableObject
     /// <summary>選択状態。エクスプローラの操作対象（右クリック・F2・Delete等）の基準になる。</summary>
     public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
 
+    /// <summary>
+    /// 細かいユーザビリティ改善4: このフォルダを最後に実列挙したときの、絞り込みに関わらない
+    /// 全子ノード（ディスク順）。<see cref="ExplorerViewModel"/>が
+    /// (1) 同一パスのノードインスタンスを使い回す（絞り込みで一時的にChildrenから除外されても
+    /// 展開状態等を失わないようにする）ため、および (2) ディスクを再走査せずに絞り込み条件だけを
+    /// 再適用する（<c>ApplyFilterToLevel</c>参照）ために保持する。まだ一度も実列挙していない
+    /// （プレースホルダのみの）フォルダはnull。
+    /// </summary>
+    internal List<FileNodeViewModel>? AllChildrenCache { get; set; }
+
     /// <summary>種別（フォルダ／ファイル）と除外状態を含む読み上げ用テキスト（仕様書9.4）。</summary>
     public string AutomationName
     {

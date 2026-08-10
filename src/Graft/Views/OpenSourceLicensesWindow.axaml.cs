@@ -145,6 +145,8 @@ public partial class OpenSourceLicensesWindow : Window
         InitializeComponent();
         EntriesList.ItemsSource = Sources.Select(BuildEntry).ToList();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        // 細かいユーザビリティ改善5: 入力欄が無いウィンドウのため、初期フォーカスは既定ボタンへ。
+        Loaded += (_, _) => CloseButton.Focus();
     }
 
     private static OpenSourceLicensesWindowEntry BuildEntry(LicenseSource source) => new()

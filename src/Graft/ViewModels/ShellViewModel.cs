@@ -124,6 +124,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
         InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
         InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
+        ToggleClipboardWatchPauseCommand = new RelayCommand(ToggleClipboardWatchPause); // 機能改善2・ShellViewModel.ClipboardWatch.cs参照。
     }
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>

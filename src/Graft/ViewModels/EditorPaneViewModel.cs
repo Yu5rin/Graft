@@ -406,7 +406,22 @@ public sealed partial class EditorPaneViewModel : ObservableObject
 
     // ---- ステータスバー表示（9.2）。差分タブがアクティブな間は対象外（E5でステータスバー本体を実装）。 ----
 
-    public string CaretText => ActiveTab is { Kind: EditorTabKind.Document } t ? $"行 {t.CaretLine}, 列 {t.CaretColumn}" : string.Empty;
+    /// <summary>
+    /// 細かいユーザビリティ改善1: カーソル位置を「行:列」形式（例: "12:34"）で表示する。
+    /// 差分タブ・履歴差分タブにはカーソルの概念が無いため空文字にする（ActiveTabのKindガード）。
+    /// </summary>
+    public string CaretText => ActiveTab is { Kind: EditorTabKind.Document } t ? $"{t.CaretLine}:{t.CaretColumn}" : string.Empty;
+
+    /// <summary>
+    /// 細かいユーザビリティ改善1: 選択中のみ「(選択 128文字)」を追加表示する（選択なしは空文字＝非表示）。
+    /// 文字数はEditorTabViewModel.SelectionLength（TextArea.SelectionChangedのたびにView側が書き込む、
+    /// AvalonEdit標準のO(1)プロパティ由来）をそのまま使うため、選択のたびに文書全体を再計算するような
+    /// 重い処理は発生しない。
+    /// </summary>
+    public string SelectionText => ActiveTab is { Kind: EditorTabKind.Document, SelectionLength: > 0 } t
+        ? $"(選択 {t.SelectionLength}文字)"
+        : string.Empty;
+
     public string EncodingText => ActiveTab is { Kind: EditorTabKind.Document } t ? EncodingLabel(t.Session.Shape) : string.Empty;
     public string NewLineText => ActiveTab is { Kind: EditorTabKind.Document } t ? NewLineLabel(t.Session.Shape.NewLine) : string.Empty;
     public string LanguageText => ActiveTab is { Kind: EditorTabKind.Document } t ? LanguageLabel(t.Session.FileName) : string.Empty;
@@ -555,11 +570,17 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(CaretText));
         }
+
+        if (e.PropertyName == nameof(EditorTabViewModel.SelectionLength))
+        {
+            OnPropertyChanged(nameof(SelectionText));
+        }
     }
 
     private void RaiseStatusChanged()
     {
         OnPropertyChanged(nameof(CaretText));
+        OnPropertyChanged(nameof(SelectionText));
         OnPropertyChanged(nameof(EncodingText));
         OnPropertyChanged(nameof(NewLineText));
         OnPropertyChanged(nameof(LanguageText));
