@@ -207,6 +207,22 @@
             M12,17 L12,17.01
         </StreamGeometry>
 
+        <!-- pin: プロジェクトペイン改善（要望3）。ピン留め状態を一覧上で見て分かるようにする
+             アイコン。地図ピン（雫形＋中心の穴）の意匠で、雫の輪郭とヘッド中央の円をそれぞれ
+             1本の弧で組み立てている（円の描き方はIconXCircleGeometry等と同じ2本の半円弧）。 -->
+        <StreamGeometry x:Key="IconPinGeometry">
+            M21,10 C21,17 12,23 12,23 C12,23 3,17 3,10 A9,9 0 1,1 21,10 Z
+            M15,10 A3,3 0 1,1 9,10 A3,3 0 1,1 15,10
+        </StreamGeometry>
+
+        <!-- trash: プロジェクトの削除（要望1）。蓋（横線＋つまみ）と本体（台形の箱）＋中の縦線2本
+             というfeatherアイコン風の一般的な「ごみ箱」の意匠。 -->
+        <StreamGeometry x:Key="IconTrashGeometry">
+            M4,7 L20,7 M9,7 L9,4 L15,4 L15,7
+            M6,7 L7,21 L17,21 L18,7
+            M10,11 L10,17 M14,11 L14,17
+        </StreamGeometry>
+
         <!-- アイコン共通テーマ（IconGlyph、Views/IconGlyph.cs）。塗りなし・線端/結合は丸め・
              ストローク幅はTokens.axamlのIconStrokeThicknessに準拠。Strokeは既定でTextPrimaryを
              参照し、状態アイコンは利用側でStateOk等に上書きする。内部のCanvasは常に

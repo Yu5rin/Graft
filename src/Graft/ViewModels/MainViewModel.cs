@@ -90,6 +90,13 @@ public sealed partial class MainViewModel : ObservableObject
         Queue.MergeRequested += async (_, _) => await MergeQueueAndLoadAsync().ConfigureAwait(true);
 
         ProjectPane.ProjectSelected += OnProjectSelected;
+        // プロジェクトペイン改善: 削除等でプロジェクトが1件も無くなった場合も、コマンドバーの
+        // 現在プロジェクト表示（CurrentProjectName）を「プロジェクト未選択」へ即時反映する。
+        ProjectPane.SelectionCleared += (_, _) =>
+        {
+            DiscardCurrentPatch();
+            OnPropertyChanged(nameof(CurrentProjectName));
+        };
         History.RevisionSelected += OnRevisionSelected;
         History.RevisionRestored += OnRevisionRestored;
 

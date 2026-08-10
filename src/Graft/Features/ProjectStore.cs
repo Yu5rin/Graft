@@ -91,6 +91,210 @@ public sealed class ProjectStore
     }
 
     /// <summary>
+    /// プロジェクトペイン改善: 指定プロジェクトの任意のフィールドを書き換える汎用の更新API。
+    /// ピン留めの切替・表示名の変更・タグの編集はいずれも「1件を読み込み、書き換えて、
+    /// 保存し直す」という同じ形をしているため、個々に専用メソッドを作らずここへ集約する。
+    /// <paramref name="mutate"/> はrecordの<c>with</c>式で新しいProjectを組み立てて返すことを
+    /// 想定する（Rootの変更でIdまで変える必要がある「場所を変更」だけは、back/配下の履歴フォルダの
+    /// 移動が別途必要なため<see cref="RelocateAsync"/>という専用メソッドに分けている）。
+    /// </summary>
+    public async Task<GraftResult<Project>> UpdateAsync(
+        string projectId, Func<Project, Project> mutate, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        ArgumentNullException.ThrowIfNull(mutate);
+
+        var loaded = await LoadAsync(ct).ConfigureAwait(false);
+        var projects = loaded.Value.ToList();
+        var index = projects.FindIndex(p => p.Id == projectId);
+        if (index < 0)
+        {
+            return GraftResult<Project>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+        }
+
+        var updated = mutate(projects[index]);
+        projects[index] = updated;
+        await SaveAsync(projects, ct).ConfigureAwait(false);
+        return GraftResult<Project>.Ok(updated, loaded.Issues);
+    }
+
+    /// <summary>
+    /// プロジェクトペイン改善（利用者からの明示的な要望）: プロジェクトをGraftの一覧
+    /// （projects.jsonのエントリ）から削除する。
+    ///
+    /// 【安全性についての設計判断（必ず守ること）】 ここでは<paramref name="projectId"/>から
+    /// 導出できる back/&lt;projectId&gt;/ という「Graft自身が作ったバックアップフォルダ」以外には
+    /// 一切触れない。利用者が実際に作業している元のプロジェクトフォルダ（Project.Root）は
+    /// このメソッドの引数にすら含まれておらず、参照すらしていない
+    /// （projects.jsonからエントリを取り除くだけで、Directory.Delete等のファイルシステム操作は
+    /// バックアップフォルダに対してのみ、<paramref name="deleteHistory"/>がtrueのときだけ行う）。
+    /// </summary>
+    /// <param name="deleteHistory">
+    /// trueならback/&lt;projectId&gt;/配下の変更履歴（バックアップ・history.jsonl）も削除する。
+    /// falseなら履歴フォルダはそのまま残す（同じフォルダを後で再登録すると、CreateIdがパスから
+    /// 決定的に決まるため同じIdになり、履歴が自動的に復活する。<see cref="CreateId"/>参照）。
+    /// </param>
+    public async Task<GraftResult<bool>> RemoveAsync(string projectId, bool deleteHistory, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+
+        var loaded = await LoadAsync(ct).ConfigureAwait(false);
+        var projects = loaded.Value.ToList();
+        var index = projects.FindIndex(p => p.Id == projectId);
+        if (index < 0)
+        {
+            return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+        }
+
+        projects.RemoveAt(index);
+        await SaveAsync(projects, ct).ConfigureAwait(false);
+
+        var issues = new List<GraftIssue>(loaded.Issues);
+        if (deleteHistory)
+        {
+            var backupDir = _paths.GetProjectBackupDirectory(projectId);
+            TryDeleteDirectory(backupDir, issues);
+        }
+
+        return GraftResult<bool>.Ok(true, issues);
+    }
+
+    /// <summary>
+    /// プロジェクトペイン改善（利用者からの明示的な要望）: フォルダの移動・リネームで
+    /// <see cref="Project.IsDisconnected"/> になったプロジェクトを、登録し直すのではなく
+    /// 同じプロジェクトのまま新しい場所へ結び付け直す。
+    ///
+    /// 【Idが変わる問題への対応】 <see cref="CreateId"/> はRootパスから決定的に算出するため、
+    /// Rootを変えるとId自体も変わる。back/&lt;projectId&gt;/ 配下の履歴はIdをキーに保存されている
+    /// （<see cref="Graft.Infra.AppPaths.GetProjectBackupDirectory"/>・<see cref="Graft.Core.RevisionIndex"/>
+    /// 参照）ため、Idだけ変えて履歴フォルダを放置すると「新しいIdの履歴フォルダが存在しない
+    /// ＝復元不可なプロジェクト」に見えてしまう。これを避けるため、Idが変わる場合は
+    /// back/&lt;旧Id&gt;/ を back/&lt;新Id&gt;/ へ丸ごと移動し、履歴が旧Idに取り残されないようにする
+    /// （新規登録＝別プロジェクト扱いになり履歴が切り離される、という元の不具合の解消が目的）。
+    /// </summary>
+    public async Task<GraftResult<Project>> RelocateAsync(string projectId, string newRoot, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+
+        if (string.IsNullOrWhiteSpace(newRoot))
+        {
+            return GraftResult<Project>.Fail(ErrorCode.E201, "新しい場所が指定されていません。", path: newRoot);
+        }
+
+        string fullRoot;
+        try
+        {
+            fullRoot = Path.GetFullPath(newRoot);
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return GraftResult<Project>.Fail(ErrorCode.E201, $"不正なパスです: {ex.Message}", path: newRoot);
+        }
+
+        if (!Directory.Exists(fullRoot))
+        {
+            return GraftResult<Project>.Fail(ErrorCode.E201, "指定したフォルダが見つかりません。", path: fullRoot);
+        }
+
+        var loaded = await LoadAsync(ct).ConfigureAwait(false);
+        var projects = loaded.Value.ToList();
+        var index = projects.FindIndex(p => p.Id == projectId);
+        if (index < 0)
+        {
+            return GraftResult<Project>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+        }
+
+        var newId = CreateId(fullRoot);
+        // 選んだフォルダが既に別プロジェクトとして登録されている場合は重複登録にしない
+        // （選んだフォルダ＝自分自身の現在のRootを選び直しただけの場合はnewId==projectIdになり、
+        // この条件には該当しない）。
+        if (newId != projectId && projects.Any(p => p.Id == newId))
+        {
+            return GraftResult<Project>.Fail(ErrorCode.E209, "選んだフォルダは既に別のプロジェクトとして登録されています。", path: fullRoot);
+        }
+
+        var issues = new List<GraftIssue>(loaded.Issues);
+        if (newId != projectId)
+        {
+            MoveBackupDirectory(projectId, newId, issues);
+        }
+
+        var updated = projects[index] with
+        {
+            Id = newId,
+            Root = fullRoot,
+            LastUsedAt = DateTimeOffset.Now,
+            IsDisconnected = false,
+        };
+        projects[index] = updated;
+        await SaveAsync(projects, ct).ConfigureAwait(false);
+        return GraftResult<Project>.Ok(updated, issues);
+    }
+
+    /// <summary>
+    /// back/&lt;fromId&gt;/ を back/&lt;toId&gt;/ へ移動する。移動先が既に存在する場合
+    /// （理論上は起こらないはずだが、念のため）は安全側に倒して移動をせず、履歴が旧Idの
+    /// フォルダに残ったままであることを警告として伝える（例外にはしない。仕様書16章の方針）。
+    /// </summary>
+    private void MoveBackupDirectory(string fromId, string toId, List<GraftIssue> issues)
+    {
+        var oldDir = _paths.GetProjectBackupDirectory(fromId);
+        if (!Directory.Exists(oldDir))
+        {
+            return; // 移動対象の履歴が無い（まだ一度も適用していない等）。何もしなくてよい。
+        }
+
+        var newDir = _paths.GetProjectBackupDirectory(toId);
+        if (Directory.Exists(newDir))
+        {
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E402,
+                $"移動先の履歴フォルダ（{newDir}）が既に存在するため、履歴フォルダ（{oldDir}）は移動しませんでした。手動でご確認ください。",
+                path: oldDir,
+                severity: Severity.Warning));
+            return;
+        }
+
+        try
+        {
+            Directory.Move(oldDir, newDir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E402,
+                $"変更履歴フォルダの移動に失敗しました。履歴は元の場所（{oldDir}）に残っています。{ExceptionMessages.Describe(ex)}",
+                path: oldDir,
+                severity: Severity.Warning));
+        }
+    }
+
+    /// <summary>
+    /// back/&lt;projectId&gt;/ を再帰削除する。存在しない場合は何もしない。失敗しても例外は
+    /// 投げず、Warningとして issues へ積むだけにとどめる（仕様書16章「例外を投げず穏当に扱う」）。
+    /// </summary>
+    private static void TryDeleteDirectory(string directory, List<GraftIssue> issues)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E402,
+                $"変更履歴フォルダの削除に失敗しました。プロジェクトの登録は削除済みです。{ExceptionMessages.Describe(ex)}",
+                path: directory,
+                severity: Severity.Warning));
+        }
+    }
+
+    /// <summary>
     /// 起動時の検証。ルートフォルダが存在しないプロジェクトは削除せず
     /// <see cref="Project.IsDisconnected"/> を立てるだけにとどめる（仕様書3.2）。
     /// </summary>
