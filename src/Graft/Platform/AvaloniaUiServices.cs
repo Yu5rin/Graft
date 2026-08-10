@@ -31,6 +31,16 @@ public sealed class AvaloniaUiServices : IUiServices
     public IUiTimer CreateTimer(TimeSpan interval, Action onTick) => new AvaloniaUiTimer(interval, onTick);
 
     /// <summary>
+    /// 機能1・機能2: <see cref="AvaloniaDialogService"/>（エラーダイアログの「詳細をコピー」）や
+    /// ログ表示ウィンドウなど、<see cref="AvaloniaUiServices"/>インスタンスを持たないコードから
+    /// クリップボード書き込みだけを再利用したい箇所向けの共有インスタンス。<see cref="Clipboard"/>と
+    /// 同じ構築ロジック（Linuxでは自前のX11実装を優先する）を使うが、リーダー・ライターは
+    /// いずれも<see cref="X11ClipboardReader.Shared"/>・<see cref="X11ClipboardWriter.Shared"/>という
+    /// プロセス内共有インスタンスのため、複数箇所からラップし直しても接続は増えない。
+    /// </summary>
+    public static readonly IClipboardAccess SharedClipboard = new AvaloniaClipboardAccess(ResolveLinuxReader(), ResolveLinuxWriter());
+
+    /// <summary>
     /// Linux環境でのみ、自前のX11クリップボードリーダー（プロセス内で共有する既定インスタンス、
     /// <see cref="X11ClipboardReader.Shared"/>）を返す。<see cref="PlatformServices.Create"/>が
     /// 生成する<see cref="Linux.LinuxPlatformServices"/>のクリップボード監視とも同じ接続を共有する

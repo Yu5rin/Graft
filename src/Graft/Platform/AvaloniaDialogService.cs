@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -7,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Graft.Core;
 
 namespace Graft.Platform;
 
@@ -39,7 +42,7 @@ public sealed class AvaloniaDialogService : IDialogService
         AddMessage(body, message);
         var tcs = new TaskCompletionSource<bool>();
 
-        var buttons = AddButtonRow(body);
+        var buttons = AddButtonRow(body, title, message);
         var ok = CreateButton("OK", isDefault: true, isCancel: false);
         var cancel = CreateButton("キャンセル", isDefault: false, isCancel: true);
         ok.Click += (_, _) => Complete(window, tcs, true);
@@ -60,7 +63,7 @@ public sealed class AvaloniaDialogService : IDialogService
         AddMessage(body, message);
         var tcs = new TaskCompletionSource<bool?>();
 
-        var buttons = AddButtonRow(body);
+        var buttons = AddButtonRow(body, title, message);
         var yes = CreateButton(yesLabel, isDefault: true, isCancel: false);
         var no = CreateButton(noLabel, isDefault: false, isCancel: false);
         var cancel = CreateButton("キャンセル", isDefault: false, isCancel: true);
@@ -190,7 +193,7 @@ public sealed class AvaloniaDialogService : IDialogService
         AddMessage(body, message);
         var tcs = new TaskCompletionSource();
 
-        var buttons = AddButtonRow(body);
+        var buttons = AddButtonRow(body, title, message);
         var ok = CreateButton("OK", isDefault: true, isCancel: true);
         ok.Click += (_, _) => Complete(window, tcs);
         buttons.Children.Add(ok);
@@ -257,16 +260,60 @@ public sealed class AvaloniaDialogService : IDialogService
         body.Children.Add(text);
     }
 
-    private static StackPanel AddButtonRow(StackPanel body)
+    /// <summary>
+    /// ボタン行を組み立てる。戻り値は右詰めの主要ボタン（OK・キャンセル等）を並べる
+    /// <see cref="StackPanel"/>で、既存の呼び出しパターン（<c>buttons.Children.Add(...)</c>）を
+    /// 変えずに済むようにしてある。
+    ///
+    /// 機能1: <paramref name="title"/>・<paramref name="message"/>の両方が渡され、かつ
+    /// メッセージにエラーコードのパターンが含まれる場合（<see cref="ErrorDetailFormatter.ContainsErrorCode"/>）
+    /// にだけ、左詰めで「詳細をコピー」ボタンを追加する。これにより<see cref="IDialogService"/>の
+    /// シグネチャや呼び出し側を一切変えずに、単一箇所（このメソッド）だけで
+    /// 「エラー由来のメッセージにはボタンを出す／通常の確認メッセージには出さない」を実現する
+    /// （クラスの呼び出し元一覧は<see cref="ErrorDetailFormatter"/>のコメント参照）。
+    /// 主要ボタン列とは左右で分けて配置することで、通常操作の妨げにならないようにする
+    /// （<see cref="PromptAsync"/>は<paramref name="title"/>・<paramref name="message"/>を
+    /// 渡さないため、常にボタンは出ない）。
+    /// </summary>
+    private static StackPanel AddButtonRow(StackPanel body, string? title = null, string? message = null)
     {
-        var row = new StackPanel
+        var row = new Grid { Margin = new Thickness(0, 16, 0, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
+        body.Children.Add(row);
+
+        if (title is not null && message is not null && ErrorDetailFormatter.ContainsErrorCode(message))
+        {
+            var copyButton = CreateButton("詳細をコピー", isDefault: false, isCancel: false);
+            copyButton.HorizontalAlignment = HorizontalAlignment.Left;
+            copyButton.Margin = new Thickness(0);
+            copyButton.Click += (_, _) => CopyIssueDetails(title, message);
+            Grid.SetColumn(copyButton, 0);
+            row.Children.Add(copyButton);
+        }
+
+        var actionButtons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 16, 0, 0),
         };
-        body.Children.Add(row);
-        return row;
+        Grid.SetColumn(actionButtons, 1);
+        row.Children.Add(actionButtons);
+        return actionButtons;
+    }
+
+    /// <summary>
+    /// 「詳細をコピー」の実処理。文面組み立ては<see cref="ErrorDetailFormatter"/>（純粋関数・
+    /// 単体テスト対象）に委ね、ここでは実行環境固有の値（バージョン・OS）の取得と、
+    /// クリップボードへの書き込みのみを担う。書き込みは<see cref="AvaloniaUiServices.SharedClipboard"/>
+    /// （Linuxでは自前のX11実装を優先する既存経路。<see cref="AvaloniaUiServices"/>のコメント参照）を
+    /// 再利用し、専用の書き込み経路を新設しない。
+    /// </summary>
+    private static void CopyIssueDetails(string title, string message)
+    {
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "不明";
+        var text = ErrorDetailFormatter.BuildCopyText(title, message, version, RuntimeInformation.OSDescription);
+        AvaloniaUiServices.SharedClipboard.SetText(text);
     }
 
     private static Button CreateButton(string label, bool isDefault, bool isCancel)

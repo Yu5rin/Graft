@@ -1,0 +1,66 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Graft.Views"
+        x:Class="Graft.Views.LogViewerWindow"
+        Title="最新のログ"
+        Width="760" Height="600"
+        MinWidth="480" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        AutomationProperties.Name="最新のログ">
+    <!--
+        機能2（ログの参照手段）: 設定画面「バージョン情報」タブの「最新のログを表示」で開く、
+        専用の簡易ウィンドウ。ViewModelは持たず（ShortcutsWindow・AboutViewと同じ考え方）、
+        表示するファイルパスと本文はコンストラクタで受け取ってコードビハインドから
+        直接テキストへ流し込む（SettingsViewModel.DataDirectory.csのLogViewerRequestedを
+        AboutView.axaml.csが購読して生成する）。
+
+        本文はログ（1行1JSON）をそのまま表示する。整形しない理由は
+        Graft.Infra.LogTailReaderのクラスコメントを参照。IsReadOnly="True"のTextBoxに
+        入れているのは、ボタンでのコピーに加えてマウスでの範囲選択・部分コピーもできる
+        ようにするため（不具合報告で該当行だけ貼り付けたい場合を考慮）。
+    -->
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Margin="16,16,16,8">
+            <TextBlock Text="最新のログ"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}" />
+            <TextBlock x:Name="FilePathText"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       FontFamily="{DynamicResource CodeFontFamily}"
+                       TextWrapping="Wrap"
+                       Margin="0,4,0,0"
+                       AutomationProperties.Name="表示中のログファイル" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Margin="16,0,16,8"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1">
+            <TextBox x:Name="LogContentText"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     FontFamily="{DynamicResource CodeFontFamily}"
+                     FontSize="{DynamicResource CodeFontSize}"
+                     Background="Transparent" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     AutomationProperties.Name="ログの内容" />
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">
+            <Button Content="コピー" Click="OnCopyClicked" Margin="0,0,8,0"
+                    AutomationProperties.Name="ログの内容をコピー"
+                    local:HelpTip.Standard="表示している内容をすべてクリップボードへコピーします。"
+                    local:HelpTip.Detailed="上のテキストの全文をクリップボードへコピーします。ファイル内でマウスで範囲選択して部分的にコピーすることもできます。不具合報告に貼り付けるときに使ってください。" />
+            <Button Content="閉じる" Click="OnCloseClicked" AutomationProperties.Name="閉じる"
+                    local:HelpTip.Standard="このウィンドウを閉じます。"
+                    local:HelpTip.Detailed="ログの表示ウィンドウを閉じます。Escapeキーでも閉じられます。" />
+        </StackPanel>
+    </Grid>
+</Window>

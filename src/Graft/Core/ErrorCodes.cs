@@ -72,6 +72,11 @@ public enum ErrorCode
     /// （<see cref="Graft.Infra.SettingsStore.ValidateOnly"/>参照）。
     /// </summary>
     E406,
+    /// <summary>
+    /// データ保存先（ポータブル／ユーザーフォルダ）の移行に失敗（16章の表には無いため追加）。
+    /// コピー・検証のいずれかに失敗した場合に使う。元データは消さないため復旧不要。
+    /// </summary>
+    E407,
 
     /// <summary>フック実行失敗。</summary>
     E501,
@@ -146,6 +151,7 @@ public static class ErrorCatalog
         [ErrorCode.E404] = ("設定・履歴データの破損", "退避のうえ再生成しました"),
         [ErrorCode.E405] = ("バックアップの実体が見つからない", "復元不可として表示します"),
         [ErrorCode.E406] = ("入力値が保存条件を満たしていない", "値を修正すると自動的に保存されます"),
+        [ErrorCode.E407] = ("データ保存先の移行に失敗", "元の場所のデータはそのまま残っています。空き容量や書き込み権限を確認し、もう一度お試しください"),
 
         [ErrorCode.E501] = ("フック実行失敗", "onFailure の設定に従います"),
         [ErrorCode.E502] = ("フックのタイムアウト", "警告を表示しました"),

@@ -107,6 +107,34 @@
             <TextBlock Text="{Binding AutoStartUnsupportedReason}" Classes="fieldHint"
                        IsVisible="{Binding !IsAutoStartSupported}" TextWrapping="Wrap" />
 
+            <!--
+                機能3（データ保存先の選択）: 既定は「ポータブル」（exeと同じフォルダにsettings.json・
+                projects.json・back/・logs/を置く）。Program Files配下等、書き込めない場所に
+                置かれても保存できるよう「ユーザーフォルダ（%APPDATA%\Graft 等）」へ切り替えられる
+                ようにする。実処理・設計判断はSettingsViewModel.DataDirectory.csのコメント参照。
+                コピー中は他の項目と同じくIsBusyでスピナーを表示するが、この操作自体は
+                「移行」ボタン以外は無効化しない（既存の他の設定変更を妨げる理由が無いため）。
+            -->
+            <TextBlock Text="データ保存先" Classes="sectionHeading" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="現在の保存先" Classes="fieldLabel" />
+                <TextBlock Text="{Binding DataDirectoryModeLabel}" VerticalAlignment="Center"
+                           AutomationProperties.Name="現在のデータ保存先モード" />
+            </StackPanel>
+            <TextBlock Text="{Binding DataDirectoryPath}" Classes="fieldHint" TextWrapping="Wrap"
+                       FontFamily="{DynamicResource CodeFontFamily}"
+                       AutomationProperties.Name="現在のデータ保存先のパス" />
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Content="{Binding DataDirectoryActionLabel}" Command="{Binding MigrateDataDirectoryCommand}"
+                        AutomationProperties.Name="データ保存先を切り替える"
+                        views:HelpTip.Standard="settings.json・プロジェクト定義・バックアップ・ログを新しい場所へコピーします。切り替えの反映には再起動が必要です。"
+                        views:HelpTip.Detailed="「ポータブル」（実行ファイルと同じフォルダ）と「ユーザーフォルダ」（Windowsなら%APPDATA%\Graft）を切り替えます。押すと今のデータ一式を新しい場所へコピーし、コピーが完了して内容を確認できてから切り替え用の設定を書き換えます。元の場所のデータは削除せずそのまま残るため、万一のときも元の状態に戻せます。この場でファイルの書き込み先が切り替わるわけではなく、実際に新しい場所を使い始めるにはGraftの再起動が必要です。Program Files配下などexeと同じフォルダに書き込めない環境では、切り替え用の設定ファイル自体を保存できず失敗することがあります。" />
+                <TextBlock Text="この変更を使うには再起動してください。" Margin="12,0,0,0" VerticalAlignment="Center"
+                           Foreground="{DynamicResource StateWarn}"
+                           IsVisible="{Binding IsDataDirectoryMigrationPending}"
+                           AutomationProperties.Name="データ保存先の切り替えには再起動が必要" />
+            </StackPanel>
+
             <TextBlock Text="バックアップ・世代管理" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />
