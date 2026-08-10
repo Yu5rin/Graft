@@ -70,6 +70,12 @@ public sealed class SyntaxHighlightBridge : DocumentColorizingTransformer, IDisp
     {
         if (!_syntaxEnabled || _lexer is null || _lexer.IsDisabled) return;
 
+        // 課題3（再設計）: ファイル全体の無効化ではなく、しきい値を超えるその行だけ強調を
+        // 打ち切る（VS Codeの既定のトークナイズ上限と同じ考え方）。ColorizeLineは元々
+        // AvaloniaEditが可視行のみを対象に呼ぶため、ここで打ち切っても他の行（ファイルの
+        // 残り99%）の強調には影響しない（DocumentSession.LongLineThresholdのコメント参照）。
+        if (line.Length > DocumentSession.LongLineThreshold) return;
+
         var text = CurrentContext.Document.GetText(line);
         foreach (var token in _lexer.TokenizeLine(line.LineNumber - 1, text))
         {

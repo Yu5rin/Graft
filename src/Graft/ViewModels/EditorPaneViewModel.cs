@@ -403,7 +403,12 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     public string NewLineText => ActiveTab is { Kind: EditorTabKind.Document } t ? NewLineLabel(t.Session.Shape.NewLine) : string.Empty;
     public string LanguageText => ActiveTab is { Kind: EditorTabKind.Document } t ? LanguageLabel(t.Session.FileName) : string.Empty;
 
-    /// <summary>課題3: アクティブなタブに極端に長い行があり構文強調等を自動無効化しているか（ステータスバー通知用、実際の無効化はEditorPane.axaml.cs）。</summary>
+    /// <summary>
+    /// 課題3（再設計）: アクティブなタブに極端に長い行（20,000文字超）があるか
+    /// （ステータスバー通知用）。名前は据え置くが、実際の挙動はファイル全体の無効化ではなく
+    /// 「その行だけ構文強調・括弧の言語認識をキャップする」に変わっている
+    /// （ShellViewModel.StatusBarWarning.csの文言・EditorPane.axaml.cs参照）。
+    /// </summary>
     public bool ActiveTabHasLongLineWarning => ActiveTab is { Kind: EditorTabKind.Document } t && t.Session.HasExtremelyLongLine;
 
     private IEnumerable<EditorTabViewModel> DocumentTabs => _tabs.Where(t => t.Kind == EditorTabKind.Document);

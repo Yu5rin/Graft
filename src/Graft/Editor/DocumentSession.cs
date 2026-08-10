@@ -32,13 +32,31 @@ public sealed class DocumentSession : IDisposable
     private const double BinaryControlRatioThreshold = 0.3;
 
     /// <summary>
-    /// 課題3: 1行がこの文字数を超えたら「極端に長い行」とみなし、構文強調・折り返し・
-    /// 括弧の対応付けを自動的に無効化する（<see cref="HasExtremelyLongLine"/>）。
-    /// 実測（10万文字の1行ファイル）では、開く操作自体は数百ms程度に収まったが、
-    /// AvaloniaEdit側がその1行の全文字を一括で書式計算するコストは行の文字数に
-    /// 比例して増え、さらに折り返し設定が有効だと数倍〜十数倍に悪化することを確認した
-    /// （詳細はEditorPane.axaml.csのApplyWordWrapOption参照）。VS Codeの既定の
-    /// トークナイズ上限（20,000文字）にならい、同じ値をしきい値とする。
+    /// 課題3（再設計）: 1行がこの文字数を超えたら「極端に長い行」とみなす
+    /// （<see cref="HasExtremelyLongLine"/>）。
+    ///
+    /// 旧仕様では、この判定が立つと構文強調・括弧の対応付け・折りたたみ・折り返しを
+    /// ファイル全体で一括無効化していた。しかし「1行でも極端に長い行があると、残り99%の
+    /// 通常行まで色が消える」のは利用者から見て過剰であり、エディタとして致命的という
+    /// 指摘を受けた。実測の結果（詳細は各機能の実装箇所のコメント参照）、無効化が必要
+    /// だったのは実質「その極端に長い行1行だけを対象にした処理」であり、ファイル全体を
+    /// 巻き込む必要は無かった。
+    /// - 構文強調（<see cref="SyntaxHighlightBridge.ColorizeLine"/>）: 元々1行ずつ処理して
+    ///   おり、可視行だけが対象。このフィールドを超える行だけ強調を打ち切る（VS Codeの
+    ///   既定のトークナイズ上限=20,000文字にならい、同じ値をしきい値とする）。
+    /// - 括弧の対応付け・自動閉じ（<see cref="BracketSupport.IsInsideStringOrComment"/>）:
+    ///   このフィールドを超える行では言語認識（文字列/コメント内判定）を打ち切ってO(1)化する。
+    ///   実測: 旧方式のまま1行10万文字に適用すると最悪ケースで数十秒〜（n=8,000で513ms、
+    ///   O(n^2)で外挿すると n=100,000 で概算80秒）かかるのに対し、この打ち切りを入れると
+    ///   4.3ms程度で完了する。
+    /// - 折りたたみ（<see cref="FoldingSupport"/>）: 実測したところ全体再計算は1行10万文字の
+    ///   ファイルで1ms未満、3万行＋1行10万文字の混在ファイルでも最大19ms程度であり、300msの
+    ///   デバウンス予算に対して十分小さいため、無効化は不要と判断した（打ち切りなしで常に
+    ///   利用者の設定に従う）。
+    /// - 折り返し: 既定値の変更に伴い、強制無効化ではなく利用者の設定にそのまま従う。
+    ///   ただし1行10万文字＋折り返し有効では書式計算が数百ms→1.5秒前後に悪化する実測が
+    ///   あるため、通知バーからこのファイルに限って折り返しを切れる逃げ道を用意する
+    ///   （<see cref="Graft.ViewModels.EditorTabViewModel.WordWrapDisabledForTab"/>）。
     /// </summary>
     public const int LongLineThreshold = 20_000;
 
@@ -74,8 +92,9 @@ public sealed class DocumentSession : IDisposable
 
     /// <summary>
     /// 課題3: <see cref="LongLineThreshold"/>を超える行を含むかどうか。<see cref="OpenAsync"/>時に
-    /// 一度だけ判定する。trueの場合、エディタ側（EditorPane）は構文強調・折り返し・
-    /// 括弧の対応付けを自動的に無効化し、ステータスバーでその旨を通知する。
+    /// 一度だけ判定する。trueの場合、エディタ側（EditorPane）はその極端に長い行に限って
+    /// 構文強調・括弧の言語認識を打ち切り（ファイル全体は対象外）、ステータスバーで
+    /// その旨を通知する（<see cref="LongLineThreshold"/>のコメント参照）。
     /// </summary>
     public bool HasExtremelyLongLine { get; }
 

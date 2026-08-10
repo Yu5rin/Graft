@@ -92,8 +92,18 @@ public sealed record EditorSettings
     /// <summary>コード表示のフォントサイズ。Ctrl+マウスホイールで変更できる。</summary>
     public double FontSize { get; init; } = 13;
 
-    /// <summary>長い行を折り返すかどうか。</summary>
-    public bool WordWrap { get; init; } = false;
+    /// <summary>
+    /// 長い行を折り返すかどうか。既定はオン（課題3の再設計で false→true へ変更）。
+    /// 以前は「極端に長い行（20,000文字超）を含むファイルでは、この設定に関わらず
+    /// 強制的にオフにする」という例外があったが、利用者の設定を無断で上書きすること
+    /// 自体が問題という指摘を受けて廃止した。1行10万文字クラスのファイルで折り返しを
+    /// 有効なまま開くと書式計算が数百ms→1.5秒前後に悪化する実測はあるが、これは
+    /// 利用者が選べばよいコストと整理し、代わりにそのファイルに限って折り返しを切れる
+    /// 逃げ道（通知バーの「このファイルでは折り返しを無効にする」）を用意した
+    /// （<see cref="Graft.ViewModels.EditorTabViewModel.WordWrapDisabledForTab"/>・
+    /// <see cref="Graft.Editor.DocumentSession.LongLineThreshold"/>）。
+    /// </summary>
+    public bool WordWrap { get; init; } = true;
 
     /// <summary>タブ・行末空白を可視化するかどうか。</summary>
     public bool ShowWhitespace { get; init; } = false;

@@ -123,11 +123,45 @@
         </ListBox>
 
         <!-- ========== エディタ本体 ========== -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,*">
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
+
+            <!--
+                課題3（再設計）: 極端に長い行（1行20,000文字超）を含むファイルの非モーダル通知バー。
+                構文強調・括弧の対応付けはその行だけキャップされ（ファイル全体は通常どおり）、
+                折り返しは利用者の設定にそのまま従う。ただし折り返し有効時は1行10万文字クラスの
+                ファイルで書式計算が数百ms→1.5秒前後に悪化しうる実測があるため、このファイルに
+                限って折り返しを切れる逃げ道をここに置く（DocumentSession.LongLineThreshold・
+                EditorPane.axaml.csのApplyWordWrapOption参照）。ボタンを押すと消える
+                （EditorTabViewModel.WordWrapDisabledForTab）。
+            -->
+            <Border x:Name="LongLineBar"
+                    Grid.Row="0"
+                    Background="{DynamicResource BgElevated}"
+                    BorderBrush="{DynamicResource StateWarn}"
+                    BorderThickness="0,0,0,2"
+                    Padding="12,8"
+                    IsVisible="{Binding ActiveTab.HasExtremelyLongLine, FallbackValue=False}"
+                    AutomationProperties.Name="極端に長い行の通知">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0"
+                               Text="極端に長い行（20,000文字超）があります。その行のみ構文強調を簡略化しています。折り返しが有効だと、この行の表示が重くなることがあります。"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextPrimary}"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="このファイルでは折り返しを無効にする"
+                            Command="{Binding ActiveTab.DisableWordWrapForTabCommand}"
+                            Margin="8,0,0,0"
+                            IsVisible="{Binding !ActiveTab.WordWrapDisabledForTab}"
+                            local:HelpTip.Standard="折り返しの設定自体は変えず、このタブに限って折り返しを無効にします。"
+                            local:HelpTip.Detailed="この行は20,000文字を超えているため、折り返しを有効にしたまま表示すると書式計算が重くなることがあります（実測で数百ms〜1.5秒前後）。このボタンは折り返しの設定（設定画面・ステータスバーのトグル）自体は変更せず、このタブに限って折り返しをオフにします。横スクロールで内容は引き続き確認できます。タブを閉じれば元に戻ります。"
+                            AutomationProperties.Name="このファイルでは折り返しを無効にする" />
+                </Grid>
+            </Border>
 
             <!-- 4.6: 外部変更検知（E702）の非モーダル通知バー。 -->
             <Border x:Name="ConflictBar"
-                    Grid.Row="0"
+                    Grid.Row="1"
                     Background="{DynamicResource BgElevated}"
                     BorderBrush="{DynamicResource StateWarn}"
                     BorderThickness="0,0,0,2"
@@ -157,9 +191,10 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="1">
-                <!-- 課題3: WordWrapはここでバインドせずEditorPane.axaml.csのApplyWordWrapOptionで
-                     一括管理する（極端に長い行を含むファイルでは利用者の設定に関わらず無効化するため。
+            <Grid Grid.Row="2">
+                <!-- 課題3（再設計）: WordWrapはここでバインドせずEditorPane.axaml.csの
+                     ApplyWordWrapOptionで一括管理する（利用者の設定＋タブごとの一時的な無効化
+                     [WordWrapDisabledForTab]の両方を反映する必要があるため。
                      ShowSpaces/ShowTabs/HighlightCurrentLine等と同じ方針）。 -->
                 <ae:TextEditor x:Name="Editor"
                                FontSize="{Binding FontSize}"

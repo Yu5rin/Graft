@@ -118,14 +118,14 @@ public class DataDirectoryWritabilityTests : IDisposable
 
         // まだ書き込み不可は成立していないため、この時点では長い行の警告のみが出る。
         shell.HasStatusBarWarning.Should().BeTrue();
-        shell.StatusBarWarningText.Should().Be("極端に長い行があるため構文強調・折り返しを無効化しました");
+        shell.StatusBarWarningText.Should().Be("極端に長い行があります（その行のみ構文強調を簡略化）");
 
         // 書き込み不可（優先度・高）が成立すると、そちらが先頭に出て「ほか1件」が付く。
         shell.Graft.MarkDataDirectoryReadOnly();
 
         shell.StatusBarWarningText.Should().Be("書き込み不可のため設定・履歴・バックアップは保存されません　ほか1件");
         shell.StatusBarWarningTooltip.Should().Contain("書き込み権限のあるフォルダへGraftのフォルダ一式を移動");
-        shell.StatusBarWarningTooltip.Should().Contain("極端に長い行があるため構文強調・折り返しを無効化しました");
+        shell.StatusBarWarningTooltip.Should().Contain("この行は20,000文字を超えるため");
 
         using var frame = window.CaptureRenderedFrame();
         frame.Should().NotBeNull("複数の警告が同時に成立してもバインディング先の取り違えで描画に失敗してはならない");

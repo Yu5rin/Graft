@@ -34,6 +34,7 @@ public sealed class EditorTabViewModel : ObservableObject
     private bool _indentUseTabs;
     private int _indentWidth = 4;
     private bool _hasExternalConflict;
+    private bool _wordWrapDisabledForTab;
 
     /// <summary>通常のドキュメントタブ（4.3節）。</summary>
     public EditorTabViewModel(Graft.Editor.DocumentSession session, Func<EditorTabViewModel, Task> closeRequested)
@@ -47,6 +48,7 @@ public sealed class EditorTabViewModel : ObservableObject
         CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
         ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync);
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+        DisableWordWrapForTabCommand = new RelayCommand(() => WordWrapDisabledForTab = true);
     }
 
     /// <summary>
@@ -63,6 +65,7 @@ public sealed class EditorTabViewModel : ObservableObject
         CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
         ReloadDiscardingChangesCommand = new RelayCommand(() => { });
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+        DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 差分タブは対象外（HasExtremelyLongLineが常にfalse）。
     }
 
     /// <summary>
@@ -79,6 +82,7 @@ public sealed class EditorTabViewModel : ObservableObject
         CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
         ReloadDiscardingChangesCommand = new RelayCommand(() => { });
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+        DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 履歴差分タブは対象外（HasExtremelyLongLineが常にfalse）。
     }
 
     /// <summary>タブ種別。<see cref="Views.EditorPane"/>がこれに応じて表示を切り替える。</summary>
@@ -184,6 +188,22 @@ public sealed class EditorTabViewModel : ObservableObject
     /// </summary>
     public bool HasExternalConflict { get => _hasExternalConflict; set => SetProperty(ref _hasExternalConflict, value); }
 
+    /// <summary>
+    /// 課題3（再設計）: このタブが極端に長い行（<see cref="Graft.Editor.DocumentSession.LongLineThreshold"/>
+    /// 超）を含むかどうか。差分系タブでは<see cref="Session"/>を持たないため常にfalse
+    /// （<c>&amp;&amp;</c>の短絡評価によりSessionへは触れない）。通知バー（EditorPane.axaml）の
+    /// 表示条件として使う。
+    /// </summary>
+    public bool HasExtremelyLongLine => Kind == EditorTabKind.Document && Session.HasExtremelyLongLine;
+
+    /// <summary>
+    /// 課題3（再設計）: 「このファイルでは折り返しを無効にする」（通知バー）が押されたかどうか。
+    /// trueの間は、利用者の折り返し設定（<see cref="EditorPaneViewModel.WordWrap"/>）に
+    /// 関わらずこのタブに限って折り返しを無効化する（EditorPane.axaml.csのApplyWordWrapOption
+    /// 参照）。設定そのものへは永続化しない（このタブを閉じれば忘れる、一時的な逃げ道）。
+    /// </summary>
+    public bool WordWrapDisabledForTab { get => _wordWrapDisabledForTab; set => SetProperty(ref _wordWrapDisabledForTab, value); }
+
     /// <summary>タブを閉じる（未保存なら保存確認を挟む。差分タブでは確認なしで閉じる）。</summary>
     public ICommand CloseCommand { get; }
 
@@ -192,6 +212,9 @@ public sealed class EditorTabViewModel : ObservableObject
 
     /// <summary>通知バーの「無視」。バーを閉じ、現在の編集内容をそのまま保持する。</summary>
     public ICommand DismissExternalConflictCommand { get; }
+
+    /// <summary>課題3（再設計）: 通知バーの「このファイルでは折り返しを無効にする」。</summary>
+    public ICommand DisableWordWrapForTabCommand { get; }
 
     /// <summary>タブが一覧から取り除かれる際に呼び出し側から呼ぶ。イベント購読を解除する。</summary>
     public void DetachEvents()

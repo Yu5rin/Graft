@@ -119,7 +119,9 @@ public partial class EditorPane : UserControl
     private void ApplyActiveTab(EditorTabViewModel? tab)
     {
         SaveViewStateInto(_loadedTab);
+        if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
         _loadedTab = tab;
+        if (tab is not null) tab.PropertyChanged += OnLoadedTabPropertyChanged;
 
         if (tab is null) { ApplyEmptyTab(); return; }
         if (tab.Kind == EditorTabKind.Diff) { ApplyDiffTab(tab); return; }
@@ -143,18 +145,20 @@ public partial class EditorPane : UserControl
         ApplyWordWrapOption();
         ApplyIndentOptions(tab);
 
-        // 課題3: 極端に長い行（1行20,000文字超）を含むファイルは、構文強調・折り返し・
-        // 括弧の対応付けの計算コストがその1行の文字数に比例して増える（詳細は
-        // DocumentSession.HasExtremelyLongLine・ApplyWordWrapOptionのコメント参照）。
-        // 利用者の設定に関わらずこれらを自動的に無効化し、ステータスバーで通知する
-        // （StatusBarView.axaml・EditorPaneViewModel.ActiveTabHasLongLineWarning）。
-        var longLine = tab.Session.HasExtremelyLongLine;
+        // 課題3（再設計）: 極端に長い行（1行20,000文字超）を含んでいても、無効化するのは
+        // その行だけに留める（ファイル全体は対象外）。構文強調は行単位のキャップ
+        // （SyntaxHighlightBridge.ColorizeLine）、括弧の対応付けは言語認識の行単位キャップ
+        // （BracketSupport.IsInsideStringOrComment）がそれぞれ内部で処理するため、ここでは
+        // 常に利用者の設定どおりに有効化する。折りたたみは実測でコストが無視できるほど
+        // 小さいため、そもそも長い行による特別扱いをしない（FoldingSupportのコメント参照）。
+        // ステータスバーへの通知（何が制限され何が有効かという正確な文言）は
+        // StatusBarView.axaml・EditorPaneViewModel.ActiveTabHasLongLineWarning側で行う。
         var extension = Path.GetExtension(tab.Session.FileName);
-        _bridge.Attach(tab.Session.Document, extension, !longLine && (_viewModel?.SyntaxEnabled ?? true));
-        _brackets.Attach(tab.Session.Document, extension, languageAware: !longLine);
-        _brackets.SetAutoCloseEnabled(!longLine && (_viewModel?.AutoClosingBrackets ?? true));
+        _bridge.Attach(tab.Session.Document, extension, _viewModel?.SyntaxEnabled ?? true);
+        _brackets.Attach(tab.Session.Document, extension);
+        _brackets.SetAutoCloseEnabled(_viewModel?.AutoClosingBrackets ?? true);
         _folding.Attach(tab.Session.Document, extension);
-        _folding.SetEnabled(!longLine && (_viewModel?.Folding ?? true));
+        _folding.SetEnabled(_viewModel?.Folding ?? true);
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
         ApplyGitGutter(tab);
 
@@ -230,19 +234,39 @@ public partial class EditorPane : UserControl
     }
 
     /// <summary>
-    /// 課題3: 折り返し表示の反映。極端に長い行を含むファイル
-    /// （<see cref="DocumentSession.HasExtremelyLongLine"/>）では、利用者の設定に関わらず
-    /// 折り返しを無効化する。実測（1行10万文字のファイル）では、折り返し有効時に
-    /// AvaloniaEdit側の書式計算コストが無効時の10倍以上（数百ms→1.5秒前後）に
-    /// 悪化することを確認しており、既定でオフの折り返しをこのファイルに限って
-    /// 有効なままにしておくと利用者が気付かないまま極端に遅くなる。横スクロールで
-    /// 内容自体は確認できるため、折り返しだけを諦める。
+    /// 課題3（再設計）: 折り返し表示の反映。以前は極端に長い行を含むファイルでは利用者の
+    /// 設定に関わらず折り返しを強制無効化していたが、「エディタとして致命的」という
+    /// 指摘（利用者の設定を勝手に無視すること自体が問題）を受けて廃止した。
+    ///
+    /// 経緯: 実測（1行10万文字のファイル）では、折り返し有効時にAvaloniaEdit側の
+    /// 書式計算コストが無効時の10倍以上（数百ms→1.5秒前後）に悪化することを確認して
+    /// いる。これは実在するコストであり無視はできないが、「遅くなる可能性があるコストを
+    /// 利用者に無断で払わせない／勝手に機能を奪わない」のバランスを取り、既定は利用者の
+    /// 設定にそのまま従わせたうえで、重くなりうることが分かっているこのファイルに限り
+    /// 「このファイルでは折り返しを無効にする」ボタン（通知バー、EditorPane.axaml）で
+    /// 利用者自身がコストを選べる逃げ道を用意する方針にした
+    /// （<see cref="EditorTabViewModel.WordWrapDisabledForTab"/>・
+    /// <see cref="EditorTabViewModel.DisableWordWrapForTabCommand"/>・
+    /// <see cref="OnLoadedTabPropertyChanged"/>）。
     /// XAML側ではバインドせずここで一括管理する（ShowWhitespace等と同じ方針）。
     /// </summary>
     private void ApplyWordWrapOption()
     {
-        var longLine = _loadedTab is { Kind: EditorTabKind.Document } t && t.Session.HasExtremelyLongLine;
-        Editor.WordWrap = !longLine && (_viewModel?.WordWrap ?? false);
+        var disabledForTab = _loadedTab is { Kind: EditorTabKind.Document } t && t.WordWrapDisabledForTab;
+        Editor.WordWrap = !disabledForTab && (_viewModel?.WordWrap ?? false);
+    }
+
+    /// <summary>
+    /// 課題3（再設計）: 現在読み込み中のタブ（<see cref="_loadedTab"/>）のプロパティ変更を監視し、
+    /// <see cref="EditorTabViewModel.WordWrapDisabledForTab"/>が変わったら折り返し表示へ
+    /// 即座に反映する。通知バー（EditorPane.axaml）の「このファイルでは折り返しを無効にする」
+    /// ボタンは<see cref="EditorTabViewModel.DisableWordWrapForTabCommand"/>へCommandバインド
+    /// しているだけ（MVVM、コードビハインドのクリックハンドラは持たない）なので、実際に
+    /// AvaloniaEditのWordWrapへ反映する経路をここに一本化する。
+    /// </summary>
+    private void OnLoadedTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(EditorTabViewModel.WordWrapDisabledForTab)) ApplyWordWrapOption();
     }
 
     private void ApplyIndentOptions(EditorTabViewModel tab)
@@ -542,6 +566,7 @@ public partial class EditorPane : UserControl
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.TabSaved -= OnTabSaved;
         }
+        if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
         _gitGutter.Dispose();
         _bridge.Dispose();
         _brackets.Dispose();

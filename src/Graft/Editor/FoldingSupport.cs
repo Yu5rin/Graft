@@ -14,6 +14,16 @@ namespace Graft.Editor;
 /// 18章の性能要件により、再計算は編集のたびではなくデバウンスして行う。
 /// v2.0のWPF版（AvalonEdit）からの移植。FoldingManager/NewFoldingのAPIはAvaloniaEditでも
 /// 同名同形のため、名前空間の差し替えのみで移植できる。
+///
+/// 課題3（再設計）: 以前は極端に長い行を含むファイルではこの機能自体をファイル全体で
+/// 無効化していた。<see cref="RecalculateNow"/>（<see cref="BraceFoldingStrategy"/>/
+/// <see cref="IndentFoldingStrategy"/>）は各行を1回ずつ読んで文字を走査するだけの
+/// 線形処理（1文字ごとにレキサを呼び直すような二乗コストの経路が無い）のため、実測では
+/// 1行10万文字のファイルで1ms未満、3万行＋1行10万文字が混在するファイルでも最大19ms程度
+/// だった（デバウンス300msの予算に対して十分小さい）。このコストなら無効化する理由が
+/// 無いため、極端に長い行の有無に関わらず常に利用者の設定（<c>editor.folding</c>）へ
+/// そのまま従う（EditorPane.axaml.cs参照。無効化していたのはEditorPane側の判定であり、
+/// 本クラス自体に長い行を特別扱いするコードは元々存在しない）。
 /// </summary>
 public sealed class FoldingSupport : IDisposable
 {
