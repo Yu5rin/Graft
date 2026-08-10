@@ -292,13 +292,20 @@ public sealed class ProjectPaneViewModel : ObservableObject
         await LoadAsync().ConfigureAwait(true);
     }
 
-    /// <summary>ピン留めの切替（仕様書3.2の並べ替え・上位9件ショートカットに連動する）。</summary>
+    /// <summary>
+    /// ピン留めの切替（仕様書3.2の並べ替え・上位9件ショートカットに連動する）。要望対応:
+    /// オンにした瞬間の時刻を<see cref="Project.PinnedAt"/>へ記録し（<see cref="ProjectStore.Sort"/>
+    /// がピン留め済み同士を「ピン留めした順」に並べるための基準になる）、オフにするとnullへ戻す
+    /// （再度ピン留めすると新しい日時が入り、ピン留め済みグループの最後尾に来る）。
+    /// </summary>
     private async Task ToggleSelectedPinAsync()
     {
         var item = SelectedItem;
         if (item is null) return;
 
-        var result = await _store.UpdateAsync(item.Project.Id, p => p with { Pinned = !p.Pinned }).ConfigureAwait(true);
+        var result = await _store.UpdateAsync(item.Project.Id, p => p.Pinned
+            ? p with { Pinned = false, PinnedAt = null }
+            : p with { Pinned = true, PinnedAt = DateTimeOffset.Now }).ConfigureAwait(true);
         if (!result.IsSuccess)
         {
             await ShowFailureAsync("ピン留めを切り替えられませんでした", result.Issues).ConfigureAwait(true);

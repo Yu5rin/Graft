@@ -241,6 +241,50 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
         shell.Graft.ProjectPane.Items.Single(i => i.Project.Root == projectA).IsPinned.Should().BeFalse();
     }
 
+    [AvaloniaFact(DisplayName = "複数をピン留めするとピン留めした順に並び、解除して再度ピン留めすると最後尾に来る")]
+    public async Task 複数ピン留めの順序と再ピン留めの実際の挙動()
+    {
+        // 要望対応（ピン留め同士は「ピン留めした順」に並ぶ）: TogglePinCommand（実際の右クリック
+        // メニュー→ProjectStore更新の経路）を使って、C→A→Bの順にピン留めしたときに
+        // 一覧がその順（C, A, B）で並ぶこと、さらにAを解除して再度ピン留めすると
+        // ピン留め済みグループの最後尾（C, B, A）に来ることを確認する。
+        var projectA = CreateProjectDir("multi-pin-a");
+        var projectB = CreateProjectDir("multi-pin-b");
+        var projectC = CreateProjectDir("multi-pin-c");
+
+        var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectA).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectB).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectC).ConfigureAwait(true);
+
+        async Task TogglePin(string root)
+        {
+            var item = shell.Graft.ProjectPane.Items.Single(i => i.Project.Root == root);
+            shell.Graft.ProjectPane.SelectedItem = item;
+            await ExecuteAsync(shell.Graft.ProjectPane.TogglePinCommand).ConfigureAwait(true);
+            // PinnedAtはDateTimeOffset.Nowを使うため、連続で呼ぶと同時刻になり得る環境差を避ける
+            // ための最小限のウェイト。
+            await Task.Delay(10).ConfigureAwait(true);
+        }
+
+        await TogglePin(projectC).ConfigureAwait(true); // 1番目にピン留め
+        await TogglePin(projectA).ConfigureAwait(true); // 2番目にピン留め
+        await TogglePin(projectB).ConfigureAwait(true); // 3番目にピン留め
+
+        shell.Graft.ProjectPane.Items.Select(i => i.Project.Root).Should().ContainInOrder(
+            new[] { projectC, projectA, projectB },
+            "ピン留めした順（C→A→B）に並ぶはず");
+
+        await TogglePin(projectA).ConfigureAwait(true); // Aを解除
+        shell.Graft.ProjectPane.Items.Single(i => i.Project.Root == projectA).IsPinned.Should().BeFalse();
+
+        await TogglePin(projectA).ConfigureAwait(true); // Aを再度ピン留め
+
+        shell.Graft.ProjectPane.Items.Select(i => i.Project.Root).Should().ContainInOrder(
+            new[] { projectC, projectB, projectA },
+            "解除して再度ピン留めしたAは新しいPinnedAtを持つため、ピン留め済みの最後尾に来るはず");
+    }
+
     // ------------------------------------------------------------------
     // 要望4: 表示名の変更
     // ------------------------------------------------------------------

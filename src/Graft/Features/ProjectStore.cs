@@ -324,26 +324,40 @@ public sealed class ProjectStore
     }
 
     /// <summary>
-    /// 不具合3対応: ピン留めを先頭に、次にパッチを最後に適用した日時
-    /// （<see cref="Project.LastAppliedAt"/>、無ければ<see cref="EffectiveLastAppliedAt"/>参照）の
-    /// 降順で並べ、一度も適用していないプロジェクトは常に最下部へ送る（仕様書3.2）。
+    /// 不具合3対応 + 要望対応（ピン留め順）: ピン留めを先頭に、ピン留め済み同士は
+    /// <see cref="Project.PinnedAt"/>（無ければ<see cref="EffectivePinnedAt"/>参照）の昇順
+    /// （先にピン留めしたものが上）で並べる。ピン留めしていないプロジェクトは、パッチを最後に
+    /// 適用した日時（<see cref="Project.LastAppliedAt"/>、無ければ<see cref="EffectiveLastAppliedAt"/>
+    /// 参照）の降順で並べ、一度も適用していないプロジェクトは常に最下部へ送る（仕様書3.2）。
     /// 上位9件が数字キーショートカットの割り当て対象になる。
     ///
-    /// 未適用同士の順序: LINQのOrderBy/ThenByは安定ソートのため、EffectiveLastAppliedAtが
-    /// 等しい（＝どちらもnull）プロジェクト同士は<paramref name="projects"/>に渡された順序を
-    /// そのまま保つ。呼び出し元は通常projects.json内の並び（新規登録時は末尾に追記される、
-    /// すなわち登録順）をそのまま渡すため、「毎回入れ替わらない・登録順」という要件を
-    /// 追加のキー無しに満たせる。
+    /// タイになった場合の順序: LINQのOrderBy/ThenByは安定ソートのため、並べ替えキーが等しい
+    /// プロジェクト同士は<paramref name="projects"/>に渡された順序をそのまま保つ。呼び出し元は
+    /// 通常projects.json内の並び（新規登録時は末尾に追記される、すなわち登録順）をそのまま渡すため、
+    /// 「毎回入れ替わらない」という要件を追加のキー無しに満たせる。ピン留め済みで
+    /// <see cref="Project.PinnedAt"/>が無い（旧形式projects.jsonからの移行）プロジェクト同士がタイに
+    /// なった場合も、その次のキーであるEffectiveLastAppliedAtの降順で決着するため、こちらも
+    /// 読み込みのたびに順序が入れ替わることはない。
     /// </summary>
     public static IReadOnlyList<Project> Sort(IEnumerable<Project> projects)
     {
         ArgumentNullException.ThrowIfNull(projects);
         return projects
             .OrderByDescending(p => p.Pinned)
+            .ThenBy(p => EffectivePinnedAt(p) ?? DateTimeOffset.MaxValue)
             .ThenByDescending(p => EffectiveLastAppliedAt(p).HasValue)
             .ThenByDescending(p => EffectiveLastAppliedAt(p) ?? DateTimeOffset.MinValue)
             .ToList();
     }
+
+    /// <summary>
+    /// 並べ替え用の実効的な「ピン留めした日時」。<see cref="Project.PinnedAt"/>があればそれを使い、
+    /// 無くても<see cref="Project.Pinned"/>がtrueなら（＝旧形式projects.jsonからの移行）
+    /// <c>DateTimeOffset.MinValue</c>（最も古い扱い）を代用する。ピン留めしていない場合はnullの
+    /// ままとする（詳しい理由は<see cref="Project.PinnedAt"/>参照）。
+    /// </summary>
+    private static DateTimeOffset? EffectivePinnedAt(Project project)
+        => project.PinnedAt ?? (project.Pinned ? DateTimeOffset.MinValue : null);
 
     /// <summary>
     /// 並べ替え用の実効的な「最後に適用した日時」。<see cref="Project.LastAppliedAt"/>が

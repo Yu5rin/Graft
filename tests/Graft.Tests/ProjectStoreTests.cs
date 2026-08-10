@@ -219,6 +219,162 @@ public class ProjectStoreTests
             "あるプロジェクトが最下部に落ちてはならない");
     }
 
+    // ------------------------------------------------------------------
+    // 要望対応: ピン留め済み同士は「ピン留めした順」（昇順）で並ぶ
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "複数をピン留めすると、ピン留めした順（PinnedAt昇順）に並ぶ")]
+    public void 複数ピン留めはピン留めした順に並ぶ()
+    {
+        var now = DateTimeOffset.Now;
+        // 実際に「先にピン留めしたものが上」になることを検証するため、PinnedAtの前後関係と
+        // LastAppliedAt（適用日時）の前後関係をわざと逆にしておく。適用日時基準で並んでいたら
+        // このテストは失敗するはず。
+        var firstPinned = new Project
+        {
+            Id = "p_first", Name = "最初にピン留め", Pinned = true,
+            PinnedAt = now.AddMinutes(-30), LastAppliedAt = now.AddDays(-10), NextRevision = 2,
+        };
+        var secondPinned = new Project
+        {
+            Id = "p_second", Name = "次にピン留め", Pinned = true,
+            PinnedAt = now.AddMinutes(-20), LastAppliedAt = now.AddDays(-5), NextRevision = 2,
+        };
+        var thirdPinned = new Project
+        {
+            Id = "p_third", Name = "3番目にピン留め", Pinned = true,
+            PinnedAt = now.AddMinutes(-10), LastAppliedAt = now, NextRevision = 2,
+        };
+
+        var sorted = ProjectStore.Sort(new[] { thirdPinned, firstPinned, secondPinned });
+
+        sorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_first", "p_second", "p_third" },
+            "ピン留め済み同士は最終適用日時ではなく、PinnedAtの昇順（先にピン留めしたものが上）で並ぶはず");
+    }
+
+    [Fact(DisplayName = "ピン留めを解除して再度ピン留めすると、ピン留め済みの最後尾に来る")]
+    public void ピン留め解除後の再ピン留めは最後尾に来る()
+    {
+        var now = DateTimeOffset.Now;
+        var staysFirst = new Project { Id = "p_stays", Name = "ずっとピン留め", Pinned = true, PinnedAt = now.AddHours(-2), NextRevision = 2 };
+        var staysSecond = new Project { Id = "p_stays2", Name = "ずっとピン留め2", Pinned = true, PinnedAt = now.AddHours(-1), NextRevision = 2 };
+        // p_rePinnedは最初はp_staysより先にピン留めされていたが、一度解除して今しがた
+        // 再度ピン留めした想定（＝解除中はPinnedAt=null、再ピン留め時に現在時刻へ更新される。
+        // 実際の更新経路はProjectPaneViewModel.ToggleSelectedPinAsync参照）。
+        var rePinned = new Project { Id = "p_rePinned", Name = "解除後に再ピン留め", Pinned = true, PinnedAt = now, NextRevision = 2 };
+
+        var sorted = ProjectStore.Sort(new[] { rePinned, staysFirst, staysSecond });
+
+        sorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_stays", "p_stays2", "p_rePinned" },
+            "再度ピン留めしたプロジェクトは新しいPinnedAtを持つため、既存のピン留め済みグループの最後尾に来るはず");
+    }
+
+    [Fact(DisplayName = "UpdateAsyncでの解除→再ピン留め（PinnedAtの記録・クリア）が永続化・並び順へ正しく反映される")]
+    public async Task ピン留めの解除と再ピン留めがUpdateAsync経由で反映される()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+        var rootA = ws.CreateDirectory("proj-a");
+        var rootB = ws.CreateDirectory("proj-b");
+
+        await store.SaveAsync(new[]
+        {
+            new Project { Id = "p_a", Name = "A", Root = rootA, NextRevision = 1 },
+            new Project { Id = "p_b", Name = "B", Root = rootB, NextRevision = 1 },
+        });
+
+        // ProjectPaneViewModel.ToggleSelectedPinAsyncと同じ更新方式（オンでPinnedAtを記録、
+        // オフでnullへ戻す）をここでも使い、実際の更新経路を模す。
+        Project PinToggle(Project p) => p.Pinned
+            ? p with { Pinned = false, PinnedAt = null }
+            : p with { Pinned = true, PinnedAt = DateTimeOffset.Now };
+
+        await store.UpdateAsync("p_a", PinToggle); // Aをピン留め
+        await Task.Delay(10);
+        await store.UpdateAsync("p_b", PinToggle); // Bをピン留め（Aより後）
+
+        var afterBothPinned = ProjectStore.Sort((await store.LoadAsync()).Value);
+        afterBothPinned.Select(p => p.Id).Should().ContainInOrder(new[] { "p_a", "p_b" },
+            "先にピン留めしたAが上に来るはず");
+
+        await store.UpdateAsync("p_a", PinToggle); // Aのピン留めを解除
+        var afterUnpinA = (await store.LoadAsync()).Value.Single(p => p.Id == "p_a");
+        afterUnpinA.Pinned.Should().BeFalse();
+        afterUnpinA.PinnedAt.Should().BeNull("解除するとPinnedAtはnullへ戻るはず");
+
+        await Task.Delay(10);
+        await store.UpdateAsync("p_a", PinToggle); // Aを再度ピン留め
+
+        var final = ProjectStore.Sort((await store.LoadAsync()).Value);
+        final.Select(p => p.Id).Should().ContainInOrder(new[] { "p_b", "p_a" },
+            "解除して再度ピン留めしたAは新しいPinnedAtを持つため、Bより後（ピン留め済みの最後尾）に来るはず");
+    }
+
+    [Fact(DisplayName = "ピン留め済みプロジェクトが増えても、ピン留めしていないものの並び（適用日時降順・未適用は最下部）は変わらない")]
+    public void ピン留め有無混在でも非ピン留めの並びは変わらない()
+    {
+        var now = DateTimeOffset.Now;
+        var pinnedFirst = new Project { Id = "p_pin1", Name = "ピン留め1", Pinned = true, PinnedAt = now.AddHours(-2), NextRevision = 2 };
+        var pinnedSecond = new Project { Id = "p_pin2", Name = "ピン留め2", Pinned = true, PinnedAt = now.AddHours(-1), NextRevision = 2 };
+        var appliedRecent = new Project { Id = "p_recent", Name = "非ピン留め・最近適用", LastAppliedAt = now, NextRevision = 2 };
+        var appliedOld = new Project { Id = "p_old", Name = "非ピン留め・昔に適用", LastAppliedAt = now.AddDays(-30), NextRevision = 2 };
+        var neverApplied = new Project { Id = "p_never", Name = "非ピン留め・未適用", NextRevision = 1 };
+
+        var sorted = ProjectStore.Sort(new[] { neverApplied, appliedOld, pinnedSecond, appliedRecent, pinnedFirst });
+
+        sorted.Select(p => p.Id).Should().ContainInOrder(
+            new[] { "p_pin1", "p_pin2", "p_recent", "p_old", "p_never" },
+            "ピン留め済み2件（ピン留め順）の下に、非ピン留め（適用日時降順・未適用は最下部）が" +
+            "従来どおりの並びで続くはず");
+    }
+
+    [Fact(DisplayName = "旧形式（pinnedAtキーの無い・複数ピン留め済み）projects.jsonを読み込んでも順序が安定する")]
+    public async Task 旧形式で複数ピン留め済みでも順序は安定する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        paths.EnsureCoreDirectoriesExist();
+        var rootA = ws.CreateDirectory("legacy-pin-a");
+        var rootB = ws.CreateDirectory("legacy-pin-b");
+        var rootC = ws.CreateDirectory("legacy-pin-c");
+        // pinnedAtキー自体を持たない旧形式。3件ともpinned=trueで、うち2件（p_legacy_pin_a/b）は
+        // pinnedAtが無いため移行救済フォールバック（DateTimeOffset.MinValueを代用）が働く。
+        var legacyJson = $$"""
+            {"projects":[
+                {"id":"p_legacy_pin_a","name":"旧ピンA","root":"{{rootA.Replace("\\", "\\\\")}}",
+                 "pinned":true,"lastAppliedAt":"2023-01-01T00:00:00+00:00","nextRevision":3},
+                {"id":"p_legacy_pin_b","name":"旧ピンB","root":"{{rootB.Replace("\\", "\\\\")}}",
+                 "pinned":true,"lastAppliedAt":"2023-06-01T00:00:00+00:00","nextRevision":3},
+                {"id":"p_legacy_unpinned","name":"旧・非ピン","root":"{{rootC.Replace("\\", "\\\\")}}",
+                 "pinned":false,"lastAppliedAt":"2024-01-01T00:00:00+00:00","nextRevision":2}
+            ]}
+            """;
+        await File.WriteAllTextAsync(paths.ProjectsFilePath, legacyJson);
+
+        var store = new ProjectStore(paths);
+        var loaded = await store.LoadAsync();
+        loaded.IsSuccess.Should().BeTrue();
+
+        var legacyPinA = loaded.Value.Single(p => p.Id == "p_legacy_pin_a");
+        var legacyPinB = loaded.Value.Single(p => p.Id == "p_legacy_pin_b");
+        legacyPinA.PinnedAt.Should().BeNull("旧形式のJSONにキーが無いため既定値nullで読めるはず");
+        legacyPinB.PinnedAt.Should().BeNull();
+
+        // 何度読み込んでソートしても、ピン留め済み同士（p_legacy_pin_a/b）の順序が入れ替わらない
+        // こと（安定していること）を確認する。移行救済によりPinnedAtは両方ともMinValueで
+        // タイになるため、次の並べ替えキー（EffectiveLastAppliedAt降順）で決着する
+        // （lastAppliedAtが新しいp_legacy_pin_bが先に来る）。
+        for (var i = 0; i < 5; i++)
+        {
+            var reloaded = await store.LoadAsync();
+            var sorted = ProjectStore.Sort(reloaded.Value);
+            sorted.Select(p => p.Id).Should().ContainInOrder(
+                new[] { "p_legacy_pin_b", "p_legacy_pin_a", "p_legacy_unpinned" },
+                "旧形式・複数ピン留めでも、読み込みのたびに順序が入れ替わってはならない");
+        }
+    }
+
     [Fact(DisplayName = "未適用のプロジェクト同士は毎回同じ順序（登録順）で並ぶ")]
     public void 未適用同士の順序は実行のたびに変わらない()
     {
