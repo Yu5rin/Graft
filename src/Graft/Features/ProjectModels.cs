@@ -62,6 +62,29 @@ public sealed record Project
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
     /// <summary>ピン留め。一覧の先頭に並べる。</summary>
     public bool Pinned { get; init; }
+
+    /// <summary>
+    /// ピン留めした日時。要望対応（ピン留め同士を「ピン留めした順」に並べる）: <see cref="Pinned"/>を
+    /// falseからtrueへ切り替えた瞬間に記録し、trueからfalseへ戻すと再びnullにする
+    /// （<see cref="ProjectPaneViewModel"/>の右クリックメニュー→<see cref="ProjectStore"/>の更新経路。
+    /// 一度解除して再度ピン留めすると新しい日時になり、ピン留め済みグループの最後尾に来る。これは
+    /// 「解除→再ピン留め」を「今から改めてピン留めし直した」という自然な意味に一致させるための挙動）。
+    /// <see cref="ProjectStore.Sort"/>はピン留め済み同士をこの値の昇順（先にピン留めしたものが上）で
+    /// 並べる。
+    /// <para>
+    /// 【旧形式projects.jsonからの移行】 このフィールドが無い旧形式のJSONを読み込むと、
+    /// <see cref="Pinned"/>がtrueでもこちらはnullになる。<see cref="ProjectStore.Sort"/>は、
+    /// 「この機能が入る前から既にピン留めされていた＝これから新規にピン留めするものより先に
+    /// ピン留めされていたはず」という考え方（<see cref="LastAppliedAt"/>の移行で
+    /// <see cref="NextRevision"/>&gt;1というシグナルを使ったのと同じく、既に永続化済みの状態から
+    /// 代用値を導く考え方）で、値が無くPinnedがtrueの項目には <c>DateTimeOffset.MinValue</c>
+    /// （最も古い扱い）を代用し、ピン留め済みグループの先頭側へ置く。値が無い者同士がタイになった
+    /// 場合は、その次の並べ替えキー（<see cref="LastAppliedAt"/>相当の
+    /// <see cref="ProjectStore.Sort"/>内ロジック）で決着するため、読み込みのたびに順序が
+    /// 入れ替わることはない。
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? PinnedAt { get; init; }
     /// <summary>
     /// 最終使用日時。新規登録・場所の再結び付け（<see cref="ProjectStore.RelocateAsync"/>）の
     /// たびに更新される「Graftでこのプロジェクトを開いた（触った）日時」。並べ替え
