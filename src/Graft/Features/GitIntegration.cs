@@ -235,8 +235,58 @@ public sealed class GitIntegration
         return psi;
     }
 
-    private static async Task<GitProcessResult> RunGitAsync(
+    /// <summary>
+    /// 実機フリーズ調査での発見: <see cref="Process.Start(ProcessStartInfo)"/>
+    /// はC#の非同期メソッドの仕様上、最初のawait（<see cref="Process.WaitForExitAsync"/>）に
+    /// 到達するまで呼び出し元のスレッド上で同期的に実行される。<see cref="GitGutterProvider"/>は
+    /// タブを開くたびに<c>ApplyActiveTab</c>の同期呼び出し列の中から
+    /// （最初のawaitへ到達する前に）このメソッドへ到達するため、これまでは
+    /// <c>Process.Start</c>そのものがUIスレッド上で実行されていた。LinuxやCI環境ではgitの
+    /// プロセス生成は数ms程度で無害だが、Windows実機ではウイルス対策ソフトの新規プロセス作成
+    /// フック（実行ファイルのスキャン・クラウド照会等）によって<c>CreateProcess</c>自体が
+    /// 数秒〜数十秒（利用者報告: 「数十秒待っても復帰しない」）ブロックすることが知られており、
+    /// これがUIスレッド上で起きるとアプリ全体が完全に無応答になる（ファイルを何個か開いた
+    /// 直後に何の前触れもなく固まる、という報告の症状と一致する）。
+    /// <see cref="Task.Run(Func{Task{GitProcessResult}}, CancellationToken)"/>で丸ごと
+    /// スレッドプールへ逃がすことで、<c>Process.Start</c>を含め本メソッドの実行が呼び出し元の
+    /// スレッド（UIスレッド）を一切塞がないようにする。
+    /// </summary>
+    private static Task<GitProcessResult> RunGitAsync(
         string projectRoot, IReadOnlyList<string> args, CancellationToken ct)
+        => Task.Run(() => RunGitCoreAsync(projectRoot, args, ProcessTimeout, ct), ct);
+
+    /// <summary>
+    /// 実機フリーズ調査での発見: 従来はここに一切のタイムアウトが無く、
+    /// <see cref="GitGutterProvider.SetTarget"/>による<c>CancellationTokenSource.Cancel()</c>は
+    /// 「.NET側の待ち合わせ（<see cref="Process.WaitForExitAsync"/>）を諦める」だけで、既に
+    /// 起動済みのOSプロセス自体は<c>Kill</c>されず、生きたまま裏で走り続けていた（多数の
+    /// ファイルを立て続けに開くと未回収のgitプロセスが積み上がり得る一因）。ここでは
+    /// このタイムアウトを超えたら呼び出し元のキャンセルとは独立に諦め、プロセスツリーごと
+    /// <see cref="Process.Kill(bool)"/>する（<see cref="HookRunner"/>のタイムアウト処理と
+    /// 同じ方針）。git・ファイルI/Oは通常このタイムアウトに対して十分小さいため、健全な環境
+    /// では実質発火しない。既定値は本番用（<see cref="RunGitAsync"/>）。テストからは
+    /// <see cref="RunForTestAsync"/>経由でより短いタイムアウトを指定できる（実際にハングした
+    /// gitプロセスを模した子プロセスで打ち切り・後始末を検証するため、5秒待つのは非現実的）。
+    /// </summary>
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// テスト専用の入口。<see cref="RunGitAsync"/>と同じくスレッドプールへ逃がしたうえで、
+    /// 任意のタイムアウト値を指定して<see cref="RunGitCoreAsync"/>を呼べるようにする
+    /// （<see cref="BuildProcessStartInfo"/>と同じ「internalでテストから直接検証できるように
+    /// する」方針）。戻り値はprivateな<see cref="GitProcessResult"/>を外へ出さないよう
+    /// タプルへ詰め替える。
+    /// </summary>
+    internal static Task<(bool Started, int ExitCode, string Output)> RunForTestAsync(
+        string projectRoot, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct = default)
+        => Task.Run(async () =>
+        {
+            var result = await RunGitCoreAsync(projectRoot, args, timeout, ct).ConfigureAwait(false);
+            return (result.Started, result.ExitCode, result.Output);
+        }, ct);
+
+    private static async Task<GitProcessResult> RunGitCoreAsync(
+        string projectRoot, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct)
     {
         var psi = BuildProcessStartInfo(projectRoot, args);
 
@@ -253,13 +303,45 @@ public sealed class GitIntegration
 
         using (process)
         {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(timeout);
+
             var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
             var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // 呼び出し元のctではなくProcessTimeout側が発火した場合のみここへ来る
+                // （ct自体が既にキャンセル済みの通常のキャンセル経路はこのcatchを素通りし、
+                // 従来どおり呼び出し元へOperationCanceledExceptionとして伝播する）。
+                TryKill(process);
+                return new GitProcessResult(false, -1, $"git コマンドが{timeout.TotalSeconds:F0}秒でタイムアウトしました。");
+            }
+
             var stdout = await stdoutTask.ConfigureAwait(false);
             var stderr = await stderrTask.ConfigureAwait(false);
             var combined = string.IsNullOrEmpty(stderr) ? stdout : $"{stdout}{stderr}";
             return new GitProcessResult(true, process.ExitCode, combined);
+        }
+    }
+
+    /// <summary>タイムアウト時にハングしたgitプロセス（子プロセスも含む）を後始末する。
+    /// 既に終了している・終了処理中で失敗する場合は無視する（後始末の失敗で更に例外を
+    /// 積み上げない。16章の「例外を投げず穏当に扱う」方針）。</summary>
+    private static void TryKill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (Win32Exception)
+        {
         }
     }
 

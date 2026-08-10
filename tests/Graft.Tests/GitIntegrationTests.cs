@@ -17,6 +17,7 @@ namespace Graft.Tests;
 /// 実際のワーキングツリーで検証する（HookRunnerTests等と同様、テスト実行環境に
 /// 対応するコマンド（ここではgit）が存在することを前提とする）。
 /// </summary>
+[Collection(GitProcessCollection.Name)]
 public class GitIntegrationTests
 {
     [Fact(DisplayName = "gitリポジトリへコミットすると type: summary 形式のログが残る")]
