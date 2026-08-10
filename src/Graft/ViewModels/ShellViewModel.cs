@@ -87,6 +87,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
         Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
         Editor.HistoryDiffTabClosed += OnHistoryDiffTabClosed; // 修正1: タブの×で閉じたら履歴側の選択も解除する。
+        // ファイル単位の変更履歴: エクスプローラの右クリック「このファイルの変更履歴」を、
+        // 履歴ペイン（Graft.History）の絞り込みと連動させる。ExplorerViewModelはHistoryPane
+        // ViewModelを知らないため、両方を知るこのクラスが橋渡しする（ProjectActivated等と同じ構造）。
+        Explorer.ShowFileHistoryRequested += OnShowFileHistoryRequested;
         Graft.BeforeApplyAsync = EnsureTargetsSavedAsync; // 4.8: ドライラン開始前の未保存確認。
         Graft.AfterApplyAsync = files => Editor.ReloadIfOpenAsync(files); // 4.8: 適用後の自動再読込。
         WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
@@ -293,6 +297,25 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// setterが変化なしとして何もしないため、ここから無限にイベントが往復することは無い。
     /// </summary>
     private void OnHistoryDiffTabClosed(object? sender, EventArgs e) => Graft.History.SelectedItem = null;
+
+    /// <summary>
+    /// ファイル単位の変更履歴: エクスプローラの右クリックメニュー「このファイルの変更履歴」。
+    /// 履歴ペインをそのファイルへ絞り込んだうえで、履歴ビューを開き一覧へフォーカスする
+    /// （フォーカス移動自体はShellWindow.OnRequestFocusHistoryが担うView側の責務のため、
+    /// ここではGraft.ShowHistoryCommand経由でその入口だけを呼ぶ）。
+    ///
+    /// Graft.ShowHistoryCommandをそのまま呼ばないのは、SelectSideView（サイドバーのアイコンを
+    /// 再クリックすると折りたたむ、9.2のトグル仕様）に巻き込まれるとの実機確認による不具合修正:
+    /// 既に履歴ビューを開いた状態でこのメニューを別のファイルへ実行すると「同じビューへの
+    /// 再選択」と見なされ、絞り込みが更新される代わりにサイドビューごと折りたたまれてしまう。
+    /// 既に履歴ビューが表示中（IsHistoryActive）ならこの呼び出しをスキップし、絞り込みの反映
+    /// だけにとどめることで、意図せぬ折りたたみを避ける。
+    /// </summary>
+    private void OnShowFileHistoryRequested(object? sender, string relativePath)
+    {
+        Graft.History.ShowHistoryForFile(relativePath);
+        if (!IsHistoryActive) Graft.ShowHistoryCommand.Execute(null);
+    }
 
     /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
     private async void OnDiffJumpRequested(object? sender, (string RelativePath, int Line) target)

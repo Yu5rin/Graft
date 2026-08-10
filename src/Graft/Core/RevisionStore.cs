@@ -174,9 +174,21 @@ public sealed partial class RevisionStore
         return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    /// <summary>summaryの全文検索・type絞り込み・日付範囲でフィルタする（仕様書7.2）。</summary>
+    /// <summary>
+    /// summaryの全文検索・type絞り込み・日付範囲・（任意で）ファイル単位の絞り込みでフィルタする
+    /// （仕様書7.2、ファイル単位の変更履歴機能）。
+    /// </summary>
+    /// <param name="filePath">
+    /// 指定した場合、そのリビジョンのentriesに同じ相対パスを持つ変更が1件でもあるものだけを残す
+    /// （ファイル単位の変更履歴・エクスプローラの右クリックメニュー「このファイルの変更履歴」用）。
+    /// 判定は<see cref="RevisionEntry.Path"/>（変更後の現在のパス）のみを見る。
+    /// <see cref="RevisionEntry.RenamedFrom"/>（リネーム前の旧パス）は遡らないため、
+    /// リネームされたファイルの、リネームより前の履歴は対象に含まれない
+    /// （現在のパスで一致するもののみを対象とする、という割り切り）。
+    /// </param>
     public static IEnumerable<RevisionSummary> Filter(
-        IEnumerable<RevisionSummary> source, string? keyword, string? type, DateTimeOffset? from, DateTimeOffset? to)
+        IEnumerable<RevisionSummary> source, string? keyword, string? type, DateTimeOffset? from, DateTimeOffset? to,
+        string? filePath = null)
     {
         var query = source;
         if (!string.IsNullOrWhiteSpace(keyword))
@@ -196,8 +208,23 @@ public sealed partial class RevisionStore
         {
             query = query.Where(r => r.Manifest.AppliedAt <= to.Value);
         }
+        if (!string.IsNullOrWhiteSpace(filePath))
+        {
+            query = query.Where(r => r.Manifest.Entries.Any(e => EntryPathEquals(e.Path, filePath)));
+        }
         return query;
     }
+
+    /// <summary>
+    /// manifest entryの相対パス同士を比較する（ファイル単位の変更履歴の絞り込み用）。
+    /// entry.Path・エクスプローラのFileNodeViewModel.RelativePathはいずれも常に'/'区切りで
+    /// 揃えて保持されているため、区切り文字の正規化は不要。大文字小文字の扱いは
+    /// ExplorerViewModel.PathsEqualと同じ方針（Windowsは大文字小文字を区別しないファイル
+    /// システムが一般的なため無視、それ以外のOSは区別する）に揃える。
+    /// </summary>
+    public static bool EntryPathEquals(string a, string b) => OperatingSystem.IsWindows()
+        ? string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
+        : string.Equals(a, b, StringComparison.Ordinal);
 
     private static string NormalizeForHash(string text)
     {
