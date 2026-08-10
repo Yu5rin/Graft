@@ -458,9 +458,28 @@ public sealed class HistoryPaneViewModel : ObservableObject
             return false;
         }
 
+        // 不具合3対応: 単発復元（「このリビジョンを取り消す」）は新規リビジョンを記録しないが、
+        // 実際にプロジェクトのファイルを書き換える＝そのプロジェクトを触った操作であるため、
+        // 「最後に適用した日時」の更新対象に含める（判断理由はProjectModels.cs
+        // Project.LastAppliedAtのコメント参照）。
+        await MarkProjectAppliedAsync(ct).ConfigureAwait(true);
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
         return true;
+    }
+
+    /// <summary>
+    /// 不具合3対応: <see cref="ProjectStore.MarkAppliedAsync"/>を呼ぶ薄いラッパー。呼び出し時点で
+    /// <c>_projectId</c>は非nullであることを呼び出し元が保証する。失敗しても復元自体は既に
+    /// 成功しているためエラー扱いにはせず、ログにのみ残す。
+    /// </summary>
+    private async Task MarkProjectAppliedAsync(CancellationToken ct)
+    {
+        var marked = await _projectStore.MarkAppliedAsync(_projectId!, DateTimeOffset.Now, ct).ConfigureAwait(true);
+        if (!marked.IsSuccess)
+        {
+            Logger?.Warn("restore", "最終適用日時の更新に失敗しました（履歴の並び順に影響する可能性があります）");
+        }
     }
 
     private Task RestoreThroughSelectedAsync()
@@ -608,6 +627,9 @@ public sealed class HistoryPaneViewModel : ObservableObject
             Logger?.Warn("restore-through", issue.ToDisplayText(), revision: result.Value.Revision, targetPath: issue.Path);
         }
 
+        // 不具合3対応: 「ここまで戻す」が成功し新規リビジョンとして記録された時点で
+        // 「最後に適用した日時」を更新する（詳細はMarkProjectAppliedAsyncのコメント参照）。
+        await MarkProjectAppliedAsync(ct).ConfigureAwait(true);
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
         await _dialogs

@@ -99,18 +99,140 @@ public class ProjectStoreTests
     // 3.2 並べ替え・未接続検出
     // ------------------------------------------------------------------
 
-    [Fact(DisplayName = "Sortはピン留めを先頭に、次に最終使用日時の降順で並べる")]
-    public void 並べ替えはピン留め優先で最終使用日時降順()
+    [Fact(DisplayName = "Sortはピン留めを先頭に、次に最終適用日時の降順で並べる")]
+    public void 並べ替えはピン留め優先で最終適用日時降順()
     {
         var now = DateTimeOffset.Now;
-        var a = new Project { Id = "p_a", Name = "A", Pinned = false, LastUsedAt = now };
-        var b = new Project { Id = "p_b", Name = "B", Pinned = true, LastUsedAt = now.AddDays(-10) };
-        var c = new Project { Id = "p_c", Name = "C", Pinned = false, LastUsedAt = now.AddDays(-1) };
-        var d = new Project { Id = "p_d", Name = "D", Pinned = true, LastUsedAt = now };
+        // NextRevision>1にしておかないとEffectiveLastAppliedAtの移行救済フォールバックが
+        // 効かずLastAppliedAtがそのまま使われる（このテストではLastAppliedAtを明示しているため
+        // 実質どちらでもよいが、実際の適用済みプロジェクトを模してNextRevisionも進めておく）。
+        var a = new Project { Id = "p_a", Name = "A", Pinned = false, LastAppliedAt = now, NextRevision = 2 };
+        var b = new Project { Id = "p_b", Name = "B", Pinned = true, LastAppliedAt = now.AddDays(-10), NextRevision = 2 };
+        var c = new Project { Id = "p_c", Name = "C", Pinned = false, LastAppliedAt = now.AddDays(-1), NextRevision = 2 };
+        var d = new Project { Id = "p_d", Name = "D", Pinned = true, LastAppliedAt = now, NextRevision = 2 };
 
         var sorted = ProjectStore.Sort(new[] { a, b, c, d });
 
         sorted.Select(p => p.Id).Should().ContainInOrder("p_d", "p_b", "p_a", "p_c");
+    }
+
+    // ------------------------------------------------------------------
+    // 不具合3: プロジェクト一覧の並び順（ピン留め＞最終適用日時＞未適用は最下部）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "追加直後（一度も適用していない）のプロジェクトは最下部に来る")]
+    public void 未適用のプロジェクトは最下部に来る()
+    {
+        var now = DateTimeOffset.Now;
+        var applied = new Project { Id = "p_applied", Name = "適用済み", LastAppliedAt = now.AddDays(-30), NextRevision = 2 };
+        var justAdded = new Project { Id = "p_new", Name = "追加直後", LastUsedAt = now, NextRevision = 1, LastAppliedAt = null };
+
+        var sorted = ProjectStore.Sort(new[] { justAdded, applied });
+
+        sorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_applied", "p_new" },
+            "追加直後（LastUsedAtが最新でもLastAppliedAtが無い）プロジェクトは、" +
+            "適用日時が古いプロジェクトより下に来なければならない");
+    }
+
+    [Fact(DisplayName = "パッチを適用すると一覧の上へ移動する")]
+    public async Task パッチを適用すると上へ移動する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+        var oldRoot = ws.CreateDirectory("old-applied");
+        var newRoot = ws.CreateDirectory("new-project");
+
+        await store.SaveAsync(new[]
+        {
+            new Project
+            {
+                Id = "p_old", Name = "既に適用済み", Root = oldRoot,
+                LastAppliedAt = DateTimeOffset.Now.AddDays(-5), NextRevision = 2,
+            },
+            new Project { Id = "p_target", Name = "これから適用", Root = newRoot, NextRevision = 1 },
+        });
+
+        var beforeSorted = ProjectStore.Sort((await store.LoadAsync()).Value);
+        beforeSorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_old", "p_target" },
+            "適用前はp_targetが未適用のため最下部にいるはず");
+
+        var marked = await store.MarkAppliedAsync("p_target", DateTimeOffset.Now);
+        marked.IsSuccess.Should().BeTrue();
+
+        var afterSorted = ProjectStore.Sort((await store.LoadAsync()).Value);
+        afterSorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_target", "p_old" },
+            "MarkAppliedAsync後はp_targetの方が最終適用日時が新しいため上に来るはず");
+    }
+
+    [Fact(DisplayName = "ピン留めは最終適用日時に関わらず常に最上位に来る")]
+    public void ピン留めは適用日時に関わらず最上位()
+    {
+        var now = DateTimeOffset.Now;
+        var pinnedButNeverApplied = new Project { Id = "p_pinned", Name = "ピン留め・未適用", Pinned = true, NextRevision = 1 };
+        var appliedRecently = new Project { Id = "p_recent", Name = "非ピン留め・最近適用", LastAppliedAt = now, NextRevision = 2 };
+
+        var sorted = ProjectStore.Sort(new[] { appliedRecently, pinnedButNeverApplied });
+
+        sorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_pinned", "p_recent" },
+            "ピン留め・未適用でも、非ピン留め・適用済みより上に来なければならない");
+    }
+
+    [Fact(DisplayName = "旧形式（lastAppliedAtキーの無い）projects.jsonを読み込んでも順序が壊れない")]
+    public async Task 旧形式のprojects_jsonを読み込んでも順序は壊れない()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        paths.EnsureCoreDirectoriesExist();
+        var rootA = ws.CreateDirectory("legacy-a");
+        var rootB = ws.CreateDirectory("legacy-b");
+        // lastAppliedAtキー自体を持たない旧形式。p_legacy_usedはnextRevisionが進んでおり
+        // 過去に適用を試みたことがある（＝LastUsedAtを移行救済の代用として使うべき）、
+        // p_legacy_freshはnextRevisionが1のまま（＝一度も適用していない、最下部が正しい）。
+        var legacyJson = $$"""
+            {"projects":[
+                {"id":"p_legacy_used","name":"旧・使用済み","root":"{{rootA.Replace("\\", "\\\\")}}",
+                 "lastUsedAt":"2020-01-01T00:00:00+00:00","nextRevision":5},
+                {"id":"p_legacy_fresh","name":"旧・未使用","root":"{{rootB.Replace("\\", "\\\\")}}",
+                 "lastUsedAt":"2024-06-01T00:00:00+00:00","nextRevision":1}
+            ]}
+            """;
+        await File.WriteAllTextAsync(paths.ProjectsFilePath, legacyJson);
+
+        var store = new ProjectStore(paths);
+        var loaded = await store.LoadAsync();
+
+        loaded.IsSuccess.Should().BeTrue();
+        var legacyUsed = loaded.Value.Single(p => p.Id == "p_legacy_used");
+        var legacyFresh = loaded.Value.Single(p => p.Id == "p_legacy_fresh");
+        legacyUsed.LastAppliedAt.Should().BeNull("旧形式のJSONにキーが無いため既定値nullで読めるはず");
+        legacyFresh.LastAppliedAt.Should().BeNull();
+
+        var sorted = ProjectStore.Sort(loaded.Value);
+
+        // p_legacy_freshはlastUsedAtの値自体はp_legacy_usedより新しいが、nextRevision=1
+        // （一度も適用したことがない）なので移行救済の代用が効かず、最下部に来るはず。
+        // p_legacy_usedはnextRevision=5（過去に適用を試みたことがある旧プロジェクト）なので
+        // LastUsedAtを代用値として使い、驚くほど下に落ちることなく妥当な位置に来る。
+        sorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_legacy_used", "p_legacy_fresh" },
+            "移行救済（NextRevision>1のときのみLastUsedAtを代用）が働き、既存の使用歴が" +
+            "あるプロジェクトが最下部に落ちてはならない");
+    }
+
+    [Fact(DisplayName = "未適用のプロジェクト同士は毎回同じ順序（登録順）で並ぶ")]
+    public void 未適用同士の順序は実行のたびに変わらない()
+    {
+        var p1 = new Project { Id = "p_1", Name = "1番目に登録", NextRevision = 1 };
+        var p2 = new Project { Id = "p_2", Name = "2番目に登録", NextRevision = 1 };
+        var p3 = new Project { Id = "p_3", Name = "3番目に登録", NextRevision = 1 };
+        var input = new[] { p1, p2, p3 };
+
+        for (var i = 0; i < 5; i++)
+        {
+            var sorted = ProjectStore.Sort(input);
+            sorted.Select(p => p.Id).Should().ContainInOrder(new[] { "p_1", "p_2", "p_3" },
+                "未適用同士はSort呼び出しのたびに入力順（登録順）を安定して保つ必要がある");
+        }
     }
 
     [Fact(DisplayName = "ルートが存在しないプロジェクトは削除されず未接続として扱われる")]

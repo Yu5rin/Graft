@@ -116,6 +116,11 @@ public sealed partial class MainViewModel
         }
 
         LogApplySuccess(result.Value, result.Issues, stopwatch.ElapsedMilliseconds);
+        // 不具合3対応: パッチ適用が成功しリビジョンが記録された時点で「最後に適用した日時」を
+        // 更新する（ProjectPane.LoadAsyncより前に行い、直後の並べ替えに反映させる）。更新ロジック
+        // 自体はProjectStore.MarkAppliedAsyncの1箇所に集約している。失敗しても適用結果自体は
+        // 成功しているためエラー扱いにはせず、ログにのみ残す。
+        await MarkProjectAppliedAsync(context.ProjectId).ConfigureAwait(true);
         await NotifyFilesRewrittenAsync(context.ProjectRoot, result.Value).ConfigureAwait(true); // 4.8/7章: 再読込フック。
         FinalizeApplyFromQueueIfNeeded(); // 4.10: キュー結合適用時はキューを空にする（MainViewModel.Queue.cs）。
         DiscardCurrentPatch();
@@ -182,6 +187,22 @@ public sealed partial class MainViewModel
                 "リビジョン番号の更新",
                 new InvalidOperationException(
                     consumed.Errors.FirstOrDefault()?.Detail ?? "不明なエラーでprojects.jsonを更新できませんでした"));
+        }
+    }
+
+    /// <summary>
+    /// 不具合3対応: <see cref="ProjectStore.MarkAppliedAsync"/>を呼ぶ薄いラッパー。失敗しても
+    /// 適用結果自体はここでは失敗にしない理由は<see cref="ConsumeRevisionNumberAsync"/>と同じ。
+    /// </summary>
+    private async Task MarkProjectAppliedAsync(string projectId)
+    {
+        var marked = await _projectStore.MarkAppliedAsync(projectId, DateTimeOffset.Now).ConfigureAwait(true);
+        if (!marked.IsSuccess)
+        {
+            SafeHandler.OnUnexpected?.Invoke(
+                "最終適用日時の更新",
+                new InvalidOperationException(
+                    marked.Errors.FirstOrDefault()?.Detail ?? "不明なエラーでprojects.jsonを更新できませんでした"));
         }
     }
 

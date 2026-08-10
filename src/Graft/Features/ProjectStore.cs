@@ -324,16 +324,64 @@ public sealed class ProjectStore
     }
 
     /// <summary>
-    /// ピン留めを先頭に、次に最終使用日時の降順で並べる（仕様書3.2）。
+    /// 不具合3対応: ピン留めを先頭に、次にパッチを最後に適用した日時
+    /// （<see cref="Project.LastAppliedAt"/>、無ければ<see cref="EffectiveLastAppliedAt"/>参照）の
+    /// 降順で並べ、一度も適用していないプロジェクトは常に最下部へ送る（仕様書3.2）。
     /// 上位9件が数字キーショートカットの割り当て対象になる。
+    ///
+    /// 未適用同士の順序: LINQのOrderBy/ThenByは安定ソートのため、EffectiveLastAppliedAtが
+    /// 等しい（＝どちらもnull）プロジェクト同士は<paramref name="projects"/>に渡された順序を
+    /// そのまま保つ。呼び出し元は通常projects.json内の並び（新規登録時は末尾に追記される、
+    /// すなわち登録順）をそのまま渡すため、「毎回入れ替わらない・登録順」という要件を
+    /// 追加のキー無しに満たせる。
     /// </summary>
     public static IReadOnlyList<Project> Sort(IEnumerable<Project> projects)
     {
         ArgumentNullException.ThrowIfNull(projects);
         return projects
             .OrderByDescending(p => p.Pinned)
-            .ThenByDescending(p => p.LastUsedAt)
+            .ThenByDescending(p => EffectiveLastAppliedAt(p).HasValue)
+            .ThenByDescending(p => EffectiveLastAppliedAt(p) ?? DateTimeOffset.MinValue)
             .ToList();
+    }
+
+    /// <summary>
+    /// 並べ替え用の実効的な「最後に適用した日時」。<see cref="Project.LastAppliedAt"/>が
+    /// あればそれを使い、無ければ<see cref="Project.NextRevision"/>が1より大きい場合
+    /// （＝旧形式projects.jsonからの移行など、過去に適用を試みたことがある）に限り
+    /// <see cref="Project.LastUsedAt"/>を代用する。新規登録直後（NextRevision=1）は代用せずnullの
+    /// ままとし、常に最下部に並ぶようにする（詳しい理由は<see cref="Project.LastAppliedAt"/>参照）。
+    /// </summary>
+    private static DateTimeOffset? EffectiveLastAppliedAt(Project project)
+        => project.LastAppliedAt ?? (project.NextRevision > 1 ? project.LastUsedAt : null);
+
+    /// <summary>
+    /// 不具合3対応: 指定プロジェクトの<see cref="Project.LastAppliedAt"/>を現在時刻へ更新して
+    /// 永続化する。「パッチの適用が成功しリビジョンが記録された」「『ここまで戻す』が成功し
+    /// 新規リビジョンが記録された」「『このリビジョンを取り消す』（単発復元）が成功した」の
+    /// 3箇所（呼び出し元）から呼ばれるが、更新ロジック自体（何を・どう書き換えるか）は
+    /// このメソッド1箇所に集約している。単発復元はリビジョンを新規に記録しないが、実際に
+    /// プロジェクトのファイルを書き換える＝そのプロジェクトを触った操作であるため対象に含めた
+    /// （判断の詳細はHistoryPaneViewModel.csのコメント参照）。
+    /// 対象プロジェクトが見つからない場合は何もせず失敗を返す（呼び出し元は既に適用/復元
+    /// そのものは成功しているため、ここでの失敗はログのみに留め、利用者へは伝えない想定）。
+    /// </summary>
+    public async Task<GraftResult<bool>> MarkAppliedAsync(
+        string projectId, DateTimeOffset appliedAt, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+
+        var loaded = await LoadAsync(ct).ConfigureAwait(false);
+        var projects = loaded.Value.ToList();
+        var index = projects.FindIndex(p => p.Id == projectId);
+        if (index < 0)
+        {
+            return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+        }
+
+        projects[index] = projects[index] with { LastAppliedAt = appliedAt };
+        await SaveAsync(projects, ct).ConfigureAwait(false);
+        return GraftResult<bool>.Ok(true, loaded.Issues);
     }
 
     /// <summary>
