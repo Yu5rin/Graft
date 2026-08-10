@@ -191,6 +191,15 @@ public static class Converters
             var showExcluded = list.Count > 1 && list[1];
             return !isExcluded || showExcluded;
         });
+
+    /// <summary>
+    /// プロジェクトペイン改善（要望3）: 右クリックメニュー「ピン留めする／解除する」の文言を、
+    /// 選択中プロジェクトの現在のピン留め状態から切り替える。<see cref="ProjectListItemViewModel"/>
+    /// を受け取り（未選択時はnull）、その<see cref="ProjectListItemViewModel.IsPinned"/>を見る。
+    /// </summary>
+    public static readonly IValueConverter PinMenuLabel =
+        new FuncValueConverter<ProjectListItemViewModel?, string>(
+            item => item is { IsPinned: true } ? "ピン留めを解除する" : "ピン留めする");
 }
 
 /// <summary>

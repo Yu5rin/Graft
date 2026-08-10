@@ -77,6 +77,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
+        // プロジェクトペイン改善（要望2）: プロジェクト名のダブルクリックでサイドビューを
+        // エクスプローラへ切り替える（折りたたまれていれば展開も行う。SelectSideView参照）。
+        Graft.ProjectPane.ProjectActivated += (_, _) => SelectSideView(SideViewKind.Explorer);
+        // プロジェクトペイン改善（要望1）: 削除等でプロジェクトが1件も無くなった場合、
+        // エディタ・エクスプローラ・検索・クイックオープンを「プロジェクト未選択」の状態へ戻す。
+        Graft.ProjectPane.SelectionCleared += OnProjectSelectionCleared;
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
         Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
         Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
@@ -392,6 +398,30 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
             _currentProjectId = project.Id;
+        }).ConfigureAwait(true);
+
+    /// <summary>
+    /// プロジェクトペイン改善（要望1）: プロジェクトの削除等で一覧が空になり、選択できる
+    /// プロジェクトが1件も無くなったときの後始末。<see cref="OnProjectSelected"/>と対になる
+    /// 経路で、開いていたタブ・エクスプローラ・検索・クイックオープンを、一度もプロジェクトを
+    /// 選んだことが無い起動直後と同じ「プロジェクト未選択」の状態へ戻す（Editor.SetProject・
+    /// Explorer.SetProjectAsync・Search/QuickOpen.SetContextはいずれもnullを受け付ける設計のため、
+    /// OnProjectSelectedとほぼ同じ形で書ける）。ファイル自体は削除していないため、既に開いていた
+    /// タブが指すファイルは実在するが、「どのプロジェクトの一部か」を示す文脈が失われるため
+    /// 一貫性のため閉じる。
+    /// </summary>
+    private async void OnProjectSelectionCleared(object? sender, EventArgs e)
+        => await SafeHandler.RunAsync("プロジェクト削除後のクリア", async () =>
+        {
+            if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
+
+            await Editor.CloseAllAsync().ConfigureAwait(true);
+            Editor.SetProject(null);
+            await Explorer.SetProjectAsync(null).ConfigureAwait(true);
+            Search.SetContext(null, _settings);
+            QuickOpen.SetContext(null, _settings);
+
+            _currentProjectId = null;
         }).ConfigureAwait(true);
 
     /// <summary>
