@@ -137,6 +137,32 @@ public sealed class EditorTabManager
     }
 
     /// <summary>
+    /// 機能改善（タブのドラッグ並べ替え）: <paramref name="tab"/>を、移動前の並び順における
+    /// <paramref name="targetIndex"/>の位置（0=先頭）へ挿入し直す。<see cref="Touch"/>が管理する
+    /// MRU順（Ctrl+Tabの直近使用順）は表示順とは別物のため一切変更しない
+    /// （タブの見た目の並びを変えても、Ctrl+Tabでの切替順は変わらないままにする）。
+    ///
+    /// <see cref="ObservableCollection{T}.Move"/>は「削除後のインデックス」を期待するため
+    /// （内部でRemoveItemしてからInsertItemする実装のため、削除で1つ詰まった後の位置を
+    /// 渡す必要がある）、呼び出し側にとって直感的な「移動前の並びでの挿入先」を受け取り、
+    /// ここで吸収する。
+    /// </summary>
+    public void MoveTab(EditorTabViewModel tab, int targetIndex)
+    {
+        var oldIndex = Tabs.IndexOf(tab);
+        if (oldIndex < 0) return;
+
+        // targetIndexは移動前の並び（要素数Tabs.Count）における挿入先で、0=先頭、
+        // Tabs.Count=末尾（最後の要素より後ろ）まで有効（Tabs.Count - 1ではない。
+        // 末尾ドロップを「最後から2番目」に丸めてしまわないよう上限をCountにする）。
+        var clampedTarget = Math.Clamp(targetIndex, 0, Tabs.Count);
+        var newIndex = clampedTarget > oldIndex ? clampedTarget - 1 : clampedTarget;
+        if (newIndex == oldIndex) return;
+
+        Tabs.Move(oldIndex, newIndex);
+    }
+
+    /// <summary>
     /// Ctrl+Tabで切り替える先のタブ（直近2番目に使用したタブ）を返す。押すたびに直近2件を
     /// 往復する簡易実装。Ctrl長押しによる連続循環（モーダルなオーバーレイ表示）はE1の対象外。
     /// </summary>

@@ -193,6 +193,28 @@ public class HistoryDiffTabScenarioTests : IDisposable
         shell.Graft.HistoryDiff.RevisionLabel.Should().Be("r1");
     }
 
+    [AvaloniaFact(DisplayName = "機能改善: 履歴差分タブでのCtrl+マウスホイールも、通常の差分表示と同じ経路でShellViewModelまで伝わる")]
+    public async Task 履歴差分タブのフォントサイズ変更もShellViewModelまで中継される()
+    {
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        await ApplyFullAsync(shell, "a.txt", "a1").ConfigureAwait(true); // r1
+
+        await SelectHistoryRevisionAsync(shell, "r1").ConfigureAwait(true);
+        shell.Graft.HistoryDiff.Files.Should().ContainSingle(f => f.PathText == "a.txt");
+        var fileDiff = shell.Graft.HistoryDiff.Files.Single().Diff;
+
+        double? relayed = null;
+        shell.EditorFontSizeChangeRequested += (_, size) => relayed = size;
+
+        // HistoryDiffFileViewModel.Diffは各ファイル専用のDiffViewModelだが、それでもCtrl+
+        // マウスホイールによる確定は HistoryDiffViewModel → ShellViewModel まで中継される必要がある
+        // （HistoryDiffViewModel.OnFileFontSizeChangeCommitted → ShellViewModel購読参照）。
+        fileDiff.AdjustCodeFontSize(3);
+
+        relayed.Should().Be(fileDiff.CodeFontSize, "履歴差分タブでの変更もShellViewModel.EditorFontSizeChangeRequestedへ中継される必要がある");
+    }
+
     // ------------------------------------------------------------------
     // ヘルパ
     // ------------------------------------------------------------------

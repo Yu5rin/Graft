@@ -100,6 +100,13 @@ public sealed class HistoryDiffViewModel : ObservableObject
     public event EventHandler<(string RelativePath, int Line)>? JumpRequested;
 
     /// <summary>
+    /// 機能改善: 各ファイルのdiff表示でのCtrl+マウスホイールによるフォントサイズ確定を
+    /// まとめて中継する（JumpRequestedと同じ考え方。ShellViewModelはこのインスタンス自体が
+    /// 使い回されるため、コンストラクタ相当のタイミングで一度だけ購読すればよい）。
+    /// </summary>
+    public event EventHandler<double>? FontSizeChangeCommitted;
+
+    /// <summary>
     /// 履歴のリビジョン選択（MainViewModel.OnRevisionSelected）から呼ぶ。既存のFilesを破棄し、
     /// 渡されたplans（HistoryPaneViewModel.BuildDiffPlansAsyncの結果）で作り直す。
     /// </summary>
@@ -117,6 +124,7 @@ public sealed class HistoryDiffViewModel : ObservableObject
         {
             var file = new HistoryDiffFileViewModel(plan, _settings, _ui);
             file.Diff.JumpRequested += OnFileJumpRequested;
+            file.Diff.FontSizeChangeCommitted += OnFileFontSizeChangeCommitted;
             Files.Add(file);
         }
         OnPropertyChanged(nameof(HasFiles));
@@ -136,6 +144,7 @@ public sealed class HistoryDiffViewModel : ObservableObject
         foreach (var file in Files)
         {
             file.Diff.JumpRequested -= OnFileJumpRequested;
+            file.Diff.FontSizeChangeCommitted -= OnFileFontSizeChangeCommitted;
         }
         Files.Clear();
     }
@@ -154,4 +163,6 @@ public sealed class HistoryDiffViewModel : ObservableObject
     }
 
     private void OnFileJumpRequested(object? sender, (string RelativePath, int Line) e) => JumpRequested?.Invoke(this, e);
+
+    private void OnFileFontSizeChangeCommitted(object? sender, double size) => FontSizeChangeCommitted?.Invoke(this, size);
 }

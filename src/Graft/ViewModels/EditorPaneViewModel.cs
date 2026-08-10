@@ -21,13 +21,17 @@ namespace Graft.ViewModels;
 /// </summary>
 public sealed partial class EditorPaneViewModel : ObservableObject
 {
-    // SettingsStoreの検証範囲（editor.fontSize: 6〜72）と合わせる。Ctrl+マウスホイールでの
-    // 変更時にもこの範囲を超えないようにする。
-    private const double MinFontSize = 6;
-    private const double MaxFontSize = 72;
+    // 機能改善（Ctrl+マウスホイールでの文字サイズ変更）: ホイール操作でのクランプ範囲は8〜32。
+    // settings.json自体（SettingsStoreのeditor.fontSize検証）は6〜72とより広い範囲を許容するが
+    // （設定画面のJSON直接編集タブ等からの手動設定を尊重するため）、ホイール操作という
+    // 連続入力についてはDiffViewModel.CodeFontSizeと同じ範囲に揃え、極端な値へ暴走しないようにする。
+    private const double MinFontSize = 8;
+    private const double MaxFontSize = 32;
 
     private readonly EditorTabManager _manager;
-    private readonly Settings _settings;
+    // 機能改善: UpdateSettings経由で設定画面・他のCtrl+マウスホイール操作からのフォントサイズ
+    // 変更を反映できるよう、DiffViewModelと同じくreadonlyにしない（課題1のコメント参照）。
+    private Settings _settings;
     private readonly ObservableCollection<EditorTabViewModel> _tabs = new();
     private EditorTabViewModel? _diffTab;
     // 修正1: 履歴差分タブ（1個だけ使い回す。ShowHistoryDiffTab/CloseHistoryDiffTab参照）。
@@ -81,12 +85,34 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         }
     }
 
-    /// <summary>エディタのフォントサイズ（Ctrl+マウスホイールで変更、プロジェクトごとに記憶）。</summary>
+    /// <summary>エディタのフォントサイズ（Ctrl+マウスホイールで変更、設定として永続化）。</summary>
     public double FontSize
     {
         get => _fontSize;
         set => SetProperty(ref _fontSize, Math.Clamp(value, MinFontSize, MaxFontSize));
     }
+
+    /// <summary>
+    /// 機能改善: View（EditorPane.axaml.cs）がCtrl+マウスホイールを検知したときに呼ぶ。
+    /// <see cref="FontSize"/>を直接インクリメントする代わりにこのメソッドを経由させる理由は、
+    /// 値の即時反映（ローカル表示）に加えて<see cref="FontSizeChangeCommitted"/>を発火し、
+    /// 設定への永続化・差分表示側との同期をShellViewModel経由で行わせるため
+    /// （<see cref="UpdateSettings"/>のコメント参照。設定側からの反映と自分自身が発火した
+    /// 変更を区別する必要があるため、プロパティのsetter自体にイベント発火を持たせていない）。
+    /// </summary>
+    public void AdjustFontSize(double delta)
+    {
+        FontSize += delta;
+        FontSizeChangeCommitted?.Invoke(this, FontSize);
+    }
+
+    /// <summary>
+    /// 機能改善: Ctrl+マウスホイールでの変更をShellViewModelへ伝える通知。実際の設定への
+    /// 永続化（デバウンス保存）と、差分表示側（DiffViewModel.CodeFontSize）との同期は
+    /// ShellViewModelが仲介する（並行実装を避けるため、既存のSettingsViewModelのデバウンス保存を
+    /// そのまま使う。ShellViewModel.EditorFontSizeChangeRequested参照）。
+    /// </summary>
+    public event EventHandler<double>? FontSizeChangeCommitted;
 
     /// <summary>折り返し表示。</summary>
     public bool WordWrap { get => _wordWrap; set => SetProperty(ref _wordWrap, value); }
@@ -128,6 +154,21 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     /// 「タブは無いのに履歴側は選択済みのまま」という状態の矛盾を防ぐ。
     /// </summary>
     public event EventHandler? HistoryDiffTabClosed;
+
+    /// <summary>
+    /// 機能改善: 設定画面での変更、または他のCtrl+マウスホイール操作（差分表示側）で
+    /// 確定したフォントサイズを、実行中のエディタへその場で反映する
+    /// （ShellViewModel.EditorFontSizeChangeRequested → StartupCoordinator →
+    /// SettingsViewModel経由の保存 → MainViewModel.UpdateSettings→ShellViewModel、という
+    /// 経路の末端）。<see cref="FontSizeChangeCommitted"/>は発火しない
+    /// （ここでの反映は「既に確定済みの値を映すだけ」であり、これを再度確定通知として
+    /// 送り返すと無意味な保存要求が循環してしまうため）。
+    /// </summary>
+    public void UpdateSettings(Settings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        FontSize = _settings.Editor.FontSize;
+    }
 
     /// <summary>プロジェクト切替。開いていたタブは呼び出し側が閉じてから設定する。</summary>
     public void SetProject(string? projectRoot)
@@ -296,6 +337,26 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     public EditorTabViewModel? PeekMruNeighbor() => _manager.NextByMru();
 
     /// <summary>
+    /// 機能改善（タブのドラッグ並べ替え）: <paramref name="tab"/>をドキュメントタブの並びの中で
+    /// <paramref name="targetIndex"/>（0起点、ドラッグ開始前の並び順での挿入先）へ移動する。
+    /// ドキュメントタブのみが対象で、差分タブ・履歴差分タブは常に末尾に固定のため対象外
+    /// （<see cref="InsertDocumentTab"/>の不変条件を崩さないため、呼ばれても無視する）。
+    /// <paramref name="targetIndex"/>はドキュメントタブだけを数えた範囲（<see cref="Tabs"/>全体
+    /// ではなく<see cref="EditorTabManager.Tabs"/>と同じ基準）で指定する。
+    ///
+    /// 実際の並び替えは<see cref="EditorTabManager.MoveTab"/>（MRU順は変更しない）に委譲し、
+    /// その結果は<see cref="OnManagerTabsChanged"/>のMoveハンドラ経由で<see cref="Tabs"/>
+    /// （View束縛対象）へも反映される。並び順自体は<see cref="Tabs"/>を素直に読むだけの
+    /// 既存のプロジェクト状態保存（ShellViewModel.CaptureProjectState→layout.json）に
+    /// そのまま乗るため、再起動後もドラッグした並び順が保たれる。
+    /// </summary>
+    public void ReorderTab(EditorTabViewModel tab, int targetIndex)
+    {
+        if (tab.Kind != EditorTabKind.Document) return;
+        _manager.MoveTab(tab, targetIndex);
+    }
+
+    /// <summary>
     /// 外部変更検知（4.6）。エクスプローラ側の<c>FileWatchService</c>がディスク上の変更を
     /// 検知した際にこのメソッドを呼ぶ。未保存の変更が無ければ黙って再読込し、あれば
     /// <see cref="EditorTabViewModel.HasExternalConflict"/>を立てて非モーダルの通知バーを出す
@@ -411,8 +472,9 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     }
 
     /// <summary>
-    /// <see cref="EditorTabManager.Tabs"/>（ドキュメントタブのみ）の増減を、差分タブと合成した
-    /// <see cref="Tabs"/>（View束縛対象）へ反映する。ドキュメントタブは常に差分タブより前に並べる。
+    /// <see cref="EditorTabManager.Tabs"/>（ドキュメントタブのみ）の増減・並べ替えを、差分タブと
+    /// 合成した<see cref="Tabs"/>（View束縛対象）へ反映する。ドキュメントタブは常に差分タブより
+    /// 前に並べる。
     /// </summary>
     private void OnManagerTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -423,6 +485,14 @@ public sealed partial class EditorPaneViewModel : ObservableObject
                 break;
             case NotifyCollectionChangedAction.Remove when e.OldItems is not null:
                 foreach (EditorTabViewModel tab in e.OldItems) _tabs.Remove(tab);
+                break;
+            case NotifyCollectionChangedAction.Move:
+                // 機能改善（タブのドラッグ並べ替え）: _manager.Tabsはドキュメントタブのみを
+                // 持ち、_tabs側でもドキュメントタブは常に先頭から連続して並ぶ（InsertDocumentTab
+                // の不変条件）ため、_manager.Tabs上のインデックスはそのまま_tabs上の
+                // インデックスとしても有効。差分系タブの位置には触れないため、そのまま
+                // ObservableCollection.Moveへ委譲できる。
+                _tabs.Move(e.OldStartingIndex, e.NewStartingIndex);
                 break;
             case NotifyCollectionChangedAction.Reset:
                 foreach (var tab in _tabs.Where(t => t.Kind == EditorTabKind.Document).ToList()) _tabs.Remove(tab);

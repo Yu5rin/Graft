@@ -41,6 +41,17 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     private WindowMessageBridge? _messageBridge;
     private AppSettings _settings = new();
 
+    // 機能改善（Ctrl+マウスホイールでの文字サイズ変更の永続化）: 従来は設定画面を開くたびに
+    // 使い捨てのSettingsViewModelを生成していたが（OpenSettings参照）、ホイール操作は設定画面を
+    // 開いていない間にも起こりうる。ホイール操作からも設定画面の入力欄（EditorFontSizeText）と
+    // 全く同じ保存経路（300msデバウンス→検証→保存）に乗せるには、アプリの起動中ずっと
+    // 生きている単一のSettingsViewModelが要る。そのため常駐インスタンスとして起動時に1つだけ
+    // 作り、設定画面を開くときもこれを使い回す（毎回作り直すのをやめる）。既存のInitializeAsync
+    // は読み込み・インポート・既定値復元のたびに呼ばれ何度呼んでも安全（settings.jsonを読み直して
+    // 画面へ反映するだけ）なため、使い回しても既存のSettingsWindow.Loaded経由の再読込動作は
+    // 変わらない。
+    private SettingsViewModel? _settingsViewModel;
+
     // 課題1: データ保存先（実行ファイルと同じ階層）へ書き込めるかどうか。既定はtrue
     // （StartAsync冒頭のCanWriteToBaseDirectory()確認より前に参照されることは無いが、
     // 万一に備え安全側の値にしておく）。
@@ -147,12 +158,17 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         var revisionStore = new RevisionStore(_appPaths, _platform.Trash);
         var revisionRestorer = new RevisionRestorer(_appPaths);
 
+        // 課題2: 「閉じたときの動作」は即時反映のため、設定画面での変更を実行中のShellWindowへ
+        // その場で反映するコールバックを渡す。常駐インスタンスにする理由は_settingsViewModel
+        // フィールドのコメント参照。設定画面を一度も開かないままCtrl+マウスホイールが使われても
+        // 正しい既存の設定内容を土台に保存できるよう、ここで既に読み込み済みのsettings.jsonを
+        // 読み直しておく。
+        _settingsViewModel = new SettingsViewModel(_appPaths, dialogService, _ui, ApplyLiveSettingsChange);
+        await _settingsViewModel.InitializeAsync().ConfigureAwait(true);
+
         void OpenSettings()
         {
-            // 課題2: 「閉じたときの動作」は即時反映のため、設定画面での変更を
-            // 実行中のShellWindowへその場で反映するコールバックを渡す。
-            var vm = new SettingsViewModel(_appPaths, dialogService, _ui, ApplyLiveSettingsChange);
-            var window = new SettingsWindow(vm);
+            var window = new SettingsWindow(_settingsViewModel!);
             if (MainWindow is not null) _ = window.ShowDialog(MainWindow);
             else window.Show();
         }
@@ -162,6 +178,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             dialogService, _ui, OpenSettings, _platform.Trash);
         var mainViewModel = shellViewModel.Graft;
         _shellViewModel = shellViewModel;
+
+        // 機能改善: エディタ・差分表示でのCtrl+マウスホイールでの確定を、常駐の
+        // SettingsViewModelへ橋渡しする（SettingsViewModel.SetEditorFontSizeLiveのコメント参照）。
+        shellViewModel.EditorFontSizeChangeRequested += (_, size) => _settingsViewModel!.SetEditorFontSizeLive(size);
 
         // 課題3: Git自動コミットの失敗理由をlogs/<日付>.logへ記録できるよう、window.Loggerと
         // 同じ流儀（生成後に設定するnullableプロパティ）でロガーを渡す。
@@ -431,6 +451,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         _settings = updated;
         if (MainWindow is not null) MainWindow.CloseBehavior = updated.CloseBehavior;
         _shellViewModel?.Graft.UpdateSettings(updated);
+        // 機能改善: エディタ本文のフォントサイズ（Settings.Editor.FontSize）も、設定画面での
+        // 変更や他画面でのCtrl+マウスホイールでの変更から再起動なしでその場に反映する
+        // （EditorPaneViewModel.UpdateSettings参照）。
+        _shellViewModel?.Editor.UpdateSettings(updated);
 
         if (updated.ClipboardWatch.Enabled != previousClipboardWatchEnabled)
         {
