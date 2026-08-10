@@ -71,13 +71,21 @@
                     <Border Background="Transparent">
                         <Border.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="閉じる"
+                                <MenuItem Header="閉じる (Ctrl+W)"
                                           Command="{Binding CloseCommand}"
                                           AutomationProperties.Name="このタブを閉じる" />
                                 <MenuItem Header="他のタブを閉じる"
                                           Command="{Binding DataContext.CloseOtherTabsCommand, ElementName=Root}"
                                           CommandParameter="{Binding}"
                                           AutomationProperties.Name="他のタブをすべて閉じる" />
+                                <!-- D: 右側のタブを閉じる。既存2つ（他のタブ／すべてのタブ）と同じ作法
+                                     （保存確認あり）で、Tabsの表示順で右側のタブだけを閉じる。 -->
+                                <MenuItem Header="右側のタブを閉じる"
+                                          Command="{Binding DataContext.CloseTabsToTheRightCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このタブより右側にあるタブをすべて閉じます。未保存の変更があれば、タブごとに保存するか確認します。"
+                                          local:HelpTip.Detailed="タブ見出しの並び順で、このタブより右側にあるタブをすべて閉じます。このタブ自身と、左側のタブは残ります。未保存の変更があるタブが含まれる場合は、閉じる前にタブごとに保存するか確認するダイアログが出ます（「他のタブを閉じる」「すべてのタブを閉じる」と同じ作法です）。"
+                                          AutomationProperties.Name="このタブより右側のタブをすべて閉じる" />
                                 <MenuItem Header="すべてのタブを閉じる"
                                           Command="{Binding DataContext.CloseAllTabsCommand, ElementName=Root}"
                                           AutomationProperties.Name="開いているタブをすべて閉じる" />

@@ -69,7 +69,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         Explorer = new ExplorerViewModel(appPaths, Editor, _dialogs, settings, ui);
-        Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs);
+        // A: 検索結果の右クリックメニュー「パスをコピー」がテストから差し替えられるよう、
+        // 既存のクリップボード窓口（_ui.Clipboard）をそのまま渡す。
+        Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs, _ui.Clipboard);
         Search.JumpRequested += OnSearchJumpRequested;
         QuickOpen = new QuickOpenViewModel();
         QuickOpen.FileOpenRequested += OnQuickOpenFileRequested;
@@ -109,11 +111,19 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
         ToggleGraftPanelPlacementCommand = new RelayCommand(() => GraftPanelPlacement =
             GraftPanelPlacement == GraftPanelPlacementKind.Bottom ? GraftPanelPlacementKind.Right : GraftPanelPlacementKind.Bottom);
-        OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
+        // B: 接ぎ木パネルのブロック右クリックメニュー「対象ファイルを開く」。フォルダ作成
+        // （EntryOperation.Mkdir）は開く対象が「ファイル」ではないため無効化する。プロジェクト
+        // 未選択（OpenBlockInEditor内部で参照するRoot）のときも実行しても何も起きないため
+        // 併せて無効化する。
+        OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(
+            block => OpenBlockInEditor(block),
+            block => block is not null && block.Plan.Operation != EntryOperation.Mkdir
+                && Graft.ProjectPane.SelectedItem is not null);
         ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
         OpenShortcutsCommand = new RelayCommand(() => RequestOpenShortcuts?.Invoke(this, EventArgs.Empty));
         AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
         InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
+        InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
     }
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>

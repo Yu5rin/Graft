@@ -75,6 +75,11 @@ public sealed class SearchViewModel : ObservableObject
 
     private readonly CrossFileSearchEngine _engine;
     private readonly IDialogService _dialogs;
+    // A: 結果行の右クリックメニュー「パスをコピー」用。SearchViewModelはIUiServicesを
+    // コンストラクタで受け取っていなかった（既存呼び出し箇所が複数あり、破壊的変更を避けたい）
+    // ため、テストから差し替え可能な任意引数として追加する。既定値は他の箇所（LogViewerWindow・
+    // AvaloniaDialogService）と同じ共有クリップボード（Linuxでは自前のX11実装）。
+    private readonly IClipboardAccess _clipboard;
 
     private Project? _project;
     private Settings _settings = new();
@@ -94,10 +99,11 @@ public sealed class SearchViewModel : ObservableObject
     /// 打ち切りの有無が分からないため、この状態を別途覚えておく必要がある。</summary>
     private SearchRunState? _lastRunState;
 
-    public SearchViewModel(CrossFileSearchEngine engine, IDialogService dialogs)
+    public SearchViewModel(CrossFileSearchEngine engine, IDialogService dialogs, IClipboardAccess? clipboard = null)
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        _clipboard = clipboard ?? AvaloniaUiServices.SharedClipboard;
 
         SearchCommand = new AsyncRelayCommand(RunSearchAsync, () => _project is not null && !string.IsNullOrEmpty(Query));
         CancelCommand = new RelayCommand(() => _cts?.Cancel(), () => IsSearching);
@@ -106,6 +112,16 @@ public sealed class SearchViewModel : ObservableObject
         ToggleRegexCommand = new RelayCommand(() => UseRegex = !UseRegex);
         ToggleCaseCommand = new RelayCommand(() => CaseSensitive = !CaseSensitive);
         ToggleWholeWordCommand = new RelayCommand(() => WholeWord = !WholeWord);
+        // A: 検索結果の右クリックメニュー。「開く」は既存のJumpCommandをそのまま再利用する。
+        CopyPathCommand = new RelayCommand<SearchHitViewModel>(hit =>
+        {
+            // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
+            if (hit is not null) _clipboard.SetText(hit.FullPath);
+        });
+        RevealCommand = new RelayCommand<SearchHitViewModel>(hit =>
+        {
+            if (hit is not null) PlatformServices.Current.FileManager.Reveal(hit.FullPath);
+        });
     }
 
     public ObservableCollection<SearchFileGroupViewModel> Groups { get; } = new();
@@ -125,6 +141,13 @@ public sealed class SearchViewModel : ObservableObject
     public ICommand CancelCommand { get; }
     public ICommand ReplaceAllCommand { get; }
     public ICommand JumpCommand { get; }
+
+    /// <summary>A: 結果行の右クリックメニュー「パスをコピー」。</summary>
+    public ICommand CopyPathCommand { get; }
+
+    /// <summary>A: 結果行の右クリックメニュー「ファイルマネージャで表示」。</summary>
+    public ICommand RevealCommand { get; }
+
     public ICommand ToggleRegexCommand { get; }
     public ICommand ToggleCaseCommand { get; }
     public ICommand ToggleWholeWordCommand { get; }

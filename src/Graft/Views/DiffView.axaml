@@ -154,6 +154,27 @@
                  FontFamily="{DynamicResource CodeFontFamily}" FontSize="{Binding CodeFontSize}"
                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                  AutomationProperties.Name="差分表示">
+            <!--
+                C: 差分表示の右クリックメニュー。並行して同ファイルで進む左右並列表示対応との
+                衝突を避けるため、ContextMenuの追加以外は変更しない。
+            -->
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="変更前をコピー"
+                              Command="{Binding CopyBeforeCommand}"
+                              views:HelpTip.Standard="このブロックの変更前の全文をクリップボードへコピーします。新規作成ブロックでは使えません。"
+                              AutomationProperties.Name="変更前の全文をコピー" />
+                    <MenuItem Header="変更後をコピー"
+                              Command="{Binding CopyAfterCommand}"
+                              views:HelpTip.Standard="このブロックの変更後の全文をクリップボードへコピーします。削除ブロックでは使えません。"
+                              AutomationProperties.Name="変更後の全文をコピー" />
+                    <Separator />
+                    <MenuItem Header="この差分をunified diff形式でコピー"
+                              Command="{Binding CopyUnifiedDiffCommand}"
+                              views:HelpTip.Standard="この変更をunified diff形式でクリップボードへコピーします。AIへ「この変更のここを直して」と依頼するときに貼れる形です。"
+                              AutomationProperties.Name="この差分をunified diff形式でコピー" />
+                </ContextMenu>
+            </ListBox.ContextMenu>
             <ListBox.Styles>
                 <Style Selector="ListBoxItem">
                     <Setter Property="Padding" Value="0" />

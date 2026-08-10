@@ -120,7 +120,7 @@
                       AutomationProperties.Name="ファイルツリー">
                 <TreeView.ContextMenu>
                     <ContextMenu>
-                        <MenuItem Header="開く"
+                        <MenuItem Header="開く (Enter)"
                                   Command="{Binding OpenCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="開く" />

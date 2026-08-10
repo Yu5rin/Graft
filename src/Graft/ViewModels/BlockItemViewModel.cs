@@ -128,11 +128,21 @@ public sealed class BlockItemViewModel : ObservableObject
     public bool IsSelected
     {
         get => _isSelected;
-        set => SetProperty(ref _isSelected, value);
+        set
+        {
+            if (!SetProperty(ref _isSelected, value)) return;
+            OnPropertyChanged(nameof(ToggleLabel));
+        }
     }
 
     /// <summary>失敗ブロックは適用しようがないためトグル操作の対象外とする。</summary>
     public bool CanToggle => Plan.CanApply;
+
+    /// <summary>
+    /// B: ブロック一覧の右クリックメニュー「チェックを付ける／外す」の動的ラベル
+    /// （Space キーと同じ、ショートカット表記込み。仕様書9.5・ShortcutsWindow.axaml参照）。
+    /// </summary>
+    public string ToggleLabel => (IsSelected ? "チェックを外す" : "チェックを付ける") + " (Space)";
 
     /// <summary>読み上げ・アクセシビリティ用の行全体の説明（8.14）。</summary>
     public string AutomationName => $"{PathText}、{DescriptionText}、{StatusText}、{AddedRemovedText}";

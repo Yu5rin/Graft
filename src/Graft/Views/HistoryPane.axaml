@@ -199,6 +199,14 @@
                                   Command="{Binding ShowDiffCommand}"
                                   local:HelpTip.Standard="このリビジョンの差分を、専用のタブで表示します。選択するだけでも自動的に開きます。"
                                   AutomationProperties.Name="このリビジョンの差分を表示" />
+                        <Separator />
+                        <!-- E: バックアップフォルダを開く。「本当に退避されているか」を自分の目で
+                             確かめられる安心材料として、IFileManagerLauncherで back/ フォルダを開く。 -->
+                        <MenuItem Header="バックアップフォルダを開く"
+                                  Command="{Binding OpenBackupFolderCommand}"
+                                  local:HelpTip.Standard="このリビジョンのバックアップ（back/フォルダ）を、OSのファイルマネージャで開きます。実際に退避されているかを目で確かめられます。"
+                                  local:HelpTip.Detailed="このリビジョンを適用したときにGraftが自動で退避しておいたバックアップフォルダ（back/配下）を、OSのファイルマネージャで開きます。「復元」を押す前に、本当にバックアップが残っているかを自分の目で確認したいときに使います。バックアップの実体がディスク上に見つからない場合は無効になります。"
+                                  AutomationProperties.Name="このリビジョンのバックアップフォルダを開く" />
                     </ContextMenu>
                 </ListBox.ContextMenu>
                 <ListBox.Styles>
