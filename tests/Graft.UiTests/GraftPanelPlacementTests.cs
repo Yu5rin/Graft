@@ -71,17 +71,10 @@ public class GraftPanelPlacementTests : IDisposable
     /// 非同期処理のため、Dispatcher.UIThread.RunJobs()を1回呼ぶだけでは（他の多くの既存テストでは
     /// たまたま間に合っていても）完了前に後続のアサーションへ進んでしまうことがある
     /// （実測: RunJobsを5回呼んでもまだ完了していないケースを確認済み）。
-    /// ShellWindow.IsLayoutAppliedが立つまでRunJobsを繰り返して確実に待ち合わせる。
+    /// 待ち合わせ自体はTestSupport.ShellWindowLoadWaiterへ一本化した
+    /// （ShellWindowSplitterTestsも同じヘルパを使う。並行実装を増やさないため）。
     /// </summary>
-    private static void WaitForWindowLoaded(ShellWindow window, int maxIterations = 200)
-    {
-        for (var i = 0; i < maxIterations && !window.IsLayoutApplied; i++)
-        {
-            Dispatcher.UIThread.RunJobs();
-            Thread.Sleep(5);
-        }
-        window.IsLayoutApplied.Should().BeTrue("ShellWindow.OnLoadedの初期化（保存済みレイアウトの反映）が時間内に完了しなかった");
-    }
+    private static void WaitForWindowLoaded(ShellWindow window) => ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
     /// <summary>実際のマウスと同じ「移動してから押す」順序で、複数ステップに分けてドラッグする（ShellWindowSplitterTestsと同じ手法）。</summary>
     private static void Drag(Window window, Point from, Point to, int steps = 10)

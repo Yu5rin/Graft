@@ -72,6 +72,17 @@ public class ShellWindowSplitterTests : IDisposable
             dialogs, ui, openSettings: () => { });
     }
 
+    /// <summary>
+    /// window.Show()直後のOnLoaded（ShellWindow.axaml.cs）はGraft.InitializeAsync()（実ファイル
+    /// I/Oを含む非同期処理）の完了を待ってからApplyLayoutToWindow（layout.jsonの内容を
+    /// ウィンドウ・ペインへ反映する処理。本ファイルの「再起動後も復元される」テストが検証したい
+    /// 対象そのもの）を呼ぶ非同期の経路のため、Dispatcher.UIThread.RunJobs()を1回呼ぶだけでは
+    /// （CIの負荷下でこの隙間が広がり）まだ反映が終わっていないことがある。GraftPanelPlacementTests
+    /// と同じ作法（TestSupport.ShellWindowLoadWaiter、ShellWindow.IsLayoutAppliedが立つまで待つ）
+    /// に揃えて確実に待ち合わせる。
+    /// </summary>
+    private static void WaitForWindowLoaded(ShellWindow window) => ShellWindowLoadWaiter.WaitForLayoutApplied(window);
+
     /// <summary>実際のマウスと同じ「移動してから押す」順序で、複数ステップに分けてドラッグする。</summary>
     private static void Drag(Window window, Point from, Point to, int steps = 10)
     {
@@ -97,7 +108,7 @@ public class ShellWindowSplitterTests : IDisposable
         var shell = BuildShell();
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        Dispatcher.UIThread.RunJobs();
+        WaitForWindowLoaded(window);
 
         var sideViewColumn = window.GetControl<Grid>("BodyGrid").ColumnDefinitions[1];
         var before = sideViewColumn.ActualWidth;
@@ -116,7 +127,7 @@ public class ShellWindowSplitterTests : IDisposable
         var shell = BuildShell();
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        Dispatcher.UIThread.RunJobs();
+        WaitForWindowLoaded(window);
 
         var sideViewColumn = window.GetControl<Grid>("BodyGrid").ColumnDefinitions[1];
         var splitter = window.GetControl<GridSplitter>("SideViewSplitter");
@@ -135,7 +146,7 @@ public class ShellWindowSplitterTests : IDisposable
         var shell = BuildShell();
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        Dispatcher.UIThread.RunJobs();
+        WaitForWindowLoaded(window);
 
         shell.IsGraftPanelOpen = true;
         Dispatcher.UIThread.RunJobs();
@@ -157,7 +168,7 @@ public class ShellWindowSplitterTests : IDisposable
         var shell = BuildShell();
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        Dispatcher.UIThread.RunJobs();
+        WaitForWindowLoaded(window);
 
         shell.IsGraftPanelOpen = true;
         Dispatcher.UIThread.RunJobs();
@@ -180,7 +191,7 @@ public class ShellWindowSplitterTests : IDisposable
         var shell = BuildShell();
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        Dispatcher.UIThread.RunJobs();
+        WaitForWindowLoaded(window);
 
         var sideViewColumn = window.GetControl<Grid>("BodyGrid").ColumnDefinitions[1];
 
@@ -203,7 +214,7 @@ public class ShellWindowSplitterTests : IDisposable
         var shell1 = BuildShell();
         var window1 = _windows.Track(new ShellWindow(shell1) { Width = 1280, Height = 800 });
         window1.Show();
-        Dispatcher.UIThread.RunJobs();
+        WaitForWindowLoaded(window1);
 
         shell1.IsGraftPanelOpen = true;
         Dispatcher.UIThread.RunJobs();
@@ -225,7 +236,7 @@ public class ShellWindowSplitterTests : IDisposable
         var shell2 = BuildShell();
         var window2 = _windows.Track(new ShellWindow(shell2) { Width = 1280, Height = 800 });
         window2.Show();
-        Dispatcher.UIThread.RunJobs();
+        WaitForWindowLoaded(window2);
 
         shell2.IsGraftPanelOpen = true;
         Dispatcher.UIThread.RunJobs();
