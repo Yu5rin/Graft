@@ -99,6 +99,10 @@
                             <TextBlock Grid.Column="1" Classes="descText" Text="現在のタブを閉じます（未保存なら保存確認あり）。" />
                         </Grid>
                         <Grid Classes="shortcutRow" ColumnDefinitions="150,*">
+                            <Border Classes="keyBadge" Grid.Column="0"><TextBlock Classes="keyText" Text="Ctrl+Shift+T" /></Border>
+                            <TextBlock Grid.Column="1" Classes="descText" Text="直前に閉じたタブを、カーソル位置ごと開き直します（最大10件、新しい順）。" />
+                        </Grid>
+                        <Grid Classes="shortcutRow" ColumnDefinitions="150,*">
                             <Border Classes="keyBadge" Grid.Column="0"><TextBlock Classes="keyText" Text="Ctrl+Tab" /></Border>
                             <TextBlock Grid.Column="1" Classes="descText" Text="直近使用した順にタブを切り替えます。" />
                         </Grid>

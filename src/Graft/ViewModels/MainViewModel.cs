@@ -74,6 +74,10 @@ public sealed partial class MainViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(patchQueue);
         _openSettingsRequested = openSettingsRequested ?? throw new ArgumentNullException(nameof(openSettingsRequested));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+        // 機能2: 適用直後の「元に戻す」通知（MainViewModel.ApplyUndoNotice.cs）。
+        // ExplorerViewModelの削除取り消し通知と同じくCreateTimerは反復タイマーのため、
+        // 1回消したらStopして次の適用まで眠らせておく。
+        _applyUndoNoticeTimer = ui.CreateTimer(ApplyUndoNoticeDuration, OnApplyUndoNoticeTimeout);
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);

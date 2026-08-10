@@ -29,6 +29,9 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     private const double MaxFontSize = 32;
 
     private readonly EditorTabManager _manager;
+    // 機能3（Ctrl+Shift+Tで直前に閉じたタブを開き直す）: 記録が空、または残っている記録が
+    // すべて実体の無いファイルだった場合の案内に使う（EditorPaneViewModel.RecentlyClosed.cs）。
+    private readonly IDialogService _dialogs;
     // 機能改善: UpdateSettings経由で設定画面・他のCtrl+マウスホイール操作からのフォントサイズ
     // 変更を反映できるよう、DiffViewModelと同じくreadonlyにしない（課題1のコメント参照）。
     private Settings _settings;
@@ -49,6 +52,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     {
         Ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _manager = new EditorTabManager(dialogs);
         _manager.Tabs.CollectionChanged += OnManagerTabsChanged;
 
@@ -59,6 +63,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         ToggleWordWrapCommand = new RelayCommand(() => WordWrap = !WordWrap);
         ToggleShowWhitespaceCommand = new RelayCommand(() => ShowWhitespace = !ShowWhitespace);
         InitializeTabActionCommands(); // タブ見出し右クリックメニュー（TabActions.cs）。
+        ReopenLastClosedTabCommand = new AsyncRelayCommand(() => ReopenLastClosedTabAsync()); // Ctrl+Shift+T（RecentlyClosed.cs）。
     }
 
     /// <summary>開いているタブの一覧（ドキュメント＋差分タブ、9.2）。</summary>
@@ -141,6 +146,9 @@ public sealed partial class EditorPaneViewModel : ObservableObject
 
     public ICommand ToggleWordWrapCommand { get; }
     public ICommand ToggleShowWhitespaceCommand { get; }
+
+    /// <summary>機能3: Ctrl+Shift+T。直前に閉じたタブを開き直す（RecentlyClosed.cs）。</summary>
+    public ICommand ReopenLastClosedTabCommand { get; private set; } = null!;
 
     /// <summary>現在のプロジェクトルートの絶対パス。未選択時はnull（4.7 Gitガターの対象設定に使う）。</summary>
     public string? ProjectRoot { get; private set; }

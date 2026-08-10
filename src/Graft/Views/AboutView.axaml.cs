@@ -7,25 +7,19 @@ using Graft.ViewModels;
 namespace Graft.Views;
 
 /// <summary>
-/// 8.15章のバージョン情報。アプリのバージョン・ビルド日時・使用ライブラリのライセンス表記
-/// （DiffPlex＝Apache License 2.0、System.Text.Encoding.CodePages＝MIT、AvaloniaEdit＝MIT）を
-/// 表示する。ロゴは <c>Themes/Logo.axaml</c> の <c>{DynamicResource LogoImage}</c> を使い、
-/// ラスタ画像は使用しない。ライセンス全文は埋め込みリソースから展開時に読み込む。
-/// v2.0のWPF版からの移植（19章 L3）。AvaloniaのExpanderにはExpandedイベントが無いため、
-/// IsExpandedプロパティの変化を購読して同じタイミングで読み込む。
+/// 8.15章のバージョン情報。アプリのバージョン・ビルド日時を表示する。ロゴは
+/// <c>Themes/Logo.axaml</c> の <c>{DynamicResource LogoImage}</c> を使い、ラスタ画像は使用しない。
+/// v2.0のWPF版からの移植（19章 L3）。
+/// 機能1（オープンソースライセンス表記）: 使用ライブラリのライセンス一覧・全文は項目数が多く
+/// このタブに収まらないため、専用ウィンドウ（<see cref="OpenSourceLicensesWindow"/>）へ切り出し、
+/// ここでは開くボタンのみを持つ。
 /// </summary>
 public partial class AboutView : UserControl
 {
-    private bool _licenseLoaded;
-    private bool _avalonEditLicenseLoaded;
-
     public AboutView()
     {
         InitializeComponent();
         Loaded += OnLoaded;
-
-        DiffPlexLicenseExpander.PropertyChanged += OnDiffPlexExpanderPropertyChanged;
-        AvalonEditLicenseExpander.PropertyChanged += OnAvalonEditExpanderPropertyChanged;
 
         // 機能2: 「最新のログを表示」。ViewModel（SettingsViewModel）はAvaloniaのWindow型に
         // 依存させない方針のため、末尾の切り出しが終わったことをイベントで受け取り、
@@ -109,39 +103,22 @@ public partial class AboutView : UserControl
         }
     }
 
-    private async void OnDiffPlexExpanderPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    /// <summary>
+    /// 機能1（オープンソースライセンス表記）: 「オープンソースライセンスを表示」ボタンの実体。
+    /// 一覧・全文は<see cref="OpenSourceLicensesWindow"/>へ委譲する（LogViewerWindowと同じ、
+    /// オーナーが見つかればモーダル・見つからなければ非モーダルで表示する流儀）。
+    /// </summary>
+    private async void OnShowLicensesClicked(object? sender, RoutedEventArgs e)
     {
-        if (e.Property != Expander.IsExpandedProperty || !e.GetNewValue<bool>() || _licenseLoaded) return;
-
-        _licenseLoaded = true;
-        LicenseText.Text = await LoadLicenseTextAsync("Graft.Assets.DiffPlex-LICENSE.txt").ConfigureAwait(true);
-    }
-
-    /// <summary>9.6 バージョン情報。AvaloniaEditのライセンス全文（MIT）を展開時に読み込む。</summary>
-    private async void OnAvalonEditExpanderPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
-    {
-        if (e.Property != Expander.IsExpandedProperty || !e.GetNewValue<bool>() || _avalonEditLicenseLoaded) return;
-
-        _avalonEditLicenseLoaded = true;
-        AvalonEditLicenseText.Text =
-            await LoadLicenseTextAsync("Graft.Assets.AvalonEdit-LICENSE.txt").ConfigureAwait(true);
-    }
-
-    // 発行フォルダに含めるファイルを増やさないよう、ライセンス全文は埋め込みリソースとして持つ
-    // （外部ファイルにすると同梱漏れや配置ミスで参照できなくなる恐れがある）。
-    private static async Task<string> LoadLicenseTextAsync(string resourceName)
-    {
-        try
+        var window = new OpenSourceLicensesWindow();
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is not null)
         {
-            await using var stream = typeof(AboutView).Assembly.GetManifestResourceStream(resourceName);
-            if (stream is null) return "ライセンスファイルを読み込めませんでした。";
-
-            using var reader = new StreamReader(stream);
-            return await reader.ReadToEndAsync().ConfigureAwait(true);
+            await window.ShowDialog(owner).ConfigureAwait(true);
         }
-        catch (IOException)
+        else
         {
-            return "ライセンスファイルを読み込めませんでした。";
+            window.Show();
         }
     }
 

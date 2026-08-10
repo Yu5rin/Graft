@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
              x:Class="Graft.Views.StatusBarView"
              Focusable="False">
     <!--
@@ -93,6 +94,27 @@
                         IsVisible="{Binding Explorer.HasDeleteUndoNotice}"
                         AutomationProperties.Name="{Binding Explorer.DeleteUndoNoticeText}"
                         ToolTip.Tip="クリックすると直前の削除を元に戻します。" />
+
+                <!--
+                    機能2: パッチ適用が成功した直後、数秒間だけ出す「元に戻す」通知
+                    （MainViewModel.ApplyUndoNotice.cs）。クリップボード監視の通知・削除取り消し
+                    通知と同じ考え方（Buttonそのものがクリック可能な通知）。「元に戻す」は
+                    Ctrl+Zと同じUndoCommand（既存の単発復元経路）をそのまま再利用するため、
+                    クリックすると復元の確認ダイアログを挟んだうえで直前のリビジョンを取り消す。
+                -->
+                <Button Content="{Binding Graft.ApplyUndoNoticeText}"
+                        Command="{Binding Graft.UndoCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Graft.HasApplyUndoNotice}"
+                        AutomationProperties.Name="{Binding Graft.ApplyUndoNoticeText}"
+                        local:HelpTip.Standard="適用直後に数秒だけ表示される通知です。クリックすると直前のリビジョンを元に戻せます。"
+                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Zからいつでも元に戻せます。"
+                        ToolTip.Tip="クリックすると直前に適用したリビジョンを元に戻します。" />
             </StackPanel>
 
             <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->

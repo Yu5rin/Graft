@@ -6,15 +6,30 @@ using Graft.ViewModels;
 namespace Graft.Editor;
 
 /// <summary>
+/// 製品としての使い勝手3件のうち機能3（Ctrl+Shift+Tで直前に閉じたタブを開き直す）で
+/// 1件分の記録として保持する情報。ファイルの絶対パスと、閉じた時点のカーソル位置。
+/// </summary>
+public readonly record struct ClosedTabRecord(string FullPath, int CaretLine, int CaretColumn);
+
+/// <summary>
 /// エディタタブの生成・復元・保存確認を担当する（19章）。<see cref="Graft.ViewModels.EditorPaneViewModel"/>
 /// から呼び出される、ObservableObjectではない純粋なロジック層。プレビュータブの置換規則
 /// （4.3節）とCtrl+Tab用の直近使用順（MRU）もここで管理する。
 /// 保存/破棄/キャンセルの3択確認は<see cref="IDialogService.ConfirmThreeWayAsync"/>を使う。
+///
+/// 機能3（Ctrl+Shift+Tで直前に閉じたタブを開き直す）: ユーザーが明示的に閉じたタブ
+/// （<see cref="CloseAsync"/>経由）のパスとカーソル位置を、新しい順に最大
+/// <see cref="MaxClosedTabRecords"/>件だけ<see cref="_closedTabs"/>に保持する。プレビュータブの
+/// 自動置換（<see cref="OpenAsync"/>内、新しいファイルを開いたことで押し出されただけ）や、
+/// エクスプローラでのファイル削除に追従した強制クローズ（<see cref="NotifyDeletedAsync"/>）は
+/// ユーザーが「閉じた」と意識する操作ではないため記録しない。
 /// </summary>
 public sealed class EditorTabManager
 {
     private readonly IDialogService _dialogs;
     private readonly List<EditorTabViewModel> _mru = new();
+    private readonly List<ClosedTabRecord> _closedTabs = new();
+    private const int MaxClosedTabRecords = 10;
     private string? _projectRoot;
 
     public EditorTabManager(IDialogService dialogs)
@@ -29,6 +44,10 @@ public sealed class EditorTabManager
     {
         _projectRoot = projectRoot;
         _mru.Clear();
+        // 機能3: 閉じたタブの記録も、Ctrl+Tabの直近使用順（MRU）と同じくプロジェクト単位で
+        // 意味を持つ情報のため、切替時にクリアする（別プロジェクトで閉じたファイルをCtrl+Shift+T
+        // で開き直せてしまうと混乱するため）。
+        _closedTabs.Clear();
     }
 
     /// <summary>ファイルを開く。既に開いている場合はそのタブを返す（プレビュー→固定への昇格のみ行う）。</summary>
@@ -74,6 +93,7 @@ public sealed class EditorTabManager
             }
         }
 
+        RecordClosedTab(tab);
         RemoveTab(tab);
         return true;
     }
@@ -167,6 +187,41 @@ public sealed class EditorTabManager
     /// 往復する簡易実装。Ctrl長押しによる連続循環（モーダルなオーバーレイ表示）はE1の対象外。
     /// </summary>
     public EditorTabViewModel? NextByMru() => _mru.Count >= 2 ? _mru[1] : null;
+
+    /// <summary>閉じた直後（<see cref="RemoveTab"/>で実体を破棄する前）のタブの情報を記録する。</summary>
+    private void RecordClosedTab(EditorTabViewModel tab)
+    {
+        var record = new ClosedTabRecord(tab.Session.FullPath, tab.CaretLine, tab.CaretColumn);
+        // 同じファイルの古い記録が残っていれば1件にまとめ、直近に閉じたときの位置を優先する
+        // （同じファイルを開いては閉じてを繰り返しても履歴が同じパスで埋まらないようにする）。
+        _closedTabs.RemoveAll(r => PathsEqual(r.FullPath, record.FullPath));
+        _closedTabs.Insert(0, record);
+        if (_closedTabs.Count > MaxClosedTabRecords) _closedTabs.RemoveAt(_closedTabs.Count - 1);
+    }
+
+    /// <summary>機能3: 「元に戻せる（開き直せる）」閉じたタブの記録が1件でもあるかどうか。</summary>
+    public bool HasClosedTabs => _closedTabs.Count > 0;
+
+    /// <summary>
+    /// 機能3（Ctrl+Shift+T）。最も新しく閉じたタブの記録を1件取り出す。実体がもう存在しない
+    /// ファイル（削除・移動された等）の記録は自動的に読み飛ばし、開き直せる最初の1件を返す。
+    /// 取り出した記録（読み飛ばした分も含む）はスタックから取り除かれる。
+    /// </summary>
+    /// <param name="skippedMissing">1件以上、実体が既に無いために読み飛ばした記録があった場合true。
+    /// 戻り値がnullで、かつこれがtrueのとき、呼び出し側は「記録はあったが復元できなかった」と
+    /// 判別できる（記録が最初から0件だった場合と区別するため）。</param>
+    public ClosedTabRecord? TakeNextReopenable(out bool skippedMissing)
+    {
+        skippedMissing = false;
+        while (_closedTabs.Count > 0)
+        {
+            var candidate = _closedTabs[0];
+            _closedTabs.RemoveAt(0);
+            if (File.Exists(candidate.FullPath)) return candidate;
+            skippedMissing = true;
+        }
+        return null;
+    }
 
     private void RemoveTab(EditorTabViewModel tab)
     {

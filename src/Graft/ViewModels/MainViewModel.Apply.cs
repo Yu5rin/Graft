@@ -144,6 +144,13 @@ public sealed partial class MainViewModel
         }
 
         await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
+
+        // 機能2: 適用直後の「元に戻す」通知（MainViewModel.ApplyUndoNotice.cs）。確認ダイアログを
+        // 閉じた後に出す（ダイアログ表示中はステータスバーが見えず、閉じるまでの間に数秒の
+        // 表示時間を消費してしまうため）。「適用が失敗した場合や、リビジョンが記録されなかった
+        // 場合には出さない」仕様のため、ここまで到達している時点で成功は確定しているが、
+        // 念のためentriesが1件も無い（実質的に何も変更されなかった）ケースは対象外にする。
+        if (result.Value.Entries.Count > 0) ShowApplyUndoNotice(result.Value.Revision);
     }
 
     /// <summary>
@@ -206,9 +213,14 @@ public sealed partial class MainViewModel
         }
     }
 
-    /// <summary>UndoCommand（Ctrl+Z）の実体。最新リビジョンを取り消す。</summary>
+    /// <summary>
+    /// UndoCommand（Ctrl+Z、および機能2のステータスバー「元に戻す」通知）の実体。
+    /// 最新リビジョンを取り消す。どちらの経路で呼ばれても、もう有効ではない適用直後の通知を
+    /// 出しっぱなしにしないよう、まず消す（DismissApplyUndoNotice＝MainViewModel.ApplyUndoNotice.cs）。
+    /// </summary>
     private async Task UndoLastAsync()
     {
+        DismissApplyUndoNotice();
         var undone = await History.UndoLatestAsync().ConfigureAwait(true);
         if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
     }
