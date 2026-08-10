@@ -11,7 +11,7 @@
         - DatePicker.SelectedDate は DateTimeOffset? を直接扱うため、v2.0のWPF版で必要だった
           DateTime? との変換コンバータは使わない。
     -->
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*">
 
         <!--
             見出しと復元ボタン。2種類の復元操作を並べる。
@@ -50,8 +50,35 @@
             </Button>
         </Grid>
 
+        <!--
+            ファイル単位の変更履歴（エクスプローラの右クリックメニュー「このファイルの変更履歴」）で
+            絞り込み中であることを明示するバナー。絞り込みなしのときはIsVisible=falseで消える。
+            「解除しないと元の一覧に戻れない」という迷子を防ぐため、解除ボタンを同じ行に常設する。
+        -->
+        <Border Grid.Row="1"
+                Margin="8,0,8,4"
+                Padding="8,6"
+                Background="{DynamicResource BgHover}"
+                IsVisible="{Binding IsFileFiltered}">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding FileFilterBannerText}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           FontSize="{DynamicResource CaptionFontSize}" />
+                <Button Grid.Column="1"
+                        Content="×"
+                        Command="{Binding ClearFileFilterCommand}"
+                        Padding="6,2"
+                        Margin="4,0,0,0"
+                        local:HelpTip.Standard="ファイルでの絞り込みを解除し、すべてのリビジョンを表示します。"
+                        local:HelpTip.Detailed="エクスプローラの「このファイルの変更履歴」から絞り込んだ、ファイル単位の表示を解除します。解除すると、通常どおりプロジェクト全体のリビジョンが一覧に戻ります。"
+                        AutomationProperties.Name="ファイルでの絞り込みを解除" />
+            </Grid>
+        </Border>
+
         <!-- 全文検索（Ctrl+F） -->
-        <Grid Grid.Row="1" Margin="8,0,8,4" ColumnDefinitions="Auto,*">
+        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="Auto,*">
             <local:IconGlyph Grid.Column="0"
                              Data="{DynamicResource IconSearchGeometry}"
                              Width="14" Height="14"
@@ -66,7 +93,7 @@
         </Grid>
 
         <!-- type絞り込み -->
-        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
+        <Grid Grid.Row="3" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
             <!--
                 課題2-2: 未選択時（TypeFilterがnull）は空欄のままで何を選ぶドロップダウンか
                 分からなかった。このComboBoxのControlTemplate（Themes/Controls.Input.axaml）は
@@ -98,7 +125,7 @@
             選ぶと下の手入力欄へ即座に反映する（HistoryPaneViewModel.DatePreset参照）。
             サイドビューの幅が狭く「期間」行に収まらないため、専用の行を上に足している。
         -->
-        <Grid Grid.Row="3" Margin="8,0,8,4" ColumnDefinitions="*">
+        <Grid Grid.Row="4" Margin="8,0,8,4" ColumnDefinitions="*">
             <ComboBox Grid.Column="0"
                       ItemsSource="{Binding AvailableDatePresets}"
                       SelectedItem="{Binding DatePreset, Mode=TwoWay}"
@@ -120,7 +147,7 @@
             サイドビューの幅に3項目分の枠が収まらないため（HistoryPaneViewModel参照）。
             細かい範囲を指定したいときのために、上のプリセットとは別に残している。
         -->
-        <Grid Grid.Row="4" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
+        <Grid Grid.Row="5" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
             <TextBlock Grid.Column="0" Text="期間" VerticalAlignment="Center"
                        Margin="0,0,6,0"
                        FontSize="{DynamicResource CaptionFontSize}"
@@ -139,7 +166,7 @@
                      local:HelpTip.Detailed="下の履歴一覧を絞り込む期間の終了日です。「2026-12-31」のように年-月-日の形式で入力してください。空にすると終了日側の制限は無くなります。上のプリセットを選ぶと自動で入力されます。" />
         </Grid>
 
-        <Grid Grid.Row="5">
+        <Grid Grid.Row="6">
             <ListBox x:Name="RevisionListBox"
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
@@ -221,7 +248,7 @@
             <local:EmptyStateView State="{Binding State,
                                           Converter={x:Static local:Converters.HistoryPaneStateToEmptyState}}"
                                   IconGeometry="{DynamicResource IconHistoryGeometry}"
-                                  Message="AIの出力を適用すると、ここに履歴が残ります"
+                                  Message="{Binding EmptyStateMessage}"
                                   Issue="{Binding Error}" />
         </Grid>
     </Grid>

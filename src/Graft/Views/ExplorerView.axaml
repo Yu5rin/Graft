@@ -148,6 +148,13 @@
                                   local:HelpTip.Detailed="直前にこのエクスプローラから削除したファイルまたはフォルダを、Graftが退避しておいた内容から元の場所へ書き戻します。Ctrl+Z（エクスプローラにフォーカスがあるとき）でも同じ操作ができます。連続で削除した場合は、新しい方から順に1件ずつ戻ります。復元先に同名の項目が既にある場合は上書きせず、失敗として通知します。"
                                   AutomationProperties.Name="削除を元に戻す" />
                         <Separator />
+                        <MenuItem Header="このファイルの変更履歴"
+                                  Command="{Binding ShowFileHistoryCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  local:HelpTip.Standard="このファイルに関わるリビジョンだけに絞り込んで、履歴ビューに一覧表示します。"
+                                  local:HelpTip.Detailed="サイドバーの履歴ビューを開き、このファイルの変更を含むリビジョンだけに絞り込んで一覧表示します。一覧から1件選ぶと、通常の履歴と同じくそのリビジョンでのこのファイルの差分をタブで確認できます。フォルダには使えません。絞り込みは履歴ビュー上部のバナーの「×」でいつでも解除できます。"
+                                  AutomationProperties.Name="このファイルの変更履歴を表示" />
+                        <Separator />
                         <MenuItem Header="パスをコピー"
                                   Command="{Binding CopyPathCommand}"
                                   CommandParameter="{Binding SelectedNode}"

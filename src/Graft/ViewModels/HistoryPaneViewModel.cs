@@ -111,6 +111,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
     private DateTimeOffset? _dateTo;
     private HistoryDatePreset _datePreset = HistoryDatePreset.All;
     private bool _isApplyingPreset;
+    private string? _fileFilterPath;
 
     public HistoryPaneViewModel(
         RevisionStore revisionStore, RevisionRestorer restorer, ProjectStore projectStore, IDialogService dialogs,
@@ -134,6 +135,9 @@ public sealed class HistoryPaneViewModel : ObservableObject
         ShowDiffCommand = new RelayCommand(
             () => { if (SelectedItem is { } item) RevisionSelected?.Invoke(this, item); },
             () => SelectedItem is not null);
+        // ファイル単位の変更履歴（エクスプローラの右クリックメニュー「このファイルの変更履歴」）:
+        // 絞り込みを解除して通常の全件表示へ戻すためのコマンド（バナーの「×」ボタン用）。
+        ClearFileFilterCommand = new RelayCommand(() => FileFilterPath = null, () => IsFileFiltered);
     }
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
@@ -351,6 +355,76 @@ public sealed class HistoryPaneViewModel : ObservableObject
             ? parsed
             : null;
 
+    /// <summary>
+    /// ファイル単位の変更履歴: 絞り込み対象のファイルの相対パス（'/'区切り、プロジェクトルート
+    /// 基準。FileNodeViewModel.RelativePathと同じ形式）。nullは絞り込みなし（通常の履歴表示）。
+    /// エクスプローラの右クリックメニュー「このファイルの変更履歴」から<see cref="ShowHistoryForFile"/>
+    /// 経由でのみ設定する想定（setterはprivate）。
+    /// </summary>
+    public string? FileFilterPath
+    {
+        get => _fileFilterPath;
+        private set
+        {
+            if (SetProperty(ref _fileFilterPath, value, ApplyFilter))
+            {
+                OnPropertyChanged(nameof(IsFileFiltered));
+                OnPropertyChanged(nameof(FileFilterBannerText));
+                OnPropertyChanged(nameof(EmptyStateMessage));
+                ((RelayCommand)ClearFileFilterCommand).RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    /// <summary>ファイル単位の絞り込み中かどうか（履歴ビュー側でバナー表示の可否に使う）。</summary>
+    public bool IsFileFiltered => FileFilterPath is not null;
+
+    /// <summary>絞り込み中であることを明示するバナー文言。絞り込みなしのときは空文字。</summary>
+    public string FileFilterBannerText
+        => FileFilterPath is null ? string.Empty : $"「{FileFilterPath}」の変更履歴のみ表示中";
+
+    /// <summary>
+    /// 一覧が空のときの案内文言。ファイル単位で絞り込み中は「このファイルには履歴が無い」ことが
+    /// わかる文言に、それ以外は従来どおりの案内にする。
+    /// </summary>
+    public string EmptyStateMessage
+        => FileFilterPath is null
+            ? "AIの出力を適用すると、ここに履歴が残ります"
+            : $"「{FileFilterPath}」の変更履歴はありません";
+
+    /// <summary>
+    /// エクスプローラの右クリックメニュー「このファイルの変更履歴」から呼ぶ。対象ファイルの
+    /// 相対パスで一覧を絞り込む。既存のキーワード・種別・期間の絞り込みと組み合わさって
+    /// 意図せず0件になることを避けるため、これらは呼び出しのたびにリセットする
+    /// （「このファイルの全履歴を見せる」という明確な操作のため、他の絞り込み条件を
+    /// 引き継がない方が利用者の意図に合う）。
+    /// </summary>
+    public void ShowHistoryForFile(string relativePath)
+    {
+        ArgumentNullException.ThrowIfNull(relativePath);
+
+        _keyword = string.Empty;
+        _typeFilter = null;
+        _dateFrom = null;
+        _dateTo = null;
+        _dateFromText = string.Empty;
+        _dateToText = string.Empty;
+        _datePreset = HistoryDatePreset.All;
+
+        // FileFilterPathのsetterがApplyFilterを1回だけ走らせるため、上でフィールドを
+        // 直接書き換えた分の変更通知はここでまとめて出す（各プロパティのsetter経由だと
+        // ApplyFilterが複数回走ってしまう）。
+        FileFilterPath = relativePath;
+        OnPropertyChanged(nameof(Keyword));
+        OnPropertyChanged(nameof(TypeFilter));
+        OnPropertyChanged(nameof(SelectedTypeOption));
+        OnPropertyChanged(nameof(DateFrom));
+        OnPropertyChanged(nameof(DateTo));
+        OnPropertyChanged(nameof(DateFromText));
+        OnPropertyChanged(nameof(DateToText));
+        OnPropertyChanged(nameof(DatePreset));
+    }
+
     /// <summary>選択リビジョンが変わった（diffの再表示が必要になった）ことの通知。</summary>
     public event EventHandler<RevisionRowViewModel?>? RevisionSelected;
 
@@ -372,6 +446,11 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// </summary>
     public ICommand ShowDiffCommand { get; }
 
+    /// <summary>
+    /// ファイル単位の変更履歴の絞り込みを解除し、通常の全件表示へ戻す（バナーの「×」ボタン用）。
+    /// </summary>
+    public ICommand ClearFileFilterCommand { get; }
+
     /// <summary>選択中のリビジョンより新しいリビジョンが1件でもあるか（＝取り消す対象があるか）。
     /// 最新リビジョンを選んでいるときは対象が無いため false（RestoreThroughCommandを無効化する）。
     /// フィルタで一覧が絞られていても、判定は常に全リビジョン（<see cref="_allRevisions"/>）基準で行う。</summary>
@@ -381,6 +460,15 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// <summary>指定プロジェクトのリビジョン一覧を読み込む。</summary>
     public async Task LoadAsync(string projectId, string projectRoot, CancellationToken ct = default)
     {
+        if (_projectId != projectId)
+        {
+            // プロジェクトが切り替わった場合は、別プロジェクトの相対パスを引き継がないよう
+            // ファイル単位の絞り込み（FileFilterPath）を解除する。同じプロジェクト内での
+            // 再読み込み（復元後の一覧更新等）ではこの絞り込みを保ったままにしたいため、
+            // ここではプロジェクトIDが変わったときだけリセットする。
+            FileFilterPath = null;
+        }
+
         _projectId = projectId;
         _projectRoot = projectRoot;
         State = HistoryPaneState.Loading;
@@ -406,6 +494,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         Items.Clear();
         SelectedItem = null;
         State = HistoryPaneState.Empty;
+        FileFilterPath = null; // ファイル単位の絞り込みも解除する（次のプロジェクトへ引き継がないため）。
     }
 
     /// <summary>Ctrl+Z（直前リビジョンの取り消し）用。最新リビジョンを復元する。</summary>
@@ -689,6 +778,8 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// バックアップ側の内容を変更前、プロジェクトルート側の現在の内容を変更後として扱う
     /// （適用後にさらに変更されている場合は現在の内容がそのまま表示される）。
     /// 復元・適用の対象ではないため、返す BlockPlan はすべて CanApply=false とする。
+    /// <see cref="FileFilterPath"/>で絞り込み中は、そのファイルに該当するエントリだけを返す
+    /// （ファイル単位の変更履歴で開く履歴差分タブに、無関係な他ファイルの差分を含めないため）。
     /// </summary>
     public async Task<IReadOnlyList<BlockPlan>> BuildDiffPlansAsync(
         RevisionRowViewModel row, int contextLines, CancellationToken ct = default)
@@ -702,6 +793,11 @@ public sealed class HistoryPaneViewModel : ObservableObject
         var plans = new List<BlockPlan>();
         foreach (var entry in row.Revision.Manifest.Entries)
         {
+            if (FileFilterPath is not null && !RevisionStore.EntryPathEquals(entry.Path, FileFilterPath))
+            {
+                continue;
+            }
+
             var before = await ReadBackupTextAsync(row.Revision, entry, ct).ConfigureAwait(true);
             var after = await ReadCurrentTextAsync(_projectRoot, entry, ct).ConfigureAwait(true);
             var diff = Core.DiffBuilder.Build(entry.Path, before, after, contextLines);
@@ -767,7 +863,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
 
     private void ApplyFilter()
     {
-        var filtered = RevisionStore.Filter(_allRevisions, Keyword, TypeFilter, DateFrom, DateTo).ToList();
+        var filtered = RevisionStore.Filter(_allRevisions, Keyword, TypeFilter, DateFrom, DateTo, FileFilterPath).ToList();
         var previouslySelected = _selectedItem?.Revision.Manifest.Revision;
 
         Items.Clear();

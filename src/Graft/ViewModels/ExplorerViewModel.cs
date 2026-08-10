@@ -68,6 +68,10 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         CopyPathCommand = new RelayCommand<FileNodeViewModel>(node => CopyPath(node ?? SelectedNode));
         RevealCommand = new RelayCommand<FileNodeViewModel>(node => RevealInExplorer(node ?? SelectedNode));
         UndoDeleteCommand = new AsyncRelayCommand(UndoDeleteAsync, () => _undoStore.CanUndo);
+        // ファイル単位の変更履歴: フォルダには適用できないため、対象がファイルのときだけ有効化する。
+        ShowFileHistoryCommand = new RelayCommand<FileNodeViewModel>(
+            node => RequestShowFileHistory(node ?? SelectedNode),
+            node => (node ?? SelectedNode) is { IsDirectory: false, IsPlaceholder: false });
     }
 
     /// <summary>ツリーの最上位（プロジェクトルート直下）のノード一覧。</summary>
@@ -113,6 +117,22 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     /// 公開するだけに留める（エディタのCtrl+Z＝テキスト取り消しとは衝突しない）。
     /// </summary>
     public ICommand UndoDeleteCommand { get; }
+
+    /// <summary>
+    /// ファイル単位の変更履歴: エクスプローラの右クリックメニュー「このファイルの変更履歴」。
+    /// 実際の絞り込み・表示は履歴ペイン（<see cref="HistoryPaneViewModel"/>）の責務のため、
+    /// このクラスはHistoryPaneViewModelを知らない（コンストラクタ引数にも無い）。
+    /// 代わりに<see cref="ShowFileHistoryRequested"/>で対象ファイルの相対パスだけを通知し、
+    /// 実際の橋渡しはShellViewModel（ExplorerとGraft.Historyの両方を知っている）に委ねる
+    /// （ProjectPane.ProjectActivated等、他の画面間連携と同じ構造）。
+    /// </summary>
+    public ICommand ShowFileHistoryCommand { get; }
+
+    /// <summary>
+    /// <see cref="ShowFileHistoryCommand"/>が実行されたことの通知。引数は対象ファイルの
+    /// プロジェクトルート基準の相対パス（'/'区切り）。
+    /// </summary>
+    public event EventHandler<string>? ShowFileHistoryRequested;
 
     /// <summary>
     /// 課題2: ツリーの再構築でフォーカスが失われた直後にViewへ再フォーカスを促す
@@ -513,6 +533,13 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private static void RevealInExplorer(FileNodeViewModel? node)
     {
         if (node is not null) PlatformServices.Current.FileManager.Reveal(node.FullPath);
+    }
+
+    /// <summary>ShowFileHistoryCommandの実体。対象がファイルであることはCanExecute側で保証済み。</summary>
+    private void RequestShowFileHistory(FileNodeViewModel? node)
+    {
+        if (node is null || node.IsDirectory || node.IsPlaceholder) return;
+        ShowFileHistoryRequested?.Invoke(this, node.RelativePath);
     }
 
     private string ToFullPath(string relativePath)
