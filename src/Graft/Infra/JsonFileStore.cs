@@ -132,7 +132,7 @@ public sealed class JsonFileStore
     /// するため（不具合2の回帰防止）。
     /// </summary>
     internal static async Task RetryOnIoOrAccessDeniedAsync(
-        Func<Task> action, int maxAttempts, TimeSpan delay, CancellationToken ct = default)
+        Func<Task> action, int maxAttempts, TimeSpan delay, CancellationToken ct = default, Action<int>? onRetry = null)
     {
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
@@ -145,6 +145,9 @@ public sealed class JsonFileStore
             {
                 // 上限に達していない間だけ捕捉して再試行する。上限到達時はこのwhen節がfalseになり、
                 // 例外がそのまま呼び出し側へ伝わり従来どおりエラーになる。
+                // onRetryは実際にリトライへ入る（＝共有違反が実際に起きた）ことをテストへ通知する
+                // ためのシーム。既定はnullで、その場合は何もしない（本番の挙動は変わらない）。
+                onRetry?.Invoke(attempt);
                 await Task.Delay(delay, ct).ConfigureAwait(false);
             }
         }
@@ -233,6 +236,26 @@ public sealed class JsonFileStore
     /// <summary>TryParseAsyncでの読み取り共有違反のリトライ間隔。</summary>
     private static readonly TimeSpan ReadShareViolationRetryDelay = TimeSpan.FromMilliseconds(30);
 
+    /// <summary>
+    /// テスト専用の内部シーム。読み取り中の共有違反(IOException)によりTryParseAsyncがリトライへ
+    /// 入る直前に、対象パスと試行回数(1始まり)とともに呼び出される。既定はnullで、その場合は
+    /// 何もしない（本番の挙動は一切変えない）。
+    ///
+    /// 目的: 不具合1（Windows実機の共有違反リトライ）の回帰テストは、Windowsの強制共有ロックを
+    /// FileShare.Noneの排他ハンドルでLinux上でも再現しているが、「排他ハンドルをいつ解放するか」を
+    /// Task.Delayのような固定時間で決めると、CI負荷でスレッドプールが枯渇した際にリトライの猶予
+    /// （既定で 5回×30ms ≒ 150ms）を固定時間の待ちが超えてしまい、解放前にリトライを使い切って
+    /// 不定期に失敗する（壁時計依存のフレーク）。このシームで「実際にリトライへ入った瞬間」を
+    /// テストへ通知することで、テストは時間ではなく製品側の実際の挙動を合図にハンドルを解放できる。
+    ///
+    /// 【テスト以外から使用禁止】 本番コードから呼び出したり値を設定したりしてはならない。
+    /// 【並行実行への注意】 これは静的プロパティであり、xUnitは同一アセンブリ内の別テストクラスを
+    /// 並行実行しうる。他クラスがこのシームを設定することは無い前提だが、念のためコールバック側で
+    /// 対象パス（TempWorkspaceが払い出す一意なパス）を照合し、無関係な呼び出しには反応しない設計に
+    /// することを強く推奨する（JsonFileStoreTests参照）。
+    /// </summary>
+    internal static Action<string, int>? OnReadShareViolationRetry { get; set; }
+
     private static async Task<T?> TryParseAsync<T>(string path, JsonSerializerOptions options, CancellationToken ct)
         where T : class
     {
@@ -246,7 +269,8 @@ public sealed class JsonFileStore
             // を再利用し、短い間隔で数回だけ読み直しを試みる。
             await RetryOnIoOrAccessDeniedAsync(
                 async () => text = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false),
-                ReadShareViolationRetryCount, ReadShareViolationRetryDelay, ct).ConfigureAwait(false);
+                ReadShareViolationRetryCount, ReadShareViolationRetryDelay, ct,
+                onRetry: attempt => OnReadShareViolationRetry?.Invoke(path, attempt)).ConfigureAwait(false);
             return JsonSerializer.Deserialize<T>(text, options);
         }
         catch (JsonException)

@@ -176,15 +176,30 @@ public class JsonFileStoreTests
 
         // FileShare.Noneの排他ハンドルで、Windowsの共有違反IOExceptionと同じ状況を再現する。
         var exclusiveHandle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        // 壁時計非依存化のポイント: 「いつ解放すれば間に合うか」を Task.Delay 等の固定時間で
+        // 見積もらず、製品側が実際に共有違反でリトライへ入った通知（JsonFileStore.
+        // OnReadShareViolationRetry）を受けた直後にハンドルを解放する。これにより
+        // 「共有違反が必ず1回は起き、その直後に解消する」ことが時間に関係なく確定するため、
+        // CI負荷でスレッドプールが枯渇してもフレークしない。
+        //
+        // このシームは静的プロパティであり、xUnitは同一アセンブリ内の別テストクラスを並行実行
+        // しうる。他クラスは一切このシームを触らない前提だが、念のためコールバック側で対象パスを
+        // 照合し、無関係な呼び出し（他クラス経由の呼び出し等）には反応しない設計にしている。
+        // また同一クラス内の他テストとは、xUnitがデフォルトで同一クラス内のテストメソッドを
+        // 並行実行しないため干渉しない。
+        JsonFileStore.OnReadShareViolationRetry = (retryPath, _) =>
+        {
+            if (retryPath == path)
+            {
+                // Stream.Disposeは複数回呼んでも安全なため、二重解放を気にする必要はない
+                // （リトライは複数回発生しうるが、実際にハンドルが閉じるのは最初の1回だけ）。
+                exclusiveHandle.Dispose();
+            }
+        };
         try
         {
-            var readTask = store.ReadWithRecoveryAsync(path, () => new Box { Value = "既定" });
-
-            // リトライの猶予（最大 5回 × 30ms ≒ 150ms）の範囲内で解放し、リトライ成功を検証する。
-            await Task.Delay(60);
-            exclusiveHandle.Dispose();
-
-            var result = await readTask;
+            var result = await store.ReadWithRecoveryAsync(path, () => new Box { Value = "既定" });
 
             result.IsSuccess.Should().BeTrue();
             result.ValueOrDefault!.Value.Should().Be("本物",
@@ -193,6 +208,8 @@ public class JsonFileStoreTests
         }
         finally
         {
+            // 他のテストへシームを漏らさないよう、必ず元（null）へ戻す。
+            JsonFileStore.OnReadShareViolationRetry = null;
             exclusiveHandle.Dispose();
         }
     }
