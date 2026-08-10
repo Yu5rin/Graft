@@ -175,16 +175,18 @@ public class ProjectMatchScenarioTests : IDisposable
         // 全プロジェクトが同率（ここでは0%）で並ぶと安定ソートにより「一覧の並び順が早い」
         // プロジェクトがBestになる。選択中のプロジェクトがその「たまたま先頭」だった場合に
         // 誤って無警告で通ってしまわないことを確認する。ProjectPaneの並び順は
-        // ピン留め→最終使用日時降順のため、Bを先に登録してAを後に登録すると
-        // （Aの方が新しいため）Aが先頭に来る。Aを選択した状態で検証する。
+        // ピン留め→最終適用日時降順（不具合3対応。一度も適用していないプロジェクト同士は
+        // 登録順で安定する。ProjectStore.Sort参照）のため、AとBはどちらもまだ一度も
+        // パッチを適用していない（NextRevision=1）以上、先に登録した方が先頭に来る。
+        // Aを先に登録してAを選択した状態で検証する。
         File.WriteAllText(Path.Combine(_projectADirectory, "a.py"), "x=1\n");
         File.WriteAllText(Path.Combine(_projectBDirectory, "b.py"), "x=1\n");
 
         var dialogs = new ThrowIfConfirmedDialogService();
         var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
-        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectBDirectory).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectADirectory).ConfigureAwait(true);
-        SelectProject(shell, _projectADirectory); // Aは最後に登録したため一覧の先頭に来ているはず。
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectBDirectory).ConfigureAwait(true);
+        SelectProject(shell, _projectADirectory); // Aは先に登録したため一覧の先頭に来ているはず（登録順で安定）。
         shell.Graft.ProjectPane.Items.First().Project.Root.Should().Be(_projectADirectory,
             "この回帰テストが再現するには選択中のプロジェクトが一覧の先頭に来ている必要がある");
 

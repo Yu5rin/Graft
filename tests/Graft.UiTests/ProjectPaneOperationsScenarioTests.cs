@@ -208,14 +208,18 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
     [AvaloniaFact(DisplayName = "ピン留めを切り替えると一覧の並び順・IsPinnedへ反映され、永続化される")]
     public async Task ピン留めの切替が一覧と永続化へ反映される()
     {
-        var projectA = CreateProjectDir("pin-a"); // 先に登録＝本来は後ろ（LastUsedAt降順）。
-        await Task.Delay(10);
-        var projectB = CreateProjectDir("pin-b"); // 後に登録＝本来は先頭。
+        // 不具合3対応: ピン留め無し・どちらも一度もパッチを適用していない（NextRevision=1）
+        // プロジェクト同士は、最終適用日時ではなく登録順で安定して並ぶ（ProjectStore.Sort参照）。
+        // そのため先に登録したBが既定では先頭に来る。Aを後から登録し、Aをピン留めすることで
+        // 「ピン留めが先頭へ移動させる」ことを検証する。
+        var projectA = CreateProjectDir("pin-a"); // 後に登録＝ピン留めするまでは先頭に来ない。
+        var projectB = CreateProjectDir("pin-b"); // 先に登録＝ピン留め無しの既定では先頭。
 
         var (shell, _) = await OpenShellAsync().ConfigureAwait(true);
-        await shell.Graft.ProjectPane.RegisterFolderAsync(projectA).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(projectB).ConfigureAwait(true);
-        shell.Graft.ProjectPane.Items[0].Project.Root.Should().Be(projectB, "ピン留め無しなら最終使用日時の降順のはず");
+        await shell.Graft.ProjectPane.RegisterFolderAsync(projectA).ConfigureAwait(true);
+        shell.Graft.ProjectPane.Items[0].Project.Root.Should().Be(projectB,
+            "ピン留め無し・双方未適用なら登録順（先に登録したB）が先頭のはず");
 
         var itemA = shell.Graft.ProjectPane.Items.Single(i => i.Project.Root == projectA);
         shell.Graft.ProjectPane.SelectedItem = itemA;

@@ -62,8 +62,34 @@ public sealed record Project
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
     /// <summary>ピン留め。一覧の先頭に並べる。</summary>
     public bool Pinned { get; init; }
-    /// <summary>最終使用日時。</summary>
+    /// <summary>
+    /// 最終使用日時。新規登録・場所の再結び付け（<see cref="ProjectStore.RelocateAsync"/>）の
+    /// たびに更新される「Graftでこのプロジェクトを開いた（触った）日時」。並べ替え
+    /// （<see cref="ProjectStore.Sort"/>）では、<see cref="LastAppliedAt"/> が無い（一度も
+    /// パッチを適用していない）旧形式のprojects.json由来のプロジェクトを移行救済する際の
+    /// 代用値としてのみ使う（詳しくは <see cref="LastAppliedAt"/> 参照）。
+    /// </summary>
     public DateTimeOffset LastUsedAt { get; init; }
+
+    /// <summary>
+    /// 不具合3対応（プロジェクト一覧の並び順）: パッチを最後に適用した日時。null は
+    /// 「一度もパッチを適用していない」ことを表す（プロジェクト追加直後はこの状態）。
+    /// <see cref="ProjectStore.Sort"/> は、ピン留め優先の次にこの値の降順で並べ、null（未適用）
+    /// は常に最下部へ送る。更新するのは <see cref="ProjectStore.MarkAppliedAsync"/> の1箇所のみ
+    /// （呼び出し元は「パッチの適用」「ここまで戻す」「このリビジョンを取り消す（単発復元）」の
+    /// 3箇所。判断理由はMainViewModel.Apply.cs・HistoryPaneViewModel.csのコメント参照）。
+    /// <para>
+    /// 【旧形式projects.jsonからの移行】 このフィールドが無い旧形式のJSONを読み込むと
+    /// 既定値（null）になる。そのまま「未適用」扱いにすると、既に使い込んでいた既存プロジェクトが
+    /// 軒並み最下部に落ちて利用者を驚かせてしまう。そこで <see cref="ProjectStore.Sort"/> は、
+    /// LastAppliedAt が null でも <see cref="NextRevision"/> が1より大きい（＝
+    /// <see cref="ProjectStore.ConsumeNextRevisionAsync"/> が過去に一度以上呼ばれた、つまり
+    /// このプロジェクトへの適用・ここまで戻す操作を試みたことがある）場合に限り、
+    /// 暫定的に <see cref="LastUsedAt"/> を代用値として並べ替えに使う。新規登録直後のプロジェクトは
+    /// 常に NextRevision=1 から始まるため、この代用は効かず正しく最下部に並ぶ（要件どおり）。
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? LastAppliedAt { get; init; }
     /// <summary>次に付与するリビジョン番号。</summary>
     public int NextRevision { get; init; } = 1;
     /// <summary>常設コンテキスト。仕様書3.3。</summary>
