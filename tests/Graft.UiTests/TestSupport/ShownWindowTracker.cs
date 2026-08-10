@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Avalonia.Controls;
 using Avalonia.Threading;
@@ -30,6 +31,21 @@ namespace Graft.UiTests.TestSupport;
 /// <see cref="Graft.Views.ShellWindow"/>はAvaloniaEditの<c>TextView</c>を内包するため、
 /// このヘルパで閉じ忘れを防ぐ主な対象になる。<c>SettingsWindow</c>等それ以外のウィンドウも
 /// 同じ理由（表示されたまま終わるとレイアウトが保留になりうる）でここに乗せてよい。
+///
+/// 再発防止（オーナー付きダイアログの閉じ忘れ検出）: <c>ShellWindow</c>は
+/// <c>OpenShortcutsCommand</c>等、ビューモデルのイベントを購読して自前で
+/// <c>ShowDialog(this)</c>を呼ぶ（<c>ShortcutsWindow</c>・<c>QueueWindow</c>・
+/// <c>ContextCollectWindow</c>等）。テストがそのイベントを直接発火させる、あるいは
+/// テスト側にも同じイベントへ購読を足す（多重登録）と、テストの意図に関わらず本物の
+/// ダイアログが実際に開いてしまい、テストはその参照を持たないためこのトラッカーへ
+/// <c>Track()</c>できず、閉じ忘れたまま残ることがある（実例:
+/// ShortcutsWindowTests.ツールバーのボタンで一覧が要求される 等）。この種の漏れは
+/// コードレビューで見落としやすいため、<c>Track()</c>済みウィンドウを閉じる直前に
+/// <see cref="Window.OwnedWindows"/>（<c>ShowDialog(owner)</c>で開かれ、まだ閉じられて
+/// いない子ウィンドウ）を検出し、後始末として閉じたうえで、検出したこと自体を
+/// <see cref="InvalidOperationException"/>で失敗させる。既に閉じられたダイアログは
+/// OwnedWindowsから外れるため誤検出しない。これにより「巻き添えで別テストが落ちる」
+/// のではなく、漏らした本人のテストがその場で失敗するようになる。
 /// </summary>
 public sealed class ShownWindowTracker : IDisposable
 {
@@ -59,6 +75,11 @@ public sealed class ShownWindowTracker : IDisposable
     /// 1つのウィンドウの <c>Close()</c> が例外を投げても、それ以降のウィンドウの後始末は
     /// 止めない（後始末の失敗が芋づる式に他の後始末を妨げ、フォント基盤の解放後に
     /// レイアウトが残る事態を悪化させないため）。
+    ///
+    /// 各ウィンドウを閉じる直前に<see cref="Window.OwnedWindows"/>（クラス冒頭コメント参照）を
+    /// 確認し、閉じ忘れられたオーナー付きダイアログを検出する。検出したものはベストエフォートで
+    /// 閉じたうえで、全ウィンドウの後始末とRunJobs()が終わってから例外として報告する
+    /// （後始末そのものはフォント基盤が生きているうちに必ず終える）。
     /// </summary>
     public void Dispose()
     {
@@ -71,11 +92,32 @@ public sealed class ShownWindowTracker : IDisposable
             return;
         }
 
+        var leakedOwnedWindows = new List<string>();
+
         for (var i = _windows.Count - 1; i >= 0; i--)
         {
+            var window = _windows[i];
+
+            // クラス冒頭のコメント参照: ShowDialog(this)で開かれ、テスト側からは参照を
+            // 持てないまま閉じ忘れられたダイアログをここで検出する。Close()自体が
+            // OwnedWindowsを変化させるため、閉じる前にスナップショットを取る。
+            var owned = window.OwnedWindows.ToArray();
+            foreach (var child in owned)
+            {
+                leakedOwnedWindows.Add($"{child.GetType().Name}(owner={window.GetType().Name})");
+                try
+                {
+                    child.Close();
+                }
+                catch
+                {
+                    Interlocked.Increment(ref _closeFailureCount);
+                }
+            }
+
             try
             {
-                _windows[i].Close();
+                window.Close();
             }
             catch
             {
@@ -93,5 +135,19 @@ public sealed class ShownWindowTracker : IDisposable
         // 保留分が持ち越され、フォント基盤が無い状態でレイアウトが走ってしまう
         // （クラス冒頭のコメント参照）。
         Dispatcher.UIThread.RunJobs();
+
+        if (leakedOwnedWindows.Count > 0)
+        {
+            // 後始末（Close済み・RunJobs済み）は上で終えたうえで、あえてここで失敗させる。
+            // 「巻き添えで無関係な別テストがIFontManagerImpl例外で落ちる」のではなく、
+            // 実際に漏らしたテスト自身をその場で失敗させ、原因を一目で分かるようにする
+            // （このアサーション自体は後始末が終わった後に投げるため、フォント基盤が
+            // 消えた状態でレイアウトが走る不安定要因を新たに増やすことはない）。
+            throw new InvalidOperationException(
+                "ShowDialog等で開かれたまま閉じられていないウィンドウを検出しました: "
+                + string.Join(", ", leakedOwnedWindows)
+                + "。テスト内でイベントを発火させる際、ShellWindow等が同じイベントを購読して"
+                + "本物のダイアログを開いていないか確認してください。");
+        }
     }
 }

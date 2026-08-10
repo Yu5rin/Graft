@@ -144,6 +144,7 @@ public class ShortcutsWindowTests : IDisposable
         window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
 
         requested.Should().BeTrue();
+        CloseRealShortcutsDialogIfOpened(window);
     }
 
     [AvaloniaFact(DisplayName = "テキスト入力欄・エディタにフォーカスが無い間はCtrl+/で一覧が要求される")]
@@ -157,6 +158,24 @@ public class ShortcutsWindowTests : IDisposable
         window.KeyPressQwerty(PhysicalKey.Slash, RawInputModifiers.Control);
 
         requested.Should().BeTrue("エディタ外でのCtrl+/はショートカット一覧を開く必要がある（設定を開くCtrl+,と同じ経路）");
+        CloseRealShortcutsDialogIfOpened(window);
+    }
+
+    /// <summary>
+    /// 上記2テストは<c>shell.RequestOpenShortcuts</c>を直接発火させて配線を検証するが、
+    /// このイベントは<see cref="ShellWindow"/>のコンストラクタが購読する本物のハンドラ
+    /// （<c>OnRequestOpenShortcuts</c>）も同時に呼び出し、実際に<c>ShortcutsWindow</c>を
+    /// <c>ShowDialog(this)</c>で開いてしまう。テストはその参照を持たないため、閉じないまま
+    /// 終えると閉じ忘れになる（発覚の経緯: ShownWindowTracker.Disposeの後始末検出。
+    /// TestSupport/ShownWindowTracker.cs参照）。テスト側からは参照を持てないため、
+    /// <see cref="Window.OwnedWindows"/>（ShowDialogのオーナーに残る参照）から辿って閉じる。
+    /// </summary>
+    private static void CloseRealShortcutsDialogIfOpened(Window owner)
+    {
+        foreach (var child in owner.OwnedWindows.ToArray())
+        {
+            child.Close();
+        }
     }
 
     [AvaloniaFact(DisplayName = "テキスト入力欄にフォーカス中はCtrl+/で一覧を開かない（既存のCtrl+/を横取りしない）")]

@@ -4,6 +4,7 @@ using FluentAssertions;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -18,8 +19,18 @@ namespace Graft.UiTests;
 /// 状態になる）。ここでは実際にファイルの中身を読み、打ち切りが起きた状態で「すべて置換」を
 /// 実行しても取りこぼしが無いことを検証する（画面の表示件数だけでは判断しない）。
 /// </summary>
-public class SearchReplaceAllTests
+public class SearchReplaceAllTests : IDisposable
 {
+    // 各テストがSearchViewを載せたWindowをShow()するが、以前はどれもClose()もShownWindowTracker
+    // への登録もしないまま終わっていた（閉じ忘れの実例）。他のシナリオテストと同じ後始末に揃える。
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     /// <summary>非同期コマンドを実行し、完了するまで待つ（tests/Graft.UiTests/ScenarioTests.csと同じ手法）。</summary>
     private static async Task ExecuteAsync(System.Windows.Input.ICommand command)
     {
@@ -88,7 +99,7 @@ public class SearchReplaceAllTests
             vm.SetContext(new Project { Id = "p", Name = "p", Root = root }, new Settings());
 
             var view = new SearchView { DataContext = vm };
-            var window = new Window { Width = 900, Height = 700, Content = view };
+            var window = _windows.Track(new Window { Width = 900, Height = 700, Content = view });
             window.Show();
 
             await ExecuteAsync(vm.SearchCommand).ConfigureAwait(true);
@@ -141,7 +152,7 @@ public class SearchReplaceAllTests
             vm.SetContext(new Project { Id = "p", Name = "p", Root = root }, new Settings());
 
             var view = new SearchView { DataContext = vm };
-            var window = new Window { Width = 900, Height = 700, Content = view };
+            var window = _windows.Track(new Window { Width = 900, Height = 700, Content = view });
             window.Show();
 
             await ExecuteAsync(vm.SearchCommand).ConfigureAwait(true);
@@ -195,7 +206,7 @@ public class SearchReplaceAllTests
             vm.SetContext(new Project { Id = "p", Name = "p", Root = root }, new Settings());
 
             var view = new SearchView { DataContext = vm };
-            var window = new Window { Width = 900, Height = 700, Content = view };
+            var window = _windows.Track(new Window { Width = 900, Height = 700, Content = view });
             window.Show();
 
             await ExecuteAsync(vm.SearchCommand).ConfigureAwait(true);
@@ -238,7 +249,7 @@ public class SearchReplaceAllTests
             vm.SetContext(new Project { Id = "p", Name = "p", Root = root }, new Settings());
 
             var view = new SearchView { DataContext = vm };
-            var window = new Window { Width = 900, Height = 700, Content = view };
+            var window = _windows.Track(new Window { Width = 900, Height = 700, Content = view });
             window.Show();
 
             await ExecuteAsync(vm.SearchCommand).ConfigureAwait(true);

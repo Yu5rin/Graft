@@ -7,6 +7,7 @@ using FluentAssertions;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -25,8 +26,19 @@ namespace Graft.UiTests;
 /// ホバーさせても非表示のままになることを確認済み）。既定値もStyleセレクタ側
 /// （<c>Button.tabClose</c>）に揃えることで両方を直した。
 /// </summary>
-public class TabCloseButtonVisibilityTests
+public class TabCloseButtonVisibilityTests : IDisposable
 {
+    // BuildTwoTabWindowAsyncが載せるEditorPaneはAvaloniaEditのTextView(タブごとの
+    // TextEditor)を内包する。以前はここで開いたWindowをClose()もShownWindowTrackerへの
+    // 登録もしないまま終わっていた（閉じ忘れの実例）。他のシナリオテストと同じ後始末に揃える。
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "不具合3: 選択中のタブは、ホバーしていなくても閉じるボタンが常時表示される")]
     public async Task 選択中タブの閉じるボタンは常時表示される()
     {
@@ -71,7 +83,7 @@ public class TabCloseButtonVisibilityTests
         }
     }
 
-    private static async Task<(Window Window, Button Selected, Button Unselected)> BuildTwoTabWindowAsync(string dir)
+    private async Task<(Window Window, Button Selected, Button Unselected)> BuildTwoTabWindowAsync(string dir)
     {
         var aPath = Path.Combine(dir, "a.txt");
         var bPath = Path.Combine(dir, "b.txt");
@@ -86,7 +98,7 @@ public class TabCloseButtonVisibilityTests
         vm.ActiveTab!.Session.FullPath.Should().Be(bPath);
 
         var pane = new EditorPane { DataContext = vm };
-        var window = new Window { Width = 800, Height = 600, Content = pane };
+        var window = _windows.Track(new Window { Width = 800, Height = 600, Content = pane });
         window.Show();
         window.CaptureRenderedFrame().Should().NotBeNull();
 
