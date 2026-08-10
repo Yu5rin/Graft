@@ -42,6 +42,13 @@
                       AutomationProperties.Name="空白文字を可視化する"
                       views:HelpTip.Standard="差分表示で、タブや行末の空白を記号で見えるようにします。既定はオフです。"
                       views:HelpTip.Detailed="適用前プレビューなどの差分表示で、タブ文字や行末の余分な空白を記号として可視化するかどうかです。既定はオフです（エディタ側の可視化は「エディタ」タブで別途設定します）。空白だけの変更差分に気付きやすくなります。" />
+            <!-- 機能改善: 差分の左右並列表示。差分表示ヘッダーの「並列」「統合」ボタンで
+                 切り替えるたびここにも即座に反映される（DiffViewModel.SideBySideChangeCommitted
+                 参照）。逆にここで切り替えると、開いている全ての差分表示へ即座に反映される。 -->
+            <CheckBox Classes="settingRow" Content="差分表示を左右並列にする" IsChecked="{Binding SideBySide}"
+                      AutomationProperties.Name="差分表示を左右並列にする"
+                      views:HelpTip.Standard="変更前と変更後を左右に並べて表示します。オフにすると上下の統合表示になります。既定はオンです。"
+                      views:HelpTip.Detailed="差分表示の既定の見せ方を選びます。オン（既定）では変更前のコードを左、変更後のコードを右に並べて表示し、対応する行が横に揃います。オフでは削除された行と追加された行を1つの流れの中に上下に並べて表示する統合表示になります。差分表示のヘッダーにある「並列」「統合」ボタンで、開いている画面ごとに一時的に切り替えることもでき、その選択はここへも自動的に反映されます。" />
 
             <TextBlock Text="コンテキスト収集" Classes="sectionHeading" />
             <CheckBox Classes="settingRow" Content=".gitignoreを尊重する" IsChecked="{Binding RespectGitignore}"

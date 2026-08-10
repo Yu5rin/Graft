@@ -107,6 +107,12 @@ public sealed class HistoryDiffViewModel : ObservableObject
     public event EventHandler<double>? FontSizeChangeCommitted;
 
     /// <summary>
+    /// 機能改善: 各ファイルのdiff表示での並列／統合表示の切り替え確定をまとめて中継する
+    /// （FontSizeChangeCommittedと同じ考え方）。
+    /// </summary>
+    public event EventHandler<bool>? SideBySideChangeCommitted;
+
+    /// <summary>
     /// 履歴のリビジョン選択（MainViewModel.OnRevisionSelected）から呼ぶ。既存のFilesを破棄し、
     /// 渡されたplans（HistoryPaneViewModel.BuildDiffPlansAsyncの結果）で作り直す。
     /// </summary>
@@ -125,6 +131,7 @@ public sealed class HistoryDiffViewModel : ObservableObject
             var file = new HistoryDiffFileViewModel(plan, _settings, _ui);
             file.Diff.JumpRequested += OnFileJumpRequested;
             file.Diff.FontSizeChangeCommitted += OnFileFontSizeChangeCommitted;
+            file.Diff.SideBySideChangeCommitted += OnFileSideBySideChangeCommitted;
             Files.Add(file);
         }
         OnPropertyChanged(nameof(HasFiles));
@@ -145,6 +152,7 @@ public sealed class HistoryDiffViewModel : ObservableObject
         {
             file.Diff.JumpRequested -= OnFileJumpRequested;
             file.Diff.FontSizeChangeCommitted -= OnFileFontSizeChangeCommitted;
+            file.Diff.SideBySideChangeCommitted -= OnFileSideBySideChangeCommitted;
         }
         Files.Clear();
     }
@@ -165,4 +173,6 @@ public sealed class HistoryDiffViewModel : ObservableObject
     private void OnFileJumpRequested(object? sender, (string RelativePath, int Line) e) => JumpRequested?.Invoke(this, e);
 
     private void OnFileFontSizeChangeCommitted(object? sender, double size) => FontSizeChangeCommitted?.Invoke(this, size);
+
+    private void OnFileSideBySideChangeCommitted(object? sender, bool value) => SideBySideChangeCommitted?.Invoke(this, value);
 }

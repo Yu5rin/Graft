@@ -193,6 +193,9 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 機能改善: エディタ・差分表示でのCtrl+マウスホイールでの確定を、常駐の
         // SettingsViewModelへ橋渡しする（SettingsViewModel.SetEditorFontSizeLiveのコメント参照）。
         shellViewModel.EditorFontSizeChangeRequested += (_, size) => _settingsViewModel!.SetEditorFontSizeLive(size);
+        // 機能改善（差分の左右並列表示）: diff表示ヘッダーでの並列／統合表示の切り替えを、
+        // 同じ経路で常駐のSettingsViewModelへ橋渡しする（SettingsViewModel.SetSideBySideLive参照）。
+        shellViewModel.DiffSideBySideChangeRequested += (_, v) => _settingsViewModel!.SetSideBySideLive(v);
 
         // 課題3: Git自動コミットの失敗理由をlogs/<日付>.logへ記録できるよう、window.Loggerと
         // 同じ流儀（生成後に設定するnullableプロパティ）でロガーを渡す。

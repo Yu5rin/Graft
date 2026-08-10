@@ -356,6 +356,13 @@
                                         x:Name="QuickOpenOverlayControl"
                                         DataContext="{Binding QuickOpen}" />
 
+                <!-- コマンドパレット（Ctrl+Shift+P、機能改善）。クイックオープンと同じ配置。
+                     ShellViewModelが2つのオーバーレイを同時に開かないよう調停する
+                     （ShellViewModel.CommandPalette.cs参照）ため、ここでは単純に重ねるだけでよい。 -->
+                <views:CommandPaletteOverlay Grid.Row="0" Grid.Column="0"
+                                             x:Name="CommandPaletteOverlayControl"
+                                             DataContext="{Binding CommandPalette}" />
+
                 <!-- 下配置用（水平スプリッタ）。右配置中はShellWindow.axaml.csがIsVisible=Falseにする。 -->
                 <GridSplitter x:Name="GraftSplitter"
                               Grid.Row="1" Grid.Column="0"
