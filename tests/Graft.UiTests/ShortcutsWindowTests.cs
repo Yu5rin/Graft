@@ -123,9 +123,9 @@ public class ShortcutsWindowTests : IDisposable
     }
 
     [AvaloniaFact(DisplayName = "ツールバーの「?」ボタンでショートカット一覧が要求される")]
-    public async Task ツールバーのボタンで一覧が要求される()
+    public void ツールバーのボタンで一覧が要求される()
     {
-        var (shell, window) = await OpenShellAsync().ConfigureAwait(true);
+        var (shell, window) = OpenShellAsync();
 
         var requested = false;
         shell.RequestOpenShortcuts += (_, _) => requested = true;
@@ -145,9 +145,9 @@ public class ShortcutsWindowTests : IDisposable
     }
 
     [AvaloniaFact(DisplayName = "テキスト入力欄・エディタにフォーカスが無い間はCtrl+/で一覧が要求される")]
-    public async Task フォーカスが無い間はCtrlスラッシュで一覧が要求される()
+    public void フォーカスが無い間はCtrlスラッシュで一覧が要求される()
     {
-        var (shell, window) = await OpenShellAsync().ConfigureAwait(true);
+        var (shell, window) = OpenShellAsync();
 
         var requested = false;
         shell.RequestOpenShortcuts += (_, _) => requested = true;
@@ -161,7 +161,7 @@ public class ShortcutsWindowTests : IDisposable
     public async Task テキスト入力中はCtrlスラッシュで一覧を開かない()
     {
         await WriteProjectFilesAsync().ConfigureAwait(true);
-        var (shell, window) = await OpenShellAsync().ConfigureAwait(true);
+        var (shell, window) = OpenShellAsync();
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         // クイックオープン（Ctrl+P）を開くと検索欄（標準のTextBox）へフォーカスが移る
@@ -193,7 +193,12 @@ public class ShortcutsWindowTests : IDisposable
         }
     }
 
-    private async Task<(ShellViewModel Shell, ShellWindow Window)> OpenShellAsync()
+    // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を呼ぶ。
+    // ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの読み直しが
+    // 競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での失敗を確認した
+    // 事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+    // ShellWindowLoadWaiterで待つ（非同期I/Oを行わなくなったため戻り値もTaskではなくなった）。
+    private (ShellViewModel Shell, ShellWindow Window) OpenShellAsync()
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -212,7 +217,7 @@ public class ShortcutsWindowTests : IDisposable
 
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
         return (shell, window);
     }
 }

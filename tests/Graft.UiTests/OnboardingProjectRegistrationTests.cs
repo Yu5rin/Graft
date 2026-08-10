@@ -60,7 +60,12 @@ public class OnboardingProjectRegistrationTests : IDisposable
         var shell = BuildShell();
         var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(shellWindow);
 
         var projectDirectory = Path.Combine(_baseDirectory, "MyProject");
         Directory.CreateDirectory(projectDirectory);
@@ -99,7 +104,12 @@ public class OnboardingProjectRegistrationTests : IDisposable
         var shell = BuildShell();
         var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(shellWindow);
 
         var dialogs = new FixedFolderDialogService(folder: null);
         var onboarding = _windows.Track(new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs));
@@ -120,7 +130,12 @@ public class OnboardingProjectRegistrationTests : IDisposable
         var shell = BuildShell();
         var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(shellWindow);
 
         var dialogs = new FixedFolderDialogService(folder: null);
         var onboarding = _windows.Track(new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs));
@@ -148,7 +163,12 @@ public class OnboardingProjectRegistrationTests : IDisposable
         var shell = BuildShell();
         var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(shellWindow);
 
         var projectDirectory = Path.Combine(_baseDirectory, "MyProject");
         Directory.CreateDirectory(projectDirectory);

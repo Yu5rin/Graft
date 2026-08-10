@@ -369,7 +369,13 @@ public class DeleteUndoTests : IDisposable
 
     private Task<(ShellViewModel Shell, ShellWindow Window)> OpenShellAsync() => OpenShellAsync(new AppPaths(_appDirectory));
 
-    private async Task<(ShellViewModel Shell, ShellWindow Window)> OpenShellAsync(AppPaths appPaths)
+    // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を呼ぶ。
+    // ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの読み直しが
+    // 競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での失敗を確認した
+    // 事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+    // ShellWindowLoadWaiterで待つ（非同期I/Oを行わなくなったため、呼び出し側を変えずに
+    // 済むようasyncを外しTask.FromResultで包む）。
+    private Task<(ShellViewModel Shell, ShellWindow Window)> OpenShellAsync(AppPaths appPaths)
     {
         appPaths.EnsureCoreDirectoriesExist();
 
@@ -387,8 +393,8 @@ public class DeleteUndoTests : IDisposable
 
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
-        return (shell, window);
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
+        return Task.FromResult<(ShellViewModel, ShellWindow)>((shell, window));
     }
 
     /// <summary>削除確認等をすべて許諾するダイアログ。ファイル選択系は使わないためnullを返す。</summary>

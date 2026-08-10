@@ -103,7 +103,12 @@ public class DataDirectoryWritabilityTests : IDisposable
             dialogs, ui, openSettings: () => { });
         var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         var longLinePath = Path.Combine(_baseDirectory, "LongLine.cs");
         await File.WriteAllTextAsync(longLinePath, "class L { /* " + new string('x', 100_000) + " */ }\n");
