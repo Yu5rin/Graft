@@ -81,7 +81,9 @@ public class SettingsStoreTests
         var s = (await store.LoadAsync()).Value.Editor;
 
         s.FontSize.Should().Be(13);
-        s.WordWrap.Should().BeFalse();
+        // 課題3（再設計）: 「エディタとして致命的」という指摘を受け、既定値をfalse→trueへ変更した
+        // （長い行を含むファイルでも利用者の設定に強制的に逆らわない。Settings.csのコメント参照）。
+        s.WordWrap.Should().BeTrue();
         s.ShowWhitespace.Should().BeFalse();
         s.ShowLineNumbers.Should().BeTrue();
         s.HighlightCurrentLine.Should().BeTrue();
