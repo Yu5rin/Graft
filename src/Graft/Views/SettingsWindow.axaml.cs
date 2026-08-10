@@ -30,6 +30,14 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
+        // 細かいユーザビリティ改善5: 開いた直後の初期フォーカスを最初のカテゴリタブへ当てる
+        // （即時反映方式のため単一の既定ボタンが無く、入力欄も一意に決まらないため。
+        // タブへフォーカスすれば矢印キーでカテゴリを移動できる）。TabControl自体は既定で
+        // Focusable=falseのため、選択中のTabItem（GeneralTabItem）を対象にする。
+        // headlessテスト・デザイナ用のこのコンストラクタでも効くよう、DataContextを必要としない
+        // ここに置く（DataContextを持つコンストラクタ側にだけ置くと、テストで既定コンストラクタを
+        // 直接使った場合にフォーカスが当たらなくなる）。
+        Loaded += (_, _) => GeneralTabItem.Focus();
     }
 
     public SettingsWindow(SettingsViewModel viewModel) : this()

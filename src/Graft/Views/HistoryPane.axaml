@@ -228,11 +228,17 @@
                                         Background="{DynamicResource BgHover}">
                                     <TextBlock Text="{Binding TypeText}" FontSize="{DynamicResource CaptionFontSize}" />
                                 </Border>
+                                <!--
+                                    細かいユーザビリティ改善3: 「3分前」「昨日」のような相対表現を
+                                    主表示にし、正確な日時（yyyy-MM-dd HH:mm）はホバーのツールチップで
+                                    確認できるようにする（RevisionRowViewModel.RelativeAppliedAtText参照）。
+                                -->
                                 <TextBlock Grid.Column="2"
-                                           Text="{Binding AppliedAtText}"
+                                           Text="{Binding RelativeAppliedAtText}"
                                            HorizontalAlignment="Right"
                                            FontSize="{DynamicResource CaptionFontSize}"
-                                           Foreground="{DynamicResource TextSecondary}" />
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           ToolTip.Tip="{Binding AppliedAtText}" />
                             </Grid>
                             <TextBlock Text="{Binding SummaryText}"
                                        FontSize="{DynamicResource CaptionFontSize}"

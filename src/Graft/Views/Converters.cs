@@ -180,8 +180,19 @@ public static class Converters
         });
 
     /// <summary>
-    /// ノードの除外状態と「除外ファイルを表示」トグルから表示可否を決める
-    /// （4.2「除外中のノードはグレー表示」「除外ファイルを表示トグル」）。
+    /// ノードの除外状態・「除外ファイルを表示」トグルから表示可否を決める（4.2「除外中のノードは
+    /// グレー表示」「除外ファイルを表示トグル」）。
+    /// <para>
+    /// 細かいユーザビリティ改善4（ファイル名絞り込み）は、当初ここに3つ目の値
+    /// （FileNodeViewModel.IsFilterVisible）を足して同じ仕組みで非表示にする設計だったが、
+    /// 実機Xvfb環境で「展開済みフォルダの子の一部だけをIsVisible=falseにしても描画が
+    /// 更新されずに残る」不具合が確認された（VirtualizingStackPanel配下で、既に実体化済みの
+    /// 兄弟項目のうち一部だけをIsVisible=falseへ切り替えるケースに特有の描画上の問題と見られる。
+    /// ヘッドレスの自動テストではウィンドウを描画しないため再現しなかった）。そのため絞り込みは
+    /// このIsVisible経由の見た目だけの非表示ではなく、ExplorerViewModel側でツリーに載せる
+    /// ノード自体を絞り込む方式（一致しない項目はChildren/RootNodesに最初から加えない）へ
+    /// 変更した。詳しくはExplorerViewModel.ApplyFilterToLevelのコメント参照。
+    /// </para>
     /// </summary>
     public static readonly IMultiValueConverter ExcludedNodeVisible =
         new FuncMultiValueConverter<bool, bool>(values =>

@@ -377,6 +377,8 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // コピーしても消える経路が無かった。NonPatchTextChanged（本タスクで追加）を購読し、
         // ShellViewModel.ClearClipboardPatchNoticeへ橋渡しする。
         _platform.Clipboard.NonPatchTextChanged += (_, _) => _shellViewModel?.ClearClipboardPatchNotice();
+        // 細かいユーザビリティ改善2: ステータスバーのインジケータクリックによる一時停止／再開。
+        if (_shellViewModel is not null) _shellViewModel.ClipboardWatchPauseToggleRequested += OnClipboardWatchPauseToggleRequested;
 
         // 10件目の不具合修正: 実際の登録処理はStartupCoordinator.Hotkey.csへ切り出した
         // （設定画面での変更を再起動なしで反映する再登録処理と、登録ロジックを共有するため）。
@@ -412,6 +414,27 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         else _platform.Clipboard.Stop();
 
         _shellViewModel?.SetClipboardWatchActive(_platform.Clipboard.IsEnabled);
+    }
+
+    /// <summary>
+    /// 細かいユーザビリティ改善2: ステータスバーの「クリップボード監視中」表示をクリックしたときの
+    /// 一時停止・再開。<see cref="ToggleClipboardWatch"/>（設定・トレイ経由、Settings.ClipboardWatch.
+    /// Enabledの保存を伴う）とはあえて別経路にしている。ここでは<c>_settings</c>を一切書き換えず
+    /// （<see cref="ShellViewModel.ClipboardWatch.IsClipboardWatchPaused"/>のコメント参照）、実際に
+    /// <c>IClipboardMonitor.Stop/Start</c>だけを呼ぶ。パスワードをコピーする間だけ止めたい、という
+    /// ような一時的な用途を想定しており、アプリを再起動すれば設定どおりの状態に戻る。
+    ///
+    /// 再開（<paramref name="pause"/>がfalse）でStart()が失敗した場合（環境側の制約等、起動時と
+    /// 同じ理由で稀に起こりうる）は、<c>_platform.Clipboard.IsEnabled</c>がfalseのままになるため、
+    /// 一時停止表示を維持し（!IsEnabledをそのまま渡す）利用者が再度クリックして再試行できるように
+    /// している。
+    /// </summary>
+    private void OnClipboardWatchPauseToggleRequested(object? sender, bool pause)
+    {
+        if (pause) _platform.Clipboard.Stop();
+        else _platform.Clipboard.Start();
+
+        _shellViewModel?.SetClipboardWatchPaused(!_platform.Clipboard.IsEnabled);
     }
 
     /// <summary>トレイメニューからのクリップボード監視ON/OFF。設定にも反映して次回起動へ引き継ぐ。</summary>

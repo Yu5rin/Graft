@@ -51,6 +51,13 @@
             <Setter Property="Padding" Value="2,3" />
             <Setter Property="IsVisible">
                 <Setter.Value>
+                    <!--
+                        細かいユーザビリティ改善4（ファイル名絞り込み）は、ここへIsVisibleの
+                        3値目を足す方式ではなく、ExplorerViewModel側でツリーに載せるノード自体を
+                        絞り込む方式にしている（実機Xvfb環境で確認した描画上の問題を避けるため。
+                        経緯はConverters.ExcludedNodeVisibleのコメント参照）。そのためここは
+                        除外表示関連の2値のみで、絞り込み未使用時と同じ判定のままでよい。
+                    -->
                     <MultiBinding Converter="{x:Static local:Converters.ExcludedNodeVisible}">
                         <Binding Path="IsExcluded" />
                         <Binding Path="DataContext.ShowExcludedFiles" ElementName="Root" />
@@ -60,7 +67,7 @@
         </ControlTheme>
     </UserControl.Resources>
 
-    <Grid RowDefinitions="2,Auto,Auto,*">
+    <Grid RowDefinitions="2,Auto,Auto,Auto,Auto,*">
 
         <!-- 9.2: 読み込み中はアクセント色の細い不確定プログレスバーを上端に。 -->
         <ProgressBar Grid.Row="0" IsIndeterminate="True" Height="2" BorderThickness="0"
@@ -103,7 +110,50 @@
                   local:HelpTip.Standard="node_modulesなど、通常は隠しているファイル・フォルダも一覧に表示します。既定はオフです。"
                   local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイル」画面）には影響しません。既定はオフです。" />
 
-        <Grid Grid.Row="3">
+        <!--
+            細かいユーザビリティ改善4: ファイル名絞り込み。Ctrl+Pのクイックオープン（「開く」ため）
+            とは別物で、こちらはツリー上の表示そのものを絞り込む（ExplorerViewModel.FilterText参照）。
+            HistoryPane.axamlの全文検索ボックス（アイコン+TextBox）と同じ見た目に揃え、
+            入力があるときだけ「×」で解除できるボタンを添える。
+        -->
+        <Grid Grid.Row="3" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto">
+            <local:IconGlyph Grid.Column="0"
+                             Data="{DynamicResource IconSearchGeometry}"
+                             Width="14" Height="14"
+                             Margin="4,0,4,0"
+                             Stroke="{DynamicResource TextSecondary}" />
+            <TextBox x:Name="FilterBox"
+                     Grid.Column="1"
+                     Text="{Binding FilterText}"
+                     Watermark="ファイル名で絞り込み"
+                     AutomationProperties.Name="ファイル名でツリーを絞り込む"
+                     local:HelpTip.Standard="入力した文字を名前に含むファイルだけをツリーに表示します。一致したファイルの親フォルダは自動的に展開されます。"
+                     local:HelpTip.Detailed="ツリー上のファイルを、名前に入力した文字を含むものだけへ絞り込みます。Ctrl+Pのクイックオープンは「ファイルを開く」ための一覧ですが、こちらは「ツリーで眺める」ための絞り込みで、選んでも何も開きません。一致したファイルの親フォルダは自動的に展開され、絞り込みを空にすると元の展開状態へ戻ります。大きなプロジェクトでも入力のたびに固まらないよう、入力を少し待ってから検索します。" />
+            <Button Grid.Column="2"
+                    Content="×"
+                    Command="{Binding ClearFilterCommand}"
+                    Padding="6,0"
+                    Margin="4,0,0,0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsVisible="{Binding HasFilterText}"
+                    AutomationProperties.Name="絞り込みを解除"
+                    ToolTip.Tip="絞り込みを解除します" />
+        </Grid>
+
+        <!-- 一致0件・一部のみ表示（上限到達）の注記。 -->
+        <TextBlock Grid.Row="4" Margin="30,0,8,4"
+                   Text="一致するファイルがありません"
+                   FontSize="{DynamicResource CaptionFontSize}"
+                   Foreground="{DynamicResource TextSecondary}"
+                   IsVisible="{Binding FilterHasNoMatches}" />
+        <TextBlock Grid.Row="4" Margin="30,0,8,4"
+                   Text="一致件数が多いため一部のみ表示しています"
+                   FontSize="{DynamicResource CaptionFontSize}"
+                   Foreground="{DynamicResource TextSecondary}"
+                   IsVisible="{Binding FilterTruncated}" />
+
+        <Grid Grid.Row="5">
             <!--
                 課題2: Focusable="True"を明示する（既定はItemsControl由来でFalse）。削除・削除の
                 取り消し直後はツリーの再構築（ExplorerViewModel.ReconcileDirectoryAsync/

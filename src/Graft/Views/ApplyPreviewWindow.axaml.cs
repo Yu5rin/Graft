@@ -23,6 +23,8 @@ public partial class ApplyPreviewWindow : Window
     {
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        // 細かいユーザビリティ改善5: 入力欄が無いウィンドウのため、初期フォーカスは既定ボタンへ。
+        Loaded += (_, _) => ApplyConfirmButton.Focus();
     }
 
     public ApplyPreviewWindow(ApplyPreviewViewModel viewModel) : this()

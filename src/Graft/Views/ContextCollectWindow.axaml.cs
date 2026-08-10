@@ -16,6 +16,11 @@ public partial class ContextCollectWindow : Window
     {
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        // 細かいユーザビリティ改善5: 開いた直後の初期フォーカスを最初の操作対象（収集モード）へ当てる。
+        // headlessテスト・デザイナ用のこのコンストラクタでも効くよう、DataContextを必要としない
+        // ここに置く（DataContextを持つコンストラクタ側にだけ置くと、テストで既定コンストラクタを
+        // 直接使った場合にフォーカスが当たらなくなる）。
+        Loaded += (_, _) => ModeComboBox.Focus();
     }
 
     public ContextCollectWindow(ContextCollectViewModel viewModel) : this()

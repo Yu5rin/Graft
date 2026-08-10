@@ -58,7 +58,13 @@
                     AutomationProperties.Name="ログの内容をコピー"
                     local:HelpTip.Standard="表示している内容をすべてクリップボードへコピーします。"
                     local:HelpTip.Detailed="上のテキストの全文をクリップボードへコピーします。ファイル内でマウスで範囲選択して部分的にコピーすることもできます。不具合報告に貼り付けるときに使ってください。" />
-            <Button Content="閉じる" Click="OnCloseClicked" AutomationProperties.Name="閉じる"
+            <!--
+                細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 「閉じる」をEnterでも
+                実行できる既定ボタンにし、開いた直後の初期フォーカスもここへ当てる（上のログ内容は
+                読み取り専用の閲覧用でありユーザーが入力する欄ではないため。LogViewerWindow.axaml.cs参照）。
+            -->
+            <Button x:Name="CloseButton" Content="閉じる" Click="OnCloseClicked" IsDefault="True"
+                    AutomationProperties.Name="閉じる"
                     local:HelpTip.Standard="このウィンドウを閉じます。"
                     local:HelpTip.Detailed="ログの表示ウィンドウを閉じます。Escapeキーでも閉じられます。" />
         </StackPanel>

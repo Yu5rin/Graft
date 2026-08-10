@@ -44,9 +44,19 @@ public enum HistoryDatePreset
 /// </summary>
 public sealed class RevisionRowViewModel
 {
-    public RevisionRowViewModel(RevisionSummary revision)
+    private readonly Func<DateTimeOffset> _now;
+
+    /// <summary>
+    /// 細かいユーザビリティ改善3: <paramref name="now"/>は「現在時刻」を注入可能にするための
+    /// 引数（既定はDateTimeOffset.Now）。<see cref="RelativeAppliedAtText"/>は呼ぶたびに
+    /// <paramref name="now"/>と<see cref="Revision"/>のAppliedAtの差から再計算するため、
+    /// 壁時計を直接参照せずテストできる（HistoryPaneViewModel._nowと同じ理由・同じ流儀。
+    /// RelativeTimeFormatterTests.cs参照）。
+    /// </summary>
+    public RevisionRowViewModel(RevisionSummary revision, Func<DateTimeOffset>? now = null)
     {
         Revision = revision ?? throw new ArgumentNullException(nameof(revision));
+        _now = now ?? (() => DateTimeOffset.Now);
     }
 
     public RevisionSummary Revision { get; }
@@ -54,6 +64,13 @@ public sealed class RevisionRowViewModel
     public string RevisionLabel => $"r{Revision.Manifest.Revision}";
 
     public string AppliedAtText => Revision.Manifest.AppliedAt.LocalDateTime.ToString("yyyy-MM-dd HH:mm");
+
+    /// <summary>
+    /// 細かいユーザビリティ改善3: 「3分前」「昨日」といった相対表現。一覧では読み取りやすさを
+    /// 優先してこちらを主表示にし、正確な日時（<see cref="AppliedAtText"/>）はホバー
+    /// （ToolTip.Tip、HistoryPane.axaml参照）で確認できるようにする。
+    /// </summary>
+    public string RelativeAppliedAtText => RelativeTimeFormatter.Format(Revision.Manifest.AppliedAt, _now());
 
     public string TypeText => string.IsNullOrWhiteSpace(Revision.Manifest.Type) ? "-" : Revision.Manifest.Type!;
 
@@ -883,7 +900,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         Items.Clear();
         foreach (var revision in filtered)
         {
-            Items.Add(new RevisionRowViewModel(revision));
+            Items.Add(new RevisionRowViewModel(revision, _now));
         }
 
         State = _allRevisions.Count == 0 ? HistoryPaneState.Empty

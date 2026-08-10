@@ -54,10 +54,16 @@
             </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <TabControl Grid.Row="2" Margin="16,12,16,12" TabStripPlacement="Left"
+        <!--
+            細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 即時反映方式のため単一の
+            「OK」に相当する既定ボタンは持たない（下部の「既定に戻す」は破壊的操作のため
+            意図的にIsDefaultを与えていない。上のコメント参照）。開いた直後の初期フォーカスは、
+            最初に操作するであろうカテゴリタブへ当てる（SettingsWindow.axaml.cs参照）。
+        -->
+        <TabControl x:Name="CategoryTabControl" Grid.Row="2" Margin="16,12,16,12" TabStripPlacement="Left"
                     Background="Transparent" BorderThickness="0">
 
-            <TabItem Header="一般" AutomationProperties.Name="一般設定タブ"
+            <TabItem x:Name="GeneralTabItem" Header="一般" AutomationProperties.Name="一般設定タブ"
                      local:HelpTip.Standard="テーマ・適用モード・バックアップなど、アプリ全体に関わる基本設定です。"
                      local:HelpTip.Detailed="見た目のテーマ、パッチ適用の厳しさ、バックアップの保持数、Git連携、設定のエクスポート／インポートなど、他のタブに含まれない全般的な設定をまとめています。迷ったらまずここを確認してください。">
                 <settings:GeneralSettingsView />

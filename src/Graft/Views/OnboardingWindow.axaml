@@ -32,12 +32,27 @@
             <TextBlock Text="プロジェクトを登録" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
             <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,16"
                        Text="変更を適用したいプロジェクトのフォルダを登録します。あとから設定画面でいつでも追加・変更できます。" />
-            <Button Content="フォルダを選択して登録" Click="OnRegisterProjectClicked" HorizontalAlignment="Left"
-                    AutomationProperties.Name="フォルダを選択してプロジェクトを登録"
-                    views:HelpTip.Standard="AIに変更してもらいたいプロジェクトのフォルダを選んで、Graftに登録します。"
-                    views:HelpTip.Detailed="フォルダ選択ダイアログが開くので、これから変更を適用したいプロジェクトのルートフォルダ（例: 普段VS Codeなどで開いているフォルダ）を選んでください。選ぶとGraftのプロジェクト一覧に登録され、以降そのフォルダの中のファイルをエディタで開いたり、パッチを適用したりできるようになります。フォルダの中身自体は変更されません。あとから設定画面や画面左のプロジェクト一覧からも追加・変更できます。" />
+            <StackPanel Orientation="Horizontal">
+                <Button Content="フォルダを選択して登録" Click="OnRegisterProjectClicked"
+                        AutomationProperties.Name="フォルダを選択してプロジェクトを登録"
+                        views:HelpTip.Standard="AIに変更してもらいたいプロジェクトのフォルダを選んで、Graftに登録します。"
+                        views:HelpTip.Detailed="フォルダ選択ダイアログが開くので、これから変更を適用したいプロジェクトのルートフォルダ（例: 普段VS Codeなどで開いているフォルダ）を選んでください。選ぶとGraftのプロジェクト一覧に登録され、以降そのフォルダの中のファイルをエディタで開いたり、パッチを適用したりできるようになります。フォルダの中身自体は変更されません。あとから設定画面や画面左のプロジェクト一覧からも追加・変更できます。" />
+                <!--
+                    細かいユーザビリティ改善6: 実データを一切触らずに「登録→貼り付け→適用→
+                    履歴確認」を1回体験できるボタン。生成先は一時フォルダ（OnboardingSample.cs参照）。
+                -->
+                <Button Content="サンプルで試す" Click="OnTryOnboardingSampleClicked" Margin="8,0,0,0"
+                        AutomationProperties.Name="サンプルプロジェクトで接ぎ木を体験する"
+                        views:HelpTip.Standard="自分のフォルダを使わず、Graftが用意した練習用のサンプルで一連の流れを体験できます。"
+                        views:HelpTip.Detailed="一時フォルダ（OSの一時ファイル置き場、利用者のドキュメント等は汚しません）へ、サンプルのPythonファイル1件と、それを直すためのサンプルパッチを生成します。生成と同時にサンプルをGraftのプロジェクト一覧へ登録し、サンプルパッチをクリップボードへコピーします。あとはツールバーの「解析」→内容確認→「適用」の順に押すだけで、実際のファイルが書き換わり、履歴タブにも記録される様子を体験できます。自分のプロジェクトには一切触れません。体験が済んだら「サンプルを削除」でいつでも片付けられます（消さなくても一時フォルダなのでOSが最終的に片付けます）。" />
+            </StackPanel>
             <TextBlock x:Name="ProjectResultText" Margin="0,12,0,0" TextWrapping="Wrap"
                        Foreground="{DynamicResource TextSecondary}" />
+            <Button x:Name="DeleteSampleButton" Content="サンプルを削除" Click="OnDeleteSampleClicked"
+                    Margin="0,8,0,0" HorizontalAlignment="Left" IsVisible="False"
+                    AutomationProperties.Name="生成したサンプルを削除"
+                    views:HelpTip.Standard="「サンプルで試す」で生成した一時プロジェクトを、プロジェクト一覧・ディスクの両方から削除します。"
+                    views:HelpTip.Detailed="「サンプルで試す」で作った練習用のプロジェクトを、Graftのプロジェクト一覧と一時フォルダの両方から削除します。体験を終えて不要になったときに押してください。押さずに終了しても、一時フォルダに置かれたままなのでOSが最終的に片付けます（自分のドキュメント等は最初から一切触れていません）。" />
         </StackPanel>
 
         <!-- 画面3: プロンプトテンプレートのコピー -->

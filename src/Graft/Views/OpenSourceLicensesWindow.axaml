@@ -82,7 +82,12 @@
                        TextWrapping="Wrap"
                        Margin="0,0,0,12"
                        AutomationProperties.Name="対象外のパッケージについての注記" />
-            <Button Content="閉じる" Click="OnCloseClicked" HorizontalAlignment="Right"
+            <!--
+                細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 唯一の操作「閉じる」を
+                Enterでも実行できるようにし（IsDefault）、開いた直後の初期フォーカスもここへ当てる
+                （入力欄が無いウィンドウのため。OpenSourceLicensesWindow.axaml.cs参照）。
+            -->
+            <Button x:Name="CloseButton" Content="閉じる" Click="OnCloseClicked" IsDefault="True" HorizontalAlignment="Right"
                     AutomationProperties.Name="閉じる"
                     local:HelpTip.Standard="このウィンドウを閉じます。"
                     local:HelpTip.Detailed="オープンソースライセンスの一覧ウィンドウを閉じます。Escapeキーでも閉じられます。" />
