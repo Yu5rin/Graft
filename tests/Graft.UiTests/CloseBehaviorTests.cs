@@ -5,6 +5,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -20,8 +21,16 @@ public class CloseBehaviorTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-ui-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 各テストは検証のため既にwindow.Close()を明示的に呼んでいるが（CloseBehavior=trayの
+        // 場合はCloseがキャンセルされ実際には閉じずHideに留まる分岐もある）、念のためここでも
+        // 後始末する（Close済みへの再Closeも安全 - ShownWindowTracker参照）。
+        // 保留中のディスパッチャジョブを出し切るRunJobs()が最終防衛線として特に重要。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
@@ -116,6 +125,6 @@ public class CloseBehaviorTests : IDisposable
             ui,
             openSettings: () => { });
 
-        return new ShellWindow(shell) { Width = 1280, Height = 800 };
+        return _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
     }
 }

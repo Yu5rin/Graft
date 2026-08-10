@@ -11,6 +11,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -35,6 +36,7 @@ public class DeleteUndoTests : IDisposable
 
     private readonly string _appDirectory;
     private readonly string _projectDirectory;
+    private readonly ShownWindowTracker _windows = new();
 
     public DeleteUndoTests()
     {
@@ -46,6 +48,10 @@ public class DeleteUndoTests : IDisposable
 
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -379,7 +385,7 @@ public class DeleteUndoTests : IDisposable
             new AvaloniaUiServices(),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
         return (shell, window);

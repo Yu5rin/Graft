@@ -6,6 +6,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using FluentAssertions;
 using Graft.Themes;
+using Graft.UiTests.TestSupport;
 using Graft.Views;
 
 namespace Graft.UiTests;
@@ -16,8 +17,18 @@ namespace Graft.UiTests;
 /// Icons.xaml のキー名をそのまま列挙したものであり、移植漏れがあればここで機械的に
 /// 検出できる（1つでも欠けたら失敗する）。
 /// </summary>
-public class ThemeTests
+public class ThemeTests : IDisposable
 {
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     // v2.0のWPF版 Dark.xaml / Light.xaml と同一のキー名一覧（9.3）。Color/Brushの対で持つ
     // トークンはどちらも列挙する。SyntaxPlainのみColor版を持たない（8.6の規則どおり
     // text.primaryと同値のBrushのみ）。
@@ -118,7 +129,7 @@ public class ThemeTests
     [AvaloniaFact(DisplayName = "テーマ切り替えはウィンドウの再構築なしに反映される")]
     public void テーマ切り替えはウィンドウ再構築なしに反映される()
     {
-        var window = new ShellWindow();
+        var window = _windows.Track(new ShellWindow());
         window.Show();
 
         ThemeManager.SetTheme(AppTheme.Dark);
@@ -147,9 +158,9 @@ public class ThemeTests
         CaptureShellScreenshot("shell-light.png");
     }
 
-    private static void CaptureShellScreenshot(string fileName)
+    private void CaptureShellScreenshot(string fileName)
     {
-        var window = new ShellWindow { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow { Width = 1280, Height = 800 });
         window.Show();
         Layout(window);
 

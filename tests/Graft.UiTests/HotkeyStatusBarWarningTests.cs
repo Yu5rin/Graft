@@ -4,6 +4,7 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 using Xunit;
@@ -25,8 +26,14 @@ public class HotkeyStatusBarWarningTests : IDisposable
     private readonly string _root =
         Path.Combine(Path.GetTempPath(), "graft-hotkey-statusbar", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -88,7 +95,7 @@ public class HotkeyStatusBarWarningTests : IDisposable
             new FakeUiServices(),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));

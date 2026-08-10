@@ -7,6 +7,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -27,6 +28,7 @@ public class ScenarioTests : IDisposable
     private readonly string _appDirectory;
     private readonly string _projectDirectory;
     private readonly FakeClipboard _clipboard = new();
+    private readonly ShownWindowTracker _windows = new();
 
     public ScenarioTests()
     {
@@ -38,6 +40,10 @@ public class ScenarioTests : IDisposable
 
     public void Dispose()
     {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -201,7 +207,7 @@ public class ScenarioTests : IDisposable
         vm.Groups.Add(group);
 
         var view = new SearchView { DataContext = vm };
-        var window = new Window { Width = 400, Height = 400, Content = view };
+        var window = _windows.Track(new Window { Width = 400, Height = 400, Content = view });
         window.Show();
 
         (string FullPath, int Line)? requested = null;
@@ -320,7 +326,7 @@ public class ScenarioTests : IDisposable
             new FakeUiServices(_clipboard),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         await WaitForShellInitializedAsync(shell).ConfigureAwait(true);
         return (shell, window);

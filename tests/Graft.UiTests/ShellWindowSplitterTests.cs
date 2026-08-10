@@ -12,6 +12,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -37,8 +38,16 @@ public class ShellWindowSplitterTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-splitter-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。「再起動後の復元」を
+        // 検証するテストはwindow1のみwindow1.Close()で閉じ、window2は閉じないまま終わって
+        // いる。閉じ忘れると「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで
+        // 不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
@@ -86,7 +95,7 @@ public class ShellWindowSplitterTests : IDisposable
     public void サイドビューの境界をドラッグすると幅が変わる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -105,7 +114,7 @@ public class ShellWindowSplitterTests : IDisposable
     public void サイドビューの境界は最小幅で止まる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -124,7 +133,7 @@ public class ShellWindowSplitterTests : IDisposable
     public void 接ぎ木パネルの境界をドラッグすると高さが変わる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -146,7 +155,7 @@ public class ShellWindowSplitterTests : IDisposable
     public void 接ぎ木パネルの境界は最小高さで止まる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -169,7 +178,7 @@ public class ShellWindowSplitterTests : IDisposable
     public void 折りたたみはドラッグの下限と衝突しない()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -192,7 +201,7 @@ public class ShellWindowSplitterTests : IDisposable
     {
         // 1回目の起動: ドラッグで寸法を調整してから閉じる（OnClosingがlayout.jsonへ保存する）。
         var shell1 = BuildShell();
-        var window1 = new ShellWindow(shell1) { Width = 1280, Height = 800 };
+        var window1 = _windows.Track(new ShellWindow(shell1) { Width = 1280, Height = 800 });
         window1.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -214,7 +223,7 @@ public class ShellWindowSplitterTests : IDisposable
 
         // 2回目の起動: 同じ保存先(_baseDirectory)から読み込む、別のShellWindow/ShellViewModel。
         var shell2 = BuildShell();
-        var window2 = new ShellWindow(shell2) { Width = 1280, Height = 800 };
+        var window2 = _windows.Track(new ShellWindow(shell2) { Width = 1280, Height = 800 });
         window2.Show();
         Dispatcher.UIThread.RunJobs();
 

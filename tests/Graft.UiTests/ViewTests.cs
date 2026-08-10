@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
+using Graft.UiTests.TestSupport;
 using Graft.Views;
 
 namespace Graft.UiTests;
@@ -13,8 +14,20 @@ namespace Graft.UiTests;
 /// このテストが通ることで「画面が開いた瞬間に落ちる」種類の不具合を機械的に防げる。
 /// v2.0のWPF版で実際に発生した StaticResource 解決失敗・型変換失敗と同種の不具合が対象。
 /// </summary>
-public class ViewTests
+public class ViewTests : IDisposable
 {
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        // このクラスは1メソッドで複数の画面を連続して描画するテストが多く、閉じ忘れの
+        // 累積が特に起きやすい。
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "空状態ビューを構築して描画できる")]
     public void 空状態ビューを描画できる()
     {
@@ -152,8 +165,9 @@ public class ViewTests
     }
 
     /// <summary>ウィンドウそのものを表示して描画する（Window派生の画面用）。</summary>
-    private static void RenderWindow(Window window)
+    private void RenderWindow(Window window)
     {
+        _windows.Track(window);
         window.Show();
 
         using var frame = window.CaptureRenderedFrame();
@@ -164,9 +178,9 @@ public class ViewTests
     /// コントロールをウィンドウに載せて実際に描画する。UserControl単体では描画パスに
     /// 乗らずリソース解決の失敗を検出できないため、必ずウィンドウ経由で確認する。
     /// </summary>
-    private static Window RenderInWindow(Control view)
+    private Window RenderInWindow(Control view)
     {
-        var window = new Window { Width = 800, Height = 600, Content = view };
+        var window = _windows.Track(new Window { Width = 800, Height = 600, Content = view });
         window.Show();
 
         using var frame = window.CaptureRenderedFrame();

@@ -6,6 +6,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -27,8 +28,14 @@ public class DataDirectoryWritabilityTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-ui-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
@@ -67,7 +74,7 @@ public class DataDirectoryWritabilityTests : IDisposable
 
         // ShellWindowを実際に描画してもバインディング先の取り違えで落ちないことを確認する
         // （StatusBarView.axamlの新規追加分のバインディング検証を兼ねる）。
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         using var frame = window.CaptureRenderedFrame();
         frame.Should().NotBeNull();
@@ -94,7 +101,7 @@ public class DataDirectoryWritabilityTests : IDisposable
             appPaths, new Settings(), new SettingsStore(appPaths), new PatchQueue(appPaths),
             new ProjectStore(appPaths), new RevisionStore(appPaths), new RevisionRestorer(appPaths),
             dialogs, ui, openSettings: () => { });
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         await shell.Graft.InitializeAsync();
 

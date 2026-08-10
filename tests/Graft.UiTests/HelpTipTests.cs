@@ -7,6 +7,7 @@ using Avalonia.VisualTree;
 using FluentAssertions;
 using Graft.Infra;
 using Graft.Platform;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 using Graft.Views.SettingsPanels;
@@ -20,8 +21,18 @@ namespace Graft.UiTests;
 /// アプリ全体に1つの静的な状態（<see cref="HelpTip.CurrentLevel"/>）を持つ。ThemeTestsと同様、
 /// 各テストの冒頭で明示的にレベルをそろえてから検証する（テスト間で状態を持ち越さないため）。
 /// </summary>
-public class HelpTipTests
+public class HelpTipTests : IDisposable
 {
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "標準の説明を選ぶと標準の文言だけがツールチップになる")]
     public void 標準の説明を選ぶと標準の文言になる()
     {
@@ -131,7 +142,7 @@ public class HelpTipTests
         // ShellWindowはコマンドバーの各ボタンにHelpTip.Standard/Detailedを付けている
         // （ShellWindow.axaml）。DataContextを与えなくても、XAMLで宣言された添付プロパティ自体は
         // 通常どおり設定される（{Binding ...}するプロパティだけがDataContext無しでは解決しない）。
-        var shell = new ShellWindow();
+        var shell = _windows.Track(new ShellWindow());
         shell.Show();
         var analyzeButton = shell.GetVisualDescendants().OfType<Button>()
             .Single(b => Equals(AutomationProperties.GetName(b), "クリップボードのパッチを解析"));
@@ -176,7 +187,7 @@ public class HelpTipTests
         await vm.InitializeAsync();
 
         var view = new GeneralSettingsView { DataContext = vm };
-        var window = new Window { Content = view };
+        var window = _windows.Track(new Window { Content = view });
         window.Show();
 
         var closeBehaviorCombo = view.GetVisualDescendants().OfType<ComboBox>()

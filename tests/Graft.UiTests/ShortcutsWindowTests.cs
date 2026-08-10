@@ -9,6 +9,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -34,6 +35,7 @@ public class ShortcutsWindowTests : IDisposable
 
     private readonly string _appDirectory;
     private readonly string _projectDirectory;
+    private readonly ShownWindowTracker _windows = new();
 
     public ShortcutsWindowTests()
     {
@@ -45,6 +47,11 @@ public class ShortcutsWindowTests : IDisposable
 
     public void Dispose()
     {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照。テスト内でEscape/閉じるボタンで
+        // 既に閉じたウィンドウも含めて安全に二重Closeできる。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -60,7 +67,7 @@ public class ShortcutsWindowTests : IDisposable
     [AvaloniaFact(DisplayName = "ウィンドウを構築でき、分類ごとの見出しと主要なキー表記を含む")]
     public void ウィンドウを構築でき分類ごとの内容を含む()
     {
-        var window = new ShortcutsWindow();
+        var window = _windows.Track(new ShortcutsWindow());
         window.Show();
 
         window.IsVisible.Should().BeTrue();
@@ -88,7 +95,7 @@ public class ShortcutsWindowTests : IDisposable
     [AvaloniaFact(DisplayName = "Escapeキーで閉じる")]
     public void Escapeキーで閉じる()
     {
-        var window = new ShortcutsWindow();
+        var window = _windows.Track(new ShortcutsWindow());
         window.Show();
 
         var closed = false;
@@ -102,7 +109,7 @@ public class ShortcutsWindowTests : IDisposable
     [AvaloniaFact(DisplayName = "「閉じる」ボタンで閉じる")]
     public void 閉じるボタンで閉じる()
     {
-        var window = new ShortcutsWindow();
+        var window = _windows.Track(new ShortcutsWindow());
         window.Show();
 
         var closed = false;
@@ -203,7 +210,7 @@ public class ShortcutsWindowTests : IDisposable
             new AvaloniaUiServices(),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
         return (shell, window);
