@@ -57,6 +57,7 @@ public sealed partial class DiffViewModel : ObservableObject
         // 機能改善: エディタ本文と差分表示は同じSettings.Editor.FontSizeを共有する
         // （UpdateSettingsのコメント参照）。
         _codeFontSize = Math.Clamp(settings.Editor.FontSize, MinCodeFontSize, MaxCodeFontSize);
+        InitializeContextMenuCommands(); // C: 右クリックメニュー用コマンド（DiffViewModel.ContextMenu.cs）。
     }
 
     /// <summary>要確認ブロックの適用可否（8.7）。ブロック一覧側が読み書きして反映する。</summary>

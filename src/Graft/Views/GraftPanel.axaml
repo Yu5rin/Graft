@@ -150,7 +150,39 @@
                     </ListBox.Styles>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,4" ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                            <!--
+                                B: ブロック行の右クリックメニュー。Background="Transparent"は
+                                余白部分での右クリックも拾うため（EditorPane.axamlのタブ見出しと
+                                同じ作法）。Command先はShellViewModel（views:GraftPanelのRoot＝
+                                DataContext）またはMainViewModel（Root.DataContext.Graft）、
+                                CommandParameterはこの項目自身（ブロック）。
+                            -->
+                            <Grid Margin="0,4" ColumnDefinitions="Auto,Auto,*,Auto,Auto" Background="Transparent">
+                                <Grid.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="対象ファイルを開く"
+                                                  Command="{Binding DataContext.OpenBlockInEditorCommand, ElementName=Root}"
+                                                  CommandParameter="{Binding}"
+                                                  views:HelpTip.Standard="このブロックが変更する対象ファイルを、変更箇所の行へジャンプしてエディタで開きます。"
+                                                  AutomationProperties.Name="対象ファイルを開く" />
+                                        <MenuItem Header="このブロックの差分をコピー"
+                                                  Command="{Binding DataContext.CopyBlockDiffCommand, ElementName=Root}"
+                                                  CommandParameter="{Binding}"
+                                                  views:HelpTip.Standard="このブロックの変更内容を、unified diff形式でクリップボードへコピーします。AIへ「この変更のここを直して」と貼り戻せる形です。"
+                                                  AutomationProperties.Name="このブロックの差分をコピー" />
+                                        <MenuItem Header="修正依頼プロンプトをコピー"
+                                                  Command="{Binding DataContext.Graft.CopyRecoveryPromptCommand, ElementName=Root}"
+                                                  IsEnabled="{Binding IsError}"
+                                                  views:HelpTip.Standard="このブロックが失敗した理由と、現在のファイルの中身を含む修正依頼文をクリップボードへコピーします。失敗したブロックのときだけ使えます。"
+                                                  AutomationProperties.Name="修正依頼プロンプトをコピー" />
+                                        <Separator />
+                                        <MenuItem Header="{Binding ToggleLabel}"
+                                                  Command="{Binding DataContext.ToggleBlockCheckCommand, ElementName=Root}"
+                                                  CommandParameter="{Binding}"
+                                                  views:HelpTip.Standard="このブロックを適用対象に含めるかどうかを切り替えます。失敗したブロックには使えません。"
+                                                  AutomationProperties.Name="{Binding ToggleLabel}" />
+                                    </ContextMenu>
+                                </Grid.ContextMenu>
 
                                 <CheckBox Grid.Column="0" VerticalAlignment="Top" Margin="0,2,4,0"
                                           IsChecked="{Binding IsSelected, Mode=TwoWay}"

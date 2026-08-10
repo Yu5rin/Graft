@@ -101,4 +101,58 @@ public class BlockItemViewModelTests
 
         vm.IssueText.Should().Be(string.Join("\n", vm.IssueLines));
     }
+
+    // ------------------------------------------------------------------
+    // B: 接ぎ木パネルの右クリックメニュー「チェックを付ける／外す」の動的ラベル
+    // ------------------------------------------------------------------
+
+    private static BlockPlan MakeApplicablePlan(bool isSelected) => new()
+    {
+        Block = new DeleteBlock { Path = "sample.txt" },
+        Path = "sample.txt",
+        Operation = EntryOperation.Modify,
+        CanApply = true,
+        IsSelected = isSelected,
+    };
+
+    [Fact(DisplayName = "未チェックのブロックはToggleLabelが「チェックを付ける (Space)」になる")]
+    public void 未チェックはチェックを付けるになる()
+    {
+        var vm = new BlockItemViewModel(MakeApplicablePlan(isSelected: false));
+
+        vm.ToggleLabel.Should().Be("チェックを付ける (Space)");
+    }
+
+    [Fact(DisplayName = "チェック済みのブロックはToggleLabelが「チェックを外す (Space)」になる")]
+    public void チェック済みはチェックを外すになる()
+    {
+        var vm = new BlockItemViewModel(MakeApplicablePlan(isSelected: true));
+
+        vm.ToggleLabel.Should().Be("チェックを外す (Space)");
+    }
+
+    [Fact(DisplayName = "IsSelectedを切り替えるとToggleLabelも追従して変化通知が飛ぶ")]
+    public void IsSelectedを切り替えるとToggleLabelが追従する()
+    {
+        var vm = new BlockItemViewModel(MakeApplicablePlan(isSelected: false));
+        var changed = new List<string>();
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName is not null) changed.Add(e.PropertyName); };
+
+        vm.IsSelected = true;
+
+        vm.ToggleLabel.Should().Be("チェックを外す (Space)");
+        changed.Should().Contain(nameof(BlockItemViewModel.ToggleLabel),
+            "ToggleLabelのバインディングが更新されるにはPropertyChangedが必要");
+    }
+
+    [Fact(DisplayName = "Toggle()は失敗ブロック（CanApply=false）には効かない")]
+    public void 失敗ブロックはToggleが効かない()
+    {
+        var vm = new BlockItemViewModel(MakePlan()); // CanApply=false
+
+        vm.CanToggle.Should().BeFalse();
+        vm.Toggle();
+
+        vm.IsSelected.Should().BeFalse("失敗ブロックはトグル操作の対象外のため変化しない");
+    }
 }

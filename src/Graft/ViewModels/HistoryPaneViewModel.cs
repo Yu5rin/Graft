@@ -138,6 +138,11 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // ファイル単位の変更履歴（エクスプローラの右クリックメニュー「このファイルの変更履歴」）:
         // 絞り込みを解除して通常の全件表示へ戻すためのコマンド（バナーの「×」ボタン用）。
         ClearFileFilterCommand = new RelayCommand(() => FileFilterPath = null, () => IsFileFiltered);
+        // E: 選択中リビジョンのback/フォルダをファイルマネージャで開く。フォルダの実体が
+        // ディスク上に無ければ（history.jsonlのみ残っている等）無効化する。
+        OpenBackupFolderCommand = new RelayCommand(
+            () => { if (SelectedItem is { } item) PlatformServices.Current.FileManager.Reveal(item.Revision.FolderPath); },
+            () => SelectedItem is not null && Directory.Exists(SelectedItem.Revision.FolderPath));
     }
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
@@ -450,6 +455,15 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// ファイル単位の変更履歴の絞り込みを解除し、通常の全件表示へ戻す（バナーの「×」ボタン用）。
     /// </summary>
     public ICommand ClearFileFilterCommand { get; }
+
+    /// <summary>
+    /// E: 履歴の右クリックメニュー「バックアップフォルダを開く」。選択中のリビジョンの
+    /// back/ フォルダ（<see cref="RevisionSummary.FolderPath"/>）をファイルマネージャで開く。
+    /// 「本当に退避されているか」を自分の目で確かめられる安心材料のため、復元可否
+    /// （<see cref="RevisionRowViewModel.CanRestore"/>）に関わらず、フォルダの実体が
+    /// ディスク上に存在する限り開けるようにする（存在しない場合のみ無効化する）。
+    /// </summary>
+    public ICommand OpenBackupFolderCommand { get; }
 
     /// <summary>選択中のリビジョンより新しいリビジョンが1件でもあるか（＝取り消す対象があるか）。
     /// 最新リビジョンを選んでいるときは対象が無いため false（RestoreThroughCommandを無効化する）。

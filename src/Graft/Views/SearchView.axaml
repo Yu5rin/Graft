@@ -3,6 +3,7 @@
              xmlns:local="clr-namespace:Graft.Views"
              xmlns:vm="clr-namespace:Graft.ViewModels"
              x:Class="Graft.Views.SearchView"
+             x:Name="Root"
              Background="{DynamicResource BgSurface}">
     <!--
         4.4 ファイル横断検索（Ctrl+Shift+F）のサイドビュー。結果はファイル→行のツリーで表示し、
@@ -152,18 +153,45 @@
                     </StackPanel>
                 </TreeDataTemplate>
                 <DataTemplate DataType="vm:SearchHitViewModel">
-                    <StackPanel Orientation="Horizontal" Margin="2"
-                                AutomationProperties.Name="{Binding AutomationName}">
-                        <TextBlock Text="{Binding LineNumber}" Width="34"
-                                   Foreground="{DynamicResource TextSecondary}"
-                                   FontSize="{DynamicResource CaptionFontSize}" />
-                        <TextBlock Text="{Binding Before}" Foreground="{DynamicResource TextSecondary}"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Match}" Foreground="{DynamicResource TextPrimary}"
-                                   Background="{DynamicResource BgSelected}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding After}" Foreground="{DynamicResource TextSecondary}"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
+                    <!--
+                        A: 検索結果の右クリックメニュー。Borderで行全体を覆い、余白部分での
+                        右クリックも拾えるようにする（EditorPane.axamlのタブ見出しと同じ作法）。
+                        Command先はSearchViewModel（Rootの DataContext）、CommandParameterは
+                        この項目自身（ヒット行）。
+                    -->
+                    <Border Background="Transparent">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="開く（該当行へジャンプ） (Enter)"
+                                          Command="{Binding DataContext.JumpCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このファイルをエディタで開き、該当行へジャンプします。行をクリックしても同じです。"
+                                          AutomationProperties.Name="開く（該当行へジャンプ）" />
+                                <MenuItem Header="パスをコピー"
+                                          Command="{Binding DataContext.CopyPathCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このファイルのフルパスをクリップボードへコピーします。"
+                                          AutomationProperties.Name="このファイルのパスをコピー" />
+                                <MenuItem Header="ファイルマネージャで表示"
+                                          Command="{Binding DataContext.RevealCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このファイルをOSのファイルマネージャで選択表示します。"
+                                          AutomationProperties.Name="このファイルをファイルマネージャで表示" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
+                        <StackPanel Orientation="Horizontal" Margin="2"
+                                    AutomationProperties.Name="{Binding AutomationName}">
+                            <TextBlock Text="{Binding LineNumber}" Width="34"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       FontSize="{DynamicResource CaptionFontSize}" />
+                            <TextBlock Text="{Binding Before}" Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Match}" Foreground="{DynamicResource TextPrimary}"
+                                       Background="{DynamicResource BgSelected}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding After}" Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Border>
                 </DataTemplate>
             </TreeView.DataTemplates>
         </TreeView>
