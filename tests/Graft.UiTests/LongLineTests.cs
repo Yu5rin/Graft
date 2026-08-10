@@ -10,6 +10,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 using Xunit.Abstractions;
@@ -34,6 +35,7 @@ public class LongLineTests : IDisposable
         Path.Combine(Path.GetTempPath(), "graft-ui-tests", Guid.NewGuid().ToString("N"));
 
     private readonly ITestOutputHelper _output;
+    private readonly ShownWindowTracker _windows = new();
 
     public LongLineTests(ITestOutputHelper output)
     {
@@ -42,6 +44,12 @@ public class LongLineTests : IDisposable
 
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。各テストは末尾で
+        // window.Close()を呼ぶが、それより前のアサーションが失敗すると素通りされてしまう。
+        // 閉じ忘れると「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで
+        // 不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
@@ -198,7 +206,7 @@ public class LongLineTests : IDisposable
         return (shell, window, filePath);
     }
 
-    private static (ShellViewModel Shell, ShellWindow Window) BuildShellAndWindow(AppPaths appPaths, Settings? settings = null)
+    private (ShellViewModel Shell, ShellWindow Window) BuildShellAndWindow(AppPaths appPaths, Settings? settings = null)
     {
         IDialogService dialogs = new NullDialogService();
         IUiServices ui = new AvaloniaUiServices();
@@ -215,7 +223,7 @@ public class LongLineTests : IDisposable
             ui,
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         return (shell, window);
     }
 }

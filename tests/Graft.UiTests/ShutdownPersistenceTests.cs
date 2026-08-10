@@ -8,6 +8,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -28,8 +29,16 @@ public class ShutdownPersistenceTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-ui-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。Close()呼び出しの前に
+        // アサーションを挟むテストがあり、そこで失敗するとClose()自体が素通りされてしまう。
+        // 閉じ忘れると「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで
+        // 不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
@@ -51,7 +60,7 @@ public class ShutdownPersistenceTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
 
         var shell = BuildShell(appPaths);
-        var window = new ShellWindow(shell) { Width = 1000, Height = 700 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1000, Height = 700 });
         window.CloseBehavior = "exit";
         window.Show();
         await shell.Graft.InitializeAsync();
@@ -105,7 +114,7 @@ public class ShutdownPersistenceTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
 
         var shell = BuildShell(appPaths);
-        var window = new ShellWindow(shell) { Width = 1000, Height = 700 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1000, Height = 700 });
         window.CloseBehavior = "exit";
         window.Show();
         await shell.Graft.InitializeAsync();
@@ -126,7 +135,7 @@ public class ShutdownPersistenceTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
 
         var shell = BuildShell(appPaths);
-        var window = new ShellWindow(shell) { Width = 1000, Height = 700 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1000, Height = 700 });
         window.CloseBehavior = "tray";
         window.IsTraySupported = true;
         window.Show();
@@ -146,7 +155,7 @@ public class ShutdownPersistenceTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
 
         var shell = BuildShell(appPaths);
-        var window = new ShellWindow(shell) { Width = 1000, Height = 700 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1000, Height = 700 });
         window.CloseBehavior = "tray";
         window.IsTraySupported = true;
         window.IsForceClosing = true; // StartupCoordinator.ForceExit相当。
@@ -166,7 +175,7 @@ public class ShutdownPersistenceTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
 
         var shell = BuildShell(appPaths);
-        var window = new ShellWindow(shell) { Width = 1000, Height = 700 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1000, Height = 700 });
         var logger = new Logger(appPaths, autoCleanupOnStart: false);
         window.Logger = logger;
         window.CloseBehavior = "exit";

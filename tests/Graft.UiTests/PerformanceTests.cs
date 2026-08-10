@@ -8,6 +8,7 @@ using AvaloniaEdit.Document;
 using FluentAssertions;
 using Graft.Core;
 using Graft.Editor;
+using Graft.UiTests.TestSupport;
 using Xunit.Abstractions;
 
 namespace Graft.UiTests;
@@ -24,7 +25,7 @@ namespace Graft.UiTests;
 /// 置き換える。ハードウェアの速さは基準・対象の両方に等しく乗るため相殺され、
 /// アルゴリズムそのものの劣化（桁が変わるような悪化）だけを検出できる。
 /// </summary>
-public class PerformanceTests
+public class PerformanceTests : IDisposable
 {
     private const int LineCount = 100_000;
 
@@ -35,10 +36,21 @@ public class PerformanceTests
     private const int SmallLineCount = 2_000;
 
     private readonly ITestOutputHelper _output;
+    private readonly ShownWindowTracker _windows = new();
 
     public PerformanceTests(ITestOutputHelper output)
     {
         _output = output;
+    }
+
+    public void Dispose()
+    {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照）。本ファイルは10万行の
+        // ドキュメントを読み込んだ状態のウィンドウを多数開くため、閉じ忘れの影響が特に大きい
+        // （閉じ忘れると「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで
+        // 不定期に出る）。
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     [AvaloniaFact(DisplayName = "10万行のファイルを開いても構築・描画が滞らない")]
@@ -182,7 +194,7 @@ public class PerformanceTests
 
             var built = stopwatch.ElapsedMilliseconds;
 
-            var window = new Graft.Views.ShellWindow(shell) { Width = 1280, Height = 800 };
+            var window = _windows.Track(new Graft.Views.ShellWindow(shell) { Width = 1280, Height = 800 });
             var constructed = stopwatch.ElapsedMilliseconds;
 
             window.Show();
@@ -203,7 +215,7 @@ public class PerformanceTests
             for (var i = 0; i < 3; i++)
             {
                 var warm = Stopwatch.StartNew();
-                var w = new Graft.Views.ShellWindow(shell) { Width = 1280, Height = 800 };
+                var w = _windows.Track(new Graft.Views.ShellWindow(shell) { Width = 1280, Height = 800 });
                 w.Show();
                 w.CaptureRenderedFrame().Should().NotBeNull();
                 warm.Stop();
@@ -251,7 +263,7 @@ public class PerformanceTests
         var text = BuildSource(lines);
 
         var editor = new TextEditor { ShowLineNumbers = true };
-        var window = new Window { Width = 1200, Height = 800, Content = editor };
+        var window = _windows.Track(new Window { Width = 1200, Height = 800, Content = editor });
         window.Show();
 
         var stopwatch = Stopwatch.StartNew();
@@ -269,10 +281,10 @@ public class PerformanceTests
     }
 
     /// <summary>指定行数のドキュメントで、先頭・中間・末尾へ3回スクロールする時間（ms）を計測する。</summary>
-    private static long MeasureScroll(int lines)
+    private long MeasureScroll(int lines)
     {
         var editor = new TextEditor { ShowLineNumbers = true, Document = new TextDocument(BuildSource(lines)) };
-        var window = new Window { Width = 1200, Height = 800, Content = editor };
+        var window = _windows.Track(new Window { Width = 1200, Height = 800, Content = editor });
         window.Show();
         window.CaptureRenderedFrame();
 
@@ -290,11 +302,11 @@ public class PerformanceTests
     }
 
     /// <summary>指定行数のドキュメントの先頭へ50回挿入して再描画する時間（ms）を計測する。</summary>
-    private static long MeasureHeadInsert(int lines, int? expectedLineCount = null)
+    private long MeasureHeadInsert(int lines, int? expectedLineCount = null)
     {
         var document = new TextDocument(BuildSource(lines));
         var editor = new TextEditor { Document = document };
-        var window = new Window { Width = 1200, Height = 800, Content = editor };
+        var window = _windows.Track(new Window { Width = 1200, Height = 800, Content = editor });
         window.Show();
         window.CaptureRenderedFrame();
 
@@ -315,10 +327,10 @@ public class PerformanceTests
     }
 
     /// <summary>指定行数のドキュメントへシンタックスハイライトを付けて初回描画する時間（ms）を計測する。</summary>
-    private static long MeasureHighlightedRender(int lines)
+    private long MeasureHighlightedRender(int lines)
     {
         var editor = new TextEditor { Document = new TextDocument(BuildSource(lines)) };
-        var window = new Window { Width = 1200, Height = 800, Content = editor };
+        var window = _windows.Track(new Window { Width = 1200, Height = 800, Content = editor });
 
         using var bridge = new SyntaxHighlightBridge(editor);
         editor.TextArea.TextView.LineTransformers.Add(bridge);

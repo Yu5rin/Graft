@@ -6,6 +6,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -25,6 +26,7 @@ public class HookScenarioTests : IDisposable
     private readonly string _appDirectory;
     private readonly string _projectDirectory;
     private readonly FakeClipboard _clipboard = new();
+    private readonly ShownWindowTracker _windows = new();
 
     public HookScenarioTests()
     {
@@ -36,6 +38,10 @@ public class HookScenarioTests : IDisposable
 
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -159,7 +165,7 @@ public class HookScenarioTests : IDisposable
             new FakeUiServices(_clipboard),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         await WaitForShellInitializedAsync(shell).ConfigureAwait(true);
         return (shell, window);

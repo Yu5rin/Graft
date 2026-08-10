@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 using FluentAssertions;
+using Graft.UiTests.TestSupport;
 using Graft.Views;
 using Graft.Views.SettingsPanels;
 
@@ -23,7 +24,7 @@ namespace Graft.UiTests;
 /// 「設定変更で開いているウィンドウのツールチップが切り替わる」テストのコメント参照）ため、
 /// ここでは各Viewを既定コンストラクタのまま構築するだけでよい。
 /// </summary>
-public class SettingsHelpTipCoverageTests
+public class SettingsHelpTipCoverageTests : IDisposable
 {
     /// <summary>
     /// HelpTipの対象とみなすコントロール種別。ラベルのTextBlockそのものは対象に含めない
@@ -33,6 +34,17 @@ public class SettingsHelpTipCoverageTests
     {
         typeof(Button), typeof(CheckBox), typeof(ComboBox), typeof(TextBox), typeof(ListBox),
     };
+
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照。1テストごとに設定画面を
+        // 丸ごと1枚Show()するため閉じ忘れの影響が大きい。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
     [AvaloniaFact(DisplayName = "設定画面「一般」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
     public void 一般設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new GeneralSettingsView());
@@ -61,7 +73,7 @@ public class SettingsHelpTipCoverageTests
     [AvaloniaFact(DisplayName = "設定ウィンドウ本体（タブ・トークン統計・下部ボタン）は全てHelpTip.Standardを持つ")]
     public void 設定ウィンドウ本体のコントロールは全てHelpTipを持つ()
     {
-        var window = new SettingsWindow();
+        var window = _windows.Track(new SettingsWindow());
         window.Show();
 
         // TabItemはButton/CheckBox等ではないため対象種別に含めていないが、要望2で
@@ -82,16 +94,18 @@ public class SettingsHelpTipCoverageTests
     /// ウィンドウに載せて実際にShow()することで、DataTemplate展開前の静的なXAML構造を
     /// 漏れなく視覚ツリーへ反映させる。
     /// </summary>
-    private static void AssertAllControlsHaveHelpTip(Control control)
+    private void AssertAllControlsHaveHelpTip(Control control)
     {
         Window window;
         if (control is Window w)
         {
-            window = w;
+            // 呼び出し元で既にShownWindowTrackerへ登録済みのはずだが、念のためここでも
+            // 登録する（Track/Closeは重複しても安全 - ShownWindowTracker参照）。
+            window = _windows.Track(w);
         }
         else
         {
-            window = new Window { Content = control };
+            window = _windows.Track(new Window { Content = control });
         }
         window.Show();
 

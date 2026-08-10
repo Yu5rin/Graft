@@ -8,6 +8,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAssertions;
+using Graft.UiTests.TestSupport;
 using Graft.Views;
 
 namespace Graft.UiTests;
@@ -17,12 +18,22 @@ namespace Graft.UiTests;
 /// 「主要画面が例外なく構築・描画できること」を保証し、
 /// リソース解決の失敗やレイアウト崩れをここで検出する。
 /// </summary>
-public class ShellWindowTests
+public class ShellWindowTests : IDisposable
 {
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "シェルウィンドウを例外なく構築して表示できる")]
     public void シェルウィンドウを構築できる()
     {
-        var window = new ShellWindow();
+        var window = _windows.Track(new ShellWindow());
         window.Show();
 
         window.IsVisible.Should().BeTrue();
@@ -32,7 +43,7 @@ public class ShellWindowTests
     [AvaloniaFact(DisplayName = "シェルウィンドウを実際に描画してフレームを取得できる")]
     public void シェルウィンドウを描画できる()
     {
-        var window = new ShellWindow { Width = 1000, Height = 700 };
+        var window = _windows.Track(new ShellWindow { Width = 1000, Height = 700 });
         window.Show();
 
         using var frame = window.CaptureRenderedFrame();
@@ -43,7 +54,7 @@ public class ShellWindowTests
     [AvaloniaFact(DisplayName = "最小サイズは仕様どおり960x600である")]
     public void 最小サイズが仕様どおりである()
     {
-        var window = new ShellWindow();
+        var window = _windows.Track(new ShellWindow());
         window.MinWidth.Should().Be(960);
         window.MinHeight.Should().Be(600);
     }
@@ -65,7 +76,7 @@ public class ShellWindowTests
     [AvaloniaFact(DisplayName = "課題3: プロジェクト選択は列0、操作ボタン群は列1（ドロップダウンのすぐ右）、ショートカット一覧は列3（右端）にある")]
     public void コマンドバーのボタンは左詰めでショートカットのみ右端にある()
     {
-        var window = new ShellWindow();
+        var window = _windows.Track(new ShellWindow());
         window.Show();
 
         var projectCombo = window.GetVisualDescendants().OfType<ComboBox>()
@@ -84,7 +95,7 @@ public class ShellWindowTests
     [AvaloniaFact(DisplayName = "課題3: 最小幅まで狭めてもコマンドバーのボタンが重ならない")]
     public void 最小幅でもコマンドバーのボタンが重ならない()
     {
-        var window = new ShellWindow { Width = 960, Height = 600 };
+        var window = _windows.Track(new ShellWindow { Width = 960, Height = 600 });
         window.Show();
         window.Measure(new Avalonia.Size(960, 600));
         window.Arrange(new Avalonia.Rect(0, 0, 960, 600));
@@ -139,7 +150,7 @@ public class ShellWindowTests
     [AvaloniaFact(DisplayName = "最小幅960pxでもツールバーのボタンが画面外へはみ出さず、横スクロールで設定ボタンへ到達できる")]
     public void 最小幅でもツールバーが画面内に収まり設定ボタンへ到達できる()
     {
-        var window = new ShellWindow { Width = 960, Height = 600 };
+        var window = _windows.Track(new ShellWindow { Width = 960, Height = 600 });
         window.Show();
         Dispatcher.UIThread.RunJobs();
 
@@ -185,7 +196,7 @@ public class ShellWindowTests
     [AvaloniaFact(DisplayName = "コマンドバー: ボタン列が収まりきらない場合、右端までスクロールすれば設定ボタンに到達できる")]
     public void ボタン列が収まりきらない場合は右端までスクロールすれば設定ボタンに到達できる()
     {
-        var window = new ShellWindow { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow { Width = 1280, Height = 800 });
         window.Show();
         Dispatcher.UIThread.RunJobs();
 

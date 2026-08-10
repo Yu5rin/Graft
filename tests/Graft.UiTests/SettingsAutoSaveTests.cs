@@ -11,6 +11,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Themes;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -35,8 +36,14 @@ public class SettingsAutoSaveTests : IDisposable
     private readonly string _root =
         Path.Combine(Path.GetTempPath(), "graft-settingsautosave", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したSettingsWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -262,7 +269,7 @@ public class SettingsAutoSaveTests : IDisposable
         var appPaths = new AppPaths(Path.Combine(_root, Guid.NewGuid().ToString("N")));
         appPaths.EnsureCoreDirectoriesExist();
         var vm = new SettingsViewModel(appPaths, new ConfirmingDialogService(), new AvaloniaUiServices());
-        var window = new SettingsWindow(vm);
+        var window = _windows.Track(new SettingsWindow(vm));
         window.Show();
         await SettleAsync();
         return (vm, appPaths, window);

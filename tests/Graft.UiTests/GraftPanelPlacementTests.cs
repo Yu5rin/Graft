@@ -13,6 +13,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 using Xunit;
@@ -29,8 +30,16 @@ public class GraftPanelPlacementTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-placement-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。「再起動後の復元」を
+        // 検証するテストは1つ目のウィンドウはwindow1.Close()で明示的に閉じるが、2つ目
+        // （window2）は閉じないまま終わっており、閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
@@ -143,7 +152,7 @@ public class GraftPanelPlacementTests : IDisposable
     public void 右配置に切り替えるとGraftPanelが列へ移動する()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         WaitForWindowLoaded(window);
 
@@ -178,7 +187,7 @@ public class GraftPanelPlacementTests : IDisposable
     public void 右配置は3列として描画される()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         WaitForWindowLoaded(window);
 
@@ -202,7 +211,7 @@ public class GraftPanelPlacementTests : IDisposable
     public void 下配置へ戻すとGraftPanelが行へ戻る()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         WaitForWindowLoaded(window);
 
@@ -227,7 +236,7 @@ public class GraftPanelPlacementTests : IDisposable
     public void 右配置の垂直スプリッタをドラッグすると幅が変わる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         WaitForWindowLoaded(window);
 
@@ -251,7 +260,7 @@ public class GraftPanelPlacementTests : IDisposable
     public void 右配置の垂直スプリッタは最小幅で止まる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         WaitForWindowLoaded(window);
 
@@ -281,7 +290,7 @@ public class GraftPanelPlacementTests : IDisposable
         // 同じ32pxのヘッダー帯を画面下部に表示し、配置の設定値（Right）自体は保持したまま、
         // 展開すると右配置へ戻ることを確認する。
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         WaitForWindowLoaded(window);
 
@@ -323,7 +332,7 @@ public class GraftPanelPlacementTests : IDisposable
     public void 右配置と幅は再起動後も復元される()
     {
         var shell1 = BuildShell();
-        var window1 = new ShellWindow(shell1) { Width = 1280, Height = 800 };
+        var window1 = _windows.Track(new ShellWindow(shell1) { Width = 1280, Height = 800 });
         window1.Show();
         WaitForWindowLoaded(window1);
 
@@ -340,7 +349,7 @@ public class GraftPanelPlacementTests : IDisposable
         window1.Close();
 
         var shell2 = BuildShell();
-        var window2 = new ShellWindow(shell2) { Width = 1280, Height = 800 };
+        var window2 = _windows.Track(new ShellWindow(shell2) { Width = 1280, Height = 800 });
         window2.Show();
         WaitForWindowLoaded(window2);
 
@@ -367,7 +376,7 @@ public class GraftPanelPlacementTests : IDisposable
         // 始まるが、配置（GraftPanelPlacement=Right）はlayout.jsonから復元されるため、
         // 起動直後から下部に32pxのヘッダー帯が表示され、展開すると右配置へ戻ることを確認する。
         var shell1 = BuildShell();
-        var window1 = new ShellWindow(shell1) { Width = 1280, Height = 800 };
+        var window1 = _windows.Track(new ShellWindow(shell1) { Width = 1280, Height = 800 });
         window1.Show();
         WaitForWindowLoaded(window1);
 
@@ -380,7 +389,7 @@ public class GraftPanelPlacementTests : IDisposable
         window1.Close();
 
         var shell2 = BuildShell();
-        var window2 = new ShellWindow(shell2) { Width = 1280, Height = 800 };
+        var window2 = _windows.Track(new ShellWindow(shell2) { Width = 1280, Height = 800 });
         window2.Show();
         WaitForWindowLoaded(window2);
 
@@ -409,7 +418,7 @@ public class GraftPanelPlacementTests : IDisposable
     public void 下配置へ戻すと再起動後も下配置になる()
     {
         var shell1 = BuildShell();
-        var window1 = new ShellWindow(shell1) { Width = 1280, Height = 800 };
+        var window1 = _windows.Track(new ShellWindow(shell1) { Width = 1280, Height = 800 });
         window1.Show();
         WaitForWindowLoaded(window1);
 
@@ -421,7 +430,7 @@ public class GraftPanelPlacementTests : IDisposable
         window1.Close();
 
         var shell2 = BuildShell();
-        var window2 = new ShellWindow(shell2) { Width = 1280, Height = 800 };
+        var window2 = _windows.Track(new ShellWindow(shell2) { Width = 1280, Height = 800 });
         window2.Show();
         WaitForWindowLoaded(window2);
 
@@ -459,7 +468,7 @@ public class GraftPanelPlacementTests : IDisposable
             appPaths, new Settings(), new SettingsStore(appPaths), new PatchQueue(appPaths),
             new ProjectStore(appPaths), new RevisionStore(appPaths), new RevisionRestorer(appPaths),
             dialogs, ui, openSettings: () => { });
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
         WaitForWindowLoaded(window);
 

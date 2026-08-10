@@ -5,6 +5,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -23,8 +24,16 @@ public class ShutdownLoggingTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-ui-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。CloseBehavior=trayの
+        // テストは実際にはHideに留まりCloseが完了しないため、ここでの後始末が特に効く。
+        // 閉じ忘れると「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで
+        // 不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_baseDirectory)) Directory.Delete(_baseDirectory, recursive: true);
@@ -140,7 +149,7 @@ public class ShutdownLoggingTests : IDisposable
         return await File.ReadAllLinesAsync(logPath);
     }
 
-    private static ShellWindow BuildWindow(AppPaths appPaths)
+    private ShellWindow BuildWindow(AppPaths appPaths)
     {
         IDialogService dialogs = new NullDialogService();
         IUiServices ui = new AvaloniaUiServices();
@@ -157,6 +166,6 @@ public class ShutdownLoggingTests : IDisposable
             ui,
             openSettings: () => { });
 
-        return new ShellWindow(shell) { Width = 1280, Height = 800 };
+        return _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
     }
 }

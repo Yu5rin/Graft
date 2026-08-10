@@ -6,6 +6,7 @@ using Avalonia.VisualTree;
 using FluentAssertions;
 using Graft.Infra;
 using Graft.Platform;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -32,8 +33,14 @@ public class OnboardingProjectRegistrationTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-onboarding-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindow・OnboardingWindowを後始末する（ShownWindowTracker参照。
+        // 閉じ忘れると「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         // 利用者の設定を汚さないよう、テストごとに一時ディレクトリを使い捨てる。
         try
         {
@@ -51,7 +58,7 @@ public class OnboardingProjectRegistrationTests : IDisposable
     public async Task ガイドを完走して登録すると一覧に反映され選択される()
     {
         var shell = BuildShell();
-        var shellWindow = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
 
@@ -59,7 +66,7 @@ public class OnboardingProjectRegistrationTests : IDisposable
         Directory.CreateDirectory(projectDirectory);
 
         var dialogs = new FixedFolderDialogService(projectDirectory);
-        var onboarding = new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs);
+        var onboarding = _windows.Track(new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs));
         onboarding.Show();
 
         // 画面1 → 画面2（プロジェクト登録）。
@@ -90,12 +97,12 @@ public class OnboardingProjectRegistrationTests : IDisposable
     public async Task スキップした場合は一覧が空のままで問題ない()
     {
         var shell = BuildShell();
-        var shellWindow = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
 
         var dialogs = new FixedFolderDialogService(folder: null);
-        var onboarding = new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs);
+        var onboarding = _windows.Track(new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs));
         onboarding.Show();
 
         var act = () => RaiseClick(onboarding, "スキップ");
@@ -111,12 +118,12 @@ public class OnboardingProjectRegistrationTests : IDisposable
     public async Task 登録せず完了しても一覧は空のままで問題ない()
     {
         var shell = BuildShell();
-        var shellWindow = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
 
         var dialogs = new FixedFolderDialogService(folder: null);
-        var onboarding = new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs);
+        var onboarding = _windows.Track(new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs));
         onboarding.Show();
 
         RaiseClick(onboarding, "次へ"); // 画面1→画面2
@@ -139,7 +146,7 @@ public class OnboardingProjectRegistrationTests : IDisposable
         // ボタンからも呼ばれている登録経路そのものであり、ガイド専用の別ロジックを持ち込んで
         // いないことを確認する（＝アプリ全体で挙動が一貫している）。
         var shell = BuildShell();
-        var shellWindow = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var shellWindow = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         shellWindow.Show();
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
 
@@ -147,7 +154,7 @@ public class OnboardingProjectRegistrationTests : IDisposable
         Directory.CreateDirectory(projectDirectory);
 
         var dialogs = new FixedFolderDialogService(projectDirectory);
-        var onboarding = new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs);
+        var onboarding = _windows.Track(new OnboardingWindow(new AppPaths(_baseDirectory), shell.Graft.ProjectPane, dialogs));
         onboarding.Show();
 
         RaiseClick(onboarding, "次へ");
