@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
              x:Class="Graft.Views.AboutView"
              AutomationProperties.Name="バージョン情報">
     <!--
@@ -26,6 +27,26 @@
                                FontSize="{DynamicResource CaptionFontSize}"
                                AutomationProperties.Name="著作権表示" />
                 </StackPanel>
+            </StackPanel>
+
+            <!--
+                機能2（ログの参照手段）: 不具合報告のやり取りを楽にするための2つの導線。
+                「ログフォルダを開く」はIFileManagerLauncherを再利用してlogs/フォルダを開くだけ、
+                「最新のログを表示」は直近のログファイルの末尾をLogViewerWindowで表示する。
+                実処理はSettingsViewModel.DataDirectory.cs（DataContextはTabItem経由で継承する
+                SettingsViewModel）にまとめている。
+            -->
+            <TextBlock Text="ログ" FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}" Margin="0,0,0,8" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <Button Content="ログフォルダを開く" Command="{Binding OpenLogsFolderCommand}" Margin="0,0,8,0"
+                        AutomationProperties.Name="ログフォルダを開く"
+                        local:HelpTip.Standard="ログファイル（logs/）が入っているフォルダをファイルマネージャで開きます。"
+                        local:HelpTip.Detailed="Graftのログファイル一式が保存されているフォルダ（logs/）を、エクスプローラ（Windows）やファイルマネージャ（Linux）で開きます。不具合を報告する際に、該当日のログファイルを添付したいときに使ってください。" />
+                <Button Content="最新のログを表示" Command="{Binding ShowLatestLogCommand}"
+                        AutomationProperties.Name="最新のログを表示"
+                        local:HelpTip.Standard="直近のログファイルの末尾を、この場で確認できる画面を開きます。全文コピーもできます。"
+                        local:HelpTip.Detailed="最も新しいログファイルの末尾（直近200行程度）を専用の画面で表示します。ログは1行ごとに1件のJSON形式のままで、見やすく整形はしません。表示した内容は画面内の「コピー」ボタンでクリップボードへコピーでき、そのまま不具合報告に貼り付けられます。" />
             </StackPanel>
 
             <TextBlock Text="使用ライブラリのライセンス表記" FontSize="{DynamicResource PaneHeadingFontSize}"

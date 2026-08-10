@@ -2,6 +2,7 @@ using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Graft.ViewModels;
 
 namespace Graft.Views;
 
@@ -25,6 +26,51 @@ public partial class AboutView : UserControl
 
         DiffPlexLicenseExpander.PropertyChanged += OnDiffPlexExpanderPropertyChanged;
         AvalonEditLicenseExpander.PropertyChanged += OnAvalonEditExpanderPropertyChanged;
+
+        // 機能2: 「最新のログを表示」。ViewModel（SettingsViewModel）はAvaloniaのWindow型に
+        // 依存させない方針のため、末尾の切り出しが終わったことをイベントで受け取り、
+        // ウィンドウの生成・表示だけをここ（コードビハインド）が担う
+        // （SettingsViewModel.DataDirectory.csのLogViewerRequestedのコメント参照）。
+        // DataContextはTabItem経由でSettingsWindow全体のDataContext（SettingsViewModel）を
+        // 継承するため、通常はDataContextChanged時点で既に確定しているが、念のため
+        // 変わるたびに購読し直す（旧DataContextの二重購読を防ぐため必ず解除してから付け直す）。
+        DataContextChanged += OnDataContextChanged;
+        Unloaded += (_, _) => Unsubscribe(DataContext as SettingsViewModel);
+    }
+
+    private SettingsViewModel? _subscribedViewModel;
+
+    private void OnDataContextChanged(object? sender, EventArgs e)
+    {
+        Unsubscribe(_subscribedViewModel);
+
+        if (DataContext is not SettingsViewModel vm) return;
+
+        _subscribedViewModel = vm;
+        vm.LogViewerRequested += OnLogViewerRequested;
+    }
+
+    private void Unsubscribe(SettingsViewModel? vm)
+    {
+        if (vm is null) return;
+        vm.LogViewerRequested -= OnLogViewerRequested;
+        if (ReferenceEquals(_subscribedViewModel, vm)) _subscribedViewModel = null;
+    }
+
+    private async void OnLogViewerRequested(object? sender, LogViewerRequestEventArgs e)
+    {
+        var window = new LogViewerWindow(e.FilePath, e.TailText);
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is not null)
+        {
+            await window.ShowDialog(owner).ConfigureAwait(true);
+        }
+        else
+        {
+            // オーナーが見つからない場合の縮退はAvaloniaDialogServiceと同じ方針
+            // （非モーダル表示。呼び出し不能で例外を投げるより安全側）。
+            window.Show();
+        }
     }
 
     private void OnLoaded(object? sender, RoutedEventArgs e)

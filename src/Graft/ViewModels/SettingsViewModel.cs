@@ -42,12 +42,13 @@ namespace Graft.ViewModels;
 /// （不正な値を黙って既定値へ差し替えて保存する＝見えている値と保存された値が食い違う事故も、
 /// 不正なまま保存することも避けたいため）。
 /// </summary>
-public sealed class SettingsViewModel : ObservableObject
+public sealed partial class SettingsViewModel : ObservableObject
 {
     /// <summary>設定変更から実際の保存までの合流待ち時間。</summary>
     private static readonly TimeSpan SaveDebounceInterval = TimeSpan.FromMilliseconds(300);
 
     private readonly SettingsStore _settingsStore; private readonly IDialogService _dialogService;
+    private readonly AppPaths _appPaths;
     private Settings _settings = new();
 
     // デバウンス中の保存予約。ウィンドウを閉じる直前にFlushPendingSaveAsyncで
@@ -123,12 +124,27 @@ public sealed class SettingsViewModel : ObservableObject
     private bool _minimizeToTray;
     private readonly Action<Settings>? _onLiveSettingsChanged;
 
+    /// <param name="appPaths">現在のデータ保存先。</param>
+    /// <param name="dialogService">確認・通知ダイアログ。</param>
+    /// <param name="ui">クリップボード等のUI機能。</param>
+    /// <param name="onLiveSettingsChanged">設定変更の即時反映コールバック。</param>
+    /// <param name="exeDirectory">
+    /// 機能3: 実行ファイルと同じ階層（データ保存先の切り替え用ポインタファイル
+    /// <see cref="DataDirectoryPointer"/> を置く場所）。省略時は<see cref="AppContext.BaseDirectory"/>。
+    /// 本番の起動経路（<see cref="Views.StartupCoordinator"/>）は必ず実際のexeフォルダを渡す。
+    /// 省略可能にしているのは、この画面の他の機能（データ保存先の移行）を使わない既存のテストの
+    /// 呼び出しをすべて書き換えずに済ませるためで、それらのテストがこの既定値を実際に
+    /// 参照することは無い（データ保存先の移行操作を行わない限り読まれない）。
+    /// </param>
     public SettingsViewModel(
-        AppPaths appPaths, IDialogService dialogService, IUiServices ui, Action<Settings>? onLiveSettingsChanged = null)
+        AppPaths appPaths, IDialogService dialogService, IUiServices ui,
+        Action<Settings>? onLiveSettingsChanged = null, string? exeDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         ArgumentNullException.ThrowIfNull(ui);
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        _appPaths = appPaths;
+        _exeDirectory = exeDirectory ?? AppContext.BaseDirectory;
         _onLiveSettingsChanged = onLiveSettingsChanged;
         _settingsStore = new SettingsStore(appPaths);
         var projectStore = new ProjectStore(appPaths);
@@ -155,6 +171,12 @@ public sealed class SettingsViewModel : ObservableObject
         ExportCommand = new AsyncRelayCommand(ExportAsync);
         ImportCommand = new AsyncRelayCommand(ImportAsync);
         ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
+
+        // 機能3・機能2: データ保存先の切り替え、ログフォルダを開く・最新のログを表示する。
+        // 実処理はSettingsViewModel.DataDirectory.cs（分割ファイル）にまとめている。
+        MigrateDataDirectoryCommand = new AsyncRelayCommand(MigrateDataDirectoryAsync, () => !IsDataDirectoryMigrationPending);
+        OpenLogsFolderCommand = new AsyncRelayCommand(OpenLogsFolderAsync);
+        ShowLatestLogCommand = new AsyncRelayCommand(ShowLatestLogAsync);
     }
 
     public PromptTemplateViewModel Templates { get; }

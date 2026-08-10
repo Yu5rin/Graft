@@ -13,12 +13,32 @@ public sealed class AppPaths
     public string BaseDirectory { get; }
 
     /// <param name="baseDirectory">
-    /// 基準ディレクトリ。省略時は <see cref="AppContext.BaseDirectory"/>（exe の場所）を使う。
-    /// テストでは一時ディレクトリを渡して差し替える。
+    /// 基準ディレクトリ。省略時は <see cref="ResolveBaseDirectory"/>（データ保存先の選択機能。
+    /// 通常はexeの場所だが、ポインタファイルがあればそちらを使う）で決める。
+    /// テストでは一時ディレクトリを渡して差し替える（この場合ポインタファイルは一切参照しない）。
     /// </param>
     public AppPaths(string? baseDirectory = null)
     {
-        BaseDirectory = baseDirectory ?? AppContext.BaseDirectory;
+        BaseDirectory = baseDirectory ?? ResolveBaseDirectory();
+    }
+
+    /// <summary>
+    /// 機能3（データ保存先の選択）: 実際のデータ保存先を決める。
+    ///
+    /// settings.json自体に保存先を書くと「settings.jsonの場所がsettings.jsonの中身に
+    /// 依存する」循環に陥るため、代わりにexeと同じ階層に置く小さなポインタファイル
+    /// （<see cref="DataDirectoryPointer"/>、既定名 datapath.txt）だけを読んで決める。
+    /// ポインタファイルが無い・空・読み取れない場合は、従来どおりexeと同じ階層
+    /// （ポータブル）を使う。
+    /// </summary>
+    /// <param name="exeDirectory">
+    /// exeのあるフォルダ。省略時は <see cref="AppContext.BaseDirectory"/>。
+    /// テストからポインタファイルの解決だけを検証できるよう差し替え可能にしてある。
+    /// </param>
+    public static string ResolveBaseDirectory(string? exeDirectory = null)
+    {
+        var exeDir = exeDirectory ?? AppContext.BaseDirectory;
+        return DataDirectoryPointer.TryRead(exeDir) ?? exeDir;
     }
 
     /// <summary>settings.json の絶対パス。</summary>

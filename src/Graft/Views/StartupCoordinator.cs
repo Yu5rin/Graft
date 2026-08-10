@@ -57,12 +57,21 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     // 万一に備え安全側の値にしておく）。
     private bool _isDataDirectoryWritable = true;
 
+    // 機能3: exeと同じ階層（データ保存先を切り替えるポインタファイル datapath.txt を置く場所）。
+    // 本番では常にAppContext.BaseDirectoryと一致する。baseDirectoryを明示的に渡すテストでは、
+    // _appPaths.BaseDirectory（＝そのbaseDirectory自体、ポインタ解決を経由しない）と一致させ、
+    // 「ポータブルで自己完結した一時ディレクトリ」をそのままシミュレートする
+    // （SettingsViewModelのデータ保存先まわりのコメント参照）。
+    private readonly string _exeDirectory;
+
     /// <param name="baseDirectory">
-    /// settings.json 等の基準ディレクトリ。省略時は実行ファイルの場所を使う。
+    /// settings.json 等の基準ディレクトリ。省略時は<see cref="AppPaths.ResolveBaseDirectory"/>
+    /// （データ保存先の選択機能。既定は実行ファイルの場所、ポインタファイルがあればそちら）で決める。
     /// テストから一時ディレクトリを渡して、利用者の設定を汚さずに起動処理を検証できるようにする。
     /// </param>
     public StartupCoordinator(string? baseDirectory = null)
     {
+        _exeDirectory = baseDirectory ?? AppContext.BaseDirectory;
         _appPaths = new AppPaths(baseDirectory);
     }
 
@@ -163,7 +172,9 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // フィールドのコメント参照。設定画面を一度も開かないままCtrl+マウスホイールが使われても
         // 正しい既存の設定内容を土台に保存できるよう、ここで既に読み込み済みのsettings.jsonを
         // 読み直しておく。
-        _settingsViewModel = new SettingsViewModel(_appPaths, dialogService, _ui, ApplyLiveSettingsChange);
+        // データ保存先の切り替え（datapath.txt）はexeと同じ階層を基準に判断するため、
+        // _exeDirectoryも渡す（SettingsViewModel.DataDirectory.cs参照）。
+        _settingsViewModel = new SettingsViewModel(_appPaths, dialogService, _ui, ApplyLiveSettingsChange, _exeDirectory);
         await _settingsViewModel.InitializeAsync().ConfigureAwait(true);
 
         void OpenSettings()
