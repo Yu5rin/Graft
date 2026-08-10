@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -24,16 +25,56 @@ namespace Graft.UiTests;
 /// ここでは可能な限り「同じ実行内で計測した軽い基準操作の何倍以内か」という相対比較へ
 /// 置き換える。ハードウェアの速さは基準・対象の両方に等しく乗るため相殺され、
 /// アルゴリズムそのものの劣化（桁が変わるような悪化）だけを検出できる。
+///
+/// 計測手法について: 「小さすぎる分母」問題（tests/Graft.Tests/CrossFileSearchPerformanceTests.cs
+/// のクラスドキュメントコメント参照）を避けるため、各テストは<see cref="CrossFileSearchPerformanceTests"/>
+/// と同じ手法（基準・対象の両方を必ずウォームアップする、基準1回・対象1回を1組として交互に
+/// <see cref="MeasurementRuns"/>組計測し組ごとの倍率の中央値を採用する、
+/// <see cref="Stopwatch.Elapsed"/>のTotalMillisecondsで小数精度を使う）へ揃えている。ここで
+/// 再発明はせず、詳細な設計の経緯は同クラスのドキュメントコメントを参照する。
+///
+/// 総処理量を揃えるかどうかはテストごとに異なる（各Measure*メソッドのコメント参照）。
+/// 「開く・レキサ走査」のように処理量が行数に比例するテストは
+/// <see cref="OpenRenderScaleFactor"/>・<see cref="LexerScaleFactor"/>で基準側を複数回に
+/// 分けて合計し、対象と処理行数を揃える。「スクロール・編集・可視範囲ハイライト」は
+/// 仮想化・可視範囲限定が効いていれば操作回数（3回のスクロール・50回の挿入・1回の描画）
+/// そのものが既に基準・対象で揃っており、むしろ「総行数に依存しないこと」自体を検証したい
+/// ため、行数を無理に揃えるためだけの繰り返しはしない（繰り返すと固定費用だけが基準側に
+/// 積み上がり、意図と逆に基準が対象より遅く見えてしまう）。
 /// </summary>
 public class PerformanceTests : IDisposable
 {
     private const int LineCount = 100_000;
+
+    /// <summary>基準1回・対象1回を1組として、この組数だけ交互に計測し、組ごとの倍率の中央値を採用する
+    /// （CrossFileSearchPerformanceTestsで確立した手法に合わせる）。</summary>
+    private const int MeasurementRuns = 7;
 
     /// <summary>
     /// 「行数に依存せず一定であるべき」操作（スクロール・編集・可視範囲ハイライト）の基準規模。
     /// 仮想化・可視範囲限定が効いていれば、この規模での所要時間と10万行での所要時間はほぼ同じになる。
     /// </summary>
     private const int SmallLineCount = 2_000;
+
+    /// <summary>
+    /// 組ごとの倍率の中央値がこの値未満であることを要求する（本ファイル全テスト共通）。
+    /// 負荷なしで3回繰り返した実測では、5テストいずれも中央値は0.24〜1.84倍の範囲に収まった
+    /// （「開く」はScaleFactorで基準側を10回に分割する分の固定費用（ウィンドウ構築等）を
+    /// 余分に払うため、対象より基準の方が遅く、比は1未満になりやすい）。4本のビジーループで
+    /// 4コアを飽和させた負荷下で2回繰り返した実測でも、中央値は0.27〜1.34倍に収まった
+    /// （本コミットの検証手順参照。SearchPerformanceTestsも同じ"PerformanceTests"という
+    /// フィルタ文字列に一致するため、混同しないよう本ファイル単体で計測し直した数値）。
+    /// 検証4（劣化を注入して実際に検出できるか）では、シンタックスハイライトの可視範囲限定を
+    /// 無効化すると中央値13.0倍で明確に検出できた。レキサ走査へ人為的にO(n^2)の劣化
+    /// （1行あたり行番号に比例する無駄な処理）を注入する実験では、注入量を増やすほど中央値が
+    /// 1.08→2.04→3.26倍と上昇したが、SyntaxLexer自身の自動無効化（10000行換算で100msを
+    /// 超えると打ち切る安全機構、SyntaxLexer.Scan参照）が基準・対象の双方でそれぞれの規模に
+    /// 比例した予算で頭打ちになるため、劣化をさらに強くしても比は際限なく伸びず、ある点からは
+    /// 逆に1へ収束してしまう限界を確認した。旧来の8〜30倍という緩い上限から、負荷下の実測上限
+    /// （1.34倍）に十分な余裕を残しつつ、かつ検証4で確認できた劣化注入時の倍率上昇
+    /// （2.04〜3.26倍）を掬えるよう、大きく引き締めた3.0を採用する。
+    /// </summary>
+    private const double RelativeCostRatioThreshold = 3.0;
 
     private readonly ITestOutputHelper _output;
     private readonly ShownWindowTracker _windows = new();
@@ -53,116 +94,177 @@ public class PerformanceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// 「開く」は仮想化の対象外（ドキュメント全体を読み込む必要がある）で処理量が行数に
+    /// 比例するはずのテストのため、CrossFileSearchPerformanceTestsのScaleFactorと同じ考え方で
+    /// 基準側を複数回に分けて合計し、対象と処理行数の総量を揃える。
+    /// </summary>
+    private const int OpenRenderScaleFactor = 10;
+
     [AvaloniaFact(DisplayName = "10万行のファイルを開いても構築・描画が滞らない")]
     public void 十万行を開ける()
     {
-        // ウォームアップ（初回JIT・初回ウィンドウ表示の費用を計測対象から除く）。
-        MeasureOpenAndRender(100);
+        const int baselineLines = LineCount / OpenRenderScaleFactor; // 1万行
 
-        const int baselineLines = LineCount / 10; // 1万行
-        var baselineMs = MeasureOpenAndRender(baselineLines);
-        var targetMs = MeasureOpenAndRender(LineCount, expectedLineCount: LineCount + 1);
+        // ウォームアップ（初回JIT・初回ウィンドウ表示の費用を計測対象から除く）。両方を
+        // 必ずウォームアップする（片側だけだと非対称が生じる。CrossFileSearchPerformanceTests参照）。
+        MeasureOpenAndRender(baselineLines);
+        MeasureOpenAndRender(LineCount, expectedLineCount: LineCount + 1);
 
-        var ratio = (double)targetMs / Math.Max(1, baselineMs);
-        _output.WriteLine(
-            $"{baselineLines}行の読み込みと初回描画: {baselineMs} ms / "
-            + $"{LineCount}行の読み込みと初回描画: {targetMs} ms（倍率 {ratio:F1}倍、行数は10倍）");
+        // 基準1回（1万行の開く操作をOpenRenderScaleFactor回連続で実行した合計時間）・対象1回
+        // （10万行を1回開く）を1組として、直前直後に交互に計測する。総処理行数は基準・対象で
+        // 揃っている（1万行×10回＝10万行）。
+        var (ratio, baselineTimes, targetTimes, ratios) = MeasureAlternatingRatio(
+            () =>
+            {
+                var total = 0.0;
+                for (var j = 0; j < OpenRenderScaleFactor; j++) total += MeasureOpenAndRender(baselineLines);
+                return total;
+            },
+            () => MeasureOpenAndRender(LineCount, expectedLineCount: LineCount + 1));
 
-        // 読み込み・初回描画は行数にほぼ比例するはずなので、行数が10倍なら時間もおよそ10倍で
-        // 収まるのが自然。定数コスト（ウィンドウ生成等）の影響を吸収する余裕を持たせつつ、
-        // 二乗のような破滅的劣化（本来なら100倍規模になる）だけを検出できる上限とする。
-        ratio.Should().BeLessThan(30,
-            $"行数10倍に対し所要時間が{ratio:F1}倍になっている（基準{baselineMs}ms→対象{targetMs}ms）。"
+        WriteMeasurementLog(
+            "読み込みと初回描画", $"{baselineLines}行×{OpenRenderScaleFactor}回",
+            $"{LineCount}行×1回", baselineTimes, targetTimes, ratios, ratio);
+        _output.WriteLine($"（総処理行数は基準・対象とも{LineCount}行で同じ）");
+
+        // 読み込み・初回描画は行数にほぼ比例するはずなので、総処理行数を揃えれば比はおよそ1.0に
+        // なるのが自然。定数コスト（基準側はOpenRenderScaleFactor回に分割する分、ウィンドウ生成
+        // 等の固定費用を余分に払う）を吸収する余裕を持たせつつ、二乗のような破滅的劣化
+        // （本来ならOpenRenderScaleFactor倍規模になる）だけを検出できる上限とする。
+        ratio.Should().BeLessThan(RelativeCostRatioThreshold,
+            $"総処理行数を揃えた基準（{baselineLines}行×{OpenRenderScaleFactor}回）に対し対象（{LineCount}行×1回）が"
+            + $"組ごとの倍率の中央値で{ratio:F2}倍の時間になっている"
+            + $"（基準: 全{MeasurementRuns}組[{string.Join(", ", baselineTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"対象: 全{MeasurementRuns}組[{string.Join(", ", targetTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"組ごとの倍率[{string.Join(", ", ratios.Select(r => r.ToString("F3")))}]）。"
             + "読み込み・初回描画の計算量が行数に対して線形から外れている可能性がある");
     }
 
     [AvaloniaFact(DisplayName = "10万行のファイルでもスクロールが滞らない")]
     public void 十万行でもスクロールできる()
     {
-        // ウォームアップ（初回JIT・初回ウィンドウ表示の費用を計測対象から除く）。
+        // ウォームアップ（初回JIT・初回ウィンドウ表示の費用を計測対象から除く）。両方を
+        // 必ずウォームアップする（片側だけだと非対称が生じる。CrossFileSearchPerformanceTests参照）。
         MeasureScroll(SmallLineCount);
+        MeasureScroll(LineCount);
 
-        var baselineMs = MeasureScroll(SmallLineCount);
-        var targetMs = MeasureScroll(LineCount);
+        // 総処理量について: 1回の計測はどちらも「先頭・中間・末尾へ3回スクロール」という
+        // 同じ操作回数であり、仮想化が効いていれば1回あたりのコストは可視範囲の行数だけで
+        // 決まり総行数には依存しないはず（クラスドキュメントコメント参照）。そのため
+        // CrossFileSearchPerformanceTestsのScaleFactorのように基準側を繰り返して総行数を
+        // 揃えることはしない（揃えるために基準を50回繰り返すと、固定費用だけが基準側に
+        // 積み上がり、意図と逆に基準が対象より遅く見えてしまう）。
+        var (ratio, baselineTimes, targetTimes, ratios) = MeasureAlternatingRatio(
+            () => MeasureScroll(SmallLineCount), () => MeasureScroll(LineCount));
 
-        var ratio = (double)targetMs / Math.Max(1, baselineMs);
-        _output.WriteLine(
-            $"{SmallLineCount}行でのスクロール: {baselineMs} ms / "
-            + $"{LineCount}行でのスクロール: {targetMs} ms（倍率 {ratio:F1}倍、行数は{LineCount / SmallLineCount}倍）");
+        WriteMeasurementLog("スクロール", $"{SmallLineCount}行", $"{LineCount}行", baselineTimes, targetTimes, ratios, ratio);
 
         // 仮想化が効いていれば、スクロール1回あたりの再描画コストは可視範囲の行数だけで決まり
-        // 総行数（{SmallLineCount}行 vs {LineCount}行、50倍差）には依存しないはず。
-        // 仮想化が壊れて全行を描き直すようになった場合だけを検出できる、十分に緩い上限とする。
-        ratio.Should().BeLessThan(8,
+        // 総行数（{SmallLineCount}行 vs {LineCount}行、{LineCount / SmallLineCount}倍差）には
+        // 依存しないはず。仮想化が壊れて全行を描き直すようになった場合だけを検出できる上限とする。
+        ratio.Should().BeLessThan(RelativeCostRatioThreshold,
             $"総行数が{LineCount / SmallLineCount}倍（{SmallLineCount}→{LineCount}）なのに"
-            + $"スクロール時間も{ratio:F1}倍になっている（基準{baselineMs}ms→対象{targetMs}ms）。"
+            + $"組ごとの倍率の中央値でスクロール時間も{ratio:F2}倍になっている"
+            + $"（基準: 全{MeasurementRuns}組[{string.Join(", ", baselineTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"対象: 全{MeasurementRuns}組[{string.Join(", ", targetTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"組ごとの倍率[{string.Join(", ", ratios.Select(r => r.ToString("F3")))}]）。"
             + "スクロールのたびに全行を描き直している（仮想化が効いていない）可能性がある");
     }
 
     [AvaloniaFact(DisplayName = "10万行のファイルでも編集が滞らない")]
     public void 十万行でも編集できる()
     {
-        // ウォームアップ（初回JIT・初回ウィンドウ表示の費用を計測対象から除く）。
+        // ウォームアップ（両方）。
         MeasureHeadInsert(SmallLineCount);
+        MeasureHeadInsert(LineCount, expectedLineCount: LineCount + 50 + 1);
 
-        var baselineMs = MeasureHeadInsert(SmallLineCount);
-        var targetMs = MeasureHeadInsert(LineCount, expectedLineCount: LineCount + 50 + 1);
+        // 総処理量について: 挿入回数（50回）は基準・対象で既に揃っており、可視範囲の再描画で
+        // コストが決まるはずのテストのため、スクロールと同じ理由でScaleFactorによる水増しは
+        // しない（クラスドキュメントコメント参照）。
+        var (ratio, baselineTimes, targetTimes, ratios) = MeasureAlternatingRatio(
+            () => MeasureHeadInsert(SmallLineCount),
+            () => MeasureHeadInsert(LineCount, expectedLineCount: LineCount + 50 + 1));
 
-        var ratio = (double)targetMs / Math.Max(1, baselineMs);
-        _output.WriteLine(
-            $"{SmallLineCount}行での先頭50回挿入: {baselineMs} ms / "
-            + $"{LineCount}行での先頭50回挿入: {targetMs} ms（倍率 {ratio:F1}倍、行数は{LineCount / SmallLineCount}倍）");
+        WriteMeasurementLog("先頭50回挿入", $"{SmallLineCount}行", $"{LineCount}行", baselineTimes, targetTimes, ratios, ratio);
 
         // 先頭への挿入と再描画のコストは、ドキュメント全体の行数ではなく挿入した行数・
-        // 可視範囲の再描画で決まるはず。総行数が50倍でも数倍以内に収まることを期待し、
-        // 総行数に比例し始めた場合（本来50倍規模）だけを検出できる上限とする。
-        ratio.Should().BeLessThan(8,
+        // 可視範囲の再描画で決まるはず。総行数が{LineCount / SmallLineCount}倍でも数倍以内に
+        // 収まることを期待し、総行数に比例し始めた場合だけを検出できる上限とする。
+        ratio.Should().BeLessThan(RelativeCostRatioThreshold,
             $"総行数が{LineCount / SmallLineCount}倍（{SmallLineCount}→{LineCount}）なのに"
-            + $"編集時間も{ratio:F1}倍になっている（基準{baselineMs}ms→対象{targetMs}ms）");
+            + $"組ごとの倍率の中央値で編集時間も{ratio:F2}倍になっている"
+            + $"（基準: 全{MeasurementRuns}組[{string.Join(", ", baselineTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"対象: 全{MeasurementRuns}組[{string.Join(", ", targetTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"組ごとの倍率[{string.Join(", ", ratios.Select(r => r.ToString("F3")))}]）。");
     }
 
     [AvaloniaFact(DisplayName = "10万行のファイルでもシンタックスハイライトが可視範囲に限定される")]
     public void 十万行でもハイライトが可視範囲に限定される()
     {
-        // ウォームアップ（初回JIT・初回ウィンドウ表示の費用を計測対象から除く）。
+        // ウォームアップ（両方）。
         MeasureHighlightedRender(SmallLineCount);
+        MeasureHighlightedRender(LineCount);
 
-        var baselineMs = MeasureHighlightedRender(SmallLineCount);
-        var targetMs = MeasureHighlightedRender(LineCount);
+        // 総処理量について: どちらも「初回描画1回」という同じ操作回数であり、ハイライトが
+        // 可視範囲だけに限定されていればコストは総行数に依存しないはずのテストのため、
+        // スクロール・編集と同じ理由でScaleFactorによる水増しはしない
+        // （クラスドキュメントコメント参照）。
+        var (ratio, baselineTimes, targetTimes, ratios) = MeasureAlternatingRatio(
+            () => MeasureHighlightedRender(SmallLineCount), () => MeasureHighlightedRender(LineCount));
 
-        var ratio = (double)targetMs / Math.Max(1, baselineMs);
-        _output.WriteLine(
-            $"{SmallLineCount}行でのハイライト初回描画: {baselineMs} ms / "
-            + $"{LineCount}行でのハイライト初回描画: {targetMs} ms（倍率 {ratio:F1}倍、行数は{LineCount / SmallLineCount}倍）");
+        WriteMeasurementLog("ハイライト初回描画", $"{SmallLineCount}行", $"{LineCount}行", baselineTimes, targetTimes, ratios, ratio);
 
         // ハイライトが可視範囲だけに限定されていれば、初回描画コストは総行数に依存しないはず。
-        // 全行を色付けするようになった場合（本来50倍規模）だけを検出できる上限とする。
-        ratio.Should().BeLessThan(8,
+        // 全行を色付けするようになった場合だけを検出できる上限とする。
+        ratio.Should().BeLessThan(RelativeCostRatioThreshold,
             $"総行数が{LineCount / SmallLineCount}倍（{SmallLineCount}→{LineCount}）なのに"
-            + $"ハイライト描画時間も{ratio:F1}倍になっている（基準{baselineMs}ms→対象{targetMs}ms）。"
+            + $"組ごとの倍率の中央値でハイライト描画時間も{ratio:F2}倍になっている"
+            + $"（基準: 全{MeasurementRuns}組[{string.Join(", ", baselineTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"対象: 全{MeasurementRuns}組[{string.Join(", ", targetTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"組ごとの倍率[{string.Join(", ", ratios.Select(r => r.ToString("F3")))}]）。"
             + "全行を色付けしている（可視範囲に限定できていない）可能性がある");
     }
+
+    /// <summary>
+    /// レキサ走査は全行を舐める設計そのもの（仮想化の対象外）で処理量が行数に比例するはず
+    /// のテストのため、「開く」と同じくScaleFactorで基準側を複数回に分けて合計し、対象と
+    /// 処理行数の総量を揃える。
+    /// </summary>
+    private const int LexerScaleFactor = 10;
 
     [AvaloniaFact(DisplayName = "10万行のレキサ走査が実用的な時間で終わる")]
     public void 十万行のレキサ走査が終わる()
     {
-        // ウォームアップ（初回JITの費用を計測対象から除く）。
-        MeasureLexerScan(100);
+        const int baselineLines = LineCount / LexerScaleFactor; // 1万行
 
-        const int baselineLines = LineCount / 10; // 1万行
-        var baselineMs = MeasureLexerScan(baselineLines);
-        var targetMs = MeasureLexerScan(LineCount);
+        // ウォームアップ（両方）。
+        MeasureLexerScan(baselineLines);
+        MeasureLexerScan(LineCount);
 
-        var ratio = (double)targetMs / Math.Max(1, baselineMs);
-        _output.WriteLine(
-            $"{baselineLines}行のレキサ走査: {baselineMs} ms / "
-            + $"{LineCount}行のレキサ走査: {targetMs} ms（倍率 {ratio:F1}倍、行数は10倍）");
+        var (ratio, baselineTimes, targetTimes, ratios) = MeasureAlternatingRatio(
+            () =>
+            {
+                var total = 0.0;
+                for (var j = 0; j < LexerScaleFactor; j++) total += MeasureLexerScan(baselineLines);
+                return total;
+            },
+            () => MeasureLexerScan(LineCount));
+
+        WriteMeasurementLog(
+            $"レキサ走査（基準は{LexerScaleFactor}回の合計）", $"{baselineLines}行×{LexerScaleFactor}回",
+            $"{LineCount}行×1回", baselineTimes, targetTimes, ratios, ratio);
 
         // レキサ走査は全行を舐める設計そのものなので行数に比例するのが正しい（線形）。
-        // 行数10倍で時間もおよそ10倍が自然な範囲。二乗のような劣化（本来100倍規模になる）
-        // だけを検出できるよう、線形からの余裕を大きく持たせた上限とする。
-        ratio.Should().BeLessThan(30,
-            $"行数10倍に対し走査時間が{ratio:F1}倍になっている（基準{baselineMs}ms→対象{targetMs}ms）。"
+        // 総処理行数を揃えれば比はおよそ1.0になるのが自然な範囲。定数コスト（基準側は
+        // LexerScaleFactor回に分割する分の固定費用）を吸収する余裕を持たせつつ、二乗のような
+        // 劣化（本来LexerScaleFactor倍規模になる）だけを検出できる上限とする。
+        ratio.Should().BeLessThan(RelativeCostRatioThreshold,
+            $"総処理行数を揃えた基準（{baselineLines}行×{LexerScaleFactor}回）に対し対象（{LineCount}行×1回）が"
+            + $"組ごとの倍率の中央値で{ratio:F2}倍の時間になっている"
+            + $"（基準: 全{MeasurementRuns}組[{string.Join(", ", baselineTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"対象: 全{MeasurementRuns}組[{string.Join(", ", targetTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"組ごとの倍率[{string.Join(", ", ratios.Select(r => r.ToString("F3")))}]）。"
             + "レキサの計算量が行数に対して線形から外れている可能性がある");
     }
 
@@ -192,26 +294,33 @@ public class PerformanceTests : IDisposable
                 new Graft.Platform.AvaloniaUiServices(),
                 openSettings: () => { });
 
-            var built = stopwatch.ElapsedMilliseconds;
+            var built = stopwatch.Elapsed.TotalMilliseconds;
 
             var window = _windows.Track(new Graft.Views.ShellWindow(shell) { Width = 1280, Height = 800 });
-            var constructed = stopwatch.ElapsedMilliseconds;
+            var constructed = stopwatch.Elapsed.TotalMilliseconds;
 
             window.Show();
             window.CaptureRenderedFrame().Should().NotBeNull();
             stopwatch.Stop();
-            var coldMs = stopwatch.ElapsedMilliseconds;
+            var coldMs = stopwatch.Elapsed.TotalMilliseconds;
 
-            _output.WriteLine($"内訳: ViewModel構築={built} ms, ウィンドウ構築={constructed - built} ms, "
-                + $"表示と初回描画={coldMs - constructed} ms");
-            _output.WriteLine($"依存の構築からシェルの初回描画まで（1回目・JIT等の一度きりの費用込み）: {coldMs} ms");
+            _output.WriteLine($"内訳: ViewModel構築={built:F3} ms, ウィンドウ構築={constructed - built:F3} ms, "
+                + $"表示と初回描画={coldMs - constructed:F3} ms");
+            _output.WriteLine($"依存の構築からシェルの初回描画まで（1回目・JIT等の一度きりの費用込み）: {coldMs:F3} ms");
 
             // 1回目にはXAMLの初回読み込みとJITの費用が含まれる。同一プロセス内でシェルの
             // ViewModelを使い回してウィンドウだけを作り直すと、その一度きりの費用を除いた
             // 「定常状態」の構築・描画費用が分かる。3回計測して中央値を使うことで、GCや
             // スレッドスケジューリングによる単発の外れ値に強くする（推奨事項のうち
             // 「ウォームアップ＋複数回計測の中央値」を採用）。
-            var warmSamples = new List<long>();
+            //
+            // 注記: このテストの「1回目（コールド）」はプロセス内で本質的に1回しか観測できない
+            // 値（ウォームアップし直すとコールドでなくなってしまう）ため、CrossFileSearchPerformanceTests
+            // で確立した「基準1回・対象1回を1組とした交互計測＋組ごとの倍率の中央値」は
+            // そのままでは適用できない（交互に計測できるのは3回の「ウォーム」側だけ）。
+            // ここでは既存の「ウォーム3回の中央値を基準にする」設計を維持しつつ、
+            // Elapsed.TotalMillisecondsの小数精度を使う点だけ他の性能テストへ揃える。
+            var warmSamples = new List<double>();
             for (var i = 0; i < 3; i++)
             {
                 var warm = Stopwatch.StartNew();
@@ -219,12 +328,13 @@ public class PerformanceTests : IDisposable
                 w.Show();
                 w.CaptureRenderedFrame().Should().NotBeNull();
                 warm.Stop();
-                warmSamples.Add(warm.ElapsedMilliseconds);
+                warmSamples.Add(warm.Elapsed.TotalMilliseconds);
             }
             warmSamples.Sort();
             var warmMedian = warmSamples[warmSamples.Count / 2];
             _output.WriteLine(
-                $"2回目以降（初回費用を除く、3回の中央値）: {warmMedian} ms（実測: {string.Join(", ", warmSamples)} ms）");
+                $"2回目以降（初回費用を除く、3回の中央値）: {warmMedian:F3} ms（実測: "
+                + $"{string.Join(", ", warmSamples.Select(s => s.ToString("F3")))} ms）");
 
             // 定常状態の構築・描画には、このテスト内に比較できる更に軽い基準操作がないため
             // 絶対値で判定せざるを得ない（相対比較が馴染まないケース）。18章の要件は1秒だが、
@@ -238,10 +348,10 @@ public class PerformanceTests : IDisposable
             // ハードウェアの速さは分子・分母の両方に等しく乗るため、CI環境の遅さそのものには
             // 左右されない。JIT等の一度きりの費用を差し引いてもなお構築経路自体が遅い場合
             // （本来のJIT費用に比べて桁で大きい場合）だけを検出する。
-            var ratio = (double)coldMs / Math.Max(1, warmMedian);
-            _output.WriteLine($"1回目 / 定常状態中央値 = {ratio:F1}倍");
+            var ratio = coldMs / Math.Max(0.01, warmMedian);
+            _output.WriteLine($"1回目 / 定常状態中央値 = {ratio:F2}倍");
             ratio.Should().BeLessThan(15,
-                $"定常状態（{warmMedian}ms）に対し初回（{coldMs}ms）が{ratio:F1}倍かかっている。"
+                $"定常状態（{warmMedian:F3}ms）に対し初回（{coldMs:F3}ms）が{ratio:F2}倍かかっている。"
                 + "JIT等の一度きりの費用を差し引いても構築経路自体が遅くなっている可能性がある");
         }
         finally
@@ -257,8 +367,56 @@ public class PerformanceTests : IDisposable
         }
     }
 
-    /// <summary>指定行数のドキュメントを開いて初回描画するまでの時間（ms）を計測する。</summary>
-    private long MeasureOpenAndRender(int lines, int? expectedLineCount = null)
+    /// <summary>
+    /// 基準1回・対象1回を1組として<see cref="MeasurementRuns"/>組だけ交互に計測し、組ごとの
+    /// 倍率（対象÷基準）の中央値を返す（CrossFileSearchPerformanceTestsで確立した手法）。
+    /// 同じ組の基準・対象は直前直後に実行されるため、負荷側の状態がほぼ同じ条件を共有し、
+    /// 「片方だけ運良く空いた瞬間に当たる」非対称が起きにくい。
+    /// </summary>
+    private static (double Ratio, List<double> BaselineTimes, List<double> TargetTimes, List<double> Ratios)
+        MeasureAlternatingRatio(Func<double> measureBaselineOnce, Func<double> measureTargetOnce)
+    {
+        var baselineTimes = new List<double>(MeasurementRuns);
+        var targetTimes = new List<double>(MeasurementRuns);
+        var ratios = new List<double>(MeasurementRuns);
+        for (var i = 0; i < MeasurementRuns; i++)
+        {
+            var baselineMs = measureBaselineOnce();
+            var targetMs = measureTargetOnce();
+            baselineTimes.Add(baselineMs);
+            targetTimes.Add(targetMs);
+            ratios.Add(targetMs / Math.Max(0.01, baselineMs));
+        }
+        return (Median(ratios), baselineTimes, targetTimes, ratios);
+    }
+
+    /// <summary>中央値を求める（偶数個なら中央2件の平均。CrossFileSearchPerformanceTestsと同じ実装）。</summary>
+    private static double Median(List<double> values)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        var mid = sorted.Count / 2;
+        return sorted.Count % 2 == 1
+            ? sorted[mid]
+            : (sorted[mid - 1] + sorted[mid]) / 2.0;
+    }
+
+    /// <summary>失敗時に基準・対象それぞれの全計測値（生の値）と組ごとの倍率を判断できるよう、
+    /// 出力へ書き出す（次にCIで落ちたとき、たまたま1組だけ遅い値を引いたノイズなのか、
+    /// 全体的に遅い本物の劣化なのかを、この生データから判断できるようにするため）。</summary>
+    private void WriteMeasurementLog(
+        string operationName, string baselineLabel, string targetLabel,
+        List<double> baselineTimes, List<double> targetTimes, List<double> ratios, double ratio)
+    {
+        var baselineRawText = string.Join(", ", baselineTimes.Select(t => t.ToString("F3")));
+        var targetRawText = string.Join(", ", targetTimes.Select(t => t.ToString("F3")));
+        var ratiosRawText = string.Join(", ", ratios.Select(r => r.ToString("F3")));
+        _output.WriteLine($"基準（{baselineLabel}での{operationName}、{MeasurementRuns}組）: [{baselineRawText}] ms");
+        _output.WriteLine($"対象（{targetLabel}での{operationName}、{MeasurementRuns}組）: [{targetRawText}] ms");
+        _output.WriteLine($"組ごとの倍率: [{ratiosRawText}] → 中央値 {ratio:F2}倍");
+    }
+
+    /// <summary>指定行数のドキュメントを開いて初回描画するまでの時間（ms、小数精度）を計測する。</summary>
+    private double MeasureOpenAndRender(int lines, int? expectedLineCount = null)
     {
         var text = BuildSource(lines);
 
@@ -277,11 +435,11 @@ public class PerformanceTests : IDisposable
             editor.Document.LineCount.Should().Be(expectedLineCount.Value);
         }
 
-        return stopwatch.ElapsedMilliseconds;
+        return stopwatch.Elapsed.TotalMilliseconds;
     }
 
-    /// <summary>指定行数のドキュメントで、先頭・中間・末尾へ3回スクロールする時間（ms）を計測する。</summary>
-    private long MeasureScroll(int lines)
+    /// <summary>指定行数のドキュメントで、先頭・中間・末尾へ3回スクロールする時間（ms、小数精度）を計測する。</summary>
+    private double MeasureScroll(int lines)
     {
         var editor = new TextEditor { ShowLineNumbers = true, Document = new TextDocument(BuildSource(lines)) };
         var window = _windows.Track(new Window { Width = 1200, Height = 800, Content = editor });
@@ -298,11 +456,11 @@ public class PerformanceTests : IDisposable
         }
         stopwatch.Stop();
 
-        return stopwatch.ElapsedMilliseconds;
+        return stopwatch.Elapsed.TotalMilliseconds;
     }
 
-    /// <summary>指定行数のドキュメントの先頭へ50回挿入して再描画する時間（ms）を計測する。</summary>
-    private long MeasureHeadInsert(int lines, int? expectedLineCount = null)
+    /// <summary>指定行数のドキュメントの先頭へ50回挿入して再描画する時間（ms、小数精度）を計測する。</summary>
+    private double MeasureHeadInsert(int lines, int? expectedLineCount = null)
     {
         var document = new TextDocument(BuildSource(lines));
         var editor = new TextEditor { Document = document };
@@ -323,11 +481,11 @@ public class PerformanceTests : IDisposable
             document.LineCount.Should().Be(expectedLineCount.Value);
         }
 
-        return stopwatch.ElapsedMilliseconds;
+        return stopwatch.Elapsed.TotalMilliseconds;
     }
 
-    /// <summary>指定行数のドキュメントへシンタックスハイライトを付けて初回描画する時間（ms）を計測する。</summary>
-    private long MeasureHighlightedRender(int lines)
+    /// <summary>指定行数のドキュメントへシンタックスハイライトを付けて初回描画する時間（ms、小数精度）を計測する。</summary>
+    private double MeasureHighlightedRender(int lines)
     {
         var editor = new TextEditor { Document = new TextDocument(BuildSource(lines)) };
         var window = _windows.Track(new Window { Width = 1200, Height = 800, Content = editor });
@@ -342,11 +500,11 @@ public class PerformanceTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
         stopwatch.Stop();
 
-        return stopwatch.ElapsedMilliseconds;
+        return stopwatch.Elapsed.TotalMilliseconds;
     }
 
-    /// <summary>指定行数のソースをレキサで走査する時間（ms）を計測する。</summary>
-    private static long MeasureLexerScan(int lines)
+    /// <summary>指定行数のソースをレキサで走査する時間（ms、小数精度）を計測する。</summary>
+    private static double MeasureLexerScan(int lines)
     {
         var sourceLines = TextNormalizer.SplitLines(BuildSource(lines));
         var rule = SyntaxLexer.RuleForExtension(".cs");
@@ -358,7 +516,7 @@ public class PerformanceTests : IDisposable
         lexer.Scan(sourceLines);
         stopwatch.Stop();
 
-        return stopwatch.ElapsedMilliseconds;
+        return stopwatch.Elapsed.TotalMilliseconds;
     }
 
     /// <summary>コメント・文字列・キーワードが混ざった、実際のコードに近い内容を生成する。</summary>

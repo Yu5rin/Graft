@@ -63,7 +63,12 @@ public class ShutdownPersistenceTests : IDisposable
         var window = _windows.Track(new ShellWindow(shell) { Width = 1000, Height = 700 });
         window.CloseBehavior = "exit";
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         var projectDirectory = Path.Combine(_baseDirectory, "project");
         Directory.CreateDirectory(projectDirectory);
@@ -117,7 +122,12 @@ public class ShutdownPersistenceTests : IDisposable
         var window = _windows.Track(new ShellWindow(shell) { Width = 1000, Height = 700 });
         window.CloseBehavior = "exit";
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         window.WindowState = WindowState.Maximized;
 
@@ -129,7 +139,7 @@ public class ShutdownPersistenceTests : IDisposable
     }
 
     [AvaloniaFact(DisplayName = "課題2: タスクトレイに常駐する設定で閉じても終了処理（layout.jsonの保存）は走らない")]
-    public async Task 常駐設定では保存されない()
+    public void 常駐設定では保存されない()
     {
         var appPaths = new AppPaths(_baseDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -139,7 +149,12 @@ public class ShutdownPersistenceTests : IDisposable
         window.CloseBehavior = "tray";
         window.IsTraySupported = true;
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         window.Close();
 
@@ -149,7 +164,7 @@ public class ShutdownPersistenceTests : IDisposable
     }
 
     [AvaloniaFact(DisplayName = "課題2: 常駐設定でもトレイメニューの「終了」（IsForceClosing）なら終了処理が走りlayout.jsonへ保存される")]
-    public async Task トレイメニューの終了では保存される()
+    public void トレイメニューの終了では保存される()
     {
         var appPaths = new AppPaths(_baseDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -160,7 +175,12 @@ public class ShutdownPersistenceTests : IDisposable
         window.IsTraySupported = true;
         window.IsForceClosing = true; // StartupCoordinator.ForceExit相当。
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         window.Close();
 
@@ -180,7 +200,12 @@ public class ShutdownPersistenceTests : IDisposable
         window.Logger = logger;
         window.CloseBehavior = "exit";
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         // layout.json という名前のディレクトリを事前に作っておくと、保存処理の
         // File.Move（および代替のFile.Copy）が「書き込み先が読み取り専用」と同種の

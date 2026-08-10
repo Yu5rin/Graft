@@ -82,7 +82,12 @@ public class LongLineTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
         var (shell, window) = BuildShellAndWindow(appPaths);
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         var filePath = Path.Combine(_baseDirectory, "normal.cs");
         await File.WriteAllTextAsync(filePath, "class Normal\n{\n    void M() { }\n}\n");
@@ -104,7 +109,12 @@ public class LongLineTests : IDisposable
         var settings = new Settings { Editor = new EditorSettings { WordWrap = true } };
         var (shell, window) = BuildShellAndWindow(appPaths, settings);
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         shell.Editor.WordWrap.Should().BeTrue("この検証は「利用者が折り返しを有効にしている」状況を再現するため");
 
@@ -174,7 +184,12 @@ public class LongLineTests : IDisposable
         var settings = new Settings { Editor = new EditorSettings { WordWrap = true } };
         var (shell, window) = BuildShellAndWindow(appPaths, settings);
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         // 基準: 極端に長い行を含むファイルと総文字数を揃えた（約10万文字）、
         // ただし通常の行長（1行80文字程度）に分けたファイル。総データ量を揃えたうえで
@@ -294,7 +309,12 @@ public class LongLineTests : IDisposable
         appPaths.EnsureCoreDirectoriesExist();
         var (shell, window) = BuildShellAndWindow(appPaths);
         window.Show();
-        await shell.Graft.InitializeAsync();
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         var filePath = Path.Combine(_baseDirectory, "LongLine.cs");
         await File.WriteAllTextAsync(filePath, "class L { /* " + new string('x', 100_000) + " */ }\n");
