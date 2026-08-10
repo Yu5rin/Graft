@@ -77,8 +77,8 @@
             </StackPanel>
 
             <!--
-                課題2・3: ウィンドウを閉じたときの動作／PC起動時の自動起動。
-                この2項目は変更した瞬間に即時反映される（保存ボタンはない）。
+                課題2・3・不具合修正: ウィンドウを閉じたときの動作／最小化でタスクトレイへ格納／
+                PC起動時の自動起動。この3項目は変更した瞬間に即時反映される（保存ボタンはない）。
             -->
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="ウィンドウを閉じたときの動作" Classes="fieldLabel" />
@@ -89,6 +89,14 @@
                           views:HelpTip.Detailed="ウィンドウ右上の×ボタンを押したときの挙動を選びます。「終了する」（既定）を選ぶと、×を押した時点でGraftのプロセスごと終了します。「タスクトレイに常駐する」を選ぶと、×を押してもプロセスは終了せずウィンドウが隠れるだけになり、タスクトレイのアイコンの「開く」で再表示、「終了」で完全に終了できます。クリップボード監視やホットキー貼り付けをすぐ使えるよう、常に起動しておきたいときに使います。お使いの環境がタスクトレイに対応していない場合は、この選択肢自体が表示されません（×で閉じると常に終了します）。" />
             </StackPanel>
             <TextBlock Text="このデスクトップ環境ではタスクトレイ（StatusNotifierItem）に対応していないため、常駐は選べません。×で閉じると終了します。"
+                       Classes="fieldHint" IsVisible="{Binding !IsTraySupported}"
+                       TextWrapping="Wrap" />
+            <CheckBox Classes="settingRow" Content="最小化でタスクトレイへ格納する" IsChecked="{Binding MinimizeToTray}"
+                      IsEnabled="{Binding IsTraySupported}"
+                      AutomationProperties.Name="最小化でタスクトレイへ格納する"
+                      views:HelpTip.Standard="オンにすると、ウィンドウを最小化した瞬間にタスクトレイへ格納されます。既定はオフで、通常のWindowsアプリと同じく最小化してもタスクバーには残ります。"
+                      views:HelpTip.Detailed="オフ（既定）のときは、Windowsの通常の慣習どおり最小化してもタスクバーにアイコンが残り、タスクバーから元に戻せます。オンにすると、最小化した瞬間にウィンドウがタスクバーからも消え、タスクトレイのアイコン（左クリックまたは「開く」）からのみ復帰できるようになります。クリップボード監視やホットキー貼り付けをすぐ使えるよう常駐させつつ、タスクバーを占有したくない場合に使います。お使いの環境がタスクトレイに対応していない場合は、オンにしても実際には通常の最小化のままになります（この場合はチェックボックス自体が無効化されます）。" />
+            <TextBlock Text="このデスクトップ環境ではタスクトレイ（StatusNotifierItem）に対応していないため、最小化は常に通常の最小化になります。"
                        Classes="fieldHint" IsVisible="{Binding !IsTraySupported}"
                        TextWrapping="Wrap" />
             <CheckBox Classes="settingRow" Content="PC起動時に自動で起動する" IsChecked="{Binding LaunchAtStartup}"

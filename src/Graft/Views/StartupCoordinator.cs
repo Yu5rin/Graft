@@ -224,11 +224,23 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             initialWatchSignal.TrySetResult();
         };
 
-        // 9章: 最小化でトレイへ格納する（トレイが使えない環境では通常の最小化のまま）。
+        // 不具合修正: 最小化時にトレイへ格納するかどうかは設定
+        // （AppSettings.MinimizeToTray、既定オフ）で選べるようにする。以前は設定に関わらず
+        // トレイが使える環境では常にHide()しており、タスクバーからもウィンドウが消えてしまう
+        // （Windowsの通常の慣習＝最小化時はタスクバーに残る、から外れる）不具合だった。
+        // トレイが使えない環境では、設定がオンでも従来どおり通常の最小化のまま（縮退）。
+        //
+        // 即時反映の注意: このハンドラは<see cref="StartAsync"/>実行時に1度だけ登録し、
+        // 以後は毎回発火のたびに実行される。ここで<c>_settings.MinimizeToTray</c>を直接
+        // 参照しているのは重要で、ローカル変数へ一度だけ読み出してクロージャに焼き付けると、
+        // 設定画面で変更してもこのハンドラには反映されなくなってしまう
+        // （StartupCoordinator.Hotkey.csのReapplyHotkeyIfChangedと同じ「即時反映」の作法。
+        // <c>_settings</c>はApplyLiveSettingsChangeで随時差し替わるインスタンスフィールドの
+        // ため、フィールド越しに毎回読むこのままの書き方であれば自動的に最新値を拾える）。
         window.PropertyChanged += (_, e) =>
         {
             if (e.Property != Window.WindowStateProperty) return;
-            if (_platform.Tray.IsSupported && window.WindowState == WindowState.Minimized) window.Hide();
+            if (ShouldHideOnMinimize(_platform.Tray.IsSupported, _settings.MinimizeToTray, window.WindowState)) window.Hide();
         };
 
         window.Show();
@@ -293,6 +305,20 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         window.WindowState = WindowState.Normal;
         window.Activate();
     }
+
+    /// <summary>
+    /// 不具合修正: 最小化時にタスクトレイへ格納すべきかどうかの純粋な判定。
+    /// window.PropertyChangedハンドラから毎回呼ぶ（<see cref="StartAsync"/>参照）ことで、
+    /// 「トレイが使える」「設定がオンである」「実際に最小化された」の3条件をすべて満たす
+    /// 場合にのみ格納する。トレイが使えない環境では、設定がオンでも常にfalse（縮退。
+    /// 従来どおりの通常の最小化のまま）。
+    ///
+    /// テスト容易性: <see cref="ActivateWindowOnPatchDetected"/>・<see cref="ReapplyHotkey"/>と
+    /// 同じ理由で、実際のOS資源（Window・トレイ）に触れずに判定ロジックだけを単体テストできる
+    /// よう、staticな純粋関数として切り出している（MinimizeToTrayTests.cs参照）。
+    /// </summary>
+    public static bool ShouldHideOnMinimize(bool trayIsSupported, bool minimizeToTraySetting, WindowState currentState)
+        => trayIsSupported && minimizeToTraySetting && currentState == WindowState.Minimized;
 
     // ------------------------------------------------------------------
     // OS固有機能の配線（9章 クリップボード監視・8.10 グローバルホットキー・トレイ常駐）
@@ -463,8 +489,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     ///
     /// 機能追加: 「検知したら自動で解析する」（既定オン）。自動解析するかどうかの判断
     /// （設定オン、かつ未処理の解析結果・キューが残っていない）自体は
-    /// <see cref="ShellViewModel.HandleClipboardPatchDetected"/>に集約しており、ここでは
-    /// その結果だけを見る。
+    /// <see cref="ShellViewModel.HandleClipboardPatchDetected"/>に集約している。
     ///
     /// 機能追加: 「検知したら前面に表示する」（既定オン、StartupCoordinator.
     /// ClipboardActivation.cs参照）。この設定がオンで前面化に成功した場合
@@ -473,12 +498,16 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// 関わらず必ずここで前面化を完結させる（要件4: 検知したことを伝えるのが目的で、解析の
     /// 有無は別軸のため）。それ以外の場合（設定オフ＝<see cref="ClipboardActivationOutcome.
     /// Disabled"/>、またはOS側の制約で前面化が拒否された縮退＝<see cref="
-    /// ClipboardActivationOutcome.Degraded"/>）は、以下の従来どおりの挙動へフォールバックする:
-    /// 自動解析した場合は、反応時の挙動設定（トレイ通知のみ／非アクティブ／アクティブ）に
-    /// 関わらず必ずウィンドウを前面化する（その場で解析した接ぎ木パネルの結果を見せる必要が
-    /// あるため。「トレイ通知のみ」を選んでいても、通知の代わりに結果そのものを見せる形に
-    /// なる点が唯一の例外）。自動解析しなかった場合（設定オフ、または未処理の内容がある場合）は、
-    /// 従来どおり反応時の挙動設定に従って通知するだけに留める。
+    /// ClipboardActivationOutcome.Degraded"/>）は、自動解析の有無に関わらず「反応時の挙動」
+    /// 設定（トレイ通知のみ／非アクティブ表示／アクティブ表示）へ厳密に従う。
+    ///
+    /// 不具合修正: 以前は「検知したら前面に表示する」がオフでも、自動解析した場合には
+    /// 「反応時の挙動」設定を無視して無条件にウィンドウを前面化する特例があった
+    /// （その場で解析した接ぎ木パネルの結果を見せる意図だったが、自動解析は既定オンのため、
+    /// 実機では「検知したら前面に表示する」をオフにしていてもほぼ常にこの特例へ入ってしまい、
+    /// 「反応時の挙動＝トレイ通知のみ」を選んでいるのにウィンドウが前面に出てしまう不具合に
+    /// なっていた）。この特例は廃止した。「検知したら前面に表示する」がオフの間は、自動解析の
+    /// 有無に関わらず常に「反応時の挙動」設定だけに従う。
     ///
     /// 回帰修正: Degradedのときも以前はここで早期returnしていたが、前面化が拒否されている
     /// 以上、利用者へ検知を伝える手段は上記の通知経路しか残っていない。「反応時の挙動＝
@@ -488,7 +517,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// </summary>
     private void OnClipboardPatchDetected(Window window)
     {
-        var autoParsed = _shellViewModel?.HandleClipboardPatchDetected(_settings.ClipboardWatch.AutoParse) ?? false;
+        // 戻り値（自動解析が実際に行われたか）は、以前は前面化の特例判定に使っていたが
+        // その特例は廃止した（このメソッドの不具合修正コメント参照）。自動解析そのものの
+        // 実行（副作用）はこの呼び出しで行われるため、呼び出し自体は引き続き必要。
+        _shellViewModel?.HandleClipboardPatchDetected(_settings.ClipboardWatch.AutoParse);
 
         var isAlreadyForeground = window.IsVisible && window.WindowState != WindowState.Minimized && window.IsActive;
 
@@ -498,7 +530,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // ClipboardActivationTests.csのテスト参照）。
         var activation = ActivateOrFallBackOnPatchDetected(
             _platform.SingleInstance, _platform.Tray, window, MainWindowTitle,
-            _settings.ClipboardWatch.ActivateOnDetect, isAlreadyForeground, autoParsed, _settings.ClipboardWatch.Action);
+            _settings.ClipboardWatch.ActivateOnDetect, isAlreadyForeground, _settings.ClipboardWatch.Action);
 
         if (activation == ClipboardActivationOutcome.Degraded)
         {

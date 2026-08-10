@@ -197,8 +197,48 @@ public interface ISingleInstanceGuard : IPlatformService, IDisposable
     /// アイコン点滅に縮退することがあり、その場合は false（呼び出し側はエラー扱いにせず
     /// ログにのみ記録する。多重起動検出時の前面化はこの戻り値を見ない＝従来どおり静かに
     /// 縮退するのみで挙動は変わらない）。
+    ///
+    /// 不具合修正: このメソッドは「タイトルで探し直して」別プロセスのウィンドウを前面化する、
+    /// 多重起動検出専用の経路として使うこと。同一プロセス内の自分のウィンドウ
+    /// （既に<see cref="Avalonia.Controls.Window"/>を持っている場合）を前面化したいときは、
+    /// このメソッドではなく<see cref="ActivateWindowHandle"/>を使う（理由はそちらのコメントを参照）。
     /// </summary>
     bool ActivateExistingInstance(string mainWindowTitle);
+
+    /// <summary>
+    /// 不具合修正: 自分のプロセスが既に持っているウィンドウを、タイトルの再検索を経由せず
+    /// ハンドル指定で直接前面化する。クリップボード監視でのパッチ検知時の前面化
+    /// （<c>Views/StartupCoordinator.ClipboardActivation.cs</c>）向け。<paramref name="handle"/>には
+    /// <c>Window.TryGetPlatformHandle()?.Handle</c>で取得した実際のウィンドウハンドル
+    /// （Windowsでは HWND、LinuxのX11環境では XID）を渡す。
+    ///
+    /// 【なぜ<see cref="ActivateExistingInstance"/>（タイトル検索）を使い回してはいけないか】
+    /// Windows実機検証で次の事実が判明した（同じ「他アプリを操作中」という状況での比較）。
+    ///
+    /// <list type="bullet">
+    /// <item>Graftが背面（表示中・非最小化）の状態から<see cref="ActivateExistingInstance"/>
+    /// （<c>FindWindow</c>でタイトルから探し直す経路）を呼んでも前面に出ない。</item>
+    /// <item>Graftが最小化の状態からは出る。ただしこれは<c>WindowState = Normal</c>への変更
+    /// 自体の副作用で復帰しているだけで、前面化そのものが機能しているわけではない。</item>
+    /// <item>前面化設定オフ＋自動解析オンの経路（<c>Window.Activate()</c>。自分が既に持っている
+    /// Windowオブジェクトへ直接作用する）は同じ状況でも成功する。</item>
+    /// </list>
+    ///
+    /// 同じ状況で経路によって結果が割れたことから、原因はOSのフォーカス窃取防止だけではなく、
+    /// 「既に自分が掴んでいるウィンドウを、わざわざウィンドウタイトルの文字列から再度探し直す」
+    /// という経路そのものにある。<see cref="ActivateExistingInstance"/>は本来、多重起動検出
+    /// （別プロセスのウィンドウをタイトルで見つける必要がある）のための正しい実装であり、
+    /// そちらは変更しない。クリップボード監視は同一プロセスの自分のウィンドウが対象という
+    /// 前提が異なるのに同じ経路を誤って再利用していたことが不具合の原因だったため、
+    /// このメソッドではタイトルを再検索せず、渡されたハンドルへ直接作用する。
+    ///
+    /// <paramref name="handle"/>が<see cref="IntPtr.Zero"/>、またはハンドル経由の前面化が
+    /// この環境では使えない場合は、<paramref name="fallbackWindowTitle"/>を使って
+    /// <see cref="ActivateExistingInstance"/>（タイトル検索）へ縮退してよい（要否・可否は
+    /// 各プラットフォーム実装のコメント参照）。戻り値の意味は<see cref="ActivateExistingInstance"/>
+    /// と同じ（OS側の制約による拒否＝縮退の判定は、呼び出し側で同様にfalseとして扱われる）。
+    /// </summary>
+    bool ActivateWindowHandle(IntPtr handle, string fallbackWindowTitle);
 }
 
 /// <summary>

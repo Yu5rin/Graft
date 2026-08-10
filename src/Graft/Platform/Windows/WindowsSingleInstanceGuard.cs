@@ -55,6 +55,31 @@ public sealed class WindowsSingleInstanceGuard : ISingleInstanceGuard
         return SetForegroundWindow(hwnd);
     }
 
+    public bool ActivateWindowHandle(IntPtr handle, string fallbackWindowTitle)
+    {
+        // 不具合修正: 実機検証で、Graftが背面表示中（非最小化）の状態からActivateExistingInstance
+        // （FindWindowでタイトルから探し直す経路）を呼んでも前面に出ないことが判明した
+        // （ISingleInstanceGuard.ActivateWindowHandleのコメント参照）。一方、自分が既に持っている
+        // Windowオブジェクトへ直接作用する経路（Window.Activate()）は同じ状況で成功していた。
+        // そのため、自分のウィンドウを前面化するときはタイトル検索を経由せず、渡された
+        // ハンドルへ直接ShowWindow・SetForegroundWindowを呼ぶ。
+        if (handle != IntPtr.Zero)
+        {
+            ShowWindow(handle, SwRestore);
+
+            // SetForegroundWindowがOS側の制約（フォーカス窃取防止）で拒否された場合は、
+            // 対象ウィンドウ自体は正しく特定できているため、タイトル検索へのフォールバックは
+            // 行わない（見つからなかったのではなく拒否されただけであり、再検索しても結果は
+            // 変わらない）。falseをそのまま返し、呼び出し側のDegraded判定に委ねる
+            // （要件6: この判定を壊さないこと）。
+            return SetForegroundWindow(handle);
+        }
+
+        // ハンドルが取得できなかった場合のみ、保険として従来のタイトル検索経路へ縮退する。
+        // Window.Show()済みのウィンドウでは通常発生しない想定だが、万一に備える。
+        return ActivateExistingInstance(fallbackWindowTitle);
+    }
+
     public void Dispose()
     {
         if (_disposed)

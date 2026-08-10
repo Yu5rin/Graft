@@ -63,6 +63,45 @@ internal static class X11WindowActivator
         }
     }
 
+    /// <summary>
+    /// 不具合修正: 自分のプロセスが既に持っているウィンドウを、XID（Avaloniaの
+    /// <c>Window.TryGetPlatformHandle()?.Handle</c>がX11環境で返す実際のウィンドウID）を
+    /// 直接指定して前面化する。<see cref="TryActivate"/>（タイトルで<c>_NET_CLIENT_LIST</c>を
+    /// 検索して見つけ出す経路）と異なり、ウィンドウ一覧の走査・タイトル一致判定を一切経由しない
+    /// （<see cref="ISingleInstanceGuard.ActivateWindowHandle"/>のコメント参照:
+    /// クリップボード監視は自分のウィンドウが対象であり、多重起動検出用のタイトル検索とは
+    /// 前提が異なる）。
+    ///
+    /// <paramref name="windowHandle"/>が<see cref="IntPtr.Zero"/>、X11に接続できない
+    /// （Waylandのみ等）、libX11が無い環境など、いずれの理由でも例外は投げず false を返す
+    /// （呼び出し側<see cref="Platform.Linux.LinuxSingleInstanceGuard.ActivateWindowHandle"/>が
+    /// タイトル検索の経路へ縮退する）。
+    /// </summary>
+    internal static bool TryActivateHandle(IntPtr windowHandle)
+    {
+        if (windowHandle == IntPtr.Zero) return false;
+
+        var display = IntPtr.Zero;
+        try
+        {
+            display = X11Interop.XOpenDisplay(null);
+            if (display == IntPtr.Zero) return false; // X11に接続できない環境（Waylandのみ等）。
+
+            var root = X11Interop.XDefaultRootWindow(display);
+            var activeWindowAtom = X11Interop.XInternAtom(display, "_NET_ACTIVE_WINDOW", false);
+
+            return SendActivateMessage(display, root, windowHandle, activeWindowAtom);
+        }
+        catch (DllNotFoundException)
+        {
+            return false; // libX11が無い環境。
+        }
+        finally
+        {
+            if (display != IntPtr.Zero) X11Interop.XCloseDisplay(display);
+        }
+    }
+
     private static IntPtr FindWindowByTitle(IntPtr display, IntPtr root, IntPtr clientListAtom, IntPtr nameAtom, string windowTitle)
     {
         foreach (var window in GetClientList(display, root, clientListAtom))

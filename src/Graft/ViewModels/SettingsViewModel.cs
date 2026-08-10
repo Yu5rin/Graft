@@ -115,6 +115,12 @@ public sealed class SettingsViewModel : ObservableObject
     // （ApplyAutoStartAsync参照）。
     private string _closeBehavior = "exit";
     private bool _launchAtStartup;
+
+    // 不具合修正: 「最小化でタスクトレイへ格納する」（既定オフ）。上の2項目と同じ即時反映方式。
+    // StartupCoordinator側はwindow.PropertyChangedのたびに_settings（インスタンスフィールド）を
+    // 直接読むため、ここで即時反映すれば再起動なしで反映される（クロージャへ値を焼き付けない
+    // 作法。StartupCoordinator.csのコメント参照）。
+    private bool _minimizeToTray;
     private readonly Action<Settings>? _onLiveSettingsChanged;
 
     public SettingsViewModel(
@@ -301,6 +307,14 @@ public sealed class SettingsViewModel : ObservableObject
     /// 実際のスタートアップフォルダへの登録・解除は<see cref="CommitAndSaveAsync"/>で行う。
     /// </summary>
     public bool LaunchAtStartup { get => _launchAtStartup; set => SetEditableProperty(ref _launchAtStartup, value); }
+
+    /// <summary>
+    /// 不具合修正: 最小化でタスクトレイへ格納するか（既定オフ）。チェックボックスのため、
+    /// 変更した瞬間に即時反映する。実際の最小化ハンドラ側（StartupCoordinator.StartAsync）は
+    /// このプロパティの保存先である<c>_settings</c>を毎回読み直すため、ここでの保存が
+    /// そのまま次回の最小化から反映される。
+    /// </summary>
+    public bool MinimizeToTray { get => _minimizeToTray; set => SetEditableProperty(ref _minimizeToTray, value); }
 
     /// <summary>15章・4章 エディタ設定（12項目）。設定画面の「エディタ」タブが編集する。</summary>
     public string EditorFontSizeText { get => _editorFontSizeText; set => SetEditableProperty(ref _editorFontSizeText, value); }
@@ -661,6 +675,7 @@ public sealed class SettingsViewModel : ObservableObject
         // 走ってしまう。SetProperty（ScheduleSaveを伴わない版）で直接フィールドへ反映する。
         SetProperty(ref _closeBehavior, s.CloseBehavior, nameof(CloseBehavior));
         SetProperty(ref _launchAtStartup, s.LaunchAtStartup, nameof(LaunchAtStartup));
+        SetProperty(ref _minimizeToTray, s.MinimizeToTray, nameof(MinimizeToTray));
         PopulateEditorFields(s.Editor);
     }
 
@@ -686,6 +701,7 @@ public sealed class SettingsViewModel : ObservableObject
         LogLevel = _selectedLogLevel,
         CloseBehavior = _closeBehavior,
         LaunchAtStartup = _launchAtStartup,
+        MinimizeToTray = _minimizeToTray,
         ClipboardWatch = new ClipboardWatchSettings
         {
             Enabled = _clipboardWatchEnabled, Action = _selectedClipboardAction, AutoParse = _clipboardAutoParse,

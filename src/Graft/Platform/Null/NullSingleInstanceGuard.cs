@@ -20,6 +20,12 @@ public sealed class NullSingleInstanceGuard : ISingleInstanceGuard
         return false;
     }
 
+    public bool ActivateWindowHandle(IntPtr handle, string fallbackWindowTitle)
+    {
+        // 何もしない（対応していない環境のため常に失敗扱い）。
+        return false;
+    }
+
     public void Dispose()
     {
         // 何もしない。

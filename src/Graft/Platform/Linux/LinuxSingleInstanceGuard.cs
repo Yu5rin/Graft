@@ -51,6 +51,24 @@ public sealed class LinuxSingleInstanceGuard : ISingleInstanceGuard
         return false;
     }
 
+    /// <summary>
+    /// 不具合修正: 自分のプロセスが既に持っているウィンドウ（X11のXID）を、可能な限り
+    /// タイトル検索を経由せず前面化する（<see cref="ISingleInstanceGuard.ActivateWindowHandle"/>
+    /// のコメント参照）。<paramref name="handle"/>が有効で<see cref="X11WindowActivator.
+    /// TryActivateHandle"/>が成功すればそれで終わる。
+    ///
+    /// Linuxは実機で「wmctrl→X11WindowActivator.TryActivate（タイトル検索）」の前面化が
+    /// 既に機能しているため、ハンドルが使えない環境（Wayland等でXIDが取得できない・
+    /// TryActivateHandle自体が失敗した等）では、Linuxの挙動を悪化させないことを最優先し、
+    /// 従来の<see cref="ActivateExistingInstance"/>（タイトル検索）へ確実に縮退する。
+    /// </summary>
+    public bool ActivateWindowHandle(IntPtr handle, string fallbackWindowTitle)
+    {
+        if (handle != IntPtr.Zero && X11WindowActivator.TryActivateHandle(handle)) return true;
+
+        return ActivateExistingInstance(fallbackWindowTitle);
+    }
+
     /// <summary>wmctrlでの前面化を試みる。成功したら true。</summary>
     private static bool TryActivateWithWmctrl(string mainWindowTitle)
     {
