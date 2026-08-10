@@ -36,4 +36,30 @@ public class LinuxSingleInstanceGuardTests
 
         act.Should().NotThrow();
     }
+
+    /// <summary>
+    /// 不具合1の回帰: 自分のウィンドウを前面化するActivateWindowHandleは、ハンドルが無効
+    /// （IntPtr.Zero。この環境ではEWMHの実ウィンドウIDを渡せないため代わりに使う）でも
+    /// 例外を投げず、従来のタイトル検索経路（ActivateExistingInstanceと同じ処理）へ
+    /// 確実に縮退できることを確認する。Linuxは実機で前面化が機能しているため、
+    /// この縮退経路が壊れるとLinuxの挙動を悪化させてしまう。
+    /// </summary>
+    [Fact(DisplayName = "ActivateWindowHandleはハンドルが無効でも例外を投げずタイトル検索へ縮退できる")]
+    public void ActivateWindowHandleはハンドル無効時にタイトル検索へ縮退する()
+    {
+        using var guard = new LinuxSingleInstanceGuard();
+
+        var act = () => guard.ActivateWindowHandle(IntPtr.Zero, "Graft-存在しないはずのテスト用タイトル-" + Guid.NewGuid());
+
+        act.Should().NotThrow();
+    }
+
+    [Fact(DisplayName = "X11WindowActivator.TryActivateHandleはハンドルが無効・X11に接続できない環境でも例外を投げずfalseを返せる")]
+    public void TryActivateHandleは例外を投げない()
+    {
+        var act = () => X11WindowActivator.TryActivateHandle(IntPtr.Zero);
+
+        act.Should().NotThrow();
+        act().Should().BeFalse("IntPtr.Zeroは無効なハンドルのため常に失敗として扱う");
+    }
 }

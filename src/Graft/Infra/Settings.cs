@@ -73,6 +73,17 @@ public sealed record Settings
 
     /// <summary>課題3: PC起動時に自動で起動するか。既定はオフ。</summary>
     public bool LaunchAtStartup { get; init; } = false;
+
+    /// <summary>
+    /// 不具合修正: ウィンドウを最小化したときにタスクトレイへ格納するか。既定はオフ
+    /// （＝Windowsの通常の慣習どおり、最小化してもタスクバーに残る）。
+    /// オンにすると、最小化した瞬間にウィンドウがタスクバーからも消え、タスクトレイの
+    /// アイコンからのみ復帰できるようになる（クリップボード監視やホットキー貼り付けを
+    /// すぐ使えるよう、常に起動しておきたい利用者向け）。トレイが使えない環境では、
+    /// この設定がオンでも実際には通常の最小化のまま（縮退。<c>StartupCoordinator.
+    /// StartAsync</c>のwindow.PropertyChangedハンドラ参照）。
+    /// </summary>
+    public bool MinimizeToTray { get; init; } = false;
 }
 
 /// <summary>コードエディタ設定（v2.0 仕様書15章・4章）。</summary>
@@ -138,11 +149,18 @@ public sealed record ClipboardWatchSettings
     /// <summary>
     /// 機能追加: パッチ形式を検知したら、Graftのウィンドウを前面に表示するか。既定はオン。
     /// <see cref="AutoParse"/>の有無に関わらず、この設定がオンの間は常に前面化する
-    /// （検知したこと自体を伝えるのが目的であり、解析の有無は別軸のため）。オフの場合、
-    /// 前面化するかどうかは<see cref="Action"/>（「アクティブ表示」を選んだ場合のみ）に従うほか、
-    /// 自動解析した結果は従来どおり確認できるよう前面化される。前面化そのものは
-    /// 多重起動検出時の前面化（<c>ISingleInstanceGuard.ActivateExistingInstance</c>）と
-    /// 同じ経路を再利用する（StartupCoordinator.ClipboardActivation.cs参照）。
+    /// （検知したこと自体を伝えるのが目的であり、解析の有無は別軸のため）。
+    ///
+    /// 不具合修正: この設定がオフの場合、自動解析の有無に関わらず<see cref="Action"/>
+    /// （「反応時の挙動」）へ厳密に従う。以前は自動解析した場合に限り<see cref="Action"/>を
+    /// 無視して無条件に前面化する特例があったが、自動解析は既定オンのため、この設定を
+    /// オフにしていても実機ではほぼ常にその特例へ入ってしまい、「反応時の挙動＝トレイ通知のみ」
+    /// を選んでいてもウィンドウが前面に出てしまう不具合になっていた。この特例は廃止した。
+    ///
+    /// 前面化そのものは多重起動検出時の前面化と同じ実装が提供する
+    /// <c>ISingleInstanceGuard.ActivateWindowHandle</c>（自分のウィンドウのハンドルを直接
+    /// 指定する経路。タイトルを再検索する<c>ActivateExistingInstance</c>とは異なる）を再利用する
+    /// （StartupCoordinator.ClipboardActivation.cs参照）。
     /// </summary>
     public bool ActivateOnDetect { get; init; } = true;
 }

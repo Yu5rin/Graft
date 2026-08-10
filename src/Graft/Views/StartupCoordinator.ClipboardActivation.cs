@@ -12,12 +12,20 @@ namespace Graft.Views;
 /// ActivateOnDetect"/>、既定オン）。
 ///
 /// 【要件1: 既存の前面化の仕組みを再利用する】
-/// 前面化そのものは多重起動検出時の前面化（<see cref="TryAcquireSingleInstance"/>が false を
-/// 返したときに呼ぶ<see cref="ISingleInstanceGuard.ActivateExistingInstance"/>。実体は
-/// <see cref="Platform.Windows.WindowsSingleInstanceGuard"/>・<see cref="Platform.Linux.
-/// LinuxSingleInstanceGuard"/>）と全く同じ経路を呼ぶ。Windowsのフォーカス窃取防止への縮退
-/// （<c>SetForegroundWindow</c>が拒否されタスクバー点滅になる）・Linuxのwmctrl/X11直接送出
-/// フォールバックは既にそちらで作り込まれており、ここでは並行実装を持たない。
+/// 前面化そのものは多重起動検出時の前面化と同じ実装（<see cref="Platform.Windows.
+/// WindowsSingleInstanceGuard"/>・<see cref="Platform.Linux.LinuxSingleInstanceGuard"/>）が
+/// 提供する<see cref="ISingleInstanceGuard.ActivateWindowHandle"/>を呼ぶ。Windowsのフォーカス
+/// 窃取防止への縮退（<c>SetForegroundWindow</c>が拒否されタスクバー点滅になる）・Linuxの
+/// wmctrl/X11直接送出フォールバックは既にそちらで作り込まれており、ここでは並行実装を持たない。
+///
+/// 不具合修正: 以前は多重起動検出専用の<see cref="ISingleInstanceGuard.
+/// ActivateExistingInstance"/>（ウィンドウタイトルから毎回探し直す経路）をそのまま再利用して
+/// いたが、実機（Windows）検証で「Graftが背面表示中（非最小化）だとタイトル検索経由の前面化が
+/// 効かない」ことが判明した。クリップボード監視は同一プロセスの自分のウィンドウが対象であり、
+/// 多重起動検出（別プロセスのウィンドウが対象）とは前提が異なる。そのため、既に持っている
+/// <see cref="Window"/>のハンドル（<c>Window.TryGetPlatformHandle()?.Handle</c>）を直接渡す
+/// <see cref="ISingleInstanceGuard.ActivateWindowHandle"/>へ切り替えた（詳細・実機での比較表は
+/// そちらのコメント参照）。
 ///
 /// 【要件2: 最小化・タスクトレイ常駐からの復帰】
 /// 最小化されていれば通常状態へ戻し、トレイに隠れていれば（「閉じたときの動作」＝トレイ常駐や
@@ -28,16 +36,22 @@ namespace Graft.Views;
 /// 【要件4: 自動解析の設定との関係】
 /// <see cref="Infra.ClipboardWatchSettings.AutoParse"/>の有無に関わらず、この設定がオンの間は
 /// 常に前面化する（検知したこと自体を伝えるのが目的であり、解析の有無は別軸のため）。
-/// オフの場合は<see cref="StartupCoordinator.OnClipboardPatchDetected"/>側で、従来どおり
-/// 自動解析した結果を確認できるよう前面化するほか、それ以外は「反応時の挙動」設定
-/// （<see cref="Infra.ClipboardWatchSettings.Action"/>）に従う。
+///
+/// 不具合修正: この設定がオフの場合、以前は自動解析した（<see cref="Infra.
+/// ClipboardWatchSettings.AutoParse"/>による自動解析が実際に行われた）ときに限り
+/// 「反応時の挙動」設定を無視して無条件に前面化する特例があった。自動解析は既定オンのため、
+/// 実機ではほぼ常にこの特例へ入ってしまい、「検知したら前面に表示する」をオフ・
+/// 「反応時の挙動」を「トレイ通知のみ」にしていてもウィンドウが前面に出てしまう不具合に
+/// なっていた。この特例は廃止した。オフの場合は自動解析の有無に関わらず、常に
+/// 「反応時の挙動」設定（<see cref="Infra.ClipboardWatchSettings.Action"/>）へ厳密に従う
+/// （<see cref="HandleClipboardActivationFallback"/>参照）。
 ///
 /// 【要件5: 既に前面にある場合は何もしない】
 /// <paramref name="isAlreadyForeground"/>で判定する。無用なちらつき・フォーカス移動を避けるため、
 /// この場合はWindowの状態変更もOS呼び出しも一切行わない。
 ///
 /// 【要件6: Windowsの制約への配慮】
-/// <see cref="ISingleInstanceGuard.ActivateExistingInstance"/>がfalseを返した（OS側の制約で
+/// <see cref="ISingleInstanceGuard.ActivateWindowHandle"/>がfalseを返した（OS側の制約で
 /// 前面化が拒否されタスクバー通知等へ縮退した）場合、呼び出し側（<see cref="OnClipboardPatchDetected"/>）は
 /// それをエラー扱いにせず（ダイアログ等は出さない）、ログにのみ記録する。多重起動検出時の
 /// 前面化はこの戻り値を見ないため、その経路の挙動はこれまでどおり変わらない。
@@ -80,8 +94,12 @@ public sealed partial class StartupCoordinator
         if (!window.IsVisible) window.Show(); // 要件2: トレイに隠れていればまず表示する。
         if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal; // 要件2: 最小化なら戻す。
 
-        // 要件1: 多重起動検出時の前面化と全く同じ経路を再利用する。
-        return singleInstance.ActivateExistingInstance(mainWindowTitle)
+        // 要件1: 不具合修正 - タイトルを再検索せず、自分が既に持っているWindowのハンドルを
+        // 直接渡す（ActivateWindowHandleのコメント参照。window.Show()済みのため、この時点で
+        // ハンドルは取得できているはずだが、万一取れない場合はmainWindowTitleを使った
+        // タイトル検索へ実装側で縮退する）。
+        var handle = window.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+        return singleInstance.ActivateWindowHandle(handle, mainWindowTitle)
             ? ClipboardActivationOutcome.Activated
             : ClipboardActivationOutcome.Degraded;
     }
@@ -89,34 +107,31 @@ public sealed partial class StartupCoordinator
     /// <summary>
     /// 前面化が行われなかった（<see cref="ClipboardActivationOutcome.Disabled"/>）、または
     /// OS側の制約で拒否された（<see cref="ClipboardActivationOutcome.Degraded"/>）場合の、
-    /// 従来からある通知経路。0bb1b4eより前の<see cref="OnClipboardPatchDetected"/>の中身を
-    /// そのまま切り出したもので、挙動は変えていない。
+    /// 従来からある通知経路。「反応時の挙動」設定（<see cref="Infra.ClipboardWatchSettings.
+    /// Action"/>）に厳密に従って通知する。
     ///
-    /// 自動解析済みなら結果を見せるためウィンドウを前面化し、それ以外は「反応時の挙動」設定
-    /// （<see cref="Infra.ClipboardWatchSettings.Action"/>）に従って通知するだけに留める。
+    /// 不具合修正: 以前は自動解析済み（<paramref name="autoParsed"/>相当の引数）なら
+    /// 「反応時の挙動」を無視して無条件にウィンドウを前面化する特例があった。自動解析は
+    /// 既定オンのため、「検知したら前面に表示する」をオフにしていても実機ではほぼ常にこの
+    /// 特例へ入ってしまい、「反応時の挙動＝トレイ通知のみ」を選んでいるのにウィンドウが
+    /// 前面に出てしまう不具合になっていた。この特例は廃止し、自動解析の有無に関わらず
+    /// 常に<paramref name="action"/>だけを見て通知方法を決める。
     ///
     /// 回帰修正でDegradedからも呼ばれるようになった点について: <paramref name="action"/>が
     /// <c>"active"</c>のとき<see cref="RestoreWindow"/>で前面化を再度試みることになるが、
     /// 危険はない。<see cref="ActivateWindowOnPatchDetected"/>が既に行った<c>window.Show()</c>・
     /// <c>WindowState = Normal</c>はここでも同じ状態へ設定し直すだけの冪等な操作であり、
     /// 残る<c>Window.Activate()</c>はOSへ直接前面化を要求するAvalonia側のAPIで、
-    /// <see cref="ISingleInstanceGuard.ActivateExistingInstance"/>（ウィンドウタイトルを
-    /// 探して<c>SetForegroundWindow</c>等を呼ぶ別経路）とは別の仕組みのため、例外や
+    /// <see cref="ISingleInstanceGuard.ActivateWindowHandle"/>（ハンドルへ直接
+    /// <c>SetForegroundWindow</c>等を呼ぶ別経路）とは別の仕組みのため、例外や
     /// 無限ループにはならない（最悪でもOS側に再度拒否されるだけで、多重起動検出時の
     /// 前面化と同じ「静かな縮退」に留まる）。
     /// </summary>
     /// <param name="tray">トレイ通知の呼び出し先。本番は<c>_platform.Tray</c>。</param>
     /// <param name="window">対象ウィンドウ。</param>
-    /// <param name="autoParsed">このクリップボード検知で自動解析まで行われたかどうか。</param>
     /// <param name="action">「反応時の挙動」設定の現在値（<see cref="Infra.ClipboardWatchSettings.Action"/>）。</param>
-    public static void HandleClipboardActivationFallback(ITrayIcon tray, Window window, bool autoParsed, string action)
+    public static void HandleClipboardActivationFallback(ITrayIcon tray, Window window, string action)
     {
-        if (autoParsed)
-        {
-            RestoreWindow(window);
-            return;
-        }
-
         switch (action)
         {
             case "active":
@@ -150,7 +165,7 @@ public sealed partial class StartupCoordinator
     /// </summary>
     public static ClipboardActivationOutcome ActivateOrFallBackOnPatchDetected(
         ISingleInstanceGuard singleInstance, ITrayIcon tray, Window window, string mainWindowTitle,
-        bool activateOnDetectSetting, bool isAlreadyForeground, bool autoParsed, string action)
+        bool activateOnDetectSetting, bool isAlreadyForeground, string action)
     {
         var activation = ActivateWindowOnPatchDetected(
             singleInstance, window, mainWindowTitle, activateOnDetectSetting, isAlreadyForeground);
@@ -162,7 +177,7 @@ public sealed partial class StartupCoordinator
             return activation;
         }
 
-        HandleClipboardActivationFallback(tray, window, autoParsed, action);
+        HandleClipboardActivationFallback(tray, window, action);
         return activation;
     }
 }
