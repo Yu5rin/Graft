@@ -73,7 +73,21 @@ public partial class App : Application
         // 由来と判定できるものに限って握りつぶす（AvaloniaEditExceptionGuardのコメント参照）。
         Avalonia.Threading.Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
 
-        _coordinator = new Views.StartupCoordinator();
+        // 機能3の追加: 孤立したユーザーフォルダの復帰確認。AppPaths（＝StartupCoordinatorの
+        // コンストラクタ）を組み立てるより前にdatapath.txtの内容を確定させる必要があるため、
+        // new Views.StartupCoordinator()より前に行う（DataDirectoryRecovery・
+        // StartupCoordinator.DataDirectoryRecovery.csの各クラスドキュメント参照。
+        // AppPaths.EnsureCoreDirectoriesExistでback/・logs/を作るより前でなければならない点が
+        // 特に重要）。この時点ではDispatcher.UIThread.MainLoopがまだ開始していないが、下の
+        // TryAcquireSingleInstanceAsyncやStartAsync内のダイアログ表示と同じ理由
+        // （async voidの最初のawaitでこのメソッドの残りが呼び出し元へ制御を返し、続けて
+        // MainLoopが開始する。以後の継続はAvalonia側のSynchronizationContext経由で
+        // 呼ばれる）で問題なく動作する。
+        var recoveryOutcome = await Views.StartupCoordinator.ResolveDataDirectoryRecoveryAsync(
+                new AvaloniaDialogService(), AppContext.BaseDirectory, AppPaths.DefaultUserDataDirectory())
+            .ConfigureAwait(true);
+
+        _coordinator = new Views.StartupCoordinator(dataDirectoryRecoveryOutcome: recoveryOutcome);
 
         // 不具合2: 自己再起動で起動した新プロセスかどうかを起動引数から判定する
         // （AppRestart.BuildStartInfoが付与する。AppRestart.IsRestartLaunchのコメント参照）。

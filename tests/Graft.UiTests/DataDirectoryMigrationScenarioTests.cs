@@ -74,7 +74,8 @@ public class DataDirectoryMigrationScenarioTests : IDisposable
         var pointer = DataDirectoryPointer.TryRead(exeDir);
         pointer.Should().NotBeNull();
         File.Exists(Path.Combine(pointer!, "settings.json")).Should().BeTrue("設定ファイルが新しい場所へコピーされている必要がある");
-        File.Exists(appPaths.SettingsFilePath).Should().BeTrue("元の場所のデータは削除せずそのまま残す（安全側）");
+        File.Exists(appPaths.SettingsFilePath).Should().BeTrue(
+            "元の場所のデータは移行操作の場では削除しない。削除は次回起動時（RunPendingCleanup）にのみ行う");
     }
 
     [AvaloniaFact(DisplayName = "確認ダイアログでキャンセルすると何もコピーされずポインタファイルも書かれない")]

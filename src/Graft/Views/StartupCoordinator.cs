@@ -64,15 +64,29 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     // （SettingsViewModelのデータ保存先まわりのコメント参照）。
     private readonly string _exeDirectory;
 
+    // 機能3の追加: 孤立したユーザーフォルダの復帰確認（DataDirectoryRecoveryクラスドキュメント
+    // 参照）の結果。App.axaml.cs側でコンストラクタ呼び出しより前に確認を終えているため、
+    // ここでは結果を受け取ってLogger生成後に記録するだけ（StartupCoordinator.
+    // DataDirectoryRecovery.csのLogDataDirectoryRecoveryOutcome参照）。
+    private readonly DataDirectoryRecoveryOutcome _dataDirectoryRecoveryOutcome;
+
     /// <param name="baseDirectory">
     /// settings.json 等の基準ディレクトリ。省略時は<see cref="AppPaths.ResolveBaseDirectory"/>
     /// （データ保存先の選択機能。既定は実行ファイルの場所、ポインタファイルがあればそちら）で決める。
     /// テストから一時ディレクトリを渡して、利用者の設定を汚さずに起動処理を検証できるようにする。
     /// </param>
-    public StartupCoordinator(string? baseDirectory = null)
+    /// <param name="dataDirectoryRecoveryOutcome">
+    /// <see cref="ResolveDataDirectoryRecoveryAsync"/>の結果（省略時は
+    /// <see cref="DataDirectoryRecoveryOutcome.NotApplicable"/>）。App.axaml.cs側で
+    /// このコンストラクタを呼ぶより前に確認を終え、その結果を渡す。テストが
+    /// <paramref name="baseDirectory"/>を明示するときはこの確認自体を一切呼ばないため、
+    /// 省略時の既定値のままになる。
+    /// </param>
+    public StartupCoordinator(string? baseDirectory = null, DataDirectoryRecoveryOutcome? dataDirectoryRecoveryOutcome = null)
     {
         _exeDirectory = baseDirectory ?? AppContext.BaseDirectory;
         _appPaths = new AppPaths(baseDirectory);
+        _dataDirectoryRecoveryOutcome = dataDirectoryRecoveryOutcome ?? DataDirectoryRecoveryOutcome.NotApplicable;
     }
 
     /// <summary>生成されたメインウィンドウ（仕様書9.2の新シェルレイアウト）。<see cref="StartAsync"/> 完了後に設定される。</summary>
@@ -142,10 +156,27 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
         var dialogService = new AvaloniaDialogService();
 
+        // 機能3: 保存先切り替えの「後始末待ち」（前回、設定画面でユーザーフォルダ⇔ポータブルの
+        // 切り替えを行い、まだ削除されていない旧保存先があれば、ここで取り込み直してから削除する）。
+        // なぜ移行のその場ではなくここ（次回起動時）で削除するのかは
+        // DataDirectoryMigratorクラスドキュメントの【なぜ即時削除ではなく次回起動時なのか】参照。
+        // 【実行順序が重要】必ずLogger生成（直後のInitializeDataDirectoryAsync）より前に行うこと。
+        // 後回しにすると、取り込み直し（Migrate）がlogs/配下を上書きコピーする際、今回の起動で
+        // Loggerが既に書き込んだログ（起動直後の1行目）を旧保存先の内容で上書きしてしまう
+        // （旧保存先の同日付ログファイルには今回のログ行が含まれていないため）。
+        var pendingCleanupOutcome = DataDirectoryMigrator.RunPendingCleanup(_appPaths.BaseDirectory);
+
         // 課題1（バグ）: データ保存先へ書き込めるかを確認し、書き込めなければ日本語で警告する。
         // ログ経由の通知に頼れない状況を想定しているため、Loggerより先に行う
         // （詳細はStartupCoordinator.WriteCheck.csのコメント参照）。
         _logger = await InitializeDataDirectoryAsync(dialogService).ConfigureAwait(true);
+
+        // 機能3: 孤立したユーザーフォルダの復帰確認（App.axaml.cs側でこのコンストラクタより前に
+        // 完了済み）・上の後始末、いずれもLogger生成より前に完了させる必要があったため、
+        // ここでまとめて結果を記録する（DataDirectoryRecovery.cs・DataDirectory.csの
+        // 各クラスドキュメント参照）。
+        LogDataDirectoryRecoveryOutcome(_dataDirectoryRecoveryOutcome);
+        LogPendingCleanupOutcome(pendingCleanupOutcome);
 
         // 設計目標5（製品相当の完成度）: UIハンドラ内の想定外の例外でアプリを終わらせない。
         // 記録したうえで日本語の通知だけ出し、操作を続けられるようにする。

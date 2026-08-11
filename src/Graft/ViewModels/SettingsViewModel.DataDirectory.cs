@@ -9,9 +9,13 @@ namespace Graft.ViewModels;
 /// <see cref="SettingsViewModel"/> の分割ファイル（1ファイル400行上限のため）。
 ///
 /// 機能3（データ保存先の選択。「一般」タブ）: 「ポータブル（実行ファイルと同じフォルダ）」と
-/// 「ユーザーフォルダ（%APPDATA%\Graft 等）」を切り替える。実処理は<see cref="DataDirectoryMigrator"/>
-/// （純粋なコピー・検証・ポインタ切り替えロジック。単体テスト対象）に委ね、ここではダイアログでの
-/// 確認・実行中表示・結果の通知だけを担う。
+/// 「ユーザーフォルダ（%APPDATA%\Graft 等）」を切り替える。利用者からは「移動」として見える
+/// 操作だが、実処理は<see cref="DataDirectoryMigrator"/>（純粋なコピー・検証・ポインタ切り替え
+/// ロジック。単体テスト対象）に委ね、ここではダイアログでの確認・実行中表示・結果の通知だけを
+/// 担う。元の場所の削除は次回起動時（<see cref="DataDirectoryMigrator.RunPendingCleanup"/>）に
+/// 別途行われる（下記【あえて「実行中の切り替え」をしない理由】、および
+/// <see cref="DataDirectoryMigrator"/>クラスドキュメントの【なぜ即時削除ではなく次回起動時なのか】
+/// 参照）。
 ///
 /// 【あえて「実行中の切り替え」をしない理由】
 /// 移行後もこのプロセスは古い<see cref="AppPaths"/>（コンストラクタで受け取ったインスタンス）を
@@ -20,7 +24,9 @@ namespace Graft.ViewModels;
 /// それらすべてを再生成し直す大掛かりな変更が要る）。加えて、コピー中にファイルが
 /// 開かれたまま書き換えられると整合性が壊れる恐れもある。そのため「コピー＋ポインタ切り替え」
 /// までをこの場で行い、実際にそのデータ保存先を使い始めるのは次回起動からとする
-/// （利用者には「再起動してください」と案内する）。
+/// （利用者には「再起動してください」と案内する）。元の場所の削除も同じ理由で今すぐは行わない
+/// （このプロセスがまだ元の場所を使って動作中のため。削除する前に一旦停止するには
+/// アプリごと再起動する必要があり、その再起動のタイミングで初めて安全に削除できる）。
 ///
 /// 機能2（ログの参照手段。「バージョン情報」タブ）: 「ログフォルダを開く」「最新のログを表示」。
 /// ウィンドウの生成自体はコードビハインド（<see cref="Views.AboutView"/>）側が担い、ここでは
@@ -80,14 +86,13 @@ public sealed partial class SettingsViewModel
     public AsyncRelayCommand ShowLatestLogCommand { get; private set; } = null!;
 
     /// <summary>
-    /// 「ユーザーフォルダへ移動」／「ポータブルへ戻す」の実処理。破壊的操作（ファイルコピーを伴う）
-    /// なので必ず確認し、実行中はIsBusyを立てる。既存データは常に残す方針（安全側）のため、
-    /// 「上書き確認」のような文言は出さない。
+    /// 「ユーザーフォルダへ移動」／「ポータブルへ戻す」の実処理。実態は「移動」で、元の場所の
+    /// データは次回起動時に削除される破壊的操作のため必ず確認し、実行中はIsBusyを立てる。
     /// </summary>
     private async Task MigrateDataDirectoryAsync()
     {
         var switchingToPortable = !IsPortableDataDirectory;
-        var target = switchingToPortable ? _exeDirectory : BuildUserDataDirectory();
+        var target = switchingToPortable ? _exeDirectory : AppPaths.DefaultUserDataDirectory();
 
         if (PathsEqual(_appPaths.BaseDirectory, target))
         {
@@ -130,7 +135,9 @@ public sealed partial class SettingsViewModel
         // 委譲する（LogViewerRequestedと同じ役割分担）。
         var restartConfirmed = await _dialogService.ShowActionMessageAsync("移行しました",
             $"データを次の場所へコピーしました。{Environment.NewLine}{target}{Environment.NewLine}{Environment.NewLine}" +
-            $"元の場所（{_appPaths.BaseDirectory}）のデータはそのまま残しています。" +
+            $"元の場所（{_appPaths.BaseDirectory}）のデータは、次回起動時に削除されます。" +
+            $"再起動するまでの間は引き続き元の場所が使われるため、それまでに行った変更も" +
+            $"次回起動時にきちんと引き継がれます。" +
             $"{Environment.NewLine}{Environment.NewLine}この変更を使い始めるには、Graftの再起動が必要です。",
             "再起動")
             .ConfigureAwait(true);
@@ -159,16 +166,20 @@ public sealed partial class SettingsViewModel
     /// </summary>
     public event EventHandler? RestartRequested;
 
-    /// <summary>移行前の確認文言。コピーであって移動ではないこと・再起動が必要なことを明記する。</summary>
+    /// <summary>
+    /// 移行前の確認文言。実態は「移動」であり元の場所のデータは削除されること・
+    /// 削除は次回起動時に行われること・再起動が必要なことを明記する（破壊的操作のため、
+    /// 何がどこへ移り元がどうなるかを読んで分かるようにする）。
+    /// </summary>
     private string BuildMigrationConfirmText(string target) =>
-        $"データ（設定・プロジェクト定義・バックアップ・ログ）を次の場所へコピーします。" +
+        $"データ（設定・プロジェクト定義・バックアップ・ログ）を次の場所へ移動します。" +
         $"{Environment.NewLine}{target}{Environment.NewLine}{Environment.NewLine}" +
-        "元の場所のデータは削除せずそのまま残します。" + Environment.NewLine +
-        "コピー完了後、この変更を使い始めるにはGraftの再起動が必要です（実行中の切り替えは行いません）。";
-
-    /// <summary>「ユーザーフォルダ」の既定パス（%APPDATA%\Graft 相当）。</summary>
-    private static string BuildUserDataDirectory()
-        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Graft");
+        $"元の場所（{_appPaths.BaseDirectory}）のデータは、Graftの再起動後に削除されます。" +
+        Environment.NewLine +
+        "再起動するまでの間は引き続き元の場所が使われるため、それまでに行った変更も" +
+        "次回起動時に新しい場所へ引き継がれたうえで、元の場所は削除されます。" +
+        Environment.NewLine +
+        "この変更を使い始めるにはGraftの再起動が必要です（実行中の切り替えは行いません）。";
 
     private static bool PathsEqual(string a, string b)
     {
