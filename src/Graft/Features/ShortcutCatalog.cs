@@ -97,6 +97,11 @@ public static class ShortcutCatalog
         // 機能改善: コマンドパレット追加。
         new ShortcutEntry("表示の切り替え", "Ctrl+Shift+P",
             "全操作を検索して実行できるコマンドパレットを開きます。", "OpenCommandPalette"),
+        // 取扱説明書機能: F1はテキスト入力欄・エディタ内でも常に反応する唯一の素のキーのため、
+        // HandleUnconditionalShortcut等（Ctrl系のみを対象とするメソッド群）には載せず、
+        // OnTunnelKeyDownの先頭付近で直接処理する（ShellWindow.Keyboard.cs参照）。
+        new ShortcutEntry("表示の切り替え", "F1",
+            "利用者向けの取扱説明書を開きます。", "OpenManual"),
     };
 
     /// <summary>

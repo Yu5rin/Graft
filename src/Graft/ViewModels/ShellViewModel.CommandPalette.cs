@@ -71,6 +71,7 @@ public sealed partial class ShellViewModel
             new("解析結果を破棄", Graft.DiscardCommand, null, Gesture("Discard")),
             new("設定を開く", Graft.OpenSettingsCommand, null, Gesture("OpenSettings")),
             new("キーボードショートカット一覧を開く", OpenShortcutsCommand, null, Gesture("OpenShortcuts")),
+            new("取扱説明書を開く", OpenManualCommand, null, Gesture("OpenManual")),
             new("接ぎ木パネルの開閉", ToggleGraftPanelCommand, null, Gesture("ToggleGraftPanel")),
             new("接ぎ木パネルの配置切り替え（下／右）", ToggleGraftPanelPlacementCommand, null, Gesture("ToggleGraftPanelPlacement")),
             new("ファイル名であいまい検索して開く（クイックオープン）", ToggleQuickOpenCommand, null, Gesture("QuickOpen")),

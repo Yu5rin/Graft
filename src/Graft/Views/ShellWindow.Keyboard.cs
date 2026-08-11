@@ -50,6 +50,17 @@ public partial class ShellWindow
             return;
         }
 
+        // 取扱説明書機能: F1はOSの慣習どおりヘルプを開く唯一の目的のキーで、他のどの操作とも
+        // 衝突しない。そのためCtrl系ショートカット（HandleUnconditionalShortcut）やテキスト入力欄
+        // 判定（inTextInput）を経由せず、ここで無条件に処理する。エディタ内・ダイアログの
+        // 入力欄にフォーカスがあっても取扱説明書を開けるのが自然なため。
+        if (e.Key == Key.F1)
+        {
+            ViewModel.OpenManualCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.F6)
         {
             CyclePaneFocus();
