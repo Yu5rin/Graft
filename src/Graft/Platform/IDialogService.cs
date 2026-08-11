@@ -45,6 +45,24 @@ public interface IDialogService
     Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null);
 
     /// <summary>
+    /// エクスプローラへの取り込み（「ファイルを追加」）用に、複数ファイルを選べるファイル選択
+    /// ダイアログを表示する。キャンセル時、または1件も選ばれなかった場合はnullを返す。
+    /// <see cref="PickFileAsync"/>と同じ意味の<paramref name="extensions"/>を受け取る。
+    /// <para>
+    /// 既定実装は<see cref="PickFileAsync"/>を1回呼ぶだけのフォールバック（単一選択）で、
+    /// Avalonia標準の<see cref="Avalonia.Platform.Storage.IStorageProvider"/>を使わない
+    /// テスト用フェイク・<see cref="Null.NullDialogService"/>はこのままで問題ない
+    /// （<see cref="ShowActionMessageAsync"/>と同じ設計方針）。複数選択に対応する実装
+    /// （<see cref="AvaloniaDialogService"/>）だけが明示的にオーバーライドする。
+    /// </para>
+    /// </summary>
+    async Task<IReadOnlyList<string>?> PickFilesAsync(string title, IReadOnlyList<string>? extensions = null)
+    {
+        var single = await PickFileAsync(title, extensions).ConfigureAwait(true);
+        return single is null ? null : new[] { single };
+    }
+
+    /// <summary>
     /// 「名前を付けて保存」ダイアログを表示する。キャンセル時はnullを返す。
     /// <paramref name="suggestedFileName"/>は既定のファイル名（拡張子込み）。
     /// <paramref name="extensions"/>は<see cref="PickFileAsync"/>と同じ意味（先頭ドット付き

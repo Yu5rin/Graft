@@ -13,6 +13,7 @@ public sealed class FileNodeViewModel : ObservableObject
     private FileTreeEntry _entry;
     private bool _isExpanded;
     private bool _isSelected;
+    private bool _isDropTarget;
 
     public FileNodeViewModel(FileTreeEntry entry, FileNodeViewModel? parent)
     {
@@ -75,6 +76,13 @@ public sealed class FileNodeViewModel : ObservableObject
 
     /// <summary>選択状態。エクスプローラの操作対象（右クリック・F2・Delete等）の基準になる。</summary>
     public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
+
+    /// <summary>
+    /// 外部からのドラッグ＆ドロップ取り込み中、このフォルダが現在の配置先であることを示す
+    /// （ExplorerView.axaml.csが更新する、表示専用の一時状態）。ドロップ先の視覚的フィードバック
+    /// （依頼の要件）に使う。ファイルには使わない想定だが、型としては制限しない。
+    /// </summary>
+    public bool IsDropTarget { get => _isDropTarget; set => SetProperty(ref _isDropTarget, value); }
 
     /// <summary>
     /// 細かいユーザビリティ改善4: このフォルダを最後に実列挙したときの、絞り込みに関わらない

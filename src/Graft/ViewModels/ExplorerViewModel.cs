@@ -32,6 +32,11 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private readonly ExplorerFilterService _filterService = new();
     private readonly IUiTimer _filterDebounceTimer;
 
+    // 依頼「エクスプローラへ既存のファイルを取り込む手段」。実コピーはFileImportServiceへ委譲する
+    // （WPFに依存しない・テストプロジェクトから直接テストできる、FileTreeServiceと同じ方針）。
+    private readonly FileImportService _importService = new();
+    private CancellationTokenSource? _importCts;
+
     // 課題2: 削除直後のステータスバー案内（「Ctrl+Zで元に戻せます」）を数秒で自動的に消す。
     // 消えても取り消しスタック自体は残るため、Ctrl+Zや右クリックメニューはそのまま使える。
     private static readonly TimeSpan DeleteNoticeDuration = TimeSpan.FromSeconds(6);
@@ -54,6 +59,8 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private bool _filterTruncated;
     private IReadOnlyList<string>? _expandedPathsBeforeFilter;
     private CancellationTokenSource? _filterCts;
+    private bool _isImporting;
+    private string _importProgressText = string.Empty;
 
     /// <summary>
     /// 絞り込み中の一致パス集合（一致ファイル自身＋その祖先フォルダ）。nullは絞り込み無し。
@@ -91,6 +98,12 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         OpenCommand = new RelayCommand<FileNodeViewModel>(ExecuteOpen);
         NewFileCommand = new RelayCommand<FileNodeViewModel>(node => _ = NewFileAsync(node ?? SelectedNode), _ => _project is not null);
         NewFolderCommand = new RelayCommand<FileNodeViewModel>(node => _ = NewFolderAsync(node ?? SelectedNode), _ => _project is not null);
+        // 依頼「エクスプローラへ既存のファイルを取り込む手段」2: ツールバー・右クリックメニュー
+        // 共通のコマンド（ドラッグ＆ドロップはExplorerView.axaml.csがExplorerViewModel.ImportPathsAsyncを
+        // 直接呼ぶ）。取り込み中の多重実行を避けるため、IsImportingの間はCanExecuteをfalseにする。
+        AddFileCommand = new RelayCommand<FileNodeViewModel>(
+            node => _ = AddFilesAsync(node ?? SelectedNode), _ => _project is not null && !_isImporting);
+        CancelImportCommand = new RelayCommand(() => _importCts?.Cancel(), () => _isImporting);
         RenameCommand = new RelayCommand<FileNodeViewModel>(node => _ = RenameNodeAsync(node ?? SelectedNode));
         DeleteCommand = new RelayCommand<FileNodeViewModel>(node => _ = DeleteNodeAsync(node ?? SelectedNode));
         CopyPathCommand = new RelayCommand<FileNodeViewModel>(node => CopyPath(node ?? SelectedNode));
@@ -115,6 +128,16 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
 
     /// <summary>ツリーを読み込み中かどうか（9.2の不確定プログレスバー表示用）。</summary>
     public bool IsLoading { get => _isLoading; private set => SetProperty(ref _isLoading, value); }
+
+    /// <summary>
+    /// 取り込み（ドラッグ＆ドロップ・「ファイルを追加」）でファイルをコピー中かどうか。
+    /// 実コピーはUIスレッドを塞がない（<see cref="FileImportService.ImportAsync"/>参照）ため、
+    /// このフラグはあくまで進捗バー・中止ボタンの表示可否のためのもの。
+    /// </summary>
+    public bool IsImporting { get => _isImporting; private set => SetProperty(ref _isImporting, value); }
+
+    /// <summary>取り込み中の進捗文言（例:「3/120件をコピー中... (path/to/file)」）。</summary>
+    public string ImportProgressText { get => _importProgressText; private set => SetProperty(ref _importProgressText, value); }
 
     /// <summary>
     /// 除外ファイルを表示するトグル（仕様書4.2）。表示可否はViewの変換のみで切り替わるため再読込は不要。
@@ -185,6 +208,19 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     public ICommand OpenCommand { get; }
     public ICommand NewFileCommand { get; }
     public ICommand NewFolderCommand { get; }
+
+    /// <summary>
+    /// 依頼「エクスプローラへ既存のファイルを取り込む手段」2: ツールバーの「ファイルを追加」・
+    /// 右クリックメニューの「ここにファイルを追加...」共通のコマンド。ファイル選択ダイアログ
+    /// （複数選択、<see cref="IDialogService.PickFilesAsync"/>）で選んだ既存ファイルを、
+    /// パラメータのノード（フォルダならそのフォルダ、ファイルならその親、nullなら
+    /// <see cref="SelectedNode"/>にフォールバック）へコピーで取り込む。
+    /// </summary>
+    public ICommand AddFileCommand { get; }
+
+    /// <summary>取り込み中の進捗表示に添える中止ボタン。<see cref="IsImporting"/>の間だけ実行できる。</summary>
+    public ICommand CancelImportCommand { get; }
+
     public ICommand RenameCommand { get; }
     public ICommand DeleteCommand { get; }
     public ICommand CopyPathCommand { get; }
@@ -719,6 +755,268 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         var created = target.FirstOrDefault(n => n.RelativePath == createdRelativePath);
         if (created is not null) SelectedNode = created;
     }
+
+    // ------------------------------------------------------------------
+    // 依頼「エクスプローラへ既存のファイルを取り込む手段」。利用者の指摘
+    // 「ファイルをボタンやドラッグ＆ドロップでエクスプローラーに追加できないのですね」への対応。
+    //
+    // 【常にコピー】 元の場所からファイルが消えると事故になるため、Windowsの「同一ドライブ内は
+    // 移動」という慣習にはあえて従わず、常にコピーする（FileImportServiceのクラスコメント参照）。
+    //
+    // 【衝突（同名の項目が既にある）の扱い】 黙って上書きしないこと、が要件のため、
+    // 3択の確認ダイアログ（上書き／別名で保存／中止）を都度確認する。「別名で保存」では
+    // 新規ファイル作成と同じPromptAsyncで名前を編集させ、無効な名前・再度の衝突はループして
+    // 確認し直す。この確認は「ドロップされたトップレベルの項目」単位（＝1回のドラッグ＆ドロップや
+    // ファイル選択で選んだ各ファイル・フォルダ）で行い、フォルダの中身1件ごとには行わない
+    // （数百件のフォルダをドロップするたびに数百回の確認が要求されるのは非現実的なため。
+    // トップレベルで「上書き」を選んだ場合、フォルダの中身はマージ＝同名ファイルは黙って
+    // 上書きされる。これは「そのフォルダごと置き換える」という利用者の意思決定に含まれると
+    // 判断した）。
+    //
+    // 【安全機構の適用範囲】 プロジェクト外への書き込み・シンボリックリンク経由の脱出は
+    // PathGuard.ResolveImportTarget（_guardOptions越し）で従来どおり防ぐ。拡張子ホワイトリスト・
+    // ファイルサイズ上限は取り込みには適用しない（FileImportServiceのクラスコメント参照）。
+    //
+    // 【UIスレッドを塞がない・進捗・中止】 実コピーはFileImportService.ImportAsync内部の
+    // Task.Runでスレッドプールへ逃がす。進捗はSystem.Progress<T>で（構築したスレッド＝UIスレッドの
+    // SynchronizationContext経由で自動的にマーシャリングされるため）安全にUIへ反映できる。
+    // 中止はCancellationTokenSourceを介し、ImportProgressText横の「中止」ボタン
+    // （ExplorerView.axaml）から呼べる。
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// ツールバー「ファイルを追加」・右クリックメニュー「ここにファイルを追加...」の実体。
+    /// 複数ファイルを選べるダイアログ（対応していない実装ではProject選択にフォールバック、
+    /// <see cref="IDialogService.PickFilesAsync"/>参照）で選んだ既存ファイルを取り込む。
+    /// </summary>
+    private async Task AddFilesAsync(FileNodeViewModel? contextNode)
+    {
+        if (_project is null) return;
+        var picked = await _dialogs.PickFilesAsync("追加するファイルを選択").ConfigureAwait(true);
+        if (picked is null || picked.Count == 0) return;
+
+        await ImportPathsAsync(contextNode, picked).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 取り込みの共通入口。ドラッグ＆ドロップ（ExplorerView.axaml.cs）・「ファイルを追加」
+    /// ボタン・右クリックメニューの3経路から呼ばれる。<paramref name="contextNode"/>は
+    /// 落とされた／右クリックされたノード（<see cref="ResolveTargetDirectory"/>と同じ規約:
+    /// フォルダならそのフォルダ、ファイルならその親、nullならプロジェクトルート）。
+    /// </summary>
+    public async Task ImportPathsAsync(FileNodeViewModel? contextNode, IReadOnlyList<string> sourcePaths)
+    {
+        if (_project is null || sourcePaths.Count == 0 || IsImporting) return;
+
+        var (dirNode, relativeDir) = ResolveTargetDirectory(contextNode);
+        var (plan, skippedCount, preflightIssues) = await BuildImportPlanAsync(relativeDir, sourcePaths).ConfigureAwait(true);
+
+        if (plan.Count == 0)
+        {
+            // 全件が「中止」で見送られた場合は静かに終える（利用者が能動的にやめただけのため）。
+            // パスの検証自体に失敗した項目があれば伝える。
+            if (preflightIssues.Count > 0) await ShowFailureAsync("取り込めませんでした", preflightIssues).ConfigureAwait(true);
+            return;
+        }
+
+        _importCts = new CancellationTokenSource();
+        SetImporting(true);
+        ImportProgressText = plan.Count == 1 ? "取り込み中..." : $"0/{plan.Count}件を取り込み中...";
+
+        IReadOnlyList<FileImportItemOutcome> outcomes;
+        try
+        {
+            // System.Progress<T>はコンストラクタ時点（＝ここ、UIスレッド）のSynchronizationContextを
+            // 捕まえ、Report呼び出し（FileImportService内部のTask.Run＝スレッドプール上）を
+            // 自動的にそのコンテキストへポストする。手動でDispatcher.Postする必要は無い。
+            var progress = new Progress<FileImportProgress>(p =>
+                ImportProgressText = plan.Count == 1
+                    ? "取り込み中..."
+                    : $"{p.CompletedFiles}/{p.TotalFiles}件をコピー中... ({p.CurrentRelativePath})");
+            outcomes = await _importService.ImportAsync(plan, progress, _importCts.Token).ConfigureAwait(true);
+        }
+        finally
+        {
+            _importCts.Dispose();
+            _importCts = null;
+            SetImporting(false);
+            ImportProgressText = string.Empty;
+        }
+
+        // FileWatchServiceとの二重反映防止（NewFileAsync/NewFolderAsyncと同じ作法）。
+        // 大量ファイルの取り込みでは監視イベント自体はデバウンスで自然にまとまるが、
+        // 自分で書いたトップレベルの項目だけは明示的に抑制しておく。
+        foreach (var outcome in outcomes.Where(o => o.IsSuccess))
+        {
+            _fileWatch.SuppressPath(outcome.Item.DestinationFullPath);
+        }
+
+        await ReconcileDirectoryAsync(dirNode, CancellationToken.None).ConfigureAwait(true);
+        dirNode?.MarkExpanded();
+
+        // 複数取り込んだ場合、TreeView.SelectedItemは単一選択のため最後に成功した項目を選択する
+        // （新規ファイル・新規フォルダも1件ずつしか選択状態にできない仕様のため、この単一選択の
+        // 制約自体は既存の挙動と同じ）。
+        var lastSuccess = outcomes.LastOrDefault(o => o.IsSuccess);
+        if (lastSuccess is not null)
+        {
+            var target = dirNode?.Children ?? RootNodes;
+            var createdNode = target.FirstOrDefault(n => n.RelativePath == lastSuccess.Item.DestinationRelativePath);
+            if (createdNode is not null) SelectedNode = createdNode;
+        }
+
+        await ReportImportResultAsync(outcomes, skippedCount, preflightIssues).ConfigureAwait(true);
+    }
+
+    private void SetImporting(bool value)
+    {
+        IsImporting = value;
+        ((RelayCommand)CancelImportCommand).RaiseCanExecuteChanged();
+        ((RelayCommand<FileNodeViewModel>)AddFileCommand).RaiseCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// ドロップ・選択された各トップレベル項目について、配置先パスの検証（PathGuard）と
+    /// 同名衝突の確認（UIダイアログ）を行い、実コピー用の計画（<see cref="FileImportPlanItem"/>）を
+    /// 組み立てる。ダイアログを伴うためUIスレッドで逐次実行する（実コピー本体は
+    /// <see cref="ImportPathsAsync"/>側でTask.Runへ逃がす）。
+    /// </summary>
+    private async Task<(List<FileImportPlanItem> Plan, int SkippedCount, List<GraftIssue> PreflightIssues)> BuildImportPlanAsync(
+        string relativeDir, IReadOnlyList<string> sourcePaths)
+    {
+        var plan = new List<FileImportPlanItem>();
+        var preflightIssues = new List<GraftIssue>();
+        var skippedCount = 0;
+
+        foreach (var rawSource in sourcePaths)
+        {
+            if (string.IsNullOrWhiteSpace(rawSource)) continue;
+            var source = rawSource.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var isDirectory = Directory.Exists(source);
+            var isFile = !isDirectory && File.Exists(source);
+            if (!isDirectory && !isFile) continue; // ドラッグ中に消えた等。静かに無視する。
+
+            var name = Path.GetFileName(source);
+            if (string.IsNullOrEmpty(name)) continue;
+
+            var overwrite = false;
+            while (true)
+            {
+                var resolved = FileImportService.ResolveDestination(_project!, relativeDir, name, _guardOptions);
+                if (!resolved.IsSuccess)
+                {
+                    preflightIssues.AddRange(resolved.Issues);
+                    break;
+                }
+
+                if (!FileImportService.DestinationExists(resolved.Value))
+                {
+                    plan.Add(new FileImportPlanItem
+                    {
+                        SourceFullPath = source,
+                        DestinationFullPath = resolved.Value,
+                        DestinationRelativePath = CombineRelative(relativeDir, name),
+                        IsDirectory = isDirectory,
+                        Overwrite = overwrite,
+                    });
+                    break;
+                }
+
+                // 黙って上書きしないこと（依頼の必須要件）。上書き／別名で保存／中止の3択で確認する。
+                var kind = isDirectory ? "フォルダ" : "ファイル";
+                var decision = await _dialogs.ConfirmThreeWayAsync(
+                    "同名の項目があります",
+                    $"取り込み先に同名の{kind}「{name}」が既にあります。上書きしますか？",
+                    "上書き", "別名で保存").ConfigureAwait(true);
+
+                if (decision == true)
+                {
+                    overwrite = true;
+                    plan.Add(new FileImportPlanItem
+                    {
+                        SourceFullPath = source,
+                        DestinationFullPath = resolved.Value,
+                        DestinationRelativePath = CombineRelative(relativeDir, name),
+                        IsDirectory = isDirectory,
+                        Overwrite = true,
+                    });
+                    break;
+                }
+
+                if (decision == false)
+                {
+                    var suggestion = SuggestUniqueName(relativeDir, name, isDirectory);
+                    var newName = await _dialogs.PromptAsync(
+                            "別名で保存", $"「{name}」という名前は既に使われています。新しい名前を入力してください。", suggestion)
+                        .ConfigureAwait(true);
+                    if (string.IsNullOrWhiteSpace(newName))
+                    {
+                        skippedCount++;
+                        break;
+                    }
+                    name = newName;
+                    continue; // 新しい名前で衝突を再チェックする。
+                }
+
+                // decision == null: キャンセル（この項目のみ中止し、他の項目は続行する）。
+                skippedCount++;
+                break;
+            }
+        }
+
+        return (plan, skippedCount, preflightIssues);
+    }
+
+    /// <summary>「別名で保存」の初期候補（"name (2).ext"方式）を、衝突しなくなるまで採番する。</summary>
+    private string SuggestUniqueName(string relativeDir, string name, bool isDirectory)
+    {
+        var ext = isDirectory ? string.Empty : Path.GetExtension(name);
+        var stem = isDirectory ? name : Path.GetFileNameWithoutExtension(name);
+        for (var i = 2; i < 1000; i++)
+        {
+            var candidate = $"{stem} ({i}){ext}";
+            var resolved = FileImportService.ResolveDestination(_project!, relativeDir, candidate, _guardOptions);
+            if (resolved.IsSuccess && !FileImportService.DestinationExists(resolved.Value)) return candidate;
+        }
+        // 極端に多い衝突が続いた場合の保険。
+        return $"{stem} ({Guid.NewGuid():N}){ext}";
+    }
+
+    /// <summary>
+    /// 取り込み結果を利用者へ伝える。全件成功（スキップのみ含む）なら静かに終える。1件でも
+    /// 失敗・中止があれば、成功件数と合わせて「何が成功し何が失敗したか」を伝える
+    /// （依頼の必須要件: 部分的な失敗の内訳を伝えること）。
+    /// </summary>
+    private Task ReportImportResultAsync(
+        IReadOnlyList<FileImportItemOutcome> outcomes, int skippedCount, IReadOnlyList<GraftIssue> preflightIssues)
+    {
+        var failures = outcomes.Where(o => !o.IsSuccess && !o.WasCancelled).ToList();
+        var cancelledCount = outcomes.Count(o => o.WasCancelled);
+        var successCount = outcomes.Count(o => o.IsSuccess);
+
+        var messages = new List<string>();
+        messages.AddRange(preflightIssues.Select(i => i.ToDisplayText()));
+        messages.AddRange(failures.Select(f => $"{f.Item.DestinationRelativePath}: {f.Issue?.ToDisplayText() ?? "取り込みに失敗しました"}"));
+        if (cancelledCount > 0) messages.Add($"取り込みを中止したため、{cancelledCount}件は取り込まれていません。");
+
+        // 同名衝突で利用者自身が個別に「中止」を選んだ項目は、その場（3択ダイアログ）で
+        // 既に本人の判断を経ているため、他に問題が無ければあらためて通知しない。他の失敗・
+        // 中止と合わせて表示する場合のみ、内訳として一言添える。
+        if (skippedCount > 0 && messages.Count > 0)
+        {
+            messages.Add($"同名のため取り込みを見送った項目: {skippedCount}件");
+        }
+
+        if (messages.Count == 0) return Task.CompletedTask; // 全件成功(同名スキップのみを含む)。
+
+        var title = successCount > 0
+            ? $"一部のファイルを取り込めませんでした（成功 {successCount}件）"
+            : "ファイルを取り込めませんでした";
+        return _dialogs.ShowMessageAsync(title, string.Join(Environment.NewLine, messages));
+    }
+
+    private static string CombineRelative(string relativeDir, string name)
+        => string.IsNullOrEmpty(relativeDir) ? name : $"{relativeDir.TrimEnd('/')}/{name}";
 
     private async Task RenameNodeAsync(FileNodeViewModel? node)
     {

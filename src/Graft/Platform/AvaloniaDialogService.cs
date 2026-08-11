@@ -152,6 +152,30 @@ public sealed class AvaloniaDialogService : IDialogService
     }
 
     /// <summary>
+    /// エクスプローラへの取り込み（「ファイルを追加」）用の複数選択版。<see cref="PickFileAsync"/>と
+    /// 同じ設計方針で、<c>AllowMultiple = true</c>にする点だけが異なる。
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> PickFilesAsync(string title, IReadOnlyList<string>? extensions = null)
+    {
+        var owner = FindOwnerWindow();
+        var provider = owner is null ? null : TopLevel.GetTopLevel(owner)?.StorageProvider;
+        if (provider is null || !provider.CanOpen)
+        {
+            return null;
+        }
+
+        var options = new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = true,
+            FileTypeFilter = BuildFileTypeFilter(extensions),
+        };
+        var picked = await provider.OpenFilePickerAsync(options).ConfigureAwait(true);
+        var paths = picked.Select(f => f.TryGetLocalPath()).Where(p => !string.IsNullOrEmpty(p)).Select(p => p!).ToList();
+        return paths.Count == 0 ? null : paths;
+    }
+
+    /// <summary>
     /// 「名前を付けて保存」ダイアログを表示する（<see cref="PickFileAsync"/>と同じ設計方針）。
     /// コンテキスト収集（10章）の「ファイルへ保存」で使う。
     /// </summary>
