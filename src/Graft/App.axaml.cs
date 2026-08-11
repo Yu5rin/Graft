@@ -52,6 +52,13 @@ public partial class App : Application
         // 判定できない環境ではNull実装が選ばれ、AppTheme.Systemはダークへ解決される。
         ThemeManager.Initialize(PlatformServices.Current.Theme);
         EnableCommandRequery();
+
+        // 利用者からの要望: タイトルバー色をアプリのテーマへ連動させる。ここで購読すれば
+        // 以後生成されるあらゆるWindow派生（現在10種）を1箇所で漏れなく拾える
+        // （TitleBarThemeSyncのクラスドキュメント参照）。この時点ではまだ通常のLoggerが
+        // 存在しないため、生成され次第OnFrameworkInitializationCompleted側で
+        // TitleBarThemeSync.SetLoggerを呼ぶ。
+        TitleBarThemeSync.Initialize();
     }
 
     public override async void OnFrameworkInitializationCompleted()
@@ -166,6 +173,12 @@ public partial class App : Application
 
         await _coordinator.StartAsync().ConfigureAwait(true);
         desktop.MainWindow = _coordinator.MainWindow;
+
+        // 通常のLoggerがここで初めて生成済みになる（StartupCoordinator.StartAsync内）。
+        // Initialize()時点では存在しなかったため、生成され次第TitleBarThemeSyncへ渡す
+        // （DWM呼び出し失敗時に1回だけ記録できるようにするため。必須ではなく、
+        // 無くても機能自体は動く）。
+        TitleBarThemeSync.SetLogger(_coordinator.Logger);
 
         // 上のOnExplicitShutdownへの切り替えコメント参照。メインウィンドウを割り当てた
         // 直後に既定の挙動へ戻す。OnExplicitShutdownのままにしてしまうと、以後×ボタンで
