@@ -15,3 +15,7 @@ tests/*/TestResults/
 # tools\New-Release.ps1 が作るリリース用ZIP
 Graft-*-win-x64.zip
 
+
+# tools\New-Release.ps1 が作るリリース用の配布物
+Graft-*-linux-x64.tar.gz
+
