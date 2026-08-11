@@ -41,6 +41,17 @@ public sealed class AppPaths
         return DataDirectoryPointer.TryRead(exeDir) ?? exeDir;
     }
 
+    /// <summary>
+    /// 「ユーザーフォルダ」の既定パス（%APPDATA%\Graft 相当）。設定画面からの明示的な移行
+    /// （<see cref="ViewModels.SettingsViewModel"/>のデータ保存先まわり）と、孤立したユーザー
+    /// フォルダの復帰確認（<see cref="DataDirectoryRecovery"/>）の両方が同じ定義を参照する
+    /// 単一の情報源。以前は<c>SettingsViewModel.DataDirectory.cs</c>にprivate staticで
+    /// 個別に定義されていたが、復帰確認機能を追加するにあたり2箇所で食い違わないようここへ
+    /// 集約した。
+    /// </summary>
+    public static string DefaultUserDataDirectory()
+        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Graft");
+
     /// <summary>settings.json の絶対パス。</summary>
     public string SettingsFilePath => Path.Combine(BaseDirectory, "settings.json");
 
