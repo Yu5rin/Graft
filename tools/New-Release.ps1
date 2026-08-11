@@ -34,7 +34,12 @@
     既存の内容は実行前に削除される（配布物以外のファイルを置かないこと）。
 
 .PARAMETER ZipPath
-    作成するZIPのパス。既定はリポジトリ直下の Graft-<バージョン>-win-x64.zip。
+    作成するWindows版ZIPのパス。既定はリポジトリ直下の Graft-<バージョン>-win-x64.zip。
+
+.PARAMETER TarPath
+    作成するLinux版tar.gzのパス。既定はリポジトリ直下の Graft-<バージョン>-linux-x64.tar.gz。
+    Linux版をzipにしないのは、zipがUnixのファイル属性を持たず実行権限が失われるため
+    （.github/workflows/release.yml に同じ理由のコメントがある）。
 
 .PARAMETER Force
     gitの作業ツリーが汚れていても続行する。
@@ -52,6 +57,7 @@ param(
     [string]$Version,
     [string]$OutputDir,
     [string]$ZipPath,
+    [string]$TarPath,
     [switch]$Force
 )
 
@@ -193,8 +199,20 @@ if ($ZipPath) {
     $resolvedZipPath = Join-Path $repoRoot "Graft-$resolvedVersion-win-x64.zip"
 }
 
+# Linux版の発行先。Windows版の発行先と同じ階層に linux\Graft を作る。書庫のトップに来る
+# フォルダ名は発行先の末端フォルダ名になるため、Windows版と同じ "Graft" に揃える。
+$linuxParentDir = Join-Path (Split-Path $resolvedOutputDir -Parent) 'linux'
+$linuxOutputDir = Join-Path $linuxParentDir 'Graft'
+if ($TarPath) {
+    $resolvedTarPath = [System.IO.Path]::GetFullPath($TarPath)
+} else {
+    $resolvedTarPath = Join-Path $repoRoot "Graft-$resolvedVersion-linux-x64.tar.gz"
+}
+
 Write-Host "発行先: $resolvedOutputDir"
 Write-Host "ZIP出力先: $resolvedZipPath"
+Write-Host "Linux発行先: $linuxOutputDir"
+Write-Host "tar.gz出力先: $resolvedTarPath"
 
 # ============================================================================
 # 2. 発行
@@ -210,8 +228,20 @@ if (Test-Path $resolvedOutputDir) {
 New-Item -ItemType Directory -Path $resolvedOutputDir -Force | Out-Null
 
 & dotnet publish $csprojPath -c Release -r win-x64 --self-contained true -o $resolvedOutputDir
-if ($LASTEXITCODE -ne 0) { throw "dotnet publishが失敗しました（終了コード $LASTEXITCODE）。" }
-Write-Host "発行完了: $resolvedOutputDir"
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish（win-x64）が失敗しました（終了コード $LASTEXITCODE）。" }
+Write-Host "発行完了（win-x64）: $resolvedOutputDir"
+
+# Linux版。.NETはクロスOSの発行に対応しているため、Windows上からでもlinux-x64の
+# 発行物を作れる（.github/workflows/release.ymlも逆にLinuxランナー上でwin-x64を作っている）。
+if (Test-Path $linuxParentDir) {
+    Write-Host "既存のLinux発行先を削除します: $linuxParentDir"
+    Remove-Item -Recurse -Force $linuxParentDir
+}
+New-Item -ItemType Directory -Path $linuxOutputDir -Force | Out-Null
+
+& dotnet publish $csprojPath -c Release -r linux-x64 --self-contained true -o $linuxOutputDir
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish（linux-x64）が失敗しました（終了コード $LASTEXITCODE）。" }
+Write-Host "発行完了（linux-x64）: $linuxOutputDir"
 
 # ============================================================================
 # 3. 同梱物の配置
@@ -261,7 +291,55 @@ AIが提案したコードの変更を、手元のプロジェクトへ安全に
   このフォルダを削除するだけです。
 "@
 Write-Utf8Bom -Path (Join-Path $resolvedOutputDir 'はじめにお読みください.txt') -Text $readmeText
-Write-Host '配置: はじめにお読みください.txt'
+Write-Host '配置: はじめにお読みください.txt（win-x64）'
+
+# --- Linux版の同梱物 ---
+Copy-Item -Path $manualMdSrc -Destination (Join-Path $linuxOutputDir '取扱説明書.md') -Force
+
+# Windows版とは実行ファイル名（Graft.exe→Graft）も、注意すべき点（SmartScreenではなく
+# 実行権限）も違うため、文面を作り分ける。
+# 実行権限について: Windows上でtarを作るとNTFSにUnixのファイル属性が無く、展開しても
+# 実行権限が付かないことがある（Linux上で作った場合は保たれる）。どちらで作られたかを
+# 利用者は知りようがないので、常にchmodの案内を載せておく。
+$linuxReadmeText = @"
+$readmeTitle
+$readmeUnderline
+
+AIが提案したコードの変更を、手元のプロジェクトへ安全に取り込むためのツールです。
+
+■ 使い方
+  このフォルダの中で次を実行してください。
+
+    chmod +x Graft
+    ./Graft
+
+  インストール作業は不要です。
+  初回起動時に案内が開きます。3画面進むだけでひととおり体験できます。
+
+■ 動作環境
+  Linux（64bit、X11）
+  .NET のインストールは不要です（同梱しています）。
+
+■ 実行権限について
+  書庫を展開した直後は Graft に実行権限が付いていないことがあります。
+  「許可がありません」と出たら、上の chmod +x を実行してください。
+
+■ 取扱説明書
+  アプリ内で F1 キーを押すといつでも開けます。
+  同じ内容を 取扱説明書.md としても同梱しています。
+
+■ データの保存場所
+  既定では、この Graft と同じフォルダに設定・履歴・バックアップを保存します。
+  このフォルダごとコピーすれば、別のPCへそのまま持ち運べます。
+
+  書き込めない場所に置いた場合は、
+  設定 → 一般 →「ユーザーフォルダへ移動」で保存先を移せます。
+
+■ アンインストール
+  このフォルダを削除するだけです。
+"@
+Write-Utf8Bom -Path (Join-Path $linuxOutputDir 'はじめにお読みください.txt') -Text $linuxReadmeText
+Write-Host '配置: 取扱説明書.md／はじめにお読みください.txt（linux-x64）'
 
 # ============================================================================
 # 4. ZIP作成
@@ -276,15 +354,36 @@ if (Test-Path $resolvedZipPath) { Remove-Item -Path $resolvedZipPath -Force }
 Compress-Archive -Path $resolvedOutputDir -DestinationPath $resolvedZipPath -Force
 Write-Host "作成: $resolvedZipPath"
 
+# --- Linux版（tar.gz） ---
+# zipではUnixのファイル属性を持てず実行権限が失われるためtar.gzにする
+# （.github/workflows/release.yml に同じ理由のコメントがある）。
+# tarはWindows 10 1803以降にも標準で入っている（bsdtar）。無い環境では
+# Linux版の書庫だけを飛ばして続行する（Windows版のリリースは止めない）。
+$tarCommand = Get-Command tar -ErrorAction SilentlyContinue
+if (-not $tarCommand) {
+    Write-Warning 'tarコマンドが見つからないため、Linux版のtar.gz作成を飛ばしました。発行物は ' + $linuxOutputDir + ' に残っています。'
+    $linuxArchiveCreated = $false
+} else {
+    if (Test-Path $resolvedTarPath) { Remove-Item -Path $resolvedTarPath -Force }
+    # -C で親フォルダへ移動してから "Graft" を指定することで、書庫のトップに
+    # フォルダを1つ挟む（Windows版のZIPと同じ構造）。
+    & tar -czf $resolvedTarPath -C $linuxParentDir 'Graft'
+    if ($LASTEXITCODE -ne 0) { throw "tarの実行に失敗しました（終了コード $LASTEXITCODE）。" }
+    Write-Host "作成: $resolvedTarPath"
+    $linuxArchiveCreated = $true
+}
+
 # .gitignoreに配布用ZIPのパターンが無ければ追加する（publish/自体は既に無視されているが、
 # ZIPはリポジトリ直下に作るため別途必要）。
 $gitignorePath = Join-Path $repoRoot '.gitignore'
-$zipIgnorePattern = 'Graft-*-win-x64.zip'
 $gitignoreText = if (Test-Path $gitignorePath) { Get-Content -Path $gitignorePath -Raw -Encoding UTF8 } else { '' }
-if ($gitignoreText -notmatch [regex]::Escape($zipIgnorePattern)) {
-    $addition = ("`n# tools\New-Release.ps1 が作るリリース用ZIP`n" + $zipIgnorePattern + "`n")
-    Add-Content -Path $gitignorePath -Value $addition -Encoding UTF8
-    Write-Host ".gitignoreに `"$zipIgnorePattern`" を追加しました。"
+foreach ($pattern in @('Graft-*-win-x64.zip', 'Graft-*-linux-x64.tar.gz')) {
+    if ($gitignoreText -notmatch [regex]::Escape($pattern)) {
+        $addition = ("`n# tools\New-Release.ps1 が作るリリース用の配布物`n" + $pattern + "`n")
+        Add-Content -Path $gitignorePath -Value $addition -Encoding UTF8
+        $gitignoreText += $addition
+        Write-Host ".gitignoreに `"$pattern`" を追加しました。"
+    }
 }
 
 # ============================================================================
@@ -340,7 +439,33 @@ foreach ($f in $requiredFiles) {
 if ($missing.Count -gt 0) {
     throw ('配布物に含まれるべきファイルが不足しています: ' + ($missing -join ', '))
 }
-Write-Host ('必須ファイルの確認: OK（' + ($requiredFiles -join ', ') + '）')
+Write-Host ('必須ファイルの確認（win-x64）: OK（' + ($requiredFiles -join ', ') + '）')
+
+# --- Linux版の検証 ---
+# 発行物はGraft（拡張子なしの実行ファイル）とネイティブライブラリ2つ。Windows版の
+# av_libglesv2.dllに相当するものはLinuxには無い（実測で確認）。
+$linuxRequiredFiles = @(
+    'Graft',
+    'libHarfBuzzSharp.so',
+    'libSkiaSharp.so',
+    '取扱説明書.md',
+    'はじめにお読みください.txt'
+)
+$linuxMissing = @()
+foreach ($f in $linuxRequiredFiles) {
+    if (-not (Test-Path (Join-Path $linuxOutputDir $f))) { $linuxMissing += $f }
+}
+if ($linuxMissing.Count -gt 0) {
+    throw ('Linux版の配布物に含まれるべきファイルが不足しています: ' + ($linuxMissing -join ', '))
+}
+Write-Host ('必須ファイルの確認（linux-x64）: OK（' + ($linuxRequiredFiles -join ', ') + '）')
+
+if ($linuxArchiveCreated) {
+    Write-Host 'tar.gzの中身:'
+    & tar -tzvf $resolvedTarPath | ForEach-Object { Write-Host "  $_" }
+    $tarSize = (Get-Item $resolvedTarPath).Length
+    Write-Host ('tar.gzファイルサイズ: {0:N0} bytes（約{1:N1} MB）' -f $tarSize, ($tarSize / 1MB))
+}
 
 # ============================================================================
 # リリース本文の下書きを書き出す
@@ -387,7 +512,12 @@ Write-Host ''
 Write-Host '3. リリース本文には、下記の下書きの内容を貼り付ける:'
 Write-Host "     $releaseNotesPath"
 Write-Host ''
-Write-Host '4. 添付するZIP:'
+Write-Host '4. 添付する配布物:'
 Write-Host "     $resolvedZipPath"
+if ($linuxArchiveCreated) {
+    Write-Host "     $resolvedTarPath"
+} else {
+    Write-Host '     （Linux版のtar.gzは作られませんでした。上の警告を参照してください）'
+}
 Write-Host ''
 Write-Host '=== 完了 ==='
