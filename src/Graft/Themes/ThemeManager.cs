@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml.Styling;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Graft.Platform;
 using Graft.Platform.Null;
@@ -45,6 +46,11 @@ public enum AppTheme
 ///   購読）は一度きりでよいが、テーマ辞書そのものは「今アクティブな
 ///   <see cref="Application.Current"/>」へ毎回適用し直す必要があるため、
 ///   両者のライフサイクルを分離している（<see cref="ApplyResolvedTheme"/>参照）。
+/// - タイトルバー色連動（利用者からの要望）を追加した際、<see cref="Application.RequestedThemeVariant"/>
+///   を<c>Default</c>のまま放置せずここで明示的に追従させるようにした（<see cref="ApplyResolvedTheme"/>
+///   内のコメント参照）。Avalonia自身がWindows 11でDWMWA_USE_IMMERSIVE_DARK_MODEを
+///   自動設定する既定動作と、<see cref="Graft.Platform.Windows.WindowsTitleBarTheme"/>側の
+///   明示設定が競合しないようにするため。
 /// </summary>
 public static class ThemeManager
 {
@@ -66,6 +72,14 @@ public static class ThemeManager
 
     /// <summary>現在選択されているテーマ（解決前）。</summary>
     public static AppTheme SelectedTheme => _selectedTheme;
+
+    /// <summary>
+    /// <see cref="AppTheme.System"/>を含め、実際に適用されている側（true=ダーク）。
+    /// タイトルバー配色（<see cref="Graft.Platform.TitleBarThemeSync"/>）等、
+    /// 「今どちらの見た目になっているか」だけを必要とする呼び出し側向けに公開する
+    /// （<see cref="ResolveIsDark"/>の判定ロジックを二重に持たせないため）。
+    /// </summary>
+    public static bool IsDarkResolved { get; private set; } = true;
 
     /// <summary>テーマ辞書が差し替わるたびに発火する。</summary>
     public static event EventHandler? ThemeChanged;
@@ -175,6 +189,7 @@ public static class ThemeManager
         }
 
         var isDark = ResolveIsDark(_selectedTheme);
+        IsDarkResolved = isDark;
         var fileName = isDark ? "Dark.axaml" : "Light.axaml";
         var uri = new Uri($"avares://Graft/Themes/{fileName}");
         var newDictionary = new ResourceInclude(uri) { Source = uri };
@@ -187,6 +202,17 @@ public static class ThemeManager
 
         dictionaries.Add(newDictionary);
         _currentThemeDictionary = newDictionary;
+
+        // タイトルバー連動（Platform/TitleBarThemeSync.cs）の調査で判明した点への対応:
+        // Avalonia.Win32.dll（WindowImpl.SetFrameThemeVariant）は、TopLevel.ActualThemeVariant
+        // の変化に連動してDWMWA_USE_IMMERSIVE_DARK_MODEを自動設定済みだった（ilspycmdでの
+        // 逆コンパイルで確認）。App.axamlのRequestedThemeVariant="Default"のままだと、
+        // ActualThemeVariantはGraftが選んだテーマではなくOS実機の「実際の」ライト/ダーク設定へ
+        // 追従してしまい、Graftアプリ内のテーマ選択と食い違う余地があった（例:
+        // OSはダーク・Graftはライトを選択、のケース）。ここでApplication.RequestedThemeVariant
+        // をGraftが解決した実際のテーマへ毎回合わせることで、Avalonia自身の自動設定と
+        // WindowsTitleBarTheme側の明示設定が常に同じ値になり、競合を断つ。
+        app.RequestedThemeVariant = isDark ? ThemeVariant.Dark : ThemeVariant.Light;
 
         ThemeChanged?.Invoke(null, EventArgs.Empty);
     }
