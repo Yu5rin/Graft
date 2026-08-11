@@ -154,6 +154,20 @@ public interface IFileManagerLauncher : IPlatformService
 }
 
 /// <summary>
+/// Markdownプレビュー機能: 外部リンク（<c>https://</c>等）を既定のブラウザで開く。
+/// <see cref="IFileManagerLauncher"/>と同じ「OS固有のプロセス起動」という性質を持つため、
+/// 同じ抽象化の作法（<see cref="IPlatformService"/>を実装し、利用不可でも例外を投げず
+/// 静かに縮退する）に揃えて追加した。悪意あるMarkdownファイルからの無警告な外部遷移を
+/// 避けるため、呼び出し側（<c>Views/EditorPane.axaml.cs</c>）は必ず確認ダイアログ
+/// （<see cref="IDialogService.ConfirmAsync"/>）を経てからこのメソッドを呼ぶ。
+/// </summary>
+public interface IExternalLinkLauncher : IPlatformService
+{
+    /// <summary>指定URLを既定のブラウザで開く。起動に失敗しても例外は投げない。</summary>
+    void Open(string url);
+}
+
+/// <summary>
 /// 仕様書8.3 システムテーマの判定と変更通知。v2.0での実装元は <c>Themes/ThemeManager.cs</c> の
 /// <c>TryReadAppsUseLightTheme</c> と、それに付随するシステム設定変更監視。
 /// </summary>
@@ -298,6 +312,9 @@ public interface IPlatformServices
 
     /// <summary>ファイルマネージャで表示。</summary>
     IFileManagerLauncher FileManager { get; }
+
+    /// <summary>Markdownプレビュー機能: 外部リンクを既定のブラウザで開く。</summary>
+    IExternalLinkLauncher ExternalLinks { get; }
 
     /// <summary>システムテーマの判定と変更通知。</summary>
     ISystemThemeWatcher Theme { get; }

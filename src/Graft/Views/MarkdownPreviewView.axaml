@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Graft.Views.MarkdownPreviewView"
+             Background="{DynamicResource BgBase}">
+    <!--
+        Markdownプレビュー機能（利用者指示）: .mdファイルを開いたときの既定表示。
+        ManualMarkdownRenderer（ManualWindowと共用のパーサ）で組み立てたブロックを
+        ここへ流し込む（MarkdownPreviewView.axaml.cs）。
+    -->
+    <ScrollViewer x:Name="PreviewScroll"
+                  HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto"
+                  AutomationProperties.Name="Markdownプレビュー本文">
+        <StackPanel x:Name="ContentPanel" Margin="20,16" />
+    </ScrollViewer>
+</UserControl>

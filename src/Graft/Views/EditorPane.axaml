@@ -233,7 +233,46 @@
         </Grid>
 
         <!-- ========== エディタ本体 ========== -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,Auto,*">
+
+            <!--
+                Markdownプレビュー機能（利用者指示）: .mdファイルのタブでのみ表示するモード切替バー。
+                プレビュー⇔編集の切替ボタン（ダブルクリック・Escでも切り替わる。詳細はEditorPane.axaml.cs
+                OnToggleMarkdownPreviewClicked・OnTunnelKeyDown参照）に加え、サイズ上限
+                （MarkdownPreviewSizeGuard）超過時はボタンを無効化し理由を表示する。
+            -->
+            <Border x:Name="MarkdownModeBar"
+                    Grid.Row="0"
+                    Background="{DynamicResource BgElevated}"
+                    BorderBrush="{DynamicResource BorderSubtle}"
+                    BorderThickness="0,0,0,1"
+                    Padding="12,6"
+                    IsVisible="{Binding ActiveTab.IsMarkdownFile, FallbackValue=False}"
+                    AutomationProperties.Name="Markdownプレビューの切替">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0"
+                               Text="Markdownプレビュー"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondary}"
+                               FontSize="{DynamicResource CaptionFontSize}" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding ActiveTab.MarkdownPreviewUnavailableReason}"
+                               IsVisible="{Binding ActiveTab.MarkdownPreviewUnavailable, FallbackValue=False}"
+                               Margin="12,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource StateWarn}"
+                               FontSize="{DynamicResource CaptionFontSize}"
+                               TextWrapping="Wrap" />
+                    <Button x:Name="MarkdownModeToggleButton"
+                            Grid.Column="2"
+                            Content="{Binding ActiveTab.MarkdownModeToggleLabel}"
+                            Click="OnToggleMarkdownPreviewClicked"
+                            IsEnabled="{Binding !ActiveTab.MarkdownPreviewUnavailable}"
+                            local:HelpTip.Standard="Markdownのプレビュー表示と編集モードを切り替えます。プレビュー本文のダブルクリック、編集モードでのEscキーでも切り替えられます。"
+                            local:HelpTip.Detailed="Markdown（.md）ファイルは既定でプレビュー表示（見出し・表・コードブロックの構文強調・チェックリストなどを装飾して表示）です。このボタンで編集モード（通常のテキスト編集）へ切り替えられます。一度編集モードにすると、このタブを開いている間は編集モードのままです（毎回プレビューへ戻ると煩わしいため）。プレビュー本文をダブルクリックしても編集モードへ切り替わり、ダブルクリックした段落に対応する行へカーソルが移動します。編集モードでEscキーを押すとプレビューへ戻ります（検索欄が開いている間はそちらのEscが優先されます）。ファイルが大きすぎる場合はこのボタンが無効になり、常に編集モードになります。"
+                            AutomationProperties.Name="Markdownのプレビューと編集を切り替え" />
+                </Grid>
+            </Border>
 
             <!--
                 課題3（再設計）: 極端に長い行（1行20,000文字超）を含むファイルの非モーダル通知バー。
@@ -245,7 +284,7 @@
                 （EditorTabViewModel.WordWrapDisabledForTab）。
             -->
             <Border x:Name="LongLineBar"
-                    Grid.Row="0"
+                    Grid.Row="1"
                     Background="{DynamicResource BgElevated}"
                     BorderBrush="{DynamicResource StateWarn}"
                     BorderThickness="0,0,0,2"
@@ -271,7 +310,7 @@
 
             <!-- 4.6: 外部変更検知（E702）の非モーダル通知バー。 -->
             <Border x:Name="ConflictBar"
-                    Grid.Row="1"
+                    Grid.Row="2"
                     Background="{DynamicResource BgElevated}"
                     BorderBrush="{DynamicResource StateWarn}"
                     BorderThickness="0,0,0,2"
@@ -301,7 +340,7 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="3">
                 <!-- 課題3（再設計）: WordWrapはここでバインドせずEditorPane.axaml.csの
                      ApplyWordWrapOptionで一括管理する（利用者の設定＋タブごとの一時的な無効化
                      [WordWrapDisabledForTab]の両方を反映する必要があるため。
@@ -337,6 +376,15 @@
                         </ContextMenu>
                     </ae:TextEditor.ContextMenu>
                 </ae:TextEditor>
+
+                <!--
+                    Markdownプレビュー機能（利用者指示）: .mdファイルのプレビュー本体。
+                    Editorと同じセルへ重ねて置き、EditorPane.axaml.csがモードに応じて
+                    どちらか一方だけを表示する（DiffHost等と同じ「重ねてIsVisibleで切り替える」方式）。
+                -->
+                <local:MarkdownPreviewView x:Name="MarkdownPreviewHost"
+                                            IsVisible="False"
+                                            AutomationProperties.Name="Markdownプレビュー" />
 
                 <!-- 9.2/4.8: diffはエディタ領域の専用タブとして開く。 -->
                 <local:DiffView x:Name="DiffHost"

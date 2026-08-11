@@ -17,6 +17,8 @@ public sealed class NullPlatformServices : IPlatformServices
 
     public IFileManagerLauncher FileManager { get; } = new NullFileManagerLauncher();
 
+    public IExternalLinkLauncher ExternalLinks { get; } = new NullExternalLinkLauncher();
+
     public ISystemThemeWatcher Theme { get; } = new NullSystemThemeWatcher();
 
     public ISingleInstanceGuard SingleInstance { get; } = new NullSingleInstanceGuard();

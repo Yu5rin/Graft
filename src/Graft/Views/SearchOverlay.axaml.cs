@@ -40,6 +40,14 @@ public partial class SearchOverlay : UserControl
     public SearchOverlayViewModel ViewModel
         => _viewModel ?? throw new InvalidOperationException("Attachより前に参照されました。");
 
+    /// <summary>
+    /// 検索・置換オーバーレイが開いているかどうか。<see cref="ViewModel"/>と異なり、
+    /// <see cref="Attach"/>より前でも例外を投げずfalseを返す（Markdownプレビュー機能:
+    /// <see cref="ShellWindow"/>がEscapeの割り当て判断＝キューの破棄より検索を優先するかを
+    /// 判定するために使う。ShellWindow.Keyboard.cs参照）。
+    /// </summary>
+    public bool IsOpen => _viewModel?.IsOpen ?? false;
+
     /// <summary>対象のエディタへ接続する。タブ切替のたびに呼び直す。</summary>
     public void Attach(TextEditor editor, Graft.Platform.IUiServices ui)
     {

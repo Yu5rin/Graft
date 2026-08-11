@@ -20,6 +20,7 @@ public sealed class LinuxPlatformServices : IPlatformServices
         Clipboard = new LinuxClipboardMonitor(clipboard);
         Trash = new LinuxTrashService();
         FileManager = new LinuxFileManagerLauncher();
+        ExternalLinks = new LinuxExternalLinkLauncher();
         Theme = new LinuxSystemThemeWatcher();
         SingleInstance = new LinuxSingleInstanceGuard();
         AutoStart = new LinuxAutoStartService();
@@ -34,6 +35,8 @@ public sealed class LinuxPlatformServices : IPlatformServices
     public ITrashService Trash { get; }
 
     public IFileManagerLauncher FileManager { get; }
+
+    public IExternalLinkLauncher ExternalLinks { get; }
 
     public ISystemThemeWatcher Theme { get; }
 
@@ -57,6 +60,7 @@ public sealed class LinuxPlatformServices : IPlatformServices
         builder.Append(", クリップボード監視: ").Append(Describe(Clipboard));
         builder.Append(", ごみ箱: ").Append(Describe(Trash));
         builder.Append(", ファイルマネージャ連携: ").Append(Describe(FileManager));
+        builder.Append(", 外部リンクを開く: ").Append(Describe(ExternalLinks));
         builder.Append(", テーマ自動追従: ").Append(Describe(Theme));
         builder.Append(", 多重起動防止: ").Append(Describe(SingleInstance));
         builder.Append(", 自動起動: ").Append(Describe(AutoStart)).Append('）');

@@ -27,12 +27,20 @@ public partial class EditorPane : UserControl
     private readonly FoldingSupport _folding;
     private readonly CompletionProvider _completion;
     private readonly GitGutterProvider _gitGutter;
+    // Markdownプレビュー機能（案B）: 編集モードでのMarkdown控えめ装飾。詳細はMarkdownInlineColorizer参照。
+    private readonly MarkdownInlineColorizer _markdownColorizer = new();
     private readonly AvaloniaDialogService _dialogs = new();
     private EditorPaneViewModel? _viewModel;
 
     // 現在Editorに読み込まれている（＝Documentを共有している）タブ。切替前にこのタブへ
     // スクロール位置等を退避してから、次のタブへ切り替える。
     private EditorTabViewModel? _loadedTab;
+
+    // Markdownプレビュー機能: 現在プレビューが監視しているDocument（.mdタブが読み込まれている
+    // 間のみ非null）。パッチ適用後の再読込等、編集操作を経ずにDocumentの内容が変わった場合でも
+    // プレビュー表示を追従させるために購読する（利用者指示の追加要件「パッチ適用後のタブ再読込
+    // でもプレビューのままであること」）。タブ切替のたびにApplyActiveTabで張り直す。
+    private TextDocument? _markdownWatchedDocument;
 
     // 機能改善（タブのドラッグ並べ替え）: ドラッグ中の状態。ポインタが押された時点では
     // まだドラッグと確定させず（単なるクリック＝タブ切替を邪魔しないため）、しきい値
@@ -62,6 +70,9 @@ public partial class EditorPane : UserControl
         _bridge = new SyntaxHighlightBridge(Editor);
         Editor.TextArea.TextView.LineTransformers.Add(_bridge);
         _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
+        // Markdownプレビュー機能（案B）。_bridgeの後ろに積む＝色付けの後から書体・背景を
+        // 上書きする順で適用される（見出しの太字等がシンタックスハイライトの色を消さない）。
+        Editor.TextArea.TextView.LineTransformers.Add(_markdownColorizer);
 
         _brackets = new BracketSupport(Editor);
         _folding = new FoldingSupport(Editor);
@@ -81,6 +92,12 @@ public partial class EditorPane : UserControl
         TabStrip.AddHandler(PointerReleasedEvent, OnTabStripPointerReleased, RoutingStrategies.Tunnel);
         TabStrip.PointerCaptureLost += (_, _) => ResetDragState();
         DiffHost.DoubleTapped += OnDiffDoubleTapped;
+        // Markdownプレビュー機能: プレビュー本文のダブルクリックで編集モードへ切り替え、
+        // ダブルクリックした段落に対応する行へカーソルを置く（利用者指示の追加要件3）。
+        MarkdownPreviewHost.BlockDoubleClicked += OnMarkdownBlockDoubleClicked;
+        // Markdownプレビュー機能: テーマ切替時の再描画（実機検証で発覚した不具合の対応。
+        // OnThemeChangedForMarkdownPreviewのコメント参照）。
+        Graft.Themes.ThemeManager.ThemeChanged += OnThemeChangedForMarkdownPreview;
 
         // 機能改善（タブが増えたときに到達できない問題）: スクロールボタン・タブ一覧
         // ドロップダウン・ホイールスクロールの初期化（EditorPane.TabStrip.cs）。
@@ -129,6 +146,7 @@ public partial class EditorPane : UserControl
     {
         SaveViewStateInto(_loadedTab);
         if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
+        DetachMarkdownDocumentWatch();
         _loadedTab = tab;
         if (tab is not null) tab.PropertyChanged += OnLoadedTabPropertyChanged;
 
@@ -174,11 +192,18 @@ public partial class EditorPane : UserControl
         _brackets.SetAutoCloseEnabled(_viewModel?.AutoClosingBrackets ?? true);
         _folding.Attach(tab.Session.Document, extension);
         _folding.SetEnabled(_viewModel?.Folding ?? true);
+        _markdownColorizer.SetEnabled(tab.IsMarkdownFile);
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
         ApplyGitGutter(tab);
 
+        if (tab.IsMarkdownFile)
+        {
+            _markdownWatchedDocument = tab.Session.Document;
+            _markdownWatchedDocument.Changed += OnDocumentChangedForMarkdownPreview;
+        }
+
         RestoreViewStateFrom(tab);
-        Editor.Focus();
+        ApplyMarkdownPreviewMode();
     }
 
     /// <summary>4.7: 表示中のファイルをGitガターの対象に設定し、差分を取り直す。</summary>
@@ -282,6 +307,7 @@ public partial class EditorPane : UserControl
     private void OnLoadedTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(EditorTabViewModel.WordWrapDisabledForTab)) ApplyWordWrapOption();
+        else if (e.PropertyName == nameof(EditorTabViewModel.ShowMarkdownPreview)) ApplyMarkdownPreviewMode();
     }
 
     private void ApplyIndentOptions(EditorTabViewModel tab)
@@ -335,6 +361,7 @@ public partial class EditorPane : UserControl
         var mods = e.KeyModifiers;
 
         if (TryHandleTabNavigation(e, mods)) return;
+        if (TryHandleMarkdownPreviewEscape(e, mods)) return;
         if (TryHandleSearchShortcuts(e, mods)) return;
         if (TryHandleLineEditShortcuts(e, mods)) return;
 
@@ -592,6 +619,9 @@ public partial class EditorPane : UserControl
             _viewModel.TabSaved -= OnTabSaved;
         }
         if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
+        DetachMarkdownDocumentWatch();
+        MarkdownPreviewHost.BlockDoubleClicked -= OnMarkdownBlockDoubleClicked;
+        Graft.Themes.ThemeManager.ThemeChanged -= OnThemeChangedForMarkdownPreview;
         _gitGutter.Dispose();
         _bridge.Dispose();
         _brackets.Dispose();
