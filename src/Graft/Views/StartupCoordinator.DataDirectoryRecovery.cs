@@ -75,15 +75,26 @@ public sealed partial class StartupCoordinator
                 userDataDirectory);
         }
 
-        // キャンセル（タイトルバーの×等）: 利用者は「今は決めない」を選んだとみなし、
-        // ポインタには一切触れない。次回起動時にもう一度同じ確認が出る。
-        return new DataDirectoryRecoveryOutcome(DataDirectoryRecoveryResult.Postponed, userDataDirectory);
+        // キャンセル（「キャンセル」ボタン、またはタイトルバーの×）: ポインタには一切触れない。
+        // 起動をそのまま続けるとexeフォルダにback/・logs/等が作られ、次回以降ずっとこの確認自体が
+        // 出せなくなる（DataDirectoryRecoveryResult.Cancelledのコメント参照）ため、呼び出し元
+        // （App.OnFrameworkInitializationCompleted）でGraft自体を終了させる。ここでは終了処理を
+        // 一切行わず「終了すべき」という判定結果（DataDirectoryRecoveryOutcome.ShouldExitProcess）を
+        // 返すだけに留める（実際の終了という副作用は呼び出し元の責務。判定と副作用を分けることで
+        // この関数自体は単体テストしやすいままにする）。
+        return new DataDirectoryRecoveryOutcome(DataDirectoryRecoveryResult.Cancelled, userDataDirectory);
     }
 
-    /// <summary>復帰確認の文言。見つかった絶対パスを添える。</summary>
+    /// <summary>
+    /// 復帰確認の文言。見つかった絶対パスを添える。キャンセルするとGraftそのものが終了する
+    /// （DataDirectoryRecoveryResult.Cancelledのコメント参照）ことが伝わるよう、末尾に一文だけ添える
+    /// （ダイアログが冗長にならないよう最小限に留め、「キャンセル」ボタン自体のラベルは
+    /// 「この起動をやめる」の意味として読めるためそのまま変えない）。
+    /// </summary>
     private static string BuildRecoveryPromptText(string userDataDirectory) =>
         "以前ユーザーフォルダに保存したデータが見つかりました。こちらを使いますか？" +
-        Environment.NewLine + Environment.NewLine + userDataDirectory;
+        Environment.NewLine + Environment.NewLine + userDataDirectory +
+        Environment.NewLine + Environment.NewLine + "（キャンセルするとGraftを終了します）";
 
     /// <summary>
     /// <see cref="ResolveDataDirectoryRecoveryAsync"/>の結果をLoggerへ記録する。呼び出し元
@@ -115,9 +126,14 @@ public sealed partial class StartupCoordinator
                     $"ユーザーフォルダのデータ復帰を見送りましたが、ポータブルを明示する切り替え用ファイル（" +
                     $"{DataDirectoryPointer.FileName}）を書き込めませんでした。次回起動時にまた確認します: {outcome.UserDataDirectory}");
                 return;
-            case DataDirectoryRecoveryResult.Postponed:
-                _logger?.Info("startup",
-                    $"ユーザーフォルダのデータ復帰の確認を先送りしました。次回起動時にまた確認します: {outcome.UserDataDirectory}");
+            case DataDirectoryRecoveryResult.Cancelled:
+                // 実際にはここへ到達しないはずである: Cancelledの場合、呼び出し元
+                // （App.OnFrameworkInitializationCompleted）はStartupCoordinatorのコンストラクタを
+                // 呼ぶより前にGraftを終了させるため、Logger自体が生成されずStartAsync（延いては
+                // このメソッド）へ到達しない。到達順序を変える将来の変更に備えた保険として、
+                // 万一到達した場合のログだけは残しておく。
+                _logger?.Warn("startup",
+                    $"データ復帰の確認をキャンセルしました（本来は終了しているはずの経路です）: {outcome.UserDataDirectory}");
                 return;
         }
     }

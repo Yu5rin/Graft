@@ -45,6 +45,7 @@ public class DataDirectoryRecoveryScenarioTests : IDisposable
         var outcome = await StartupCoordinator.ResolveDataDirectoryRecoveryAsync(dialogs, exeDir, userDir);
 
         outcome.Result.Should().Be(DataDirectoryRecoveryResult.NotApplicable);
+        outcome.ShouldExitProcess.Should().BeFalse();
         dialogs.ConfirmThreeWayCallCount.Should().Be(0, "対象外なら確認ダイアログを出してはならない");
         File.Exists(DataDirectoryPointer.PointerFilePath(exeDir)).Should().BeFalse();
     }
@@ -63,6 +64,7 @@ public class DataDirectoryRecoveryScenarioTests : IDisposable
         var outcome = await StartupCoordinator.ResolveDataDirectoryRecoveryAsync(dialogs, exeDir, userDir);
 
         outcome.Result.Should().Be(DataDirectoryRecoveryResult.Recovered);
+        outcome.ShouldExitProcess.Should().BeFalse("「はい」では従来どおり起動を続ける必要がある");
         dialogs.ConfirmThreeWayCallCount.Should().Be(1);
         dialogs.LastMessage.Should().Contain(userDir, "見つかった絶対パスを文言に添える必要がある");
 
@@ -85,6 +87,7 @@ public class DataDirectoryRecoveryScenarioTests : IDisposable
         var outcome = await StartupCoordinator.ResolveDataDirectoryRecoveryAsync(dialogs, exeDir, userDir);
 
         outcome.Result.Should().Be(DataDirectoryRecoveryResult.DeclinedAndMarkedPortable);
+        outcome.ShouldExitProcess.Should().BeFalse("「いいえ」も従来どおり起動を続ける必要がある");
         DataDirectoryPointer.TryRead(exeDir).Should().Be(exeDir, "「明示的なポータブル」としてexeフォルダ自身を書く");
 
         // 以後の起動では条件1（ポインタが無い）が不成立になり、二度と尋ねられない。
@@ -92,8 +95,9 @@ public class DataDirectoryRecoveryScenarioTests : IDisposable
         AppPaths.ResolveBaseDirectory(exeDir).Should().Be(exeDir);
     }
 
-    [AvaloniaFact(DisplayName = "キャンセル（決めなかった）場合はポインタに一切触れず、次回起動でまた尋ねられる")]
-    public async Task キャンセルするとポインタは変更されず次回また尋ねられる()
+    [AvaloniaFact(DisplayName = "キャンセル（タイトルバーの×を含む）はGraftを終了すべきと判定され、" +
+        "ポインタには一切触れない（起動を続けた場合の副作用込みで、次回起動でまた尋ねられる状態を保つため）")]
+    public async Task キャンセルすると終了すべきと判定されポインタも変更されない()
     {
         var exeDir = Path.Combine(_root, "exe4");
         var userDir = Path.Combine(_root, "user4");
@@ -101,13 +105,22 @@ public class DataDirectoryRecoveryScenarioTests : IDisposable
         Directory.CreateDirectory(userDir);
         await File.WriteAllTextAsync(Path.Combine(userDir, "settings.json"), "{}");
 
+        // ConfirmThreeWayAsyncがnullを返すのは「キャンセル」ボタンだけでなく、タイトルバーの×
+        // （AvaloniaDialogService.ConfirmThreeWayAsyncのwindow.Closedハンドラ）も同じ。
+        // どちらの経路でも呼び出し元からは区別できず同じ扱いになるため、このテストは両方を兼ねる。
         var dialogs = new RecordingDialogService { ThreeWayResponse = null };
 
         var outcome = await StartupCoordinator.ResolveDataDirectoryRecoveryAsync(dialogs, exeDir, userDir);
 
-        outcome.Result.Should().Be(DataDirectoryRecoveryResult.Postponed);
-        File.Exists(DataDirectoryPointer.PointerFilePath(exeDir)).Should().BeFalse();
-        DataDirectoryRecovery.ShouldPromptForRecovery(exeDir, userDir).Should().BeTrue("次回起動でまた尋ねられる必要がある");
+        outcome.Result.Should().Be(DataDirectoryRecoveryResult.Cancelled);
+        // 「終了すべきか」の判定（副作用の無い純粋なプロパティ）をここで検証する。実際に
+        // プロセスを終了させる副作用自体はApp.axaml.cs側の責務のためユニットテストの対象外
+        // （手動のXvfb実機検証で確認済み。作業記録参照）。
+        outcome.ShouldExitProcess.Should().BeTrue("キャンセルはGraft自体を終了させる必要がある");
+        File.Exists(DataDirectoryPointer.PointerFilePath(exeDir)).Should().BeFalse(
+            "datapath.txtには一切触れてはならない（次回起動でまた同じ確認が必要）");
+        DataDirectoryRecovery.ShouldPromptForRecovery(exeDir, userDir).Should().BeTrue(
+            "終了すればexeフォルダには何も書かれないため、次回起動でまた尋ねられる必要がある");
     }
 
     [AvaloniaFact(DisplayName = "基準ディレクトリを明示指定すると、復帰確認の対象になりうる状況でも一切影響を受けない" +
