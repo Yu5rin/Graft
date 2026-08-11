@@ -50,20 +50,26 @@
                 （実機で確認済み）ため、ボタン群をプロジェクト選択のすぐ右（列1）へ寄せ、
                 余白（*）は列2へ追い出す。
 
-                「?」ショートカット一覧ボタンだけは列3として右端に残す。他のボタンは
-                「ファイル→解析→…→設定」という接ぎ木のワークフロー順に並ぶ操作ボタン群だが、
-                ショートカット一覧はワークフローの一部ではなく画面の使い方そのものを調べる
-                補助機能であり、性質が異なる。右端に固定しておけば、ウィンドウ幅やボタンの
-                増減でワークフロー側の並びが変わっても「困ったときはここ」という位置が
-                動かない（実機でウィンドウを最小幅まで狭めても両グループが欠けずに収まる
-                ことを確認済み）。
+                列3（右端）には「設定」「?（ヘルプメニュー）」の2つを置く。元は「?」だけが
+                列3にあり、「設定」はファイル→解析→…→履歴と続くワークフロー順のボタン群
+                （列1）の最後にあったが、「一般的なソフトでは設定は右端にある」という
+                利用者からの指摘を受けて列3へ移した。「履歴」は移していない。履歴は
+                「適用」で書き換えた内容を元に戻す（復元する）操作の入口でもあり、
+                参照系（設定・ヘルプ）の側へ寄せてしまうと、いざ復元したいときに
+                ワークフローの手元から遠くなるためである。結果として列3は「ワークフローの
+                外側にある補助機能」の置き場所になる。「設定」はアプリ全体の動作を調整する
+                補助機能、「?」ヘルプメニューは画面の使い方そのものを調べる補助機能で、
+                どちらもワークフローの一部ではない点で共通する。右端に固定しておけば、
+                ウィンドウ幅やワークフロー側のボタンの増減で列1の並びが変わっても
+                「困ったときはここ」という位置が動かない（実機でウィンドウを最小幅まで
+                狭めても両グループが欠けずに収まることを確認済み）。
 
                 不具合5対応: 列構成をAuto,*,AutoからAuto,Auto,*,Autoへ変更した（課題3対応）ため、
                 ボタン列（列1）を包むScrollViewerのMaxWidthを求める計算式も列の増減に合わせて
-                作り直した。プロジェクト選択ComboBoxとショートカット一覧ボタンの実測幅
-                （Bounds.Width）をウィンドウ幅から差し引く方式にしており、列構成が今後変わっても
-                固定値を書き直さずに済む（計算の詳細はConverters.ToolbarButtonsMaxWidthのコメント
-                参照）。
+                作り直した。プロジェクト選択ComboBox・設定ボタン・ショートカット一覧ボタンの
+                実測幅（Bounds.Width）をウィンドウ幅から差し引く方式にしており、列3の中身が
+                今後増減しても固定値を書き直さずに済む（計算の詳細はConverters.
+                ToolbarButtonsMaxWidthのコメント参照）。
             -->
             <Grid x:Name="CommandBarGrid" Margin="12,0" ColumnDefinitions="Auto,Auto,*,Auto">
 
@@ -79,14 +85,14 @@
                 <!--
                     不具合5対応: layout.jsonの極端な値からの復元でウィンドウがMinWidth
                     （960px）まで縮んだ場合、このボタン列は幅がAuto（内容に合わせて伸びる）の
-                    ため、右端のボタン（設定など）が画面外へはみ出し押せなくなっていた
+                    ため、右端のボタン（履歴など）が画面外へはみ出し押せなくなっていた
                     （実機で確認）。ツールバーの構造自体（ボタンの並び・個数・列配置）は変えず、
                     ScrollViewerで包んで収まらない分を横スクロールできるようにするだけに留める。
                     GridのAuto列にScrollViewerを置いて「残り幅」の計算を自動化させる方法は、
                     実機検証でウィンドウが最小幅まで縮んだ場合に機能しないことを確認した
                     （ScrollViewerが実際の残り幅を受け取れず、内容が画面外へクリップされずに
                     あふれる）。そのためMaxWidthはウィンドウ幅とプロジェクト選択ComboBox・
-                    ショートカット一覧ボタンの実測幅から直接計算する
+                    設定ボタン・ショートカット一覧ボタンの実測幅から直接計算する
                     （Converters.ToolbarButtonsMaxWidth参照）。
                 -->
                 <ScrollViewer x:Name="ToolbarButtonsScroll"
@@ -99,6 +105,7 @@
                         <MultiBinding Converter="{x:Static views:Converters.ToolbarButtonsMaxWidth}">
                             <Binding ElementName="RootWindow" Path="ClientSize.Width" />
                             <Binding ElementName="ProjectComboBox" Path="Bounds.Width" />
+                            <Binding ElementName="SettingsButton" Path="Bounds.Width" />
                             <Binding ElementName="ShortcutsButton" Path="Bounds.Width" />
                         </MultiBinding>
                     </ScrollViewer.MaxWidth>
@@ -153,42 +160,73 @@
                             views:HelpTip.Standard="AIへの依頼文をコピーします。Graftが読み取れる形式で回答するよう指示する文面です（Ctrl+Shift+C）。"
                             views:HelpTip.Detailed="AIに「Graftが読み取れる決まった形式で回答してください」と伝えるための文章（テンプレート）を選び、クリップボードへコピーします。コピーした文章をAIとの会話に貼り付けてから、続けて直してほしい内容を書いてください。こうしておくと、AIの回答をあとで「解析」ボタンで正しく読み取れるようになります。ショートカットキーはCtrl+Shift+Cです。"
                             AutomationProperties.Name="プロンプトテンプレートを選んでコピー" />
-                    <!-- 9.2: サイドバーの履歴ビューを開く動作にする。 -->
-                    <Button Content="履歴"
+                    <!-- 9.2: サイドバーの履歴ビューを開く動作にする。「設定は右端に」という
+                         利用者からの指摘対応後もここに残す（下の右端グループのコメント参照）。
+                         x:Nameはワークフロー側の末尾ボタンとして回帰テスト（不具合5の
+                         横スクロール到達性）が参照する。 -->
+                    <Button x:Name="HistoryButton"
+                            Content="履歴"
                             Command="{Binding Graft.ShowHistoryCommand}"
                             Margin="4,0"
                             views:HelpTip.Standard="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
                             views:HelpTip.Detailed="これまでに「適用」したすべての変更が、時系列の一覧として記録されています。過去のどれかを選ぶと、その時点の内容を確認したり、その状態へ復元（元に戻す）したりできます。誤った変更を適用してしまったときのやり直し手段です。"
                             AutomationProperties.Name="履歴ビューを開く" />
-                    <Button x:Name="SettingsButton"
-                            Content="設定"
-                            Command="{Binding Graft.OpenSettingsCommand}"
-                            Margin="4,0"
-                            views:HelpTip.Standard="テーマ・エディタ・安全機構などの設定を開きます。"
-                            views:HelpTip.Detailed="Graft全体の動作を調整する設定画面を開きます。見た目の色（テーマ）、この説明文の詳しさ、エディタの表示、バックアップの保持数など、多くの項目をここでまとめて変更できます。変更は入力した瞬間に自動で保存されるため、保存ボタンを押す必要はありません。"
-                            AutomationProperties.Name="設定を開く" />
                 </StackPanel>
                 </ScrollViewer>
 
-                <!-- ヘルプメニュー（「取扱説明書」「キーボードショートカット一覧」の2項目）。
-                     元は「キーボードショートカット一覧を開く」単機能のボタンだったが、
-                     取扱説明書機能の追加に伴い2つの補助機能を1つのボタンから両方へ到達できる
-                     よう、PromptButton（プロンプトテンプレート選択）と同じ「ボタン＋Popup」の
-                     作法でメニュー化した。ワークフローの操作ボタン群（列1）とは性質が異なる
-                     補助機能のため、課題3の対応として列3（コマンドバー右端）に独立させて置く
-                     （このGrid冒頭のコメント参照）。
-                     x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を兼ねる。 -->
-                <Button x:Name="ShortcutsButton"
-                        Grid.Column="3"
-                        Command="{Binding ToggleHelpMenuCommand}"
-                        VerticalAlignment="Center"
-                        Padding="6"
-                        Background="Transparent" BorderThickness="0"
-                        views:HelpTip.Standard="取扱説明書（F1）・キーボードショートカット一覧（Ctrl+/）を開くメニューを表示します。"
-                        views:HelpTip.Detailed="Graftの使い方をまとめた取扱説明書と、キーボードショートカットの一覧を開くためのメニューを表示します。取扱説明書はキーボードでF1を、ショートカット一覧はCtrl+/を押しても、このボタンを経由せず直接開けます。"
-                        AutomationProperties.Name="ヘルプメニューを開く">
-                    <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconHelpCircleGeometry}" />
-                </Button>
+                <!--
+                    右端固定グループ（「設定」「?」ヘルプメニュー）。ワークフローの操作ボタン群
+                    （列1）とは性質が異なる補助機能をまとめて列3（コマンドバー右端）に独立させる
+                    （このGrid冒頭のコメント参照）。x:Name="CommandBarRightGroup"は回帰テスト
+                    （設定ボタンが右端グループにあることの確認）が拠り所にする。
+                -->
+                <StackPanel x:Name="CommandBarRightGroup"
+                            Grid.Column="3"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+
+                    <!--
+                        設定: 「一般的なソフトでは設定は右端にある」という利用者からの指摘で、
+                        ワークフロー順のボタン群（列1、元は履歴の次）からこの右端グループへ
+                        移した。文字ラベル「設定」のまま残す案も検討したが、隣の「?」ボタン
+                        （アイコンのみ・Background="Transparent" BorderThickness="0"）と並べたとき
+                        文字とアイコンで見た目がちぐはぐになるため、Icons.axamlの既存の歯車
+                        アイコン（IconSettingsGeometry）で「?」と同じ作法（透明背景・枠なし・
+                        Padding・アイコンサイズ）に揃えた。アイコンのみだと初見で意味が
+                        伝わりにくい懸念があるため、views:HelpTip.Standard/Detailedと
+                        AutomationProperties.Nameは元の文言のまま維持し、マウスオーバーの
+                        ツールチップと読み上げで「設定」であることが分かるようにする。
+                        x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を兼ねる。
+                    -->
+                    <Button x:Name="SettingsButton"
+                            Command="{Binding Graft.OpenSettingsCommand}"
+                            Margin="0,0,4,0"
+                            VerticalAlignment="Center"
+                            Padding="6"
+                            Background="Transparent" BorderThickness="0"
+                            views:HelpTip.Standard="テーマ・エディタ・安全機構などの設定を開きます。"
+                            views:HelpTip.Detailed="Graft全体の動作を調整する設定画面を開きます。見た目の色（テーマ）、この説明文の詳しさ、エディタの表示、バックアップの保持数など、多くの項目をここでまとめて変更できます。変更は入力した瞬間に自動で保存されるため、保存ボタンを押す必要はありません。"
+                            AutomationProperties.Name="設定を開く">
+                        <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconSettingsGeometry}" />
+                    </Button>
+
+                    <!-- ヘルプメニュー（「取扱説明書」「キーボードショートカット一覧」の2項目）。
+                         元は「キーボードショートカット一覧を開く」単機能のボタンだったが、
+                         取扱説明書機能の追加に伴い2つの補助機能を1つのボタンから両方へ到達できる
+                         よう、PromptButton（プロンプトテンプレート選択）と同じ「ボタン＋Popup」の
+                         作法でメニュー化した。
+                         x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を兼ねる。 -->
+                    <Button x:Name="ShortcutsButton"
+                            Command="{Binding ToggleHelpMenuCommand}"
+                            VerticalAlignment="Center"
+                            Padding="6"
+                            Background="Transparent" BorderThickness="0"
+                            views:HelpTip.Standard="取扱説明書（F1）・キーボードショートカット一覧（Ctrl+/）を開くメニューを表示します。"
+                            views:HelpTip.Detailed="Graftの使い方をまとめた取扱説明書と、キーボードショートカットの一覧を開くためのメニューを表示します。取扱説明書はキーボードでF1を、ショートカット一覧はCtrl+/を押しても、このボタンを経由せず直接開けます。"
+                            AutomationProperties.Name="ヘルプメニューを開く">
+                        <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconHelpCircleGeometry}" />
+                    </Button>
+                </StackPanel>
 
                 <!-- ヘルプメニューの中身。PromptPopupと同じ配置作法（Placement="Bottom"・
                      IsLightDismissEnabled・ViewModelのbool状態へTwoWayバインド）。 -->

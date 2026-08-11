@@ -21,14 +21,15 @@ namespace Graft.UiTests;
 /// </summary>
 public class ToolbarButtonsMaxWidthConverterTests
 {
-    [Fact(DisplayName = "不具合5: ウィンドウ幅からComboBoxとショートカットボタンの実測幅、固定余白36pxを差し引く")]
+    [Fact(DisplayName = "不具合5: ウィンドウ幅からComboBox・設定ボタン・ショートカットボタンの実測幅、固定余白36pxを差し引く")]
     public void ウィンドウ幅から実測幅と固定余白を差し引く()
     {
         var result = Converters.ToolbarButtonsMaxWidth.Convert(
-            new object?[] { 960.0, 180.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture);
+            new object?[] { 960.0, 180.0, 32.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture);
 
-        // 960 - 180（ComboBox実測幅） - 28（ショートカットボタン実測幅） - 36（固定余白） = 716
-        result.Should().Be(716.0);
+        // 960 - 180（ComboBox実測幅） - 32（設定ボタン実測幅） - 28（ショートカットボタン実測幅）
+        // - 36（固定余白） = 684
+        result.Should().Be(684.0);
     }
 
     [Fact(DisplayName = "不具合5: ComboBoxの選択項目名が長く実測幅が広がるほど、ボタン列に残る幅は狭くなる")]
@@ -37,18 +38,29 @@ public class ToolbarButtonsMaxWidthConverterTests
         // NameItemTemplateのMaxWidth（不具合1対応）により、ComboBoxは長い名前でも
         // 際限なく広がらないが、それでも短い名前より実測幅は広くなる。
         var narrow = (double)Converters.ToolbarButtonsMaxWidth.Convert(
-            new object?[] { 960.0, 180.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture)!;
+            new object?[] { 960.0, 180.0, 32.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture)!;
         var wide = (double)Converters.ToolbarButtonsMaxWidth.Convert(
-            new object?[] { 960.0, 340.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture)!;
+            new object?[] { 960.0, 340.0, 32.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture)!;
 
         wide.Should().BeLessThan(narrow, "ComboBoxが実際に広く描画されるほど、ボタン列に残せる幅は減るべき");
+    }
+
+    [Fact(DisplayName = "不具合5: 設定ボタンの実測幅が広いほど、ボタン列に残る幅は狭くなる（「設定は右端に」対応で引数が1つ増えた）")]
+    public void 設定ボタンの実測幅が広いほどボタン列の最大幅は狭まる()
+    {
+        var narrow = (double)Converters.ToolbarButtonsMaxWidth.Convert(
+            new object?[] { 960.0, 180.0, 32.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture)!;
+        var wide = (double)Converters.ToolbarButtonsMaxWidth.Convert(
+            new object?[] { 960.0, 180.0, 80.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture)!;
+
+        wide.Should().BeLessThan(narrow, "設定ボタンが実際に広く描画されるほど、ボタン列に残せる幅は減るべき");
     }
 
     [Fact(DisplayName = "不具合5: 差し引いた結果が負になる場合は0にクランプする（幅が壊れるより横スクロール領域が0になる方が安全）")]
     public void 差し引き結果が負になる場合は0にクランプする()
     {
         var result = Converters.ToolbarButtonsMaxWidth.Convert(
-            new object?[] { 200.0, 180.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture);
+            new object?[] { 200.0, 180.0, 32.0, 28.0 }, typeof(double), null, CultureInfo.InvariantCulture);
 
         result.Should().Be(0.0);
     }
@@ -59,7 +71,8 @@ public class ToolbarButtonsMaxWidthConverterTests
         var result = Converters.ToolbarButtonsMaxWidth.Convert(
             new object?[] { 960.0 }, typeof(double), null, CultureInfo.InvariantCulture);
 
-        // ComboBox・ショートカットボタンの実測幅が0扱いになり、固定余白36pxだけ差し引く。
+        // ComboBox・設定ボタン・ショートカットボタンの実測幅が0扱いになり、
+        // 固定余白36pxだけ差し引く。
         result.Should().Be(924.0);
     }
 }
