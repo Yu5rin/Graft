@@ -241,4 +241,54 @@ public class PathGuardTests
 
         result.IsSuccess.Should().BeTrue();
     }
+
+    // ------------------------------------------------------------------
+    // エクスプローラへの既存ファイル取り込み（依頼）用のResolveImportTarget。
+    // 拡張子ホワイトリストは適用しない（画像等の非テキスト資産の取り込みが主な動機のため）が、
+    // ルート外脱出・シンボリックリンク経由の脱出防止は他のResolve系メソッドと同様に必須。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ResolveImportTargetは拡張子ホワイトリストを適用しない（画像等の取り込みが動機のため）")]
+    public void ResolveImportTargetは拡張子ホワイトリストを適用しない()
+    {
+        using var ws = new TempWorkspace();
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        // .png はPathGuardOptions.Defaultの許可拡張子に含まれず、通常のResolveならE202になる。
+        var normal = guard.Resolve("assets/photo.png");
+        normal.IsSuccess.Should().BeFalse("前提: 既定の許可拡張子には.pngが含まれない");
+
+        var result = guard.ResolveImportTarget("assets/photo.png");
+
+        result.IsSuccess.Should().BeTrue("取り込みは拡張子ホワイトリストの対象外であるべき");
+        result.Value.Should().Be(Path.Combine(ws.RootPath, "assets", "photo.png"));
+    }
+
+    [Fact(DisplayName = "ResolveImportTargetでも上位ディレクトリ参照(..)はE201になる")]
+    public void ResolveImportTargetも上位ディレクトリ参照はE201になる()
+    {
+        using var ws = new TempWorkspace();
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        var result = guard.ResolveImportTarget("../outside.png");
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors.Single().Code.Should().Be(ErrorCode.E201);
+    }
+
+    [Fact(DisplayName = "ResolveImportTargetでもシンボリックリンク経由でルート外へ出るパスはE201になる")]
+    public void ResolveImportTargetもシンボリックリンク経由でルート外はE201になる()
+    {
+        using var ws = new TempWorkspace();
+        using var outside = new TempWorkspace();
+        outside.WriteText("secret.png", "ルート外の内容");
+
+        if (TryCreateSymlinkOrSkip(ws, "linked", outside.RootPath) is null) return;
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        var result = guard.ResolveImportTarget("linked/secret.png");
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors.Single().Code.Should().Be(ErrorCode.E201);
+    }
 }

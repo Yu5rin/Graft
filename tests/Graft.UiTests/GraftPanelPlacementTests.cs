@@ -2,11 +2,14 @@ using System;
 using System.IO;
 using System.Threading;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using FluentAssertions;
 using Graft.Core;
 using Graft.Features;
@@ -117,6 +120,41 @@ public class GraftPanelPlacementTests : IDisposable
         shell.ToggleGraftPanelPlacementCommand.Execute(null);
         shell.GraftPanelPlacement.Should().Be(GraftPanelPlacementKind.Bottom);
         shell.IsGraftPanelPlacementRight.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// 利用者からの指摘対応: 配置切替ボタンのアイコンは「今の状態」ではなく「押すとどうなるか
+    /// （次の状態）」を示すのが一般的な作法。以前は下配置のときにpanel-bottom（現在の状態）が
+    /// 見えていたが、下配置のときはpanel-right（押すと右へ移る）、右配置のときはpanel-bottom
+    /// （押すと下へ移る）が見えるべきという回帰テスト。GraftPanel.axaml側はジオメトリ自体を
+    /// 変更せず、IsVisibleの表示条件だけを入れ替えて対応した。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "配置切替アイコンは現在の状態ではなく押した後の配置を表す")]
+    public void 配置切替アイコンは次の配置を示す()
+    {
+        var shell = BuildShell();
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
+        window.Show();
+        WaitForWindowLoaded(window);
+
+        var toggleButton = window.GetVisualDescendants().OfType<Button>()
+            .Single(b => AutomationProperties.GetName(b) == "接ぎ木パネルの配置切り替え（下／右）");
+        var icons = toggleButton.GetVisualDescendants().OfType<IconGlyph>().ToList();
+        icons.Should().HaveCount(2);
+
+        var rightGeometry = (Geometry)toggleButton.FindResource("IconPanelRightGeometry")!;
+        var bottomGeometry = (Geometry)toggleButton.FindResource("IconPanelBottomGeometry")!;
+
+        // 既定（下配置）: 押すと右へ移るので、次の配置を表すpanel-rightアイコンが見えているべき。
+        icons.Single(i => i.IsVisible).Data.Should().BeSameAs(rightGeometry,
+            "下配置のときは、押すと右へ移ることを示すpanel-rightアイコンを表示する必要がある");
+
+        shell.ToggleGraftPanelPlacementCommand.Execute(null);
+        Dispatcher.UIThread.RunJobs();
+
+        // 右配置: 押すと下へ戻るので、次の配置を表すpanel-bottomアイコンが見えているべき。
+        icons.Single(i => i.IsVisible).Data.Should().BeSameAs(bottomGeometry,
+            "右配置のときは、押すと下へ戻ることを示すpanel-bottomアイコンを表示する必要がある");
     }
 
     [Theory(DisplayName = "ParseGraftPanelPlacement/ToGraftPanelPlacementValueは往復変換できる")]

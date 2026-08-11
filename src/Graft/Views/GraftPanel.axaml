@@ -41,23 +41,28 @@
 
                 <!--
                     利用者からの改善要望: 接ぎ木パネルをコードの下だけでなく右にも配置できるように
-                    したい（3列）。切替方法はこのヘッダーボタン1個に決めている。アイコンは現在の
-                    配置を表し（下配置ならpanel-bottom、右配置ならpanel-right）、押すともう一方へ
-                    切り替わる。実際のGrid行・列の付け替えはShellWindow.axaml.csが担い、このパネル
-                    自体は常に1インスタンスのまま位置だけが変わる。
+                    したい（3列）。切替方法はこのヘッダーボタン1個に決めている。
+                    利用者からの指摘: トグルボタンのアイコンは「今どうなっているか」ではなく
+                    「押すとどうなるか（次の状態）」を示すのが一般的な作法。そのため下配置のときは
+                    押すと移る先＝panel-right、右配置のときはpanel-bottomを表示する
+                    （ジオメトリ自体は変更せず、表示条件のIsGraftPanelPlacementRightを入れ替えただけ）。
+                    実際のGrid行・列の付け替えはShellWindow.axaml.csが担い、このパネル自体は
+                    常に1インスタンスのまま位置だけが変わる。
                 -->
                 <Button Grid.Column="1"
                         Command="{Binding DataContext.ToggleGraftPanelPlacementCommand, ElementName=Root}"
                         Background="Transparent" BorderThickness="0" Padding="4"
-                        views:HelpTip.Standard="接ぎ木パネルをコードの下と右のどちらに表示するか切り替えます。"
+                        views:HelpTip.Standard="押すと接ぎ木パネルをコードの下と右の間で切り替えます。"
                         views:HelpTip.Detailed="接ぎ木パネルの配置を、コードの下（既定）とコードの右の間で切り替えます。右に切り替えるとサイドバー・エディタ・接ぎ木パネルの3列になり、コードとパッチのブロック一覧を横に並べて同時に見比べられます。境界をドラッグして幅・高さを調整でき、調整した寸法と配置は次回起動時にも記憶されます。"
                         AutomationProperties.Name="接ぎ木パネルの配置切り替え（下／右）">
                     <Panel>
-                        <views:IconGlyph Width="14" Height="14"
-                                         Data="{DynamicResource IconPanelBottomGeometry}"
-                                         IsVisible="{Binding !DataContext.IsGraftPanelPlacementRight, ElementName=Root}" />
+                        <!-- 下配置中は「押すと右へ移る」ことを示すpanel-rightアイコンを出す。 -->
                         <views:IconGlyph Width="14" Height="14"
                                          Data="{DynamicResource IconPanelRightGeometry}"
+                                         IsVisible="{Binding !DataContext.IsGraftPanelPlacementRight, ElementName=Root}" />
+                        <!-- 右配置中は「押すと下へ移る」ことを示すpanel-bottomアイコンを出す。 -->
+                        <views:IconGlyph Width="14" Height="14"
+                                         Data="{DynamicResource IconPanelBottomGeometry}"
                                          IsVisible="{Binding DataContext.IsGraftPanelPlacementRight, ElementName=Root}" />
                     </Panel>
                 </Button>
