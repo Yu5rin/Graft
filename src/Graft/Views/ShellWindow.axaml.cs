@@ -114,6 +114,11 @@ public partial class ShellWindow : Window
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
         viewModel.RequestOpenShortcuts += OnRequestOpenShortcuts;
         viewModel.RequestOpenManual += OnRequestOpenManual;
+        // 画面上のチュートリアル（コーチマーク）。実体（ShellWindow.Tutorial.cs）は
+        // Controlの座標計算等Avalonia固有の知識を要するためView側の責務とし、ここでは
+        // ShellViewModel側からの要求（ツールバー「?」メニュー・コマンドパレット）を
+        // StartTutorial()へ橋渡しするだけに留める。
+        viewModel.RequestStartTutorial += (_, _) => StartTutorial();
         viewModel.QuickOpen.Opened += OnQuickOpenOpened;
         viewModel.CommandPalette.Opened += OnCommandPaletteOpened;
     }

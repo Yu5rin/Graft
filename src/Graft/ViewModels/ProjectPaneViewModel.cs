@@ -199,6 +199,19 @@ public sealed class ProjectPaneViewModel : ObservableObject
         await RegisterFolderAsync(folder).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 画面上のチュートリアル（コーチマーク。<c>Graft.Views.ShellWindow</c>のShellWindow.
+    /// Tutorial.cs参照）専用: 確認ダイアログを介さず、指定した1件だけを一覧・履歴ごと削除する。
+    /// <see cref="DeleteSelectedProjectAsync"/>と異なり<see cref="SelectedItem"/>に依存せず、
+    /// 履歴を残すかどうかの3択ダイアログも出さない（チュートリアルが生成したサンプルは、
+    /// 終了時に常に履歴も含めて後片付けする方針のため）。
+    /// </summary>
+    public async Task RemoveWithoutConfirmationAsync(string projectId, bool deleteHistory, CancellationToken ct = default)
+    {
+        await _store.RemoveAsync(projectId, deleteHistory, ct).ConfigureAwait(true);
+        await LoadAsync(ct).ConfigureAwait(true);
+    }
+
     /// <summary>数字キー（1〜9）によるプロジェクト選択（仕様書3.2・8.10）。</summary>
     public bool SelectByShortcut(int number)
     {

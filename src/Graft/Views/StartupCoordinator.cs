@@ -284,9 +284,19 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         if (!OnboardingWindow.HasCompleted(_appPaths))
         {
             // シェルの左ペイン・上部ドロップダウンが参照しているProjectPaneViewModelと同じ
-            // インスタンスを渡す（バグ修正: チュートリアルで登録したプロジェクトが一覧に
+            // インスタンスを渡す（バグ修正: 初回起動ガイドで登録したプロジェクトが一覧に
             // 反映されない不具合。詳細はOnboardingWindowのコンストラクタのコメントを参照）。
-            await new OnboardingWindow(_appPaths, mainViewModel.ProjectPane).ShowDialog(window).ConfigureAwait(true);
+            var onboarding = new OnboardingWindow(_appPaths, mainViewModel.ProjectPane);
+            await onboarding.ShowDialog(window).ConfigureAwait(true);
+
+            // 最終画面「使い方を学ぶ」が選ばれていれば、ガイドを閉じた直後にシェル側の
+            // 画面上チュートリアル（ShellWindow.Tutorial.cs）を開始する。OnboardingWindow自体は
+            // シェルの実際のコントロールを一切知らないため、開始そのものはここ（両方を知る
+            // StartupCoordinator）が橋渡しする。
+            if (onboarding.StartTutorialRequested)
+            {
+                window.StartTutorial();
+            }
         }
 
         // 起動を待たせたくないので完了を待たない。ただし投げっぱなしにすると失敗が

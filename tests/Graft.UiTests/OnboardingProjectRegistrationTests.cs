@@ -54,7 +54,7 @@ public class OnboardingProjectRegistrationTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    [AvaloniaFact(DisplayName = "初回起動ガイドの3画面を実際にたどってフォルダを登録すると、閉じた直後にシェルの一覧・ドロップダウンへ反映され選択状態になる")]
+    [AvaloniaFact(DisplayName = "初回起動ガイドの4画面を実際にたどってフォルダを登録すると、閉じた直後にシェルの一覧・ドロップダウンへ反映され選択状態になる")]
     public async Task ガイドを完走して登録すると一覧に反映され選択される()
     {
         var shell = BuildShell();
@@ -87,10 +87,13 @@ public class OnboardingProjectRegistrationTests : IDisposable
         shell.Graft.ProjectPane.SelectedItem.Should().NotBeNull("登録したプロジェクトが選択された状態になっているべき");
         shell.Graft.ProjectPane.SelectedItem!.DisplayName.Should().Be("MyProject");
 
-        // 画面2 → 画面3 → 完了。完了操作そのものが一覧を巻き戻さないことも確認する。
+        // 画面2 → 画面3 → 画面4（最終選択）→ 「チュートリアルを終了」。
+        // 完了操作そのものが一覧を巻き戻さないことも確認する。
         RaiseClick(onboarding, "次へ");
         await SettleAsync().ConfigureAwait(true);
-        RaiseClick(onboarding, "完了");
+        RaiseClick(onboarding, "次へ");
+        await SettleAsync().ConfigureAwait(true);
+        RaiseClick(onboarding, "チュートリアルを終了");
         await SettleAsync().ConfigureAwait(true);
 
         shell.Graft.ProjectPane.Items.Should().ContainSingle(i => i.DisplayName == "MyProject");
@@ -145,8 +148,10 @@ public class OnboardingProjectRegistrationTests : IDisposable
         await SettleAsync().ConfigureAwait(true);
         RaiseClick(onboarding, "次へ"); // 画面2→画面3（フォルダは選ばない）
         await SettleAsync().ConfigureAwait(true);
+        RaiseClick(onboarding, "次へ"); // 画面3→画面4（最終選択）
+        await SettleAsync().ConfigureAwait(true);
 
-        var act = () => RaiseClick(onboarding, "完了"); // 画面3→完了
+        var act = () => RaiseClick(onboarding, "チュートリアルを終了"); // 画面4→終了
         act.Should().NotThrow();
         await SettleAsync().ConfigureAwait(true);
 

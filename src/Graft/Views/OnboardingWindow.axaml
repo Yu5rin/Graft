@@ -37,22 +37,9 @@
                         AutomationProperties.Name="フォルダを選択してプロジェクトを登録"
                         views:HelpTip.Standard="AIに変更してもらいたいプロジェクトのフォルダを選んで、Graftに登録します。"
                         views:HelpTip.Detailed="フォルダ選択ダイアログが開くので、これから変更を適用したいプロジェクトのルートフォルダ（例: 普段VS Codeなどで開いているフォルダ）を選んでください。選ぶとGraftのプロジェクト一覧に登録され、以降そのフォルダの中のファイルをエディタで開いたり、パッチを適用したりできるようになります。フォルダの中身自体は変更されません。あとから設定画面や画面左のプロジェクト一覧からも追加・変更できます。" />
-                <!--
-                    細かいユーザビリティ改善6: 実データを一切触らずに「登録→貼り付け→適用→
-                    履歴確認」を1回体験できるボタン。生成先は一時フォルダ（OnboardingSample.cs参照）。
-                -->
-                <Button Content="サンプルで試す" Click="OnTryOnboardingSampleClicked" Margin="8,0,0,0"
-                        AutomationProperties.Name="サンプルプロジェクトで接ぎ木を体験する"
-                        views:HelpTip.Standard="自分のフォルダを使わず、Graftが用意した練習用のサンプルで一連の流れを体験できます。"
-                        views:HelpTip.Detailed="一時フォルダ（OSの一時ファイル置き場、利用者のドキュメント等は汚しません）へ、サンプルのPythonファイル1件と、それを直すためのサンプルパッチを生成します。生成と同時にサンプルをGraftのプロジェクト一覧へ登録し、サンプルパッチをクリップボードへコピーします。あとはツールバーの「解析」→内容確認→「適用」の順に押すだけで、実際のファイルが書き換わり、履歴タブにも記録される様子を体験できます。自分のプロジェクトには一切触れません。体験が済んだら「サンプルを削除」でいつでも片付けられます（消さなくても一時フォルダなのでOSが最終的に片付けます）。" />
             </StackPanel>
             <TextBlock x:Name="ProjectResultText" Margin="0,12,0,0" TextWrapping="Wrap"
                        Foreground="{DynamicResource TextSecondary}" />
-            <Button x:Name="DeleteSampleButton" Content="サンプルを削除" Click="OnDeleteSampleClicked"
-                    Margin="0,8,0,0" HorizontalAlignment="Left" IsVisible="False"
-                    AutomationProperties.Name="生成したサンプルを削除"
-                    views:HelpTip.Standard="「サンプルで試す」で生成した一時プロジェクトを、プロジェクト一覧・ディスクの両方から削除します。"
-                    views:HelpTip.Detailed="「サンプルで試す」で作った練習用のプロジェクトを、Graftのプロジェクト一覧と一時フォルダの両方から削除します。体験を終えて不要になったときに押してください。押さずに終了しても、一時フォルダに置かれたままなのでOSが最終的に片付けます（自分のドキュメント等は最初から一切触れていません）。" />
         </StackPanel>
 
         <!-- 画面3: プロンプトテンプレートのコピー -->
@@ -87,16 +74,48 @@
                        Text="このあとAIに貼り付けて変更を依頼し、AIの回答をコピーしてツールバーの「解析」を押してください。" />
         </StackPanel>
 
+        <!--
+            画面4（最終画面）: 「使い方を学ぶ」／「チュートリアルを終了」の2択。
+            利用者からの指摘（「接ぎ木が体験できないので、ソフトの中核を体験できない」）への
+            対応。従来はここが「完了」ボタン1つだけの単純な終了画面だったが、Graftの中核である
+            「接ぎ木」（AIが提案した変更を安全にファイルへ適用する）を実際の画面上で1回
+            体験できる画面上チュートリアル（ShellWindow.Tutorial.cs参照）への入口をここに置く。
+            スキップ（下段のSkipButton）やEsc（OnTunnelKeyDown）は、この画面を経由せず
+            そのままガイドを終了する（＝チュートリアルも開始しない）仕様のため、
+            このStackPanel自体には次へ/スキップの意味は持たせない。
+        -->
+        <StackPanel x:Name="Screen4" Grid.Row="0" VerticalAlignment="Center" IsVisible="False">
+            <TextBlock Text="準備ができました" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8"
+                       HorizontalAlignment="Center" />
+            <TextBlock TextWrapping="Wrap" TextAlignment="Center" Foreground="{DynamicResource TextSecondary}"
+                       Margin="0,0,0,20"
+                       Text="Graftの中核である「接ぎ木」——AIが提案した変更を安全にファイルへ適用する一連の流れ——を、実際の画面上で1回体験してみませんか？サンプルだけを使うので、あなたのプロジェクトには一切触れません。" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button Content="使い方を学ぶ" Click="OnStartTutorialClicked" Margin="0,0,8,0" IsDefault="True"
+                        AutomationProperties.Name="使い方を学ぶ（画面上のチュートリアルを開始する）"
+                        views:HelpTip.Standard="実際の画面上でコントロールを指しながら、サンプルを使って接ぎ木の一連の流れ（解析→差分確認→適用→履歴→復元）を体験します。"
+                        views:HelpTip.Detailed="解析→差分確認→適用→履歴確認→復元までを、実際のGraftの画面上で1つずつコントロールを指しながら体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断でき、中断してもGraftの状態が壊れることはありません。あとから「？」メニューやコマンドパレットの「使い方を学ぶ」でも再実行できます。" />
+                <Button Content="チュートリアルを終了" Click="OnFinishOnboardingClicked"
+                        AutomationProperties.Name="チュートリアルを開始せずいつものGraftの画面へ進む"
+                        views:HelpTip.Standard="画面上のチュートリアルは開始せず、いつものGraftの画面へ進みます。あとから「？」メニューでいつでも開始できます。" />
+            </StackPanel>
+        </StackPanel>
+
         <Grid Grid.Row="1" Margin="0,16,0,0" ColumnDefinitions="Auto,*,Auto,Auto,Auto">
             <TextBlock x:Name="StepIndicatorText" Grid.Column="0" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" FontSize="{DynamicResource CaptionFontSize}" />
             <Button x:Name="BackButton" Grid.Column="2" Content="戻る" Click="OnBackClicked" Margin="0,0,8,0"
                     IsEnabled="False" AutomationProperties.Name="前の画面に戻る"
                     views:HelpTip.Standard="1つ前の画面に戻ります。" />
+            <!--
+                最終画面（Screen4）では、下段のNext/Skipの代わりに画面内の2択ボタンで完結させる
+                （UpdateStepUiでIsVisible=Falseにする）。「スキップ」はガイド自体の終了であり、
+                当然チュートリアル（学ぶ画面・画面上の体験）も開始しない。
+            -->
             <Button x:Name="SkipButton" Grid.Column="3" Content="スキップ" Click="OnSkipClicked" Margin="0,0,8,0"
                     AutomationProperties.Name="ガイドをスキップ"
-                    views:HelpTip.Standard="チュートリアルを終了します。プロジェクトの登録はあとから設定画面でいつでも行えます。"
-                    views:HelpTip.Detailed="この初回起動ガイドをここで終了し、いつものGraftの画面に進みます。まだプロジェクト（作業対象のフォルダ）を登録していなくても大丈夫です。あとから設定画面や画面左のプロジェクト一覧から、いつでもフォルダを追加登録できます。" />
+                    views:HelpTip.Standard="初回起動ガイドをここで終了します（画面上のチュートリアルも開始しません）。プロジェクトの登録はあとから設定画面でいつでも行えます。"
+                    views:HelpTip.Detailed="この初回起動ガイドをここで終了し、いつものGraftの画面に進みます。画面上のチュートリアルも開始しません。まだプロジェクト（作業対象のフォルダ）を登録していなくても大丈夫です。あとから設定画面や画面左のプロジェクト一覧から、いつでもフォルダを追加登録できます。チュートリアルは「？」メニューからいつでも開始できます。" />
             <Button x:Name="NextButton" Grid.Column="4" Content="次へ" Click="OnNextClicked" IsDefault="True"
                     AutomationProperties.Name="次の画面へ"
                     views:HelpTip.Standard="次の画面へ進みます。" />

@@ -27,7 +27,8 @@
                        FontSize="{DynamicResource PaneHeadingFontSize}"
                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                        Foreground="{DynamicResource TextSecondary}" />
-            <Button Grid.Column="1"
+            <Button x:Name="RestoreButton"
+                    Grid.Column="1"
                     Command="{Binding RestoreCommand}"
                     Padding="4"
                     Background="Transparent"
