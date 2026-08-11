@@ -27,6 +27,8 @@ public sealed class WindowsPlatformServices : IPlatformServices
 
     public IFileManagerLauncher FileManager { get; } = new WindowsFileManagerLauncher();
 
+    public IExternalLinkLauncher ExternalLinks { get; } = new WindowsExternalLinkLauncher();
+
     public ISystemThemeWatcher Theme { get; } = new WindowsSystemThemeWatcher();
 
     public ISingleInstanceGuard SingleInstance { get; } = new WindowsSingleInstanceGuard();
@@ -39,7 +41,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
         var builder = new StringBuilder();
         builder.Append("OS: Windows ").Append(Environment.OSVersion.Version);
         builder.Append("（トレイ: 対応, ホットキー: 対応, クリップボード監視: 対応, ");
-        builder.Append("ごみ箱: 対応, ファイルマネージャ連携: 対応, ");
+        builder.Append("ごみ箱: 対応, ファイルマネージャ連携: 対応, 外部リンクを開く: 対応, ");
         builder.Append("テーマ自動追従: 対応, 多重起動防止: 対応, 自動起動: 対応）");
         return builder.ToString();
     }

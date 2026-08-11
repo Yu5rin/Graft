@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows.Input;
+using Graft.Core;
 
 namespace Graft.ViewModels;
 
@@ -36,6 +38,8 @@ public sealed class EditorTabViewModel : ObservableObject
     private bool _hasExternalConflict;
     private bool _wordWrapDisabledForTab;
     private int _selectionLength;
+    private bool _showMarkdownPreview;
+    private string? _markdownPreviewUnavailableReason;
 
     /// <summary>通常のドキュメントタブ（4.3節）。</summary>
     public EditorTabViewModel(Graft.Editor.DocumentSession session, Func<EditorTabViewModel, Task> closeRequested)
@@ -50,6 +54,27 @@ public sealed class EditorTabViewModel : ObservableObject
         ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync, context: "変更を破棄して再読込");
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
         DisableWordWrapForTabCommand = new RelayCommand(() => WordWrapDisabledForTab = true);
+
+        // Markdownプレビュー機能（利用者指示）: .mdファイルは既定でプレビュー表示にする。
+        // ただしサイズ上限（MarkdownPreviewSizeGuard）を超える場合は、プレビューを試みる
+        // コストそのもの（巨大なMarkdownをUI要素へ丸ごと展開する処理）を避けたいため、
+        // 開いた時点で編集モードへフォールバックし、理由を画面上に残す
+        // （EditorPane.axaml「MarkdownModeBar」参照）。
+        IsMarkdownFile = string.Equals(Path.GetExtension(session.FileName), ".md", StringComparison.OrdinalIgnoreCase);
+        if (IsMarkdownFile)
+        {
+            // session.Document.TextLength/LineCountではなくInitialTextLength/InitialLineCountを
+            // 使う理由はDocumentSessionのコメント参照（TextDocumentのスレッド固定を踏む事故対策）。
+            _markdownPreviewUnavailableReason = MarkdownPreviewSizeGuard.EvaluateUnavailableReason(
+                session.InitialTextLength, session.InitialLineCount);
+            _showMarkdownPreview = _markdownPreviewUnavailableReason is null;
+        }
+
+        ToggleMarkdownPreviewCommand = new RelayCommand(() =>
+        {
+            if (MarkdownPreviewUnavailable) return;
+            ShowMarkdownPreview = !ShowMarkdownPreview;
+        });
     }
 
     /// <summary>
@@ -67,6 +92,7 @@ public sealed class EditorTabViewModel : ObservableObject
         ReloadDiscardingChangesCommand = new RelayCommand(() => { });
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
         DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 差分タブは対象外（HasExtremelyLongLineが常にfalse）。
+        ToggleMarkdownPreviewCommand = new RelayCommand(() => { }); // 差分タブは対象外（IsMarkdownFileが常にfalse）。
     }
 
     /// <summary>
@@ -84,6 +110,7 @@ public sealed class EditorTabViewModel : ObservableObject
         ReloadDiscardingChangesCommand = new RelayCommand(() => { });
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
         DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 履歴差分タブは対象外（HasExtremelyLongLineが常にfalse）。
+        ToggleMarkdownPreviewCommand = new RelayCommand(() => { }); // 履歴差分タブは対象外（IsMarkdownFileが常にfalse）。
     }
 
     /// <summary>タブ種別。<see cref="Views.EditorPane"/>がこれに応じて表示を切り替える。</summary>
@@ -209,6 +236,50 @@ public sealed class EditorTabViewModel : ObservableObject
     /// 参照）。設定そのものへは永続化しない（このタブを閉じれば忘れる、一時的な逃げ道）。
     /// </summary>
     public bool WordWrapDisabledForTab { get => _wordWrapDisabledForTab; set => SetProperty(ref _wordWrapDisabledForTab, value); }
+
+    /// <summary>
+    /// Markdownプレビュー機能（利用者指示）: このタブが.mdファイルかどうか。差分系タブでは常にfalse。
+    /// コンストラクタで拡張子から一度だけ判定する（ファイル名は途中で変わらない前提。
+    /// リネーム＝別タブとして扱われるため問題ない）。
+    /// </summary>
+    public bool IsMarkdownFile { get; }
+
+    /// <summary>
+    /// Markdownプレビュー機能: 現在プレビュー表示中かどうか（falseなら編集モード）。
+    /// .mdファイルは既定でtrue（<see cref="MarkdownPreviewUnavailableReason"/>が非nullの場合を除く）。
+    /// 「一度でも編集に切り替えたタブは、そのタブが開いている間は編集のまま」（利用者指示）を
+    /// 満たすため、タブが閉じるまで保持される単純なミュータブルフラグとして持つ
+    /// （毎回自動でtrueへ戻す処理は一切行わない）。
+    /// </summary>
+    public bool ShowMarkdownPreview
+    {
+        get => _showMarkdownPreview;
+        set => SetProperty(ref _showMarkdownPreview, value, () => OnPropertyChanged(nameof(MarkdownModeToggleLabel)));
+    }
+
+    /// <summary>
+    /// Markdownプレビュー機能: プレビューが利用できない理由（<see cref="MarkdownPreviewSizeGuard"/>の
+    /// 上限超過等）。nullなら利用可能。非nullの間はモード切替ボタンを無効化する
+    /// （EditorPane.axaml「MarkdownModeBar」参照）。
+    /// </summary>
+    public string? MarkdownPreviewUnavailableReason
+    {
+        get => _markdownPreviewUnavailableReason;
+        private set => SetProperty(ref _markdownPreviewUnavailableReason, value, () => OnPropertyChanged(nameof(MarkdownPreviewUnavailable)));
+    }
+
+    /// <summary>プレビューが（サイズ上限等により）利用できない状態かどうか。</summary>
+    public bool MarkdownPreviewUnavailable => MarkdownPreviewUnavailableReason is not null;
+
+    /// <summary>モード切替ボタンのラベル。プレビュー中は「編集する」、編集中は「プレビューに戻る」。</summary>
+    public string MarkdownModeToggleLabel => ShowMarkdownPreview ? "編集する" : "プレビューに戻る";
+
+    /// <summary>
+    /// Markdownプレビュー機能: プレビュー⇔編集モードを切り替える。プレビュー不可の間は何もしない。
+    /// スクロール位置の引き継ぎ（利用者指示）はView側（EditorPane.axaml.cs）が
+    /// このプロパティ変更前後で行うため、ここでは状態のトグルのみを行う。
+    /// </summary>
+    public ICommand ToggleMarkdownPreviewCommand { get; private set; } = null!;
 
     /// <summary>タブを閉じる（未保存なら保存確認を挟む。差分タブでは確認なしで閉じる）。</summary>
     public ICommand CloseCommand { get; }

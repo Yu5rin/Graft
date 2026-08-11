@@ -44,7 +44,7 @@ public partial class ManualWindow : Window
         _anchors = rendered.Anchors;
         foreach (var block in rendered.Blocks)
         {
-            ManualContentPanel.Children.Add(block);
+            ManualContentPanel.Children.Add(block.Control);
         }
 
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);

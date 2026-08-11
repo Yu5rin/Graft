@@ -20,6 +20,7 @@ public partial class EditorPane
         Editor.Document = new TextDocument();
         Editor.IsEnabled = false;
         Editor.IsVisible = true;
+        MarkdownPreviewHost.IsVisible = false;
         DiffHost.IsVisible = false;
         DiffHost.DataContext = null;
         HistoryDiffHost.IsVisible = false;
@@ -28,6 +29,7 @@ public partial class EditorPane
         _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
         _brackets.Attach(Editor.Document, string.Empty);
         _folding.Attach(Editor.Document, string.Empty);
+        _markdownColorizer.SetEnabled(false);
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
     }
 
@@ -39,6 +41,8 @@ public partial class EditorPane
     {
         Editor.IsVisible = false;
         Editor.IsEnabled = false;
+        MarkdownPreviewHost.IsVisible = false;
+        _markdownColorizer.SetEnabled(false);
         DiffHost.IsVisible = true;
         DiffHost.DataContext = tab.Diff;
         HistoryDiffHost.IsVisible = false;
@@ -53,6 +57,8 @@ public partial class EditorPane
     {
         Editor.IsVisible = false;
         Editor.IsEnabled = false;
+        MarkdownPreviewHost.IsVisible = false;
+        _markdownColorizer.SetEnabled(false);
         DiffHost.IsVisible = false;
         DiffHost.DataContext = null;
         HistoryDiffHost.IsVisible = true;

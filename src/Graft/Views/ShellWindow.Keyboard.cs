@@ -63,6 +63,16 @@ public partial class ShellWindow
 
         if (e.Key == Key.Escape)
         {
+            // Markdownプレビュー機能: このハンドラはShellWindow（EditorPaneの祖先）に付いており、
+            // トンネリング段階ではEditorPane自身のOnTunnelKeyDownより先に実行される。無条件に
+            // ここでHandled=trueにすると、検索・置換オーバーレイを閉じるEsc（SearchOverlay.
+            // axaml.cs）やMarkdownプレビューの編集→プレビュー復帰Esc（EditorPane.MarkdownPreview.cs
+            // TryHandleMarkdownPreviewEscape）に一切Escapeが届かなくなる（実機検証で発覚。
+            // ヘッドレスUIテストはEditorPane単体で組み立てるため、この祖先経由の競合は
+            // 検出できていなかった）。それらのエディタ内Esc機能を優先すべき状況では、ここでは
+            // 何もせずそのままトンネルの続き（EditorPane側）へ委ねる。
+            if (ShouldDeferEscapeToEditor()) return;
+
             ViewModel.Graft.DiscardCommand.Execute(null);
             e.Handled = true;
             return;
@@ -129,6 +139,24 @@ public partial class ShellWindow
             // 附録A キーマップ移行: 素の1〜9は仕様書3.2によりCtrl+Alt+1〜9へ変更された。
             ViewModel.NotifyLegacyKey(LegacyKey.ProjectDigit);
         }
+    }
+
+    /// <summary>
+    /// Markdownプレビュー機能: Escapeを「キューの破棄」として処理せず、エディタ領域
+    /// （<see cref="EditorPane"/>自身のOnTunnelKeyDown）へ譲るべきかどうかを判定する。
+    /// - 検索・置換オーバーレイが開いている間はそちらのEscを優先する（既存機能、4.4節）。
+    /// - アクティブタブがMarkdown（.md）文書タブで、かつ編集モード中（プレビュー中でない・
+    ///   サイズ上限で編集固定でもない）なら、プレビューへ戻るEscを優先する。
+    /// どちらにも該当しなければfalse（従来どおりキューの破棄を実行する）。
+    /// </summary>
+    private bool ShouldDeferEscapeToEditor()
+    {
+        if (EditorHost.Child is not EditorPane pane) return false;
+        if (pane.Search.IsOpen) return true;
+
+        var tab = ViewModel.Editor.ActiveTab;
+        return tab is { Kind: EditorTabKind.Document, IsMarkdownFile: true, MarkdownPreviewUnavailable: false }
+               && !tab.ShowMarkdownPreview;
     }
 
     /// <summary>Ctrl+Shift+*・Ctrl+Alt+*・一部の素のCtrl+*（J/S/Enter）をフォーカス位置に関係なく処理する。</summary>

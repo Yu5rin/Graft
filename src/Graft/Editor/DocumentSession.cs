@@ -64,7 +64,8 @@ public sealed class DocumentSession : IDisposable
     private bool _disposed;
 
     private DocumentSession(
-        string fullPath, string relativePath, TextDocument document, TextShape shape, bool hasExtremelyLongLine)
+        string fullPath, string relativePath, TextDocument document, TextShape shape, bool hasExtremelyLongLine,
+        int initialTextLength, int initialLineCount)
     {
         FullPath = fullPath;
         RelativePath = relativePath;
@@ -72,6 +73,8 @@ public sealed class DocumentSession : IDisposable
         Document = document;
         Shape = shape;
         HasExtremelyLongLine = hasExtremelyLongLine;
+        InitialTextLength = initialTextLength;
+        InitialLineCount = initialLineCount;
         Document.UndoStack.PropertyChanged += OnUndoStackPropertyChanged;
     }
 
@@ -97,6 +100,25 @@ public sealed class DocumentSession : IDisposable
     /// その旨を通知する（<see cref="LongLineThreshold"/>のコメント参照）。
     /// </summary>
     public bool HasExtremelyLongLine { get; }
+
+    /// <summary>
+    /// Markdownプレビュー機能: 読み込み時点の文字数。<see cref="EditorTabViewModel"/>の
+    /// コンストラクタがプレビュー可否（<see cref="Graft.Core.MarkdownPreviewSizeGuard"/>）を
+    /// 判定するために使う。
+    ///
+    /// 【なぜDocument.TextLengthを直接使わないか】AvaloniaEditの<see cref="TextDocument"/>は
+    /// 生成したスレッド以外からのアクセスで例外を送出する（クラス冒頭のコメント参照）。
+    /// <see cref="EditorTabManager.OpenAsync"/>は<c>ConfigureAwait(false)</c>で継続するため、
+    /// <see cref="EditorTabViewModel"/>のコンストラクタがUIスレッド以外で実行される可能性があり、
+    /// そこで<c>Document.TextLength</c>へ触れると<see cref="InvalidOperationException"/>になる
+    /// （実際にヘッドレステストで再現した）。<see cref="OpenAsync"/>内、まだ<see cref="TextDocument"/>を
+    /// 構築する前のプレーンな文字列（スレッド非依存）から計算した値をここに保持しておくことで、
+    /// この問題を避ける。
+    /// </summary>
+    public int InitialTextLength { get; }
+
+    /// <summary>Markdownプレビュー機能: 読み込み時点の行数。<see cref="InitialTextLength"/>と同じ理由でここに保持する。</summary>
+    public int InitialLineCount { get; }
 
     /// <summary>
     /// 未保存の変更があるかどうか。AvaloniaEditのアンドゥスタックが持つ
@@ -138,10 +160,17 @@ public sealed class DocumentSession : IDisposable
         // ワーカースレッド上（ConfigureAwait(false)のまま）で行い、UIスレッドの待ち時間を増やさない。
         var hasExtremelyLongLine = TextNormalizer.HasLineLongerThan(text, LongLineThreshold);
 
+        // Markdownプレビュー機能: InitialTextLength/InitialLineCountの由来（プレーンな文字列の
+        // うちに計算する理由）はプロパティのコメント参照。
+        var initialTextLength = text.Length;
+        var initialLineCount = TextNormalizer.SplitLines(text).Count;
+
         // TextDocumentの生成はUIスレッドへ切り替えてから行う（クラス冒頭のコメント参照）。
         // DispatcherOperationはConfigureAwaitを持たないため素直にawaitする。
         var session = await Dispatcher.UIThread.InvokeAsync(
-            () => new DocumentSession(fullPath, relativePath, new TextDocument(text), shape, hasExtremelyLongLine));
+            () => new DocumentSession(
+                fullPath, relativePath, new TextDocument(text), shape, hasExtremelyLongLine,
+                initialTextLength, initialLineCount));
         return GraftResult<DocumentSession>.Ok(session, read.Issues);
     }
 
