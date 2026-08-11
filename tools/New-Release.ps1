@@ -20,8 +20,14 @@
     かかわらず中断する）。
 
 .PARAMETER Version
-    配布物に使うバージョン。省略時はsrc\Graft\Graft.csprojの<Version>から算出する
-    （3点区切りなら末尾に.0を補い4点区切りにする。例: 1.0.0 → 1.0.0.0）。
+    配布物の表記（ZIP名・タグ・はじめにお読みください.txt・リリース説明.md等）に使うバージョン。
+    省略時はsrc\Graft\Graft.csprojの<Version>の値をそのまま使う（例: 1.0.1。桁を補ったりしない）。
+    引数で指定した場合も、渡した文字列をそのまま表記に使う（例: -Version 1.0.1.0 と指定すれば
+    そのまま4点区切りで表記される。利用者が明示した表記を尊重する）。
+    唯一の例外はGraft.exeのファイルバージョンとの照合で、そこだけは内部で4点区切りへ補って
+    比較する（Get-PaddedVersion参照。表記そのものには影響しない）。
+    なお1.0.0.0のみ、実際にタグ v1.0.0.0 として公開済みのため例外的に4点区切りで表記される
+    （docs\リリース手順.mdの注記も参照）。1.0.1以降は3点区切り（<Version>の値そのまま）が既定。
 
 .PARAMETER OutputDir
     dotnet publishの出力先。既定は publish\release\Graft。
@@ -71,16 +77,37 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($Path), $Text, $encoding)
 }
 
-# <Version>のような3点区切り（例: 1.0.0）を、実際にビルドへ埋め込まれる
-# AssemblyVersion/FileVersionと同じ4点区切り（例: 1.0.0.0）へそろえる。
-# .NET SDKは<Version>が3点以下の場合、末尾を0で補ってFileVersion等を生成するため、
-# これに合わせておかないと後段の「Graft.exeのFileVersionと一致するか」の比較が
-# 常に食い違ってしまう。
+# ファイルバージョン照合専用。表示・命名には使わない。
+# .NET SDKは<Version>が3点以下の場合、末尾を0で補ってAssemblyVersion/FileVersionを生成する
+# （例: 1.0.1 → 1.0.1.0）。ZIP名・タグ・はじめにお読みください.txt・リリース説明.md等の
+# 利用者向けの表記は$resolvedVersion（<Version>や-Versionの値をそのまま使う。桁を補わない）を
+# 使うが、Graft.exeの実際のFileVersionは常に4点区切りになるため、比較のときだけこの関数で
+# 4点区切りへそろえる（下の「Graft.exeのファイルバージョンを確認する」参照）。
 function Get-PaddedVersion([string]$RawVersion) {
     $parts = New-Object System.Collections.Generic.List[string]
     $parts.AddRange([string[]]$RawVersion.Split('.'))
     while ($parts.Count -lt 4) { $parts.Add('0') }
     return ($parts -join '.')
+}
+
+# docs\変更履歴.mdから、指定バージョンの節（"## <バージョン>"見出しの直後から次の"## "見出し
+# または末尾まで）だけを抜き出す。見出しは$Versionと完全一致するものだけを対象にする
+# （表記は$resolvedVersionと変更履歴.mdの見出しを一致させる運用のため、桁の補正等はしない）。
+# 見つからない場合は$nullを返す（呼び出し側で警告のうえ空欄にする）。
+function Get-ChangelogSection([string]$ChangelogPath, [string]$Version) {
+    if (-not (Test-Path $ChangelogPath)) { return $null }
+    $text = Get-Content -Path $ChangelogPath -Raw -Encoding UTF8
+
+    $headingMatches = [regex]::Matches($text, '(?m)^##[ \t]+(.+?)[ \t]*$')
+    for ($i = 0; $i -lt $headingMatches.Count; $i++) {
+        $heading = $headingMatches[$i]
+        if ($heading.Groups[1].Value.Trim() -ne $Version) { continue }
+
+        $start = $heading.Index + $heading.Length
+        $end = if ($i + 1 -lt $headingMatches.Count) { $headingMatches[$i + 1].Index } else { $text.Length }
+        return $text.Substring($start, $end - $start).Trim()
+    }
+    return $null
 }
 
 # ============================================================================
@@ -121,11 +148,14 @@ if (-not $versionMatch.Success) { throw "Graft.csprojから<Version>を読み取
 $csprojVersion = $versionMatch.Groups[1].Value.Trim()
 
 if ($Version) {
+    # 渡された文字列をそのまま表記に使う（桁を補ったり削ったりしない。例えば4点区切りを
+    # 渡せばそのまま4点区切りで表記される。利用者が明示した表記を尊重する）。
     $resolvedVersion = $Version
     Write-Host "バージョン: $resolvedVersion（引数で指定。Graft.csprojの<Version>は $csprojVersion）"
 } else {
-    $resolvedVersion = Get-PaddedVersion $csprojVersion
-    Write-Host "バージョン: $resolvedVersion（Graft.csprojの<Version>=$csprojVersion から算出）"
+    # <Version>の値をそのまま使う（桁を補わない。既定では3点区切りのまま表記される）。
+    $resolvedVersion = $csprojVersion
+    Write-Host "バージョン: $resolvedVersion（Graft.csprojの<Version>から算出）"
 }
 
 # ============================================================================
@@ -319,11 +349,21 @@ Write-Host ('必須ファイルの確認: OK（' + ($requiredFiles -join ', ') +
 Write-Host ''
 Write-Host '=== リリース本文の下書き ==='
 
+$changelogPath = Join-Path $repoRoot 'docs/変更履歴.md'
+$changesSection = Get-ChangelogSection -ChangelogPath $changelogPath -Version $resolvedVersion
+if ($null -eq $changesSection) {
+    Write-Warning "docs\変更履歴.mdにバージョン $resolvedVersion の節（## $resolvedVersion）が見つかりませんでした（$changelogPath）。リリース説明.mdの{CHANGES}は空欄のまま出力を続行します。"
+    $changesBlock = ''
+} else {
+    $changesBlock = $changesSection
+    Write-Host "変更履歴: docs\変更履歴.mdの `"## $resolvedVersion`" 節を差し込みます。"
+}
+
 $templatePath = Join-Path $repoRoot 'docs/リリース説明_テンプレート.md'
 $releaseNotesPath = Join-Path $releaseRoot 'リリース説明.md'
 if (Test-Path $templatePath) {
     $templateText = Get-Content -Path $templatePath -Raw -Encoding UTF8
-    $releaseNotesText = $templateText.Replace('{VERSION}', $resolvedVersion)
+    $releaseNotesText = $templateText.Replace('{VERSION}', $resolvedVersion).Replace('{CHANGES}', $changesBlock)
     Write-Utf8NoBom -Path $releaseNotesPath -Text $releaseNotesText
     Write-Host "書き出し: $releaseNotesPath"
 } else {
