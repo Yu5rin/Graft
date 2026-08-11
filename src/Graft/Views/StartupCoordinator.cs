@@ -82,17 +82,36 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     public Logger? Logger => _logger;
 
     /// <summary>
+    /// 不具合2: 再起動シーケンス（<see cref="Core.RestartSequencer"/>）では、新プロセス起動の
+    /// 試行結果を記録する時点で通常の<see cref="Logger"/>は既に<see cref="DisposeAsync"/>により
+    /// 破棄済み（書き込みが黙って捨てられる）。<c>Graft.App</c>側が使い捨てのロガー
+    /// （<see cref="LogSingleInstanceExitAsync"/>と同じ考え方）を組み立てられるよう、
+    /// 基準ディレクトリを公開する。
+    /// </summary>
+    public AppPaths AppPaths => _appPaths;
+
+    /// <summary>
     /// 多重起動を判定する（6.8）。既に起動中の場合は既存ウィンドウを前面へ表示しfalseを返す。
     /// 呼び出し側はfalseの場合アプリを即座に終了させること。
     ///
     /// 課題4: Mutex名は固定文字列ではなく発行フォルダ（<see cref="AppPaths.BaseDirectory"/>）を
     /// 混ぜ込んで作る（<see cref="SingleInstanceGuard.BuildInstanceScopedName"/>）。理由は
     /// そのメソッドのコメントを参照。
+    ///
+    /// 不具合2（「再起動」ボタンで終了はするが再起動しない）: 自己再起動で起動された新プロセス
+    /// （<paramref name="isRestartLaunch"/>がtrue。<see cref="Infra.AppRestart.IsRestartLaunch"/>で
+    /// 起動引数から判定する）に限り、Mutexの取得に1回失敗しても即座に諦めず短時間リトライする
+    /// （<see cref="SingleInstanceAcquireRetry"/>のコメント参照）。通常の多重起動検知
+    /// （利用者が2つ目を手動起動した場合、<paramref name="isRestartLaunch"/>がfalse）では
+    /// リトライを一切行わず、これまでどおり即座に「既に起動中」と判定する。
     /// </summary>
-    public bool TryAcquireSingleInstance()
+    public async Task<bool> TryAcquireSingleInstanceAsync(bool isRestartLaunch)
     {
         var mutexName = SingleInstanceGuard.BuildInstanceScopedName(MutexNamePrefix, _appPaths.BaseDirectory);
-        if (_platform.SingleInstance.TryAcquire(mutexName)) return true;
+        var acquired = await SingleInstanceAcquireRetry
+            .TryAcquireAsync(() => _platform.SingleInstance.TryAcquire(mutexName), isRestartLaunch)
+            .ConfigureAwait(true);
+        if (acquired) return true;
 
         _platform.SingleInstance.ActivateExistingInstance(MainWindowTitle);
         return false;

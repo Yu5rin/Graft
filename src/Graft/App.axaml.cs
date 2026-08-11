@@ -34,6 +34,11 @@ public partial class App : Application
     // 待ってから新プロセスを起動する（RestartSequencerのコメント参照）。
     private bool _restartRequested;
 
+    // 不具合2: 再起動シーケンス専用の使い捨てロガー（TryStartNewProcessが組み立てる）。
+    // CleanupAsync完了後（＝通常のLoggerが破棄済み）に実行ファイルのパス解決・Process.Startの
+    // 成否・新プロセスのPIDを記録するために使う（OnShutdownRequestedのコメント参照）。
+    private Logger? _restartLogger;
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -61,8 +66,20 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
+        // 不具合1: AvaloniaEdit内部（折りたたみの再描画等）から実行時に投げられる例外は
+        // AppDomain.UnhandledExceptionまで抜けるとプロセスごと落ちてしまう（記録のみで
+        // 継続はできない）。Dispatcher.UIThread.UnhandledExceptionはe.Handled=trueにすると
+        // そのジョブ1回分の失敗として記録するだけでアプリを継続させられるため、AvaloniaEdit
+        // 由来と判定できるものに限って握りつぶす（AvaloniaEditExceptionGuardのコメント参照）。
+        Avalonia.Threading.Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
+
         _coordinator = new Views.StartupCoordinator();
-        if (!_coordinator.TryAcquireSingleInstance())
+
+        // 不具合2: 自己再起動で起動した新プロセスかどうかを起動引数から判定する
+        // （AppRestart.BuildStartInfoが付与する。AppRestart.IsRestartLaunchのコメント参照）。
+        // 再起動由来の場合に限り、多重起動防止Mutexの取得に失敗しても短時間リトライする。
+        var isRestartLaunch = AppRestart.IsRestartLaunch(desktop.Args);
+        if (!await _coordinator.TryAcquireSingleInstanceAsync(isRestartLaunch).ConfigureAwait(true))
         {
             // 既に起動中の場合は既存ウィンドウを前面へ表示済み（StartupCoordinator側）。
             // このプロセスはウィンドウを一切表示せずに終了する。
@@ -160,14 +177,34 @@ public partial class App : Application
 
         if (_restartRequested)
         {
+            // 不具合2: 「終了はするが再起動しない」不具合の調査に必要な記録。実機ログに
+            // 再起動を試みた記録が1行も無く、どこまで進んで何が失敗したのか切り分けられない
+            // という診断上の欠陥があったため、この経路に入ったこと自体を必ず記録する。
+            _coordinator?.Logger?.Info("restart", "再起動経路で終了処理を開始します（RestartSequencer経由）。");
+
+            // CleanupAsync（＝StartupCoordinator.DisposeAsync）は通常のLoggerも一番最後に
+            // 破棄するため、TryStartNewProcess（cleanupAndReleaseGuardの完了後に実行される）の
+            // 時点では_coordinator.Loggerへ書いても黙って捨てられる。実行ファイルのパス解決・
+            // Process.Startの成否・新プロセスのPIDという最も肝心な記録を残すため、
+            // LogSingleInstanceExitAsyncと同じく使い捨てのロガー（_restartLogger）を使う。
+            var appPaths = _coordinator?.AppPaths;
+
             // 不具合3: 新プロセスの起動は「後始末（多重起動防止Mutexの解放を含む）が完全に
             // 完了したあと」でなければならない（RestartSequencerのコメント参照）。
             // CleanupAsyncの完了を待ってからTryStartNewProcessを呼び、その後（起動の成否に
             // よらず）旧プロセスを終了させる、という順序をRestartSequencer側で保証する。
-            await RestartSequencer.RunAsync(
+            var started = await RestartSequencer.RunAsync(
                 cleanupAndReleaseGuard: CleanupAsync,
-                startNewProcess: TryStartNewProcess,
+                startNewProcess: () => TryStartNewProcess(appPaths),
                 shutdownCurrentProcess: () => _desktop?.Shutdown()).ConfigureAwait(true);
+
+            _restartLogger?.Info("restart", started
+                ? "新プロセスの起動に成功しました。旧プロセスを終了します。"
+                : "新プロセスの起動に失敗しました。旧プロセスのみ終了します（利用者は手動で再起動する必要があります）。");
+            if (_restartLogger is not null)
+            {
+                await _restartLogger.DisposeAsync().ConfigureAwait(true);
+            }
             return;
         }
 
@@ -201,19 +238,42 @@ public partial class App : Application
     /// （失敗時は新プロセスを起動せず、旧プロセスは通常どおり終了する。この時点ではもう
     /// ウィンドウが後始末で破棄済みのため、利用者への「手動で再起動してください」という通知は
     /// 事前確認の時点で済ませてあり、ここでは改めて出さない）。
+    ///
+    /// 不具合2: 実行ファイルのパスを解決した結果（成否とパス）・<see cref="Process.Start(ProcessStartInfo)"/>
+    /// の成否・新プロセスのPIDを<see cref="_restartLogger"/>（使い捨てロガー。呼び出し元の
+    /// コメント参照）へ記録する。失敗時は例外の内容も記録する。
     /// </summary>
-    private static bool TryStartNewProcess()
+    private bool TryStartNewProcess(AppPaths? appPaths)
     {
+        if (appPaths is not null)
+        {
+            appPaths.EnsureCoreDirectoriesExist();
+            _restartLogger = new Logger(appPaths, autoCleanupOnStart: false);
+        }
+
+        var startInfo = AppRestart.BuildStartInfo();
+        if (startInfo is null)
+        {
+            _restartLogger?.Error("restart", "実行ファイルのパスを解決できませんでした。新プロセスを起動できません。");
+            return false;
+        }
+        _restartLogger?.Info("restart", $"実行ファイルのパスを解決しました: {startInfo.FileName}");
+
         try
         {
-            var startInfo = AppRestart.BuildStartInfo();
-            if (startInfo is null) return false;
-
             using var process = Process.Start(startInfo);
-            return process is not null;
+            if (process is null)
+            {
+                _restartLogger?.Error("restart", "Process.Startがnullを返しました。新プロセスを起動できませんでした。");
+                return false;
+            }
+
+            _restartLogger?.Info("restart", $"新プロセスの起動に成功しました（PID={process.Id}）。");
+            return true;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
+            _restartLogger?.Error("restart", $"Process.Startで例外が発生しました: {ex}");
             return false;
         }
     }
@@ -223,14 +283,44 @@ public partial class App : Application
     /// （<see cref="Views.SettingsWindow"/>経由）から呼ばれる。実際の後始末・新プロセス起動・
     /// 旧プロセス終了は<see cref="OnShutdownRequested"/>（<see cref="RestartSequencer"/>経由）が
     /// 担う。ここでは「次にShutdownRequestedが来たら再起動として扱う」フラグを立て、
-    /// 通常の×ボタンと同じ経路（<see cref="IClassicDesktopStyleApplicationLifetime.Shutdown"/>）で
-    /// 終了処理を起動するだけに留める（後始末のロジックを二重化しないため）。
+    /// 通常の×ボタンと同じ経路で終了処理を起動するだけに留める（後始末のロジックを二重化しないため）。
+    ///
+    /// 不具合2（真因・「終了はするが再起動しない」）: 以前はここで
+    /// <see cref="IClassicDesktopStyleApplicationLifetime.Shutdown"/>を呼んでいたが、これは
+    /// Avalonia側の実装で常に<c>force: true</c>として扱われ、<see cref="OnShutdownRequested"/>が
+    /// 購読する<see cref="IClassicDesktopStyleApplicationLifetime.ShutdownRequested"/>イベントを
+    /// 一切発火しない（Avalonia.Controls.dllを逆コンパイルして確認: <c>ClassicDesktopStyleApplication
+    /// Lifetime.Shutdown</c>は<c>DoShutdown(..., force: true)</c>を呼び、<c>DoShutdown</c>は
+    /// <c>if (!force) { ShutdownRequested?.Invoke(...); ... }</c>という作りのため、forceがtrueだと
+    /// イベント購読側が一切呼ばれないまま各ウィンドウを強制クローズしてプロセスを終了させる）。
+    /// このため実機ログに「再起動が要求されました」の1行までは記録されるのに、その先の
+    /// 「再起動経路で終了処理を開始します」（<see cref="OnShutdownRequested"/>側のログ）が
+    /// 一切残らず、<see cref="RestartSequencer.RunAsync"/>（延いては新プロセスの起動）へ
+    /// 到達すらしていなかった。原因候補Cで疑っていた「終了経路がProcess.Startより先に走っている」
+    /// はほぼ正しく、より正確には「再起動ボタンのハンドラ（RequestRestart）自身が、後始末を
+    /// 挟める経路を一切通らない即時終了APIを呼んでいた」ことが真因だった。
+    ///
+    /// 対処: <see cref="IClassicDesktopStyleApplicationLifetime.TryShutdown"/>（<c>force: false</c>で
+    /// <c>DoShutdown</c>を呼ぶ）を使う。これは<see cref="IClassicDesktopStyleApplicationLifetime.
+    /// ShutdownRequested"/>を発火し、購読側が<c>e.Cancel = true</c>にすれば実際の終了を保留できる
+    /// （<see cref="OnShutdownRequested"/>が最初の呼び出しで必ず行っている）。ウィンドウを×で
+    /// 閉じたときの経路（Avalonia内部の<c>HandleWindowClosed</c>→<c>TryShutdown</c>）と同じAPIを
+    /// 使うことになり、以後の後始末（<see cref="RestartSequencer"/>経由の新プロセス起動を含む）が
+    /// 正しく<see cref="OnShutdownRequested"/>へ到達するようになる。
+    /// tests/Graft.UiTests/DesktopShutdownSemanticsTests.csにAvaloniaのこの挙動差そのものを
+    /// 固定する回帰テストがある。
     /// </summary>
     public void RequestRestart()
     {
         if (_restartRequested) return; // 多重クリック等での二重要求を防ぐ。
         _restartRequested = true;
-        _desktop?.Shutdown();
+
+        // 不具合2: 再起動が要求された時点そのものを記録する。実機ログにこの1行すら
+        // 無かったことが「通常のウィンドウ終了経路を通っているだけではないか」（原因候補C）を
+        // 疑うきっかけになった。この行が実際に記録されていれば、少なくともRequestRestartまでは
+        // 到達していることが分かる。
+        _coordinator?.Logger?.Info("restart", "再起動が要求されました（設定画面のデータ保存先移行完了ダイアログの「再起動」ボタン）。");
+        _desktop?.TryShutdown();
     }
 
     /// <summary>UIスレッド外（バックグラウンドタスク・ファイナライザ等）の想定外の例外。記録のみ行う。</summary>
@@ -239,6 +329,22 @@ public partial class App : Application
         if (e.ExceptionObject is Exception ex)
         {
             _coordinator?.Logger?.Error("unhandled", ex.ToString());
+        }
+    }
+
+    /// <summary>
+    /// 不具合1: UIスレッドのジョブ（レイアウト/描画パスを含む）から素通りしてきた想定外の例外。
+    /// 必ず記録したうえで、AvaloniaEdit由来と判定できる場合に限り<c>e.Handled = true</c>にして
+    /// アプリを継続させる（<see cref="AvaloniaEditExceptionGuard"/>のコメント参照。それ以外は
+    /// 従来どおり<see cref="OnUnhandledException"/>経由でプロセスが終了する）。
+    /// </summary>
+    private void OnDispatcherUnhandledException(object? sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        _coordinator?.Logger?.Error("unhandled", $"UIスレッドの処理中に例外が発生しました: {e.Exception}");
+
+        if (AvaloniaEditExceptionGuard.ShouldContinue(e.Exception))
+        {
+            e.Handled = true;
         }
     }
 

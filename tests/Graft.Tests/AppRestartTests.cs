@@ -55,4 +55,27 @@ public class AppRestartTests
         // 既定の解決先（Environment.ProcessPath）を使ってもtrueになる。
         AppRestart.CanRestart().Should().BeTrue();
     }
+
+    [Fact(DisplayName = "不具合2回帰: BuildStartInfoは新プロセスへ再起動由来を示す起動引数を必ず付与する")]
+    public void 新プロセスへ再起動由来を示す起動引数が付与される()
+    {
+        using var ws = new TempWorkspace();
+        var exePath = ws.WriteText("fake-graft.exe", "dummy");
+
+        var startInfo = AppRestart.BuildStartInfo(exePath);
+
+        startInfo.Should().NotBeNull();
+        startInfo!.ArgumentList.Should().Contain(AppRestart.RestartLaunchArgument,
+            "新プロセス側（StartupCoordinator.TryAcquireSingleInstanceAsync）が" +
+            "再起動由来と判定できないと、多重起動防止Mutexのリトライが働かない");
+    }
+
+    [Fact(DisplayName = "不具合2回帰: IsRestartLaunchは再起動由来の起動引数を検出する")]
+    public void 再起動由来の起動引数を検出できる()
+    {
+        AppRestart.IsRestartLaunch(new[] { AppRestart.RestartLaunchArgument }).Should().BeTrue();
+        AppRestart.IsRestartLaunch(Array.Empty<string>()).Should().BeFalse("通常起動（引数なし）は再起動由来ではない");
+        AppRestart.IsRestartLaunch(new[] { "--some-other-flag" }).Should().BeFalse();
+        AppRestart.IsRestartLaunch(null).Should().BeFalse();
+    }
 }
