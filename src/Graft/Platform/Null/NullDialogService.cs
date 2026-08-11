@@ -26,4 +26,12 @@ public sealed class NullDialogService : IDialogService
         => Task.FromResult((string?)null);
 
     public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
+
+    /// <summary>
+    /// 不具合3: 既定実装（<see cref="IDialogService.ShowActionMessageAsync"/>）はtrueを返すが、
+    /// それだと利用者不在のheadless・未対応環境でプロセス再起動のようなアクションが黙って
+    /// 実行されてしまう。このクラスの他の確認系メソッドと同じ安全側の方針（クラスのコメント参照）
+    /// に合わせ、明示的にfalseを返す。
+    /// </summary>
+    public Task<bool> ShowActionMessageAsync(string title, string message, string actionLabel) => Task.FromResult(false);
 }

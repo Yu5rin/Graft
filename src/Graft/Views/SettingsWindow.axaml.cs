@@ -46,6 +46,20 @@ public partial class SettingsWindow : Window
         DataContext = viewModel;
         Loaded += async (_, _) =>
             await SafeHandler.RunAsync("設定画面の初期化", () => viewModel.InitializeAsync()).ConfigureAwait(true);
+
+        // 不具合3: 「再起動」ボタン。ViewModelはAvaloniaのApplication型に依存させない方針のため
+        // （SettingsViewModel.RestartRequestedのコメント参照）、実際の再起動はここ（コードビハインド）
+        // からApp.RequestRestartへ委譲する（AboutView.OnLogViewerRequestedと同じ役割分担）。
+        // SettingsViewModel自体は常駐インスタンスとして使い回される（StartupCoordinator.OpenSettings
+        // 参照）一方、SettingsWindowは開くたびに新規生成されるため、購読したままだと設定画面を
+        // 複数回開いた分だけハンドラが多重登録されてしまう。ウィンドウが閉じたら必ず解除する。
+        viewModel.RestartRequested += OnRestartRequested;
+        Closed += (_, _) => viewModel.RestartRequested -= OnRestartRequested;
+    }
+
+    private static void OnRestartRequested(object? sender, EventArgs e)
+    {
+        if (Avalonia.Application.Current is App app) app.RequestRestart();
     }
 
     private void OnCloseClicked(object? sender, RoutedEventArgs e) => _ = CloseAsync();

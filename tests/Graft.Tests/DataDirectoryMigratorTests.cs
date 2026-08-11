@@ -44,6 +44,47 @@ public class DataDirectoryMigratorTests
         File.Exists(Path.Combine(sourceDir, "settings.json")).Should().BeTrue("元データを消してはいけない");
     }
 
+    /// <summary>
+    /// 不具合2の回帰テスト。「保存先を変えたらチュートリアルがまた出る」という利用者報告の直接の
+    /// 原因は、初回起動ガイドの完了マーカー（<see cref="AppPaths.OnboardingMarkerFilePath"/>、
+    /// <see cref="Views.OnboardingWindow.HasCompleted"/>が存在確認するファイル）が移行対象一覧に
+    /// 含まれておらず、移行後の新しい場所に無いままだったこと。同じくAppPathsにプロパティが無く
+    /// 見落とされていたウィンドウレイアウト（<see cref="AppPaths.WindowLayoutFilePath"/>）も
+    /// 合わせて確認する。
+    /// </summary>
+    [Fact(DisplayName = "初回起動ガイドの完了マーカー（onboarding.done）とウィンドウレイアウト（layout.json）も移行後に引き継がれる")]
+    public void オンボーディング完了マーカーとレイアウトが引き継がれる()
+    {
+        using var ws = new TempWorkspace();
+        var sourceDir = ws.CreateDirectory("source");
+        var targetDir = ws.Combine("target");
+
+        ws.WriteText("source/settings.json", "{}");
+        ws.WriteText("source/onboarding.done", string.Empty);
+        ws.WriteText("source/layout.json", "{\"width\":1024}");
+
+        var result = DataDirectoryMigrator.Migrate(sourceDir, targetDir);
+
+        result.IsSuccess.Should().BeTrue();
+
+        var sourcePaths = new AppPaths(sourceDir);
+        var targetPaths = new AppPaths(targetDir);
+
+        File.Exists(sourcePaths.OnboardingMarkerFilePath).Should().BeTrue("前提: 移行元にマーカーがある");
+        File.Exists(targetPaths.OnboardingMarkerFilePath).Should().BeTrue(
+            "移行後もOnboardingWindow.HasCompletedがtrueを返せるよう、マーカーファイルを引き継ぐ必要がある");
+
+        File.Exists(targetPaths.WindowLayoutFilePath).Should().BeTrue("ウィンドウレイアウトも引き継ぐ必要がある");
+        File.ReadAllText(targetPaths.WindowLayoutFilePath).Should().Contain("1024");
+
+        // Views.OnboardingWindow.HasCompleted(appPaths) は
+        // File.Exists(appPaths.OnboardingMarkerFilePath) と等価（Views層はAvalonia依存のため
+        // Graft.Tests には取り込めない。実際のHasCompleted経由の確認は
+        // Graft.UiTests側のシナリオテストで行う）。
+        File.Exists(targetPaths.OnboardingMarkerFilePath).Should().BeTrue(
+            "移行後に初回起動ガイドが再表示されてはならない（不具合2）");
+    }
+
     [Fact(DisplayName = "対象ファイルが元々存在しない項目（未使用のtemplates.json等）はコピーしなくても成功扱いにする")]
     public void 存在しない項目はコピー対象外として成功扱いになる()
     {

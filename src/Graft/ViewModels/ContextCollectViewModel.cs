@@ -81,15 +81,16 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         // 再評価させる。
         PreviewLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(PreviewLines));
 
-        RefreshCommand = new AsyncRelayCommand(() => RefreshAsync());
-        PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => !_isScanning);
-        CopyCommand = new AsyncRelayCommand(CopyAsync, () => !_isScanning);
-        SaveToFileCommand = new AsyncRelayCommand(SaveToFileAsync, () => !_isScanning);
+        RefreshCommand = new AsyncRelayCommand(() => RefreshAsync(), context: "コンテキスト対象の再走査");
+        PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => !_isScanning, context: "コンテキストのプレビュー");
+        CopyCommand = new AsyncRelayCommand(CopyAsync, () => !_isScanning, context: "コンテキストのコピー");
+        SaveToFileCommand = new AsyncRelayCommand(SaveToFileAsync, () => !_isScanning, context: "コンテキストのファイル保存");
         CycleStateCommand = new RelayCommand<ContextFileNodeViewModel>(node => { if (node is not null) CycleState(node); });
         CycleSelectedStateCommand = new RelayCommand(
             () => { if (_selectedFile is not null) CycleState(_selectedFile); },
             () => _selectedFile is { IsExcluded: false } && ShowFileTree);
-        AddExcludeCommand = new AsyncRelayCommand(AddExcludeAsync, () => !string.IsNullOrWhiteSpace(_newExcludePattern));
+        AddExcludeCommand = new AsyncRelayCommand(
+            AddExcludeAsync, () => !string.IsNullOrWhiteSpace(_newExcludePattern), context: "除外パターンの追加");
         RemoveExcludeCommand = new RelayCommand<string>(pattern => _ = RemoveExcludeAsync(pattern));
     }
 

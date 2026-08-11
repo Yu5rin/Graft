@@ -168,16 +168,17 @@ public sealed partial class SettingsViewModel : ObservableObject
         // 発火させ、バインディングを強制的に再評価させる。
         ValidationIssues.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ValidationIssues));
 
-        SaveJsonCommand = new AsyncRelayCommand(SaveJsonAsync);
-        ExportCommand = new AsyncRelayCommand(ExportAsync);
-        ImportCommand = new AsyncRelayCommand(ImportAsync);
-        ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync);
+        SaveJsonCommand = new AsyncRelayCommand(SaveJsonAsync, context: "設定JSONの保存");
+        ExportCommand = new AsyncRelayCommand(ExportAsync, context: "設定のエクスポート");
+        ImportCommand = new AsyncRelayCommand(ImportAsync, context: "設定のインポート");
+        ResetToDefaultsCommand = new AsyncRelayCommand(ResetToDefaultsAsync, context: "設定を既定に戻す");
 
         // 機能3・機能2: データ保存先の切り替え、ログフォルダを開く・最新のログを表示する。
         // 実処理はSettingsViewModel.DataDirectory.cs（分割ファイル）にまとめている。
-        MigrateDataDirectoryCommand = new AsyncRelayCommand(MigrateDataDirectoryAsync, () => !IsDataDirectoryMigrationPending);
-        OpenLogsFolderCommand = new AsyncRelayCommand(OpenLogsFolderAsync);
-        ShowLatestLogCommand = new AsyncRelayCommand(ShowLatestLogAsync);
+        MigrateDataDirectoryCommand = new AsyncRelayCommand(
+            MigrateDataDirectoryAsync, () => !IsDataDirectoryMigrationPending, context: "データ保存先の移行");
+        OpenLogsFolderCommand = new AsyncRelayCommand(OpenLogsFolderAsync, context: "ログフォルダを開く");
+        ShowLatestLogCommand = new AsyncRelayCommand(ShowLatestLogAsync, context: "最新のログの表示");
     }
 
     public PromptTemplateViewModel Templates { get; }

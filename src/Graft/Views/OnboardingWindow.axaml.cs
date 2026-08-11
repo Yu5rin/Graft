@@ -85,8 +85,13 @@ public partial class OnboardingWindow : Window
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
     }
 
-    /// <summary><see cref="AppPaths.BaseDirectory"/> 直下の表示済みフラグファイルの絶対パス。</summary>
-    public static string GetMarkerFilePath(AppPaths appPaths) => Path.Combine(appPaths.BaseDirectory, "onboarding.done");
+    /// <summary>
+    /// <see cref="AppPaths.BaseDirectory"/> 直下の表示済みフラグファイルの絶対パス。
+    /// 不具合2の修正: ファイル名は<see cref="AppPaths.OnboardingMarkerFilePath"/>を単一の情報源
+    /// として使う（<see cref="Infra.DataDirectoryMigrator"/>のコピー対象一覧と食い違わないように
+    /// するため。詳細はそちらのコメント参照）。
+    /// </summary>
+    public static string GetMarkerFilePath(AppPaths appPaths) => appPaths.OnboardingMarkerFilePath;
 
     /// <summary>表示済みフラグの有無を返す。アプリ起動時にこれを見て初回起動ガイドの要否を判断する。</summary>
     public static bool HasCompleted(AppPaths appPaths) => File.Exists(GetMarkerFilePath(appPaths));

@@ -87,7 +87,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         _fileWatch.FileContentChanged += OnFileContentChanged;
         AttachTabWatchers();
 
-        RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => _project is not null);
+        RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => _project is not null, context: "ファイル一覧の更新");
         OpenCommand = new RelayCommand<FileNodeViewModel>(ExecuteOpen);
         NewFileCommand = new RelayCommand<FileNodeViewModel>(node => _ = NewFileAsync(node ?? SelectedNode), _ => _project is not null);
         NewFolderCommand = new RelayCommand<FileNodeViewModel>(node => _ = NewFolderAsync(node ?? SelectedNode), _ => _project is not null);
@@ -95,7 +95,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         DeleteCommand = new RelayCommand<FileNodeViewModel>(node => _ = DeleteNodeAsync(node ?? SelectedNode));
         CopyPathCommand = new RelayCommand<FileNodeViewModel>(node => CopyPath(node ?? SelectedNode));
         RevealCommand = new RelayCommand<FileNodeViewModel>(node => RevealInExplorer(node ?? SelectedNode));
-        UndoDeleteCommand = new AsyncRelayCommand(UndoDeleteAsync, () => _undoStore.CanUndo);
+        UndoDeleteCommand = new AsyncRelayCommand(UndoDeleteAsync, () => _undoStore.CanUndo, context: "削除の取り消し");
         // ファイル単位の変更履歴: フォルダには適用できないため、対象がファイルのときだけ有効化する。
         ShowFileHistoryCommand = new RelayCommand<FileNodeViewModel>(
             node => RequestShowFileHistory(node ?? SelectedNode),

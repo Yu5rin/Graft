@@ -141,10 +141,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // 現在時刻を注入可能にしているのは、期間プリセット（過去7日等）の計算をテストで
         // 日付をまたがずに固定できるようにするため。既定はローカル時刻の DateTimeOffset.Now。
         _now = now ?? (() => DateTimeOffset.Now);
-        RestoreCommand = new AsyncRelayCommand(RestoreSelectedAsync, () => SelectedItem is { CanRestore: true });
+        RestoreCommand = new AsyncRelayCommand(RestoreSelectedAsync, () => SelectedItem is { CanRestore: true }, context: "リビジョンの復元");
         // 「ここまで戻す」: 単発復元（RestoreCommand）とは別の操作として追加する（仕様）。
         // 取り消し対象が無い（最新リビジョンを選んでいる）場合は無効化する（8番目の要件）。
-        RestoreThroughCommand = new AsyncRelayCommand(RestoreThroughSelectedAsync, HasRestoreThroughTarget);
+        RestoreThroughCommand = new AsyncRelayCommand(RestoreThroughSelectedAsync, HasRestoreThroughTarget, context: "ここまで戻す");
         // 修正2: 右クリックメニュー「差分を表示」。選択自体は変えず、同じ選択に対して
         // RevisionSelectedを明示的に再発火する（修正1の履歴差分タブを開き直す入口）。
         // 選択を変えたときは自動でタブが開く／更新されるが、タブを×で閉じた後に選択は

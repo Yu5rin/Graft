@@ -58,7 +58,8 @@ public sealed partial class MainViewModel
 
         CopyPromptCommand = new AsyncRelayCommand(
             async () => { if (PromptCopy is not null) await PromptCopy.QuickCopyAsync().ConfigureAwait(true); },
-            () => PromptCopy is not null);
+            () => PromptCopy is not null,
+            context: "プロンプトのクイックコピー");
 
         OpenContextCollectCommand = new RelayCommand(
             () => RequestOpenContextCollect?.Invoke(this, EventArgs.Empty),

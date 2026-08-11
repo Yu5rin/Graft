@@ -104,10 +104,10 @@ public sealed partial class MainViewModel : ObservableObject
         History.RevisionSelected += OnRevisionSelected;
         History.RevisionRestored += OnRevisionRestored;
 
-        PasteAndParseCommand = new AsyncRelayCommand(PasteAndParseAsync);
-        PreviewCommand = new AsyncRelayCommand(RunDryRunAsync, () => _currentPatch is not null);
-        ApplyCommand = new AsyncRelayCommand(ApplyAsync, () => _dryRun is { ApplicableCount: > 0 });
-        UndoCommand = new AsyncRelayCommand(UndoLastAsync);
+        PasteAndParseCommand = new AsyncRelayCommand(PasteAndParseAsync, context: "貼り付けと解析");
+        PreviewCommand = new AsyncRelayCommand(RunDryRunAsync, () => _currentPatch is not null, context: "適用前プレビュー");
+        ApplyCommand = new AsyncRelayCommand(ApplyAsync, () => _dryRun is { ApplicableCount: > 0 }, context: "パッチの適用");
+        UndoCommand = new AsyncRelayCommand(UndoLastAsync, context: "適用の取り消し");
         OpenSettingsCommand = new RelayCommand(() => _openSettingsRequested());
         // 修正3: 接ぎ木パネルのヘッダーに露出させる「破棄」ボタン用。解析結果が無いときは無効化する
         // （PreviewCommand/ApplyCommandと同じ、_currentPatch/_dryRunを見るだけの簡易判定。
@@ -115,10 +115,12 @@ public sealed partial class MainViewModel : ObservableObject
         // 促す既存の仕組みに乗る）。
         DiscardCommand = new RelayCommand(DiscardCurrentPatch, () => _currentPatch is not null);
         ShowHistoryCommand = new RelayCommand(() => RequestFocusHistory?.Invoke(this, EventArgs.Empty));
-        AddCurrentPatchToQueueCommand = new AsyncRelayCommand(AddCurrentPatchToQueueAsync, () => _currentPatch is not null);
+        AddCurrentPatchToQueueCommand = new AsyncRelayCommand(
+            AddCurrentPatchToQueueAsync, () => _currentPatch is not null, context: "キューへの追加");
         OpenQueueCommand = new RelayCommand(() => RequestOpenQueue?.Invoke(this, EventArgs.Empty));
-        CopyRecoveryPromptCommand = new AsyncRelayCommand(CopyRecoveryPromptAsync, () => Blocks.Any(b => !b.Plan.CanApply));
-        ParseFromFileCommand = new AsyncRelayCommand(PickAndParseFileAsync); // 4.1（MainViewModel.FileParse.cs）。
+        CopyRecoveryPromptCommand = new AsyncRelayCommand(
+            CopyRecoveryPromptAsync, () => Blocks.Any(b => !b.Plan.CanApply), context: "リカバリー用プロンプトのコピー");
+        ParseFromFileCommand = new AsyncRelayCommand(PickAndParseFileAsync, context: "ファイルからの解析"); // 4.1（MainViewModel.FileParse.cs）。
 
         InitializePrompt(projectStore); // 4.8.4（MainViewModel.Prompt.cs）。
     }

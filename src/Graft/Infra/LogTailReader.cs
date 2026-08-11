@@ -52,13 +52,30 @@ public static class LogTailReader
     /// ファイル全体をメモリへ読み込まず、固定サイズ（<paramref name="maxLines"/>件）のキューへ
     /// 1行ずつ流し込みながら古い行を捨てる方式のため、ファイルが大きくてもメモリ使用量は
     /// 表示件数に比例するだけで済む。
+    ///
+    /// 【実機クラッシュの修正】読み取り対象は多くの場合、<see cref="Logger"/>が今まさに
+    /// 書き込み中の当日ログ（例: <c>20260811.log</c>）である。<see cref="File.ReadLines(string)"/>
+    /// は既定の共有指定（<c>FileShare.Read</c>）でファイルを開くため、Windowsの強制排他ロック規則
+    /// （新規オープン側が要求する共有範囲に、既存ハンドルが握っているアクセス権が収まっている必要が
+    /// ある）により、<see cref="Logger"/>側が<c>FileAccess.Write</c>で開いている当日ログを開けず
+    /// <c>IOException</c>（「別のプロセスが使用中」）で失敗していた（実機ログで確認済み）。
+    /// <see cref="Logger.OpenWriterSafe(string)"/>は書き込みを<c>FileShare.Read</c>で開いており、
+    /// これは他プロセスからの読み取りは許すが、読み取り側が要求する共有範囲に書き込み側の
+    /// <c>FileAccess.Write</c>が含まれていないと今度は読み取り側のオープンが弾かれる。そのため
+    /// ここでは読み取り側の共有範囲を<c>FileShare.ReadWrite | FileShare.Delete</c>まで広げ、
+    /// 「他プロセス（＝Loggerの書き込みハンドル）のWriteアクセスを妨げない」ことを明示して開く。
     /// </summary>
     public static string ReadTail(string filePath, int maxLines = DefaultMaxLines)
     {
         if (maxLines <= 0) return string.Empty;
 
         var buffer = new Queue<string>(maxLines);
-        foreach (var line in File.ReadLines(filePath))
+        using var stream = new FileStream(
+            filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
         {
             if (buffer.Count == maxLines) buffer.Dequeue();
             buffer.Enqueue(line);

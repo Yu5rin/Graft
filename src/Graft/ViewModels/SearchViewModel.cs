@@ -105,9 +105,10 @@ public sealed class SearchViewModel : ObservableObject
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _clipboard = clipboard ?? AvaloniaUiServices.SharedClipboard;
 
-        SearchCommand = new AsyncRelayCommand(RunSearchAsync, () => _project is not null && !string.IsNullOrEmpty(Query));
+        SearchCommand = new AsyncRelayCommand(
+            RunSearchAsync, () => _project is not null && !string.IsNullOrEmpty(Query), context: "検索の実行");
         CancelCommand = new RelayCommand(() => _cts?.Cancel(), () => IsSearching);
-        ReplaceAllCommand = new AsyncRelayCommand(ReplaceAllAsync, () => Groups.Count > 0 && !IsSearching);
+        ReplaceAllCommand = new AsyncRelayCommand(ReplaceAllAsync, () => Groups.Count > 0 && !IsSearching, context: "すべて置換");
         JumpCommand = new RelayCommand<SearchHitViewModel>(hit => { if (hit is not null) RequestJump(hit); });
         ToggleRegexCommand = new RelayCommand(() => UseRegex = !UseRegex);
         ToggleCaseCommand = new RelayCommand(() => CaseSensitive = !CaseSensitive);

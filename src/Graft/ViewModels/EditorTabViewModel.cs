@@ -46,8 +46,8 @@ public sealed class EditorTabViewModel : ObservableObject
         _isModified = session.IsModified;
         session.ModifiedChanged += OnSessionModifiedChanged;
 
-        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
-        ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync);
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this), context: "タブを閉じる");
+        ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync, context: "変更を破棄して再読込");
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
         DisableWordWrapForTabCommand = new RelayCommand(() => WordWrapDisabledForTab = true);
     }
@@ -63,7 +63,7 @@ public sealed class EditorTabViewModel : ObservableObject
         _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
         Diff.PropertyChanged += OnDiffPropertyChanged;
 
-        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this), context: "タブを閉じる");
         ReloadDiscardingChangesCommand = new RelayCommand(() => { });
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
         DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 差分タブは対象外（HasExtremelyLongLineが常にfalse）。
@@ -80,7 +80,7 @@ public sealed class EditorTabViewModel : ObservableObject
         _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
         HistoryDiff.PropertyChanged += OnHistoryDiffPropertyChanged;
 
-        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this), context: "タブを閉じる");
         ReloadDiscardingChangesCommand = new RelayCommand(() => { });
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
         DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 履歴差分タブは対象外（HasExtremelyLongLineが常にfalse）。

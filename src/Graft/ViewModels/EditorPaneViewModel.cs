@@ -63,7 +63,8 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         ToggleWordWrapCommand = new RelayCommand(() => WordWrap = !WordWrap);
         ToggleShowWhitespaceCommand = new RelayCommand(() => ShowWhitespace = !ShowWhitespace);
         InitializeTabActionCommands(); // タブ見出し右クリックメニュー（TabActions.cs）。
-        ReopenLastClosedTabCommand = new AsyncRelayCommand(() => ReopenLastClosedTabAsync()); // Ctrl+Shift+T（RecentlyClosed.cs）。
+        ReopenLastClosedTabCommand = new AsyncRelayCommand(
+            () => ReopenLastClosedTabAsync(), context: "閉じたタブを再度開く"); // Ctrl+Shift+T（RecentlyClosed.cs）。
     }
 
     /// <summary>開いているタブの一覧（ドキュメント＋差分タブ、9.2）。</summary>

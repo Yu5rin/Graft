@@ -205,6 +205,30 @@ public sealed class AvaloniaDialogService : IDialogService
     }
 
     /// <summary>
+    /// 不具合3: <see cref="ShowMessageAsync"/>と同じ見た目だが、ボタンのラベルを差し替えられる
+    /// （例:「再起動」）。<see cref="ShowMessageAsync"/>と異なり、そのボタンが実際に押されたか
+    /// （＝アクションを実行してよいか）を呼び出し側が区別できるよう、タイトルバーの×で
+    /// 閉じられた場合はfalseを返す（あえて<c>isCancel: false</c>にし、Escapeキーではアクション
+    /// ボタンが起動しないようにする。Escapeでの意図しない再起動等を避けるため）。
+    /// </summary>
+    public Task<bool> ShowActionMessageAsync(string title, string message, string actionLabel)
+    {
+        var window = BuildShell(title, out var body);
+        AddMessage(body, message);
+        var tcs = new TaskCompletionSource<bool>();
+
+        var buttons = AddButtonRow(body, title, message);
+        var action = CreateButton(actionLabel, isDefault: true, isCancel: false);
+        action.Click += (_, _) => Complete(window, tcs, true);
+        buttons.Children.Add(action);
+
+        window.Loaded += (_, _) => action.Focus();
+        window.Closed += (_, _) => tcs.TrySetResult(false);
+        ShowModal(window);
+        return tcs.Task;
+    }
+
+    /// <summary>
     /// ダイアログの外枠を組み立てる。背景・文字色はすべてテーマトークンへ<c>DynamicResource</c>で
     /// バインドし、ハードコードした色は使わない（附録A.5）。
     /// </summary>
