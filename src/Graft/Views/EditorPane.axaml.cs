@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -237,10 +238,52 @@ public partial class EditorPane : UserControl
     /// <summary>
     /// タブ表示時にカーソル・選択範囲・スクロール位置を復元する。<see cref="MoveCaretTo"/>による
     /// おおまかな可視化（<c>ScrollToLine</c>）はカーソル位置を確実に画面内へ入れるために常に行う。
-    /// 一方、正確なスクロールオフセットの復元は<see cref="EditorTabViewModel.HasViewState"/>が
-    /// trueの場合（＝一度でもこのタブを離れ、退避済みの位置がある場合）のみ行う。
-    /// Document切替直後はレイアウトが未確定のため、正確なオフセット設定はレイアウト確定後まで
-    /// 遅延させる（AvaloniaのDispatcherPriority.Backgroundはレイアウトより後に走る）。
+    ///
+    /// 【不具合修正1: ファイルを開いた直後に1行目が半行分切れる（Windows実機報告）】
+    /// 「コードを開いた時に1行目が表示しきれていない（カーソルは1:1なのに、表示だけ半行ぶん
+    /// 下へスクロールした状態になる）」という報告があった。ヘッドレステスト（Xvfb不要、
+    /// Avalonia.Headless+Skiaで実フォント計測込みで再現できた。EditorOpenScrollPositionTests
+    /// 参照）で調査したところ、原因は本メソッド側のロジックではなく、AvaloniaのScrollViewer/
+    /// ScrollContentPresenter側にある一過性の競合だと判明した:
+    ///
+    ///   1. 本メソッドの<c>MoveCaretTo</c>（同期呼び出し）は<c>Editor.ScrollToLine(1)</c>で
+    ///      正しくVerticalOffset=0を設定する（この時点では問題ない）。
+    ///   2. しかしこのEditorPane方式は「単一のEditor/ScrollViewerを全タブで使い回し、
+    ///      Documentだけ差し替える」（クラス冒頭のコメント参照）ため、直後に走る
+    ///      レイアウトパス（<c>TextView.MeasureOverride</c>）が新しい文書の実際の行数から
+    ///      Extent（コンテンツ全体の高さ）を再計算する。ExtentがOffsetより先に
+    ///      ScrollContentPresenter→ScrollViewerへ伝播する実装（Avalonia側
+    ///      <c>ScrollContentPresenter.OnPropertyChanged</c>のExtent分岐）になっており、
+    ///      その伝播の最中に走る<c>CoerceValue(OffsetProperty)</c>が「まだ0へ更新される前の
+    ///      （直前のタブの）Offsetの生値」を新しいExtentに対して再クランプしてしまう。
+    ///      結果としてOffset.Yが行の高さの半分程度（実測: 既定フォントで8.775px、
+    ///      行高17.55pxのちょうど半分）だけ動いてしまい、1行目の上半分が画面外へ出る。
+    ///   3. これはAvalonia本体のScrollViewer実装の内部的な伝播順序に起因する一過性の
+    ///      ズレであり、レイアウトが完全に落ち着いた後（<c>DispatcherPriority.Background</c>、
+    ///      レイアウト/描画より後に走る）に同じ位置へ改めてスクロールし直せば消える
+    ///      （実測で確認済み）。
+    ///
+    /// このため、スクロール位置の再適用は<see cref="EditorTabViewModel.HasViewState"/>の
+    /// 真偽に関わらず必ずレイアウト確定後まで遅延させて行う。<c>HasViewState</c>がtrue
+    /// （＝一度でもこのタブを離れ、退避済みの位置がある場合）なら退避した正確なオフセットへ、
+    /// falseの場合（新規に開いたタブ）は<c>MoveCaretTo</c>をもう一度呼んでキャレット行へ
+    /// 改めてスクロールし直すことで、上記のズレを打ち消す。
+    ///
+    /// 【不具合修正2（副次的に見つかった既存不具合）: タブを離れて戻ったときの正確なスクロール
+    /// 位置復元が、実は無条件に無効だった】
+    /// 上記調査の過程で、<c>AvaloniaEdit.TextEditor.ScrollToVerticalOffset</c>/
+    /// <c>ScrollToHorizontalOffset</c>（本プロジェクトが参照するAvaloniaEdit 11.1.0）が
+    /// <c>ApplyTemplate()</c>を呼ぶだけで実際には何もしない未実装のメソッドであることが
+    /// 判明した（ILSpyでの逆コンパイル・ヘッドレステストでの実測の両方で確認済み）。
+    /// つまり本メソッドが以前これらを呼んでいた「HasViewStateがtrueのときの正確な位置復元」は、
+    /// タブ切替直後にたまたま<c>MoveCaretTo</c>のキャレット行スクロールで近い位置に来ていた
+    /// 場合を除き、実質的に機能していなかった（回帰テストが存在しなかったため気付かれずに
+    /// 残っていたと見られる）。
+    /// 代わりに、AvaloniaEdit内部の<c>TextView</c>が実装する<c>Avalonia.Controls.Primitives.
+    /// IScrollable</c>（<c>TextEditor.ScrollTo</c>が最終的に<c>ScrollViewer.Offset</c>へ代入する
+    /// 経路と同じ実体へ到達する）を、公開されている<c>Editor.TextArea</c>経由で直接操作することで
+    /// 実際にオフセットを反映させる（ヘッドレステストで、この経路のみが確実に効くことを
+    /// 実測確認済み）。
     /// </summary>
     private void RestoreViewStateFrom(EditorTabViewModel tab)
     {
@@ -253,15 +296,35 @@ public partial class EditorPane : UserControl
             if (length > 0) Editor.Select(start, length);
         }
 
-        if (!tab.HasViewState) return;
-
+        var hasViewState = tab.HasViewState;
         var x = tab.ScrollOffsetX;
         var y = tab.ScrollOffsetY;
         Dispatcher.UIThread.Post(() =>
         {
             if (!ReferenceEquals(_loadedTab, tab)) return; // 遅延実行中に別タブへ切り替わっていたら何もしない
-            Editor.ScrollToVerticalOffset(y);
-            Editor.ScrollToHorizontalOffset(x);
+            if (hasViewState)
+            {
+                // 不具合修正2: Editor.ScrollToVerticalOffset/ScrollToHorizontalOffsetは
+                // AvaloniaEdit 11.1.0では何もしないため使わず、IScrollable.Offsetを
+                // TextArea経由で直接設定する。
+                var scrollable = (IScrollable)Editor.TextArea;
+                scrollable.Offset = new Vector(x, y);
+            }
+            else
+            {
+                // 新規に開いたタブ: レイアウト確定に伴うAvalonia側のExtent再計算とOffset
+                // クランプの競合（不具合修正1）でずれたスクロール位置を、改めてスクロールし
+                // 直すことで打ち消す。ここで打ち消したいのはスクロール位置だけであり、
+                // キャレット位置・選択範囲は絶対に触れてはならない。この遅延コールバックは
+                // Background優先度のため、発火するまでの間に利用者（またはテストコード）が
+                // 既に選択操作等を行っている可能性があり、MoveCaretTo（Caret.Line/Columnを
+                // 直接代入する＝選択範囲を消してしまう）をここで呼ぶと、開いた直後に素早く
+                // 選択して右クリックメニューを使うような操作の選択範囲を消してしまう回帰と
+                // なる（EditorSelectionPromptTestsで実際に検出した）。そのためCaretには触れず、
+                // その時点のキャレット行（Editor.TextArea.Caret.Line。利用者が既に動かして
+                // いればその行）へ表示だけを合わせ直すScrollToLineに留める。
+                Editor.ScrollToLine(Editor.TextArea.Caret.Line);
+            }
         }, DispatcherPriority.Background);
     }
 
