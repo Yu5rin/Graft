@@ -32,17 +32,27 @@
         <Setter Property="Padding" Value="4" />
     </ControlTheme>
 
-    <!-- ========== エディタタブの見出し部 ========== -->
+    <!--
+        ========== エディタタブの見出し部 ==========
+        機能改善（タブが増えたときに到達できない問題、依頼1/2）: ItemsPanelは
+        views:TabStripPanel（Views/TabStripPanel.cs）。タブ幅を自動で縮め、最小幅でも
+        収まらない分は自前の水平オフセットで管理する（スクロールボタン・マウスホイールから
+        EditorPane.axaml.cs経由で操作する）。そのためListBox自身の水平スクロールバーは
+        使わない（Disabledのまま。CanHorizontallyScroll=falseとなり、TabStripPanelの
+        MeasureOverrideへ「実際のビューポート幅」がそのまま渡ってくる＝タブ幅の
+        計算に使える。もしAutoのままだとScrollViewerは常に無限幅を子へ渡してしまい、
+        「収まる幅まで縮める」判定ができなくなる）。
+    -->
     <ControlTheme x:Key="EditorTabStripTheme" TargetType="ListBox"
                   BasedOn="{StaticResource {x:Type ListBox}}">
         <Setter Property="Background" Value="{DynamicResource BgSurface}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="0,0,0,1" />
-        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
         <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
         <Setter Property="ItemsPanel">
             <ItemsPanelTemplate>
-                <StackPanel Orientation="Horizontal" />
+                <views:TabStripPanel />
             </ItemsPanelTemplate>
         </Setter>
     </ControlTheme>
@@ -104,6 +114,38 @@
         </Setter>
         <Style Selector="^:pointerover /template/ Border#PART_Bg">
             <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+    </ControlTheme>
+
+    <!--
+        機能改善（タブが増えたときに到達できない問題、依頼2/3）: 左右スクロールボタン・
+        タブ一覧ドロップダウンの共通の見た目。EditorTabCloseButtonThemeと似た軽量な
+        アイコンボタンだが、Contentを差し替えられるようContentPresenterを使う点が異なる
+        （閉じるボタンは常にxアイコン固定のため専用テーマのまま残す）。無効時
+        （スクロール端に達した等）はOpacityを下げて操作できないことを示す。
+        他エージェントが対応中の共有Buttonテーマ（Controls.axaml）には触れず、
+        タブ見出し専用の独立したControlThemeとしてここに置く。
+    -->
+    <ControlTheme x:Key="EditorTabStripActionButtonTheme" TargetType="Button">
+        <Setter Property="Width" Value="26" />
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="PART_Bg" Background="{TemplateBinding Background}" CornerRadius="3">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Opacity" Value="0.35" />
         </Style>
     </ControlTheme>
 

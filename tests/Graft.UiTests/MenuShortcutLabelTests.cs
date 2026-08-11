@@ -88,9 +88,12 @@ public class MenuShortcutLabelTests : IDisposable
         var tab = (await shell.Editor.OpenFileAsync(targetPath).ConfigureAwait(true)).Value;
         Dispatcher.UIThread.RunJobs();
 
-        var tabBorder = window.GetVisualDescendants().OfType<Border>()
-            .Single(b => ReferenceEquals(b.DataContext, tab) && b.ContextMenu is not null);
-        var menuItem = tabBorder.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
+        // 機能改善（タブが増えたときに到達できない問題）: タブ見出しのDataTemplateルートは
+        // タブ幅の自動縮小（Title=*列で省略記号表示）のためBorderからGridへ変更した
+        // （EditorPane.axaml参照）。ContextMenuの取り付け先もそれに合わせてGridへ移った。
+        var tabGrid = window.GetVisualDescendants().OfType<Grid>()
+            .Single(g => ReferenceEquals(g.DataContext, tab) && g.ContextMenu is not null);
+        var menuItem = tabGrid.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Single(m => (m.Header?.ToString() ?? string.Empty).StartsWith("閉じる", StringComparison.Ordinal));
 
         menuItem.Header.Should().Be("閉じる (Ctrl+W)");

@@ -207,7 +207,12 @@
         <!-- chevron-right: ツリー・パネルの折りたたみ（閉） -->
         <StreamGeometry x:Key="IconChevronRightGeometry">M9,5 L16,12 L9,19</StreamGeometry>
 
-        <!-- chevron-down: ツリー・パネルの折りたたみ（開） -->
+        <!-- chevron-left: タブが増えたときの左スクロールボタン（EditorPane.axaml）。
+             IconChevronRightGeometryをx=12中心で左右反転しただけの意匠。 -->
+        <StreamGeometry x:Key="IconChevronLeftGeometry">M15,5 L8,12 L15,19</StreamGeometry>
+
+        <!-- chevron-down: ツリー・パネルの折りたたみ（開）。タブ一覧ドロップダウンの
+             トグルアイコンとしても使う（EditorPane.axaml）。 -->
         <StreamGeometry x:Key="IconChevronDownGeometry">M5,9 L12,16 L19,9</StreamGeometry>
 
         <!-- plus: 新規作成 -->
