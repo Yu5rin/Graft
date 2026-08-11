@@ -139,6 +139,16 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             RequestOpenManual?.Invoke(this, EventArgs.Empty);
         });
         ToggleHelpMenuCommand = new RelayCommand(() => IsHelpMenuOpen = !IsHelpMenuOpen);
+        // 画面上のチュートリアル（コーチマーク）: ヘルプメニュー「使い方を学ぶ」・コマンドパレットの
+        // 両方から、いつでも再実行できるようにする。ヘルプメニュー経由のときは他の項目と同じく
+        // メニューを閉じてから要求する。実体（ShellWindow.Tutorial.cs）はControlの座標計算等
+        // Avalonia固有の知識を要するためView側の責務とし、ここではイベントで要求するだけに留める
+        // （RequestOpenManual/RequestOpenShortcutsと同じ「Viewへ委譲する」設計）。
+        StartTutorialCommand = new RelayCommand(() =>
+        {
+            IsHelpMenuOpen = false;
+            RequestStartTutorial?.Invoke(this, EventArgs.Empty);
+        });
         AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
         InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
         InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
@@ -269,6 +279,15 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public ICommand ToggleHelpMenuCommand { get; }
 
     /// <summary>
+    /// 画面上のチュートリアル（コーチマーク）を開始する。ツールバーの「?」メニュー
+    /// 「使い方を学ぶ」・コマンドパレットの両方から、いつでも再実行できる。
+    /// 初回起動ガイドの最終画面「使い方を学ぶ」もStartupCoordinator経由でこれと同じ経路
+    /// （<see cref="RequestStartTutorial"/>ではなく<c>ShellWindow.StartTutorial()</c>を直接呼ぶ）を
+    /// 使って開始する。実行中に呼んでも二重に始まらない（ShellWindow.Tutorial.cs参照）。
+    /// </summary>
+    public ICommand StartTutorialCommand { get; }
+
+    /// <summary>
     /// ツールバーの「?」ボタンから開くメニュー（ショートカット一覧・取扱説明書）の開閉状態。
     /// ShellWindow.axamlのPopup（HelpMenuPopup）へTwoWayでバインドする
     /// （PromptCopyViewModel.IsOpenと同じ考え方）。
@@ -291,6 +310,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>取扱説明書ウィンドウを開くタイミングの通知。View側（ShellWindow）が購読する。</summary>
     public event EventHandler? RequestOpenManual;
+
+    /// <summary>
+    /// 画面上のチュートリアル（コーチマーク）を開始するタイミングの通知。View側（ShellWindow）が
+    /// 購読し、実際のコントロールを指すオーバーレイ制御（ShellWindow.Tutorial.cs）を開始する。
+    /// </summary>
+    public event EventHandler? RequestStartTutorial;
 
     /// <summary>
     /// 機能改善: エディタ本文・差分表示（通常＋履歴）のいずれかでCtrl+マウスホイールにより

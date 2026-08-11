@@ -26,6 +26,24 @@ public partial class ShellWindow
     {
         if (DataContext is not ShellViewModel) return;
 
+        // 画面上のチュートリアル（コーチマーク）実行中は、Escでの中断のみをここで処理し
+        // （Handled=trueにする）、それ以外のキーはHandledにせずそのまま素通りさせる。
+        // こうすることで、以降のCtrl+Enter（適用）等Graft自体のショートカット処理
+        // （このメソッドの続き）には到達させず、背後のショートカットがチュートリアルの
+        // 進行と競合してサンプル以外の状態を壊すことを防ぎつつ、TutorialOverlay側の
+        // 既定ボタン（PrimaryButton、フォーカス済み）に対するEnter等の通常のキー操作は
+        // 妨げない（実際の操作は必ず吹き出し内のボタンから行わせる設計。ShellWindow.
+        // Tutorial.csのクラスコメント参照）。
+        if (_tutorialActive)
+        {
+            if (e.Key == Key.Escape)
+            {
+                _ = ExitTutorialFromKeyboardAsync();
+                e.Handled = true;
+            }
+            return;
+        }
+
         // クイックオープン（Ctrl+P）が開いている間は、上下キー・Enter・Escapeを
         // フォーカス位置に関わらずここで処理する。検索ボックス（TextBox）へフォーカスが
         // あってもトンネリング段階のこのハンドラが先に届くため、他の分岐より前に判定する。

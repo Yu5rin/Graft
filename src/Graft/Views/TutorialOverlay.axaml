@@ -1,0 +1,105 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.TutorialOverlay"
+             Focusable="False"
+             ClipToBounds="True"
+             IsVisible="False"
+             AutomationProperties.Name="使い方を学ぶ（画面上のチュートリアル）">
+    <!--
+        画面上のチュートリアル（コーチマーク方式）のオーバーレイ本体。ShellWindow.axamlの
+        最上位Gridの最後の子として全画面に重ねられる（Grid.RowSpan="3"）。制御の実体
+        （ステップの進行・対象コントロールの決定・実際の解析/適用/復元の実行）はShellWindow.
+        Tutorial.csが持ち、このクラス自身は「与えられた矩形を明るく見せて、その近くに吹き出しを
+        出す」という描画・配置計算だけを担う（実際のGraftの画面操作を知らない）。
+
+        構成（Grid内に3枚を重ねる）:
+          1. ScrimPath   — 画面全体を覆う半透明の暗幕。対象コントロールの位置だけを
+                           EvenOddのfill ruleで四角い「穴」として抜き、そこだけ暗幕の下の
+                           実際の画面が素通しで明るく見えるようにする（対象を「明るく見せる」
+                           仕組み本体）。
+          2. HighlightBorder — 穴の縁に沿わせる、強調色の角丸枠（テーマの Accent トークン）。
+                              穴だけでは境界が分かりにくいため、輪郭をもう一段はっきりさせる。
+          3. BubbleBorder — 吹き出し（説明カード）。対象の下→上→右→左の順で置き場所を選び、
+                           どの置き場所でも画面外にはみ出さないよう最終的に必ずクランプする
+                           （TutorialOverlay.axaml.cs ShowStep/PositionBubble参照）。
+
+        暗幕の色（ScrimPath.Fill）だけは既存のテーマトークンを使わず、固定の半透明黒
+        （#8A000000）にしている。理由: 「対象だけを明るく見せる」ための下地はライト・ダーク
+        どちらのテーマでもコントラストが必要で、TextPrimary等の色トークンをそのまま使うと
+        ダークテーマでは明色（#E6E8EB系）になってしまい、逆に対象以外が明るく浮いてしまう
+        （狙いと逆の見た目になる）。ハイライト枠・吹き出し・文字色は通常どおり
+        DynamicResourceの既存トークン（Accent/BgElevated/BorderSubtle/TextPrimary/
+        TextSecondary）を使い、ライト・ダーク両テーマで読めることを保証する
+        （多くのアプリのモーダル背景・スポットライト演出が採用する、テーマに依存しない
+        暗幕という一般的な作法にならった）。
+    -->
+    <Grid>
+        <Path x:Name="ScrimPath"
+              Fill="#8A000000"
+              IsHitTestVisible="True"
+              AutomationProperties.Name="チュートリアルの背景（クリックはできません）" />
+
+        <Border x:Name="HighlightBorder"
+                BorderBrush="{DynamicResource Accent}"
+                BorderThickness="2"
+                CornerRadius="6"
+                IsHitTestVisible="False"
+                IsVisible="False"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top" />
+
+        <Border x:Name="BubbleBorder"
+                Background="{DynamicResource BgElevated}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="16"
+                Width="340"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                AutomationProperties.Name="チュートリアルの説明">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock x:Name="StepIndicatorText"
+                               Grid.Column="0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondary}"
+                               FontSize="{DynamicResource CaptionFontSize}" />
+                    <Button x:Name="ExitButton"
+                            Grid.Column="1"
+                            Content="終了"
+                            Padding="6,2"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Click="OnExitClicked"
+                            views:HelpTip.Standard="チュートリアルを中断します（Escキーでも終了できます）。ここまでの操作はサンプルにのみ行われており、中断してもGraftの状態が壊れることはありません。"
+                            AutomationProperties.Name="チュートリアルを終了" />
+                </Grid>
+                <TextBlock x:Name="TitleText"
+                           Margin="0,4,0,4"
+                           TextWrapping="Wrap"
+                           FontSize="{DynamicResource PaneHeadingFontSize}"
+                           FontWeight="{DynamicResource PaneHeadingFontWeight}" />
+                <TextBlock x:Name="MessageText"
+                           TextWrapping="Wrap"
+                           FontSize="{DynamicResource BodyFontSize}" />
+                <Grid Margin="0,12,0,0" ColumnDefinitions="Auto,*,Auto">
+                    <Button x:Name="BackButton"
+                            Grid.Column="0"
+                            Content="戻る"
+                            Click="OnBackClicked"
+                            AutomationProperties.Name="前のステップに戻る"
+                            views:HelpTip.Standard="1つ前のステップに戻ります。" />
+                    <Button x:Name="PrimaryButton"
+                            Grid.Column="2"
+                            Content="次へ"
+                            Click="OnPrimaryClicked"
+                            IsDefault="True"
+                            AutomationProperties.Name="次のステップへ進む"
+                            views:HelpTip.Standard="このステップの内容を実行し、次のステップへ進みます。" />
+                </Grid>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

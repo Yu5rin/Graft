@@ -216,6 +216,19 @@
                                     Background="Transparent" BorderThickness="0"
                                     views:HelpTip.Standard="キーボードショートカットの一覧を開きます（Ctrl+/）。"
                                     AutomationProperties.Name="キーボードショートカット一覧を開く" />
+                            <!--
+                                画面上のチュートリアル（コーチマーク）: 利用者からの指摘
+                                （「接ぎ木が体験できない」）への対応で追加。初回起動ガイドの
+                                最終画面「使い方を学ぶ」から開始する体験を、あとからいつでも
+                                再実行できる入口をここに置く（コマンドパレットにも同じ操作を追加）。
+                            -->
+                            <Button Content="使い方を学ぶ"
+                                    Command="{Binding StartTutorialCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Background="Transparent" BorderThickness="0"
+                                    views:HelpTip.Standard="サンプルを使って、実際の画面上で接ぎ木の一連の流れ（解析→差分確認→適用→履歴→復元）を体験します。"
+                                    views:HelpTip.Detailed="実際のGraftの画面上でコントロールを指しながら、解析→差分確認→適用→履歴確認→復元までの一連の流れを1つずつ体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断できます。"
+                                    AutomationProperties.Name="使い方を学ぶ（画面上のチュートリアルを開始）" />
                         </StackPanel>
                     </Border>
                 </Popup>
@@ -423,5 +436,15 @@
 
         <!-- ============== ステータスバー（24px） ============== -->
         <views:StatusBarView Grid.Row="2" />
+
+        <!--
+            画面上のチュートリアル（コーチマーク）のオーバーレイ。コマンドバー・本体・
+            ステータスバーの3行すべてに重なるよう、この最上位Gridの最後の子として
+            Grid.RowSpan="3"で配置する（Avaloniaは子の描画順=Z順のため、最後に置くことで
+            必ず最前面に来る）。既定は非表示（TutorialOverlay.axaml側でIsVisible="False"）。
+            実際の開始・進行の制御はShellWindow.Tutorial.cs、対象コントロールを明るく見せる
+            仕組み・吹き出しの位置計算はTutorialOverlay.axaml.csが担う。
+        -->
+        <views:TutorialOverlay x:Name="TutorialOverlayControl" Grid.Row="0" Grid.RowSpan="3" />
     </Grid>
 </Window>

@@ -9,14 +9,27 @@ using Graft.ViewModels;
 namespace Graft.Views;
 
 /// <summary>
-/// 初回起動ガイド（仕様書8.12）。導入・プロジェクト登録・プロンプトのコピーの3画面を順に案内し、
-/// 完了・スキップのいずれでも表示済みフラグを書き出す。v2.0のWPF版からの移植（19章 L3）。
-/// クリップボードへの書き込みはAvaloniaでは非同期APIのため、
+/// 初回起動ガイド（仕様書8.12）。導入・プロジェクト登録・プロンプトのコピー・最終選択の4画面を
+/// 順に案内し、完了・スキップのいずれでも表示済みフラグを書き出す。v2.0のWPF版からの移植
+/// （19章 L3）。クリップボードへの書き込みはAvaloniaでは非同期APIのため、
 /// <see cref="AvaloniaUiServices"/> 経由ではなくウィンドウ自身のクリップボードを使う。
+///
+/// 利用者からの指摘（「接ぎ木が体験できないので、ソフトの中核を体験できない」）への対応:
+/// 最終画面（Screen4）は「使い方を学ぶ」「チュートリアルを終了」の2択にした。「使い方を学ぶ」を
+/// 選ぶと、このガイド自体は（表示済みフラグを書き出して）終了しつつ、<see cref="StartTutorialRequested"/>
+/// を立てて閉じる。実際のシェル画面上でコントロールを指しながら接ぎ木を体験させる画面上
+/// チュートリアル本体は<c>Graft.Views.ShellWindow</c>側（ShellWindow.Tutorial.cs）が担う。
+/// このウィンドウはシェルの実際のコントロール（GraftPanel・HistoryPane等）を一切知らない
+/// ため、ここでは「学ぶことを選んだ」という意思表示（bool 1つ）を返すだけに留める
+/// （StartupCoordinator.StartAsyncがShowDialog後にこれを見て、シェル側のチュートリアルを開始する）。
+///
+/// スキップ（どの画面からでも押せるSkipButton）・Escは、当然この最終選択も経由せずそのまま
+/// ガイドを終了する（＝チュートリアルも開始しない。OnSkipClicked/OnTunnelKeyDownは従来どおり
+/// StartTutorialRequestedをfalseのままFinishAsyncを呼ぶ）。
 /// </summary>
 public partial class OnboardingWindow : Window
 {
-    private const int LastStepIndex = 2;
+    private const int LastStepIndex = 3;
 
     private readonly AppPaths _appPaths;
     private readonly ProjectStore _projectStore;
@@ -24,9 +37,13 @@ public partial class OnboardingWindow : Window
     private readonly IDialogService _dialogService;
     private int _step;
 
-    // 細かいユーザビリティ改善6: 「サンプルで試す」で生成した一時プロジェクトのルート。
-    // 「サンプルを削除」ボタンの有効化・削除対象の特定に使う。未生成の間はnull。
-    private string? _sampleProjectRoot;
+    /// <summary>
+    /// 最終画面で「使い方を学ぶ」が選ばれたかどうか。StartupCoordinator.StartAsyncが
+    /// <see cref="Window.ShowDialog(Window)"/>の完了後にこれを見て、シェル側の画面上
+    /// チュートリアルを開始するかどうかを判断する。既定はfalse
+    /// （スキップ・「チュートリアルを終了」・Escのいずれでもfalseのまま）。
+    /// </summary>
+    public bool StartTutorialRequested { get; private set; }
 
     /// <summary>headlessテスト・デザイナ用の引数なしコンストラクタ。プロジェクト登録はできるが、
     /// シェル側の一覧とは連携しない（<see cref="_projectPane"/> がnullのため）。</summary>
@@ -98,7 +115,13 @@ public partial class OnboardingWindow : Window
 
     private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) _ = FinishAsync();
+        // スキップと同じ扱い: Escで閉じた場合も、学ぶ画面（最終選択）を経由せずそのまま
+        // ガイドを終了し、チュートリアルは開始しない。
+        if (e.Key == Key.Escape)
+        {
+            StartTutorialRequested = false;
+            _ = FinishAsync();
+        }
     }
 
     private void OnNextClicked(object? sender, RoutedEventArgs e)
@@ -121,7 +144,15 @@ public partial class OnboardingWindow : Window
         UpdateStepUi();
     }
 
-    private void OnSkipClicked(object? sender, RoutedEventArgs e) => _ = FinishAsync();
+    /// <summary>
+    /// スキップは当然チュートリアルの終了として扱う。どの画面からスキップしても、
+    /// 最終選択画面（学ぶ／終了の2択）を経由せずそのままガイドを終了する。
+    /// </summary>
+    private void OnSkipClicked(object? sender, RoutedEventArgs e)
+    {
+        StartTutorialRequested = false;
+        _ = FinishAsync();
+    }
 
     private async void OnRegisterProjectClicked(object? sender, RoutedEventArgs e)
     {
@@ -144,83 +175,23 @@ public partial class OnboardingWindow : Window
     }
 
     /// <summary>
-    /// 細かいユーザビリティ改善6: 「サンプルで試す」。実データを一切触らずに、
-    /// 登録→貼り付け→適用→履歴確認の流れを1回体験できるようにする。<see cref="OnboardingSample"/>が
-    /// 一時フォルダへサンプルプロジェクト（1ファイル）とサンプルパッチを生成し、ここではそれを
-    /// （フォルダ選択登録と同じ経路で）登録し、パッチ本文をクリップボードへコピーするところまでを
-    /// 行う。そこから先（貼り付け・解析・適用・履歴確認）は、実際のGraftの画面操作をそのまま
-    /// 体験してもらうため、あえて自動化しない。
+    /// 最終画面「使い方を学ぶ」。<see cref="StartTutorialRequested"/>を立ててからガイドを終了する
+    /// （表示済みフラグの書き出し・ウィンドウを閉じる処理自体は<see cref="OnFinishOnboardingClicked"/>
+    /// と共有する<see cref="FinishAsync"/>を使う）。実際のチュートリアル本体は、このウィンドウが
+    /// 閉じた後にStartupCoordinator.StartAsyncがShellWindow側で開始する（クラスコメント参照）。
     /// </summary>
-    private async void OnTryOnboardingSampleClicked(object? sender, RoutedEventArgs e)
+    private async void OnStartTutorialClicked(object? sender, RoutedEventArgs e)
     {
-        await SafeHandler.RunAsync("サンプルの生成", async () =>
-        {
-            var sample = OnboardingSample.Create();
-
-            // 登録の経路はOnRegisterProjectClickedと同じ（_projectPaneがあればシェルの一覧・
-            // ドロップダウンへ即座に反映、無ければ従来どおり登録のみ）。
-            var result = _projectPane is not null
-                ? await _projectPane.RegisterFolderAsync(sample.ProjectRoot).ConfigureAwait(true)
-                : await _projectStore.RegisterAsync(sample.ProjectRoot, null).ConfigureAwait(true);
-
-            if (!result.IsSuccess)
-            {
-                OnboardingSample.Cleanup(sample.ProjectRoot);
-                ProjectResultText.Text = "サンプルの登録に失敗しました。";
-                return;
-            }
-
-            _sampleProjectRoot = sample.ProjectRoot;
-            DeleteSampleButton.IsVisible = true;
-
-            if (Clipboard is not null)
-            {
-                await Clipboard.SetTextAsync(sample.PatchText).ConfigureAwait(true);
-            }
-
-            ProjectResultText.Text =
-                $"サンプルプロジェクト「{result.Value.Name}」を登録し、サンプルパッチをクリップボードへ" +
-                $"コピーしました（生成先: {sample.ProjectRoot}）。ツールバーの「解析」→「適用」を押すと、" +
-                "greeting.pyへの変更を体験できます。適用後は履歴タブでも確認できます。一時フォルダに" +
-                "生成したものなので、あとで削除して構いません（下の「サンプルを削除」でもまとめて消せます）。";
-        }).ConfigureAwait(true);
+        StartTutorialRequested = true;
+        await FinishAsync().ConfigureAwait(true);
     }
 
-    /// <summary>
-    /// 細かいユーザビリティ改善6: 体験後にサンプルを片付ける導線。プロジェクト一覧からも取り除く
-    /// （登録したまま一時フォルダだけ消すと、存在しないフォルダを指すプロジェクトが一覧に残って
-    /// しまうため）。
-    /// </summary>
-    private async void OnDeleteSampleClicked(object? sender, RoutedEventArgs e)
+    /// <summary>最終画面「チュートリアルを終了」。学ぶ画面は開始せず、そのままガイドを終了する。</summary>
+    private async void OnFinishOnboardingClicked(object? sender, RoutedEventArgs e)
     {
-        await SafeHandler.RunAsync("サンプルの削除", async () =>
-        {
-            if (_sampleProjectRoot is not { } root) return;
-
-            var projects = await _projectStore.LoadAsync().ConfigureAwait(true);
-            if (projects.IsSuccess)
-            {
-                var match = projects.Value.FirstOrDefault(p => PathsEqual(p.Root, root));
-                if (match is not null)
-                {
-                    await _projectStore.RemoveAsync(match.Id, deleteHistory: true).ConfigureAwait(true);
-                    // _projectStoreへ直接書き込んだだけでは、シェルが保持する一覧（メモリ上）には
-                    // 反映されない（OnRegisterProjectClickedのコメントと同じ理由）。_projectPaneが
-                    // あれば再読み込みして同期する。
-                    if (_projectPane is not null) await _projectPane.LoadAsync().ConfigureAwait(true);
-                }
-            }
-
-            OnboardingSample.Cleanup(root);
-            _sampleProjectRoot = null;
-            DeleteSampleButton.IsVisible = false;
-            ProjectResultText.Text = "サンプルを削除しました。";
-        }).ConfigureAwait(true);
+        StartTutorialRequested = false;
+        await FinishAsync().ConfigureAwait(true);
     }
-
-    private static bool PathsEqual(string a, string b) => OperatingSystem.IsWindows()
-        ? string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
-        : string.Equals(a, b, StringComparison.Ordinal);
 
     private async void OnCopyTemplateClicked(object? sender, RoutedEventArgs e)
     {
@@ -238,9 +209,17 @@ public partial class OnboardingWindow : Window
         Screen1.IsVisible = _step == 0;
         Screen2.IsVisible = _step == 1;
         Screen3.IsVisible = _step == 2;
+        Screen4.IsVisible = _step == 3;
 
         BackButton.IsEnabled = _step > 0;
-        NextButton.Content = _step >= LastStepIndex ? "完了" : "次へ";
+        // 最終画面（Screen4）は下段のNext/Skipではなく、画面内の2択（「使い方を学ぶ」/
+        // 「チュートリアルを終了」）で完結させる。NextButtonを隠すだけでなくIsDefaultも
+        // 外し、Enterキーが画面内の「使い方を学ぶ」（Screen4側でIsDefault="True"）へ
+        // 届くようにする（2つのIsDefaultが同時に有効だと曖昧になるため）。
+        var isFinalScreen = _step >= LastStepIndex;
+        NextButton.IsVisible = !isFinalScreen;
+        NextButton.IsDefault = !isFinalScreen;
+        SkipButton.IsVisible = !isFinalScreen;
         StepIndicatorText.Text = $"{_step + 1} / {LastStepIndex + 1}";
     }
 

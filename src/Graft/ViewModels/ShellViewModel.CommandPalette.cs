@@ -72,6 +72,9 @@ public sealed partial class ShellViewModel
             new("設定を開く", Graft.OpenSettingsCommand, null, Gesture("OpenSettings")),
             new("キーボードショートカット一覧を開く", OpenShortcutsCommand, null, Gesture("OpenShortcuts")),
             new("取扱説明書を開く", OpenManualCommand, null, Gesture("OpenManual")),
+            // 画面上のチュートリアル（コーチマーク）。専用のキー割り当ては無いため、Gestureは常にnull
+            // （ShortcutCatalogに"StartTutorial"を登録していない。HasGesture=falseとしてバッジ非表示）。
+            new("使い方を学ぶ（画面上のチュートリアル）", StartTutorialCommand, null, Gesture("StartTutorial")),
             new("接ぎ木パネルの開閉", ToggleGraftPanelCommand, null, Gesture("ToggleGraftPanel")),
             new("接ぎ木パネルの配置切り替え（下／右）", ToggleGraftPanelPlacementCommand, null, Gesture("ToggleGraftPanelPlacement")),
             new("ファイル名であいまい検索して開く（クイックオープン）", ToggleQuickOpenCommand, null, Gesture("QuickOpen")),
