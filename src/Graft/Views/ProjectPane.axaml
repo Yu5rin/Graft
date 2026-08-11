@@ -23,24 +23,44 @@
         <Style Selector="TextBlock.projectName.disconnected">
             <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
         </Style>
+        <!-- 要望7: フォルダをドラッグ中、この一覧へドロップできることが分かるようにする
+             簡易な視覚フィードバック（ProjectPane.axaml.csのOnDragEnter/OnDragLeaveで切替）。 -->
+        <Style Selector="ListBox.dragOver">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*">
 
-        <!-- 見出し（12px SemiBold）とプロジェクト追加ボタン -->
-        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
+        <!-- 見出し（12px SemiBold）とプロジェクト追加・削除ボタン -->
+        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto,Auto">
             <TextBlock Grid.Column="0"
                        Text="プロジェクト"
                        VerticalAlignment="Center"
                        FontSize="{DynamicResource PaneHeadingFontSize}"
                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                        Foreground="{DynamicResource TextSecondary}" />
+            <!-- 要望1: 削除はボタンと右クリックメニューの両方から行えるようにする（下のContextMenuと
+                 同じDeleteProjectCommandを共有する）。選択中のプロジェクトが無いときは無効化される
+                 （ProjectPaneViewModelのCanExecute参照）。 -->
             <Button Grid.Column="1"
+                    Command="{Binding DeleteProjectCommand}"
+                    Padding="4"
+                    Margin="0,0,2,0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    local:HelpTip.Standard="選択中のプロジェクトをGraftの一覧から削除します（フォルダ自体は削除されません）。"
+                    local:HelpTip.Detailed="選択中のプロジェクトを、Graftの登録一覧からだけ削除します。実際のプロジェクトフォルダや中のファイルには一切触れません。これまでの変更履歴（バックアップ）を残すか削除するかは、実行時のダイアログで選べます。"
+                    AutomationProperties.Name="選択中のプロジェクトを削除">
+                <local:IconGlyph Data="{DynamicResource IconTrashGeometry}" />
+            </Button>
+            <Button Grid.Column="2"
                     Command="{Binding AddProjectCommand}"
                     Padding="4"
                     Background="Transparent"
                     BorderThickness="0"
-                    ToolTip.Tip="プロジェクトを追加"
+                    local:HelpTip.Standard="プロジェクトを追加"
+                    local:HelpTip.Detailed="フォルダ選択ダイアログを開き、Graftで管理したいプロジェクトのフォルダを選んで一覧に登録します。デスクトップやエクスプローラからフォルダをこの一覧へドラッグ＆ドロップしても、同じように追加できます。"
                     AutomationProperties.Name="プロジェクトを追加（フォルダ選択）">
                 <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
             </Button>
@@ -51,7 +71,38 @@
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                      Background="Transparent"
-                     AutomationProperties.Name="プロジェクト一覧">
+                     AutomationProperties.Name="プロジェクト一覧"
+                     local:HelpTip.Standard="登録済みのプロジェクトの一覧です。選ぶとエディタ・履歴・検索の対象がそのプロジェクトに切り替わります。ダブルクリックするとエクスプローラへ切り替わります。右クリックで名前の変更・タグ編集・ピン留め・削除等ができます。"
+                     local:HelpTip.Detailed="これまでに登録したプロジェクト（フォルダ）の一覧です。1件選ぶと、エディタで開くファイル・履歴・検索の対象がすべてそのプロジェクトへ切り替わります。上位9件には番号バッジが付き、Ctrl+Alt+1〜9のショートカットキーでも切り替えられます。ダブルクリックすると、選択と同時にサイドビューがエクスプローラへ切り替わります。右クリックすると、名前の変更・タグの編集・ピン留めの切替・場所の変更・削除ができるメニューが開きます。">
+                <!-- 要望3: 右クリックメニュー。右クリック時にその行を選択状態にしてから開く
+                     （HistoryPane.axaml.csのOnRevisionListPointerPressedと同じ作法。既定では
+                     右クリックだけでは選択が変わらないため）ため、ここではSelectedItemベースの
+                     既存コマンドをそのまま束縛できる。 -->
+                <ListBox.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="場所を変更..."
+                                  Command="{Binding RelocateProjectCommand}"
+                                  local:HelpTip.Standard="フォルダを移動・リネームして未接続になったプロジェクトを、新しい場所へ結び付け直します。"
+                                  AutomationProperties.Name="プロジェクトの場所を変更" />
+                        <MenuItem Header="表示名を変更..."
+                                  Command="{Binding RenameProjectCommand}"
+                                  local:HelpTip.Standard="このプロジェクトの一覧上での表示名を変更します。空にするとフォルダ名から自動生成される既定の名前に戻ります。"
+                                  AutomationProperties.Name="プロジェクトの表示名を変更" />
+                        <MenuItem Header="タグを編集..."
+                                  Command="{Binding EditTagsCommand}"
+                                  local:HelpTip.Standard="カンマ区切りでタグを編集します。一覧の項目名の下に表示されます。"
+                                  AutomationProperties.Name="プロジェクトのタグを編集" />
+                        <MenuItem Header="{Binding SelectedItem, Converter={x:Static local:Converters.PinMenuLabel}}"
+                                  Command="{Binding TogglePinCommand}"
+                                  local:HelpTip.Standard="ピン留めしたプロジェクトは一覧の先頭に固定表示されます。"
+                                  AutomationProperties.Name="ピン留めの切替" />
+                        <Separator />
+                        <MenuItem Header="削除..."
+                                  Command="{Binding DeleteProjectCommand}"
+                                  local:HelpTip.Standard="選択中のプロジェクトをGraftの一覧から削除します（フォルダ自体は削除されません）。"
+                                  AutomationProperties.Name="プロジェクトを削除" />
+                    </ContextMenu>
+                </ListBox.ContextMenu>
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
@@ -77,11 +128,25 @@
                             </Border>
 
                             <StackPanel Grid.Column="1">
-                                <TextBlock Classes="projectName"
-                                           Classes.pinned="{Binding IsPinned}"
-                                           Classes.disconnected="{Binding IsDisconnected}"
-                                           FontSize="{DynamicResource BodyFontSize}"
-                                           Text="{Binding Name}" />
+                                <!-- 要望3: ピン留め状態は太字（既存）に加え、ピンアイコンでも示す
+                                     （色のみ・太さのみに依存しないための追加表示）。 -->
+                                <Grid ColumnDefinitions="Auto,*">
+                                    <local:IconGlyph Grid.Column="0"
+                                                     Data="{DynamicResource IconPinGeometry}"
+                                                     Width="11" Height="11"
+                                                     Margin="0,0,3,0"
+                                                     VerticalAlignment="Center"
+                                                     Stroke="{DynamicResource TextSecondary}"
+                                                     IsVisible="{Binding IsPinned}" />
+                                    <TextBlock Grid.Column="1"
+                                               Classes="projectName"
+                                               Classes.pinned="{Binding IsPinned}"
+                                               Classes.disconnected="{Binding IsDisconnected}"
+                                               FontSize="{DynamicResource BodyFontSize}"
+                                               Text="{Binding DisplayName}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip.Tip="{Binding DisplayName}" />
+                                </Grid>
                                 <TextBlock Text="{Binding TagsText}"
                                            FontSize="{DynamicResource CaptionFontSize}"
                                            Foreground="{DynamicResource TextSecondary}"
@@ -103,6 +168,8 @@
                                   Message="プロジェクトがありません。フォルダをドラッグ＆ドロップ、または追加ボタンで登録してください"
                                   ActionText="フォルダを追加"
                                   ActionCommand="{Binding AddProjectCommand}"
+                                  ActionTooltip="プロジェクトとして管理するフォルダをダイアログで選び、一覧に登録します。ドラッグ＆ドロップでも追加できます。"
+                                  ActionTooltipDetailed="フォルダ選択ダイアログを開き、Graftで管理したいプロジェクトのフォルダを選んで一覧に登録します。デスクトップやエクスプローラからフォルダをこの一覧へドラッグ＆ドロップしても、同じように追加できます。登録すると、コマンドバー左端のドロップダウンからいつでもこのプロジェクトを選び直せます。"
                                   Issue="{Binding Error}" />
         </Grid>
     </Grid>

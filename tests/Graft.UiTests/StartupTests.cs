@@ -8,6 +8,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -28,8 +29,14 @@ public class StartupTests : IDisposable
     private readonly string _baseDirectory =
         Path.Combine(Path.GetTempPath(), "graft-ui-tests", Guid.NewGuid().ToString("N"));
 
+    private readonly ShownWindowTracker _windows = new();
+
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         // 利用者の設定を汚さないよう、テストごとに一時ディレクトリを使い捨てる。
         try
         {
@@ -48,7 +55,7 @@ public class StartupTests : IDisposable
     {
         var shell = BuildShell();
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
 
         using var frame = window.CaptureRenderedFrame();
@@ -60,7 +67,7 @@ public class StartupTests : IDisposable
     public void サイドビューは選択中の1つだけが表示される()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
 
         // 4つのビューは同じセルに重ねて配置されているため、出し分けを誤ると
@@ -90,7 +97,7 @@ public class StartupTests : IDisposable
     public void サイドビューを折りたたむと非表示になる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
 
         // 既定はプロジェクトビューが展開された状態のため、同じアイコンの再クリック相当の
@@ -106,7 +113,7 @@ public class StartupTests : IDisposable
     public void 検索ビュー表示時に検索欄へ自動フォーカスする()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
 
         var searchView = window.GetControl<SearchView>("SearchViewControl");
@@ -125,7 +132,7 @@ public class StartupTests : IDisposable
     public void 接ぎ木パネルを開閉できる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
 
         shell.IsGraftPanelOpen = true;
@@ -139,9 +146,14 @@ public class StartupTests : IDisposable
     public async Task 終了時にタブ構成が取り込まれる()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+        // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を
+        // 呼ぶ。ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの
+        // 読み直しが競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での
+        // 失敗を確認した事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+        // ShellWindowLoadWaiterで待つ。
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
 
         var pathA = Path.Combine(_baseDirectory, "project", "a.txt");
         var pathB = Path.Combine(_baseDirectory, "project", "b.txt");
@@ -171,7 +183,7 @@ public class StartupTests : IDisposable
     public void プロジェクト未選択時のCaptureは何もしない()
     {
         var shell = BuildShell();
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
 
         var act = () => shell.CaptureCurrentProjectState();

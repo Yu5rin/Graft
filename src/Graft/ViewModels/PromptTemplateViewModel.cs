@@ -44,11 +44,13 @@ public sealed class PromptTemplateViewModel : ObservableObject
         Templates = new ObservableCollection<TemplateEntry>();
         Projects = new ObservableCollection<Project>();
 
-        AddCommand = new AsyncRelayCommand(AddAsync);
-        DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => _selectedTemplate is { IsBuiltIn: false });
-        SaveEditCommand = new AsyncRelayCommand(SaveEditAsync, () => _selectedTemplate is { IsBuiltIn: false });
-        CopyCommand = new AsyncRelayCommand(CopyAsync, () => _selectedProject is not null);
-        SetAsProjectDefaultCommand = new AsyncRelayCommand(SetAsProjectDefaultAsync, () => _selectedProject is not null && _selectedTemplate is not null);
+        AddCommand = new AsyncRelayCommand(AddAsync, context: "テンプレートの追加");
+        DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => _selectedTemplate is { IsBuiltIn: false }, context: "テンプレートの削除");
+        SaveEditCommand = new AsyncRelayCommand(SaveEditAsync, () => _selectedTemplate is { IsBuiltIn: false }, context: "テンプレートの保存");
+        CopyCommand = new AsyncRelayCommand(CopyAsync, () => _selectedProject is not null, context: "テンプレートのコピー");
+        SetAsProjectDefaultCommand = new AsyncRelayCommand(
+            SetAsProjectDefaultAsync, () => _selectedProject is not null && _selectedTemplate is not null,
+            context: "プロジェクト既定テンプレートの設定");
     }
 
     public ObservableCollection<TemplateEntry> Templates { get; }
@@ -217,7 +219,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
 
         projects[index] = projects[index] with { PromptTemplateId = _selectedTemplate.Id };
         await _projectStore.SaveAsync(projects).ConfigureAwait(true);
-        StatusMessage = $"「{_selectedProject.Name}」の既定テンプレートを「{_selectedTemplate.Name}」に設定しました。";
+        StatusMessage = $"「{_selectedProject.DisplayName}」の既定テンプレートを「{_selectedTemplate.Name}」に設定しました。";
     }
 
     private TemplateEntry? ResolveCopyTarget()

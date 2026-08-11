@@ -1,7 +1,9 @@
+using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
+using Graft.UiTests.TestSupport;
 using Graft.Views;
 
 namespace Graft.UiTests;
@@ -12,8 +14,20 @@ namespace Graft.UiTests;
 /// このテストが通ることで「画面が開いた瞬間に落ちる」種類の不具合を機械的に防げる。
 /// v2.0のWPF版で実際に発生した StaticResource 解決失敗・型変換失敗と同種の不具合が対象。
 /// </summary>
-public class ViewTests
+public class ViewTests : IDisposable
 {
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        // このクラスは1メソッドで複数の画面を連続して描画するテストが多く、閉じ忘れの
+        // 累積が特に起きやすい。
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "空状態ビューを構築して描画できる")]
     public void 空状態ビューを描画できる()
     {
@@ -47,6 +61,29 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "履歴ペインを構築して描画できる")]
     public void 履歴ペインを描画できる() => RenderInWindow(new HistoryPane());
 
+    // 課題2-2回帰テスト: 種別絞り込みが未選択のとき、空欄ではなく「すべての種別」が
+    // 選択済みの状態で表示されることを確認する（DataContextはHistoryPaneViewModelそのもの、
+    // TypeFilterは一切設定しない既定状態のまま検証）。
+    [AvaloniaFact(DisplayName = "履歴の種別絞り込みは未選択時に「すべての種別」を選択済みで表示する")]
+    public void 履歴の種別絞り込みは未選択時にすべての種別が選択済みになる()
+    {
+        var pane = new HistoryPane
+        {
+            DataContext = new Graft.ViewModels.HistoryPaneViewModel(
+                new Graft.Core.RevisionStore(new Graft.Infra.AppPaths(
+                    Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
+                new Graft.Core.RevisionRestorer(new Graft.Infra.AppPaths(
+                    Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
+                new Graft.Features.ProjectStore(new Graft.Infra.AppPaths(
+                    Path.Combine(Path.GetTempPath(), "graft-viewtests-history", Guid.NewGuid().ToString("N")))),
+                new Graft.Platform.Null.NullDialogService()),
+        };
+        RenderInWindow(pane);
+
+        pane.TypeComboElement.SelectedItem.Should().Be(Graft.ViewModels.HistoryPaneViewModel.AllTypesOption,
+            "未選択時に空欄のままでは何を選ぶドロップダウンか分からないため、既定で「すべての種別」を選択済みにする");
+    }
+
     [AvaloniaFact(DisplayName = "エクスプローラビューを構築して描画できる")]
     public void エクスプローラビューを描画できる() => RenderInWindow(new ExplorerView());
 
@@ -71,6 +108,11 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "パッチキュー画面を構築して描画できる")]
     public void パッチキュー画面を描画できる() => RenderWindow(new QueueWindow());
 
+    // 課題1: 適用前プレビュー画面（ShowPreview有効時）。DataContextを与えず構造だけ確認する
+    // （QueueWindow等と同じ、パラメータ無しコンストラクタでのXAML描画スモークテスト）。
+    [AvaloniaFact(DisplayName = "適用前プレビュー画面を構築して描画できる")]
+    public void 適用前プレビュー画面を描画できる() => RenderWindow(new ApplyPreviewWindow());
+
     [AvaloniaFact(DisplayName = "コンテキスト収集画面を構築して描画できる")]
     public void コンテキスト収集画面を描画できる() => RenderWindow(new ContextCollectWindow());
 
@@ -80,8 +122,34 @@ public class ViewTests
     [AvaloniaFact(DisplayName = "初回起動ガイドを構築して描画できる")]
     public void 初回起動ガイドを描画できる() => RenderWindow(new OnboardingWindow());
 
+    [AvaloniaFact(DisplayName = "キーボードショートカット一覧を構築して描画できる")]
+    public void キーボードショートカット一覧を描画できる() => RenderWindow(new ShortcutsWindow());
+
     [AvaloniaFact(DisplayName = "バージョン情報を構築して描画できる")]
     public void バージョン情報を描画できる() => RenderInWindow(new AboutView());
+
+    [AvaloniaFact(DisplayName = "バージョン情報に製作者と著作権表示が出る")]
+    public void バージョン情報に製作者と著作権が表示される()
+    {
+        var view = new AboutView();
+        RenderInWindow(view);
+
+        // Graft.csprojの<Company>/<Copyright>から生成されるアセンブリ属性を読んで
+        // 表示していることを検証する（ハードコード文字列ではないことの確認）。
+        var assembly = typeof(AboutView).Assembly;
+        var company = assembly.GetCustomAttribute<AssemblyCompanyAttribute>()?.Company;
+        var copyright = assembly.GetCustomAttribute<AssemblyCopyrightAttribute>()?.Copyright;
+
+        var authorText = view.FindControl<TextBlock>("AuthorText");
+        var copyrightText = view.FindControl<TextBlock>("CopyrightText");
+
+        authorText.Should().NotBeNull();
+        copyrightText.Should().NotBeNull();
+        authorText!.IsVisible.Should().BeTrue();
+        copyrightText!.IsVisible.Should().BeTrue();
+        authorText.Text.Should().Be($"製作者: {company}");
+        copyrightText.Text.Should().Be(copyright);
+    }
 
     [AvaloniaFact(DisplayName = "設定画面の各タブを構築して描画できる")]
     public void 設定タブを描画できる()
@@ -97,8 +165,9 @@ public class ViewTests
     }
 
     /// <summary>ウィンドウそのものを表示して描画する（Window派生の画面用）。</summary>
-    private static void RenderWindow(Window window)
+    private void RenderWindow(Window window)
     {
+        _windows.Track(window);
         window.Show();
 
         using var frame = window.CaptureRenderedFrame();
@@ -109,9 +178,9 @@ public class ViewTests
     /// コントロールをウィンドウに載せて実際に描画する。UserControl単体では描画パスに
     /// 乗らずリソース解決の失敗を検出できないため、必ずウィンドウ経由で確認する。
     /// </summary>
-    private static Window RenderInWindow(Control view)
+    private Window RenderInWindow(Control view)
     {
-        var window = new Window { Width = 800, Height = 600, Content = view };
+        var window = _windows.Track(new Window { Width = 800, Height = 600, Content = view });
         window.Show();
 
         using var frame = window.CaptureRenderedFrame();

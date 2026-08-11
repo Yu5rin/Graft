@@ -6,12 +6,20 @@ namespace Graft.Platform.Linux;
 
 /// <summary>
 /// <see cref="ISingleInstanceGuard"/> のLinux実装（仕様書v2.1 19章 L4）。
-/// ロックの取得・解放は <c>Core/SingleInstanceGuard.cs</c>（名前付きMutex）へ委譲する。
-/// .NET の名前付きMutexはUnixでもプロセス間で機能するため、Windows版と同じ仕組みで足りる。
+/// ロックの取得・解放は <c>Core/SingleInstanceGuard.cs</c>（名前付きMutex、"Global\" プレフィックスを
+/// 必ず付与する。理由・実機検証結果はそちらのクラスコメントを参照）へ委譲する。
 ///
-/// 既存ウィンドウの前面化は、X11環境で広く入っている <c>wmctrl</c> を試すだけに留める。
-/// Waylandには「他プロセスのウィンドウを前面に出す」標準的な手段が無く、
-/// 入っていない環境では前面化のみ行われない（多重起動の防止自体は機能する）。
+/// 既存ウィンドウの前面化は、まずX11環境で広く入っている <c>wmctrl</c> を試す。それが使えない
+/// 環境（未導入・タイムアウト・対象ウィンドウ未検出）では、<see cref="X11WindowActivator"/>
+/// （自前のXlib接続でEWMHの _NET_ACTIVE_WINDOW を直接送る）へ縮退する。それも効かない場合
+/// （Wayland、非EWMH対応のウィンドウマネージャ等）は、原因追跡のために標準エラー出力へ
+/// 1行だけ記録して諦める。多重起動の防止自体（Mutexの取得）はこれらと独立して機能しており、
+/// 前面化はあくまで利用者体験のための縮退である点に注意（多重起動防止それ自体は常に効く）。
+///
+/// 標準エラー出力にしているのは、この時点（<see cref="Views.StartupCoordinator.TryAcquireSingleInstance"/>は
+/// <see cref="Views.StartupCoordinator.StartAsync"/> より前に呼ばれる）ではまだ
+/// <c>Logger</c>（logs/配下への書き込み）が初期化されていないため。ダブルクリック起動では
+/// 誰にも見えないが、ターミナルからの起動やsystemd等でログ収集される環境では追跡できる。
 /// </summary>
 public sealed class LinuxSingleInstanceGuard : ISingleInstanceGuard
 {
@@ -28,7 +36,41 @@ public sealed class LinuxSingleInstanceGuard : ISingleInstanceGuard
         return _guard is not null;
     }
 
-    public void ActivateExistingInstance(string mainWindowTitle)
+    public bool ActivateExistingInstance(string mainWindowTitle)
+    {
+        if (TryActivateWithWmctrl(mainWindowTitle)) return true;
+        if (X11WindowActivator.TryActivate(mainWindowTitle)) return true;
+
+        // ここまで来ると前面化はできなかった（多重起動の防止自体は成立済み）。
+        // 利用者からは「ダブルクリックしても何も起きない」ように見えるため、
+        // 少なくとも原因を追える形でだけ記録しておく。
+        Console.Error.WriteLine(
+            $"Graft: 既存ウィンドウ「{mainWindowTitle}」の前面化に失敗しました" +
+            "（wmctrl未導入、またはウィンドウマネージャがEWMHの_NET_ACTIVE_WINDOWに未対応の可能性があります）。" +
+            "多重起動の防止自体は機能しています。");
+        return false;
+    }
+
+    /// <summary>
+    /// 不具合修正: 自分のプロセスが既に持っているウィンドウ（X11のXID）を、可能な限り
+    /// タイトル検索を経由せず前面化する（<see cref="ISingleInstanceGuard.ActivateWindowHandle"/>
+    /// のコメント参照）。<paramref name="handle"/>が有効で<see cref="X11WindowActivator.
+    /// TryActivateHandle"/>が成功すればそれで終わる。
+    ///
+    /// Linuxは実機で「wmctrl→X11WindowActivator.TryActivate（タイトル検索）」の前面化が
+    /// 既に機能しているため、ハンドルが使えない環境（Wayland等でXIDが取得できない・
+    /// TryActivateHandle自体が失敗した等）では、Linuxの挙動を悪化させないことを最優先し、
+    /// 従来の<see cref="ActivateExistingInstance"/>（タイトル検索）へ確実に縮退する。
+    /// </summary>
+    public bool ActivateWindowHandle(IntPtr handle, string fallbackWindowTitle)
+    {
+        if (handle != IntPtr.Zero && X11WindowActivator.TryActivateHandle(handle)) return true;
+
+        return ActivateExistingInstance(fallbackWindowTitle);
+    }
+
+    /// <summary>wmctrlでの前面化を試みる。成功したら true。</summary>
+    private static bool TryActivateWithWmctrl(string mainWindowTitle)
     {
         try
         {
@@ -43,11 +85,14 @@ public sealed class LinuxSingleInstanceGuard : ISingleInstanceGuard
             info.ArgumentList.Add(mainWindowTitle);
 
             using var process = Process.Start(info);
-            process?.WaitForExit(2000);
+            if (process is null) return false;
+            if (!process.WaitForExit(2000)) return false; // タイムアウト。X11直接送出へ縮退する。
+            return process.ExitCode == 0;
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
         {
-            // wmctrl が無い環境では前面化を諦める（多重起動の防止自体は成立している）。
+            // wmctrl が入っていない環境（典型的には Win32Exception: コマンドが見つからない）。
+            return false;
         }
     }
 

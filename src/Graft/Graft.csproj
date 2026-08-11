@@ -10,6 +10,9 @@
     <AssemblyName>Graft</AssemblyName>
     <Version>1.0.0</Version>
     <Product>Graft</Product>
+    <Authors>YUGO</Authors>
+    <Company>YUGO</Company>
+    <Copyright>Copyright © 2026 YUGO</Copyright>
     <WarningsAsErrors>nullable</WarningsAsErrors>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!--
@@ -29,6 +32,34 @@
       ReadyToRunは有効のまま維持する。
     -->
     <PublishReadyToRun>true</PublishReadyToRun>
+    <!--
+      配布形式（フォルダ形式 → 単一ファイル形式）。かつて単一ファイル形式を採用していたが、
+      IncludeNativeLibrariesForSelfExtract=true（ネイティブDLLを実行時に一時フォルダへ
+      自己展開する設定）により初回起動が約5.44秒に達したため、いったんフォルダ形式へ
+      移行した経緯がある（附録B参照）。しかしフォルダ形式は発行物が216ファイル・約109MBに
+      散らばり、DLLを子フォルダへ移動すると `Graft.deps.json` が期待する
+      `lib/net8.0/xxx.dll` 相対パスが崩れて `FileNotFoundException` で起動不能になるなど、
+      整理のしようがなかった。
+
+      そこで今回、単一ファイル形式へ戻しつつ IncludeNativeLibrariesForSelfExtract は
+      明示的に false のままにする（true にしないこと。これが過去の5.44秒の原因だった）。
+      falseであれば実行時展開が発生せず、管理コードもバンドルから直接読まれるため、
+      起動が遅くなる理由がない。実測（Linux, 同一条件）でもフォルダ形式 798〜1145ms に対し
+      単一ファイル形式は 622〜637ms とむしろ高速だった。発行物も216ファイル→4ファイル
+      （実行ファイル＋ネイティブDLL3つ）に減り、当初の「発行フォルダの中がごちゃごちゃ
+      している」という課題を解消する。EnableCompressionInSingleFileも同じ理由（展開が
+      必要になり起動が遅くなる）でfalseにする。
+    -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <!--
+      Release発行では .pdb を出さない。既定のまま（portable pdb）だと単一ファイルの
+      発行物に Graft.pdb が加わり「実行ファイル＋ネイティブDLL3つの計4ファイル」から
+      崩れてしまうため、Release構成のみ明示的に無効化する（Debug構成では従来どおり
+      デバッグ用に出力する）。
+    -->
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -55,8 +86,37 @@
 
 
   <ItemGroup>
+    <!--
+      機能1（オープンソースライセンス表記）。依存関係一式のライセンス全文を実行ファイルへ
+      埋め込みリソースとして持つ。埋め込みリソースはコンパイル時にアセンブリ本体へ含まれるため、
+      単一ファイル発行（PublishSingleFile=true、上のPropertyGroup参照）でも追加の設定なしに
+      配布物へ同梱される（外部ファイルにすると同梱漏れの恐れがあるため、あえて埋め込みにする
+      方針は既存のDiffPlex-LICENSE.txt/AvalonEdit-LICENSE.txtから踏襲）。
+      各ファイルの出どころ・対象パッケージはViews/OpenSourceLicensesWindow.axaml.csのコメント参照。
+    -->
     <EmbeddedResource Include="Assets\DiffPlex-LICENSE.txt" />
     <EmbeddedResource Include="Assets\AvalonEdit-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\Avalonia-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\SkiaSharp-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\DotnetRuntime-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\MicroCom-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\TmdsDBus-LICENSE.txt" />
+    <EmbeddedResource Include="Assets\Angle-LICENSE.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      取扱説明書機能: docs/取扱説明書.md を実行ファイル本体へ埋め込みリソースとして持つ。
+      理由は上のオープンソースライセンス表記と同じ（ライセンスのItemGroupのコメント参照）。
+      発行設定（PublishSingleFile=true・上のPropertyGroup参照）では発行フォルダに含める
+      ファイルを実行ファイル本体＋ネイティブDLL3つの計4ファイルへ絞り込んでおり、docsフォルダ
+      そのものは配布物に含まれない。外部ファイルとしてdocs\取扱説明書.mdをOSの既定アプリで
+      開く方式（IFileManagerLauncher再利用）だと、配布後の実機で「ファイルが見つからない」
+      事故になるため採らない。LinkでIDE上はAssets配下の他ファイルと並んで見えるようにしつつ、
+      実体はリポジトリ直下のdocs/（Views/ManualWindow.axaml.csからは
+      docs/取扱説明書.md単一の情報源として編集できる）に置いたままにする。
+    -->
+    <EmbeddedResource Include="..\..\docs\取扱説明書.md" Link="Assets\取扱説明書.md" LogicalName="Graft.Docs.取扱説明書.md" />
   </ItemGroup>
 
 </Project>

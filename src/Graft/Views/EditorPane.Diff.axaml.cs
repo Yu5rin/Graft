@@ -14,17 +14,22 @@ namespace Graft.Views;
 /// </summary>
 public partial class EditorPane
 {
-    /// <summary>タブが無い状態（9.2）。エディタ・DiffHostのいずれも空にする。</summary>
+    /// <summary>タブが無い状態（9.2）。エディタ・DiffHost・HistoryDiffHostのいずれも空にする。</summary>
     private void ApplyEmptyTab()
     {
         Editor.Document = new TextDocument();
         Editor.IsEnabled = false;
         Editor.IsVisible = true;
+        MarkdownPreviewHost.IsVisible = false;
         DiffHost.IsVisible = false;
         DiffHost.DataContext = null;
+        HistoryDiffHost.IsVisible = false;
+        HistoryDiffHost.DataContext = null;
+        ApplyWordWrapOption();
         _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
         _brackets.Attach(Editor.Document, string.Empty);
         _folding.Attach(Editor.Document, string.Empty);
+        _markdownColorizer.SetEnabled(false);
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
     }
 
@@ -36,8 +41,28 @@ public partial class EditorPane
     {
         Editor.IsVisible = false;
         Editor.IsEnabled = false;
+        MarkdownPreviewHost.IsVisible = false;
+        _markdownColorizer.SetEnabled(false);
         DiffHost.IsVisible = true;
         DiffHost.DataContext = tab.Diff;
+        HistoryDiffHost.IsVisible = false;
+        HistoryDiffHost.DataContext = null;
+    }
+
+    /// <summary>
+    /// 修正1: 履歴差分タブの表示。エディタ・通常のDiffHostはともに隠し、HistoryDiffHost
+    /// （HistoryDiffView）へDataContextを渡すだけに留める。
+    /// </summary>
+    private void ApplyHistoryDiffTab(EditorTabViewModel tab)
+    {
+        Editor.IsVisible = false;
+        Editor.IsEnabled = false;
+        MarkdownPreviewHost.IsVisible = false;
+        _markdownColorizer.SetEnabled(false);
+        DiffHost.IsVisible = false;
+        DiffHost.DataContext = null;
+        HistoryDiffHost.IsVisible = true;
+        HistoryDiffHost.DataContext = tab.HistoryDiff;
     }
 
     /// <summary>

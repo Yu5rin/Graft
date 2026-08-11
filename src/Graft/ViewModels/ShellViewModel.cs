@@ -17,6 +17,18 @@ public enum SideViewKind
 }
 
 /// <summary>
+/// 接ぎ木パネルの配置（利用者からの改善要望: コードの下だけでなく右にも置けるようにする）。
+/// 既定は<see cref="Bottom"/>（従来どおりコードの下、2列＋下段）。<see cref="Right"/>は
+/// サイドバー｜エディタ｜接ぎ木パネルの3列になる。切替はGraftPanel.axamlのヘッダーボタン
+/// （ShellViewModel.ToggleGraftPanelPlacementCommand）で行う。
+/// </summary>
+public enum GraftPanelPlacementKind
+{
+    Bottom,
+    Right,
+}
+
+/// <summary>
 /// 旧キー（v1.5のショートカット）の種別。附録A「キーマップ移行」の一度きり通知に使う
 /// （9.5: 素のCtrl+V・Ctrl+Z・Ctrl+H・素の1〜9）。
 /// </summary>
@@ -35,7 +47,7 @@ public enum LegacyKey
 /// 追加する。依存はすべてコンストラクタ引数で受け取り、生成は起動処理担当（StartupCoordinator）
 /// が手動で行う（附録A.3・DIコンテナ禁止）。
 /// </summary>
-public sealed class ShellViewModel : ObservableObject, IDisposable
+public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
     private readonly IDialogService _dialogs;
     private readonly Graft.Infra.Settings _settings;
@@ -45,17 +57,25 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     private SideViewKind _selectedSideView = SideViewKind.Project;
     private bool _isSideViewCollapsed;
     private bool _isGraftPanelOpen;
+    private GraftPanelPlacementKind _graftPanelPlacement = GraftPanelPlacementKind.Bottom;
     private string? _currentProjectId;
+    // 取扱説明書機能: ツールバーの「?」ボタンをメニュー化した（ショートカット一覧・取扱説明書の
+    // 2項目）。開閉状態はPromptCopyViewModel.IsOpenと同じ考え方でTwoWayバインディングのPopupへ
+    // 直接持たせる（ShellWindow.axamlのHelpMenuPopup参照）。
+    private bool _isHelpMenuOpen;
 
     public ShellViewModel(
-        MainViewModel graft, EditorPaneViewModel editor, IDialogService dialogs, Graft.Infra.Settings settings, IUiServices ui)
+        Graft.Infra.AppPaths appPaths, MainViewModel graft, EditorPaneViewModel editor, IDialogService dialogs,
+        Graft.Infra.Settings settings, IUiServices ui)
     {
         Graft = graft ?? throw new ArgumentNullException(nameof(graft));
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
-        Explorer = new ExplorerViewModel(Editor, _dialogs, settings, ui);
-        Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs);
+        Explorer = new ExplorerViewModel(appPaths, Editor, _dialogs, settings, ui);
+        // A: 検索結果の右クリックメニュー「パスをコピー」がテストから差し替えられるよう、
+        // 既存のクリップボード窓口（_ui.Clipboard）をそのまま渡す。
+        Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs, _ui.Clipboard);
         Search.JumpRequested += OnSearchJumpRequested;
         QuickOpen = new QuickOpenViewModel();
         QuickOpen.FileOpenRequested += OnQuickOpenFileRequested;
@@ -63,14 +83,76 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
+        // プロジェクトペイン改善（要望2）: プロジェクト名のダブルクリックでサイドビューを
+        // エクスプローラへ切り替える（折りたたまれていれば展開も行う。SelectSideView参照）。
+        Graft.ProjectPane.ProjectActivated += (_, _) => SelectSideView(SideViewKind.Explorer);
+        // プロジェクトペイン改善（要望1）: 削除等でプロジェクトが1件も無くなった場合、
+        // エディタ・エクスプローラ・検索・クイックオープンを「プロジェクト未選択」の状態へ戻す。
+        Graft.ProjectPane.SelectionCleared += OnProjectSelectionCleared;
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
+        Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
+        Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
+        // 機能改善: エディタ本文・差分表示（通常＋履歴）いずれかでのCtrl+マウスホイールに
+        // よるフォントサイズ確定を1つのイベントへ集約し、StartupCoordinatorへ伝える
+        // （そこから常駐のSettingsViewModel経由で永続化・全画面への同期を行う）。
+        Editor.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
+        Graft.Diff.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
+        Graft.HistoryDiff.FontSizeChangeCommitted += (_, size) => EditorFontSizeChangeRequested?.Invoke(this, size);
+        // 機能改善（差分の左右並列表示）: FontSizeChangeCommittedと同じ経路で、diff表示ヘッダーでの
+        // 並列／統合表示の切り替えを設定へ永続化する（StartupCoordinator.ApplyLiveSettingsChange参照）。
+        Graft.Diff.SideBySideChangeCommitted += (_, v) => DiffSideBySideChangeRequested?.Invoke(this, v);
+        Graft.HistoryDiff.SideBySideChangeCommitted += (_, v) => DiffSideBySideChangeRequested?.Invoke(this, v);
+        Editor.HistoryDiffTabClosed += OnHistoryDiffTabClosed; // 修正1: タブの×で閉じたら履歴側の選択も解除する。
+        // ファイル単位の変更履歴: エクスプローラの右クリック「このファイルの変更履歴」を、
+        // 履歴ペイン（Graft.History）の絞り込みと連動させる。ExplorerViewModelはHistoryPane
+        // ViewModelを知らないため、両方を知るこのクラスが橋渡しする（ProjectActivated等と同じ構造）。
+        Explorer.ShowFileHistoryRequested += OnShowFileHistoryRequested;
         Graft.BeforeApplyAsync = EnsureTargetsSavedAsync; // 4.8: ドライラン開始前の未保存確認。
         Graft.AfterApplyAsync = files => Editor.ReloadIfOpenAsync(files); // 4.8: 適用後の自動再読込。
+        WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
 
         SelectSideViewCommand = new RelayCommand<SideViewKind>(SelectSideView);
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
-        OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(block => OpenBlockInEditor(block));
+        ToggleGraftPanelPlacementCommand = new RelayCommand(() => GraftPanelPlacement =
+            GraftPanelPlacement == GraftPanelPlacementKind.Bottom ? GraftPanelPlacementKind.Right : GraftPanelPlacementKind.Bottom);
+        // B: 接ぎ木パネルのブロック右クリックメニュー「対象ファイルを開く」。フォルダ作成
+        // （EntryOperation.Mkdir）は開く対象が「ファイル」ではないため無効化する。プロジェクト
+        // 未選択（OpenBlockInEditor内部で参照するRoot）のときも実行しても何も起きないため
+        // 併せて無効化する。
+        OpenBlockInEditorCommand = new RelayCommand<BlockItemViewModel>(
+            block => OpenBlockInEditor(block),
+            block => block is not null && block.Plan.Operation != EntryOperation.Mkdir
+                && Graft.ProjectPane.SelectedItem is not null);
         ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
+        // 取扱説明書機能: メニュー内の項目を選んだら、次に開いたときに前回の選択が残らないよう
+        // メニュー自体も閉じる（PromptCopyViewModel.CopyCommandがコピー後にIsOpen=falseにするのと
+        // 同じ考え方）。F1・Ctrl+/の直接呼び出し（メニューを経由しない経路）でもfalseを立てるだけで
+        // 実害は無いため、分岐せず常に閉じる。
+        OpenShortcutsCommand = new RelayCommand(() =>
+        {
+            IsHelpMenuOpen = false;
+            RequestOpenShortcuts?.Invoke(this, EventArgs.Empty);
+        });
+        OpenManualCommand = new RelayCommand(() =>
+        {
+            IsHelpMenuOpen = false;
+            RequestOpenManual?.Invoke(this, EventArgs.Empty);
+        });
+        ToggleHelpMenuCommand = new RelayCommand(() => IsHelpMenuOpen = !IsHelpMenuOpen);
+        // 画面上のチュートリアル（コーチマーク）: ヘルプメニュー「使い方を学ぶ」・コマンドパレットの
+        // 両方から、いつでも再実行できるようにする。ヘルプメニュー経由のときは他の項目と同じく
+        // メニューを閉じてから要求する。実体（ShellWindow.Tutorial.cs）はControlの座標計算等
+        // Avalonia固有の知識を要するためView側の責務とし、ここではイベントで要求するだけに留める
+        // （RequestOpenManual/RequestOpenShortcutsと同じ「Viewへ委譲する」設計）。
+        StartTutorialCommand = new RelayCommand(() =>
+        {
+            IsHelpMenuOpen = false;
+            RequestStartTutorial?.Invoke(this, EventArgs.Empty);
+        });
+        AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
+        InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
+        InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
+        ToggleClipboardWatchPauseCommand = new RelayCommand(ToggleClipboardWatchPause); // 機能改善2・ShellViewModel.ClipboardWatch.cs参照。
     }
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>
@@ -133,11 +215,44 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _isGraftPanelOpen, value);
     }
 
+    /// <summary>
+    /// 接ぎ木パネルの配置（下／右）。既定は<see cref="GraftPanelPlacementKind.Bottom"/>。
+    /// 実際のGrid行・列の付け替えはShellWindow.axaml.csが担う（Viewは1インスタンスのまま
+    /// Grid.Row/Grid.Columnだけ動かすため、このプロパティ自体はUIフレームワークを知らない）。
+    /// </summary>
+    public GraftPanelPlacementKind GraftPanelPlacement
+    {
+        get => _graftPanelPlacement;
+        set => SetProperty(ref _graftPanelPlacement, value, NotifyGraftPanelPlacementChanged);
+    }
+
+    /// <summary>
+    /// GraftPanel.axamlのヘッダーアイコン出し分け用。「右配置かどうか」をbool一つで持たせ、
+    /// XAML側でMultiDataTrigger相当の分岐を組まずに済むようにする（IsExplorerActive等と同じ考え方）。
+    /// </summary>
+    public bool IsGraftPanelPlacementRight => GraftPanelPlacement == GraftPanelPlacementKind.Right;
+
+    private void NotifyGraftPanelPlacementChanged() => OnPropertyChanged(nameof(IsGraftPanelPlacementRight));
+
+    /// <summary>
+    /// ProjectPaneLayout.GraftPanelPlacement（文字列）をenumへ変換する。後方互換のため、
+    /// 未知の値・null（新キーの無い既存layout.jsonを読んだ場合を含む）は既定の下配置として扱う。
+    /// </summary>
+    public static GraftPanelPlacementKind ParseGraftPanelPlacement(string? value)
+        => value == "right" ? GraftPanelPlacementKind.Right : GraftPanelPlacementKind.Bottom;
+
+    /// <summary><see cref="ParseGraftPanelPlacement"/>の逆変換。layout.jsonへ書き戻す文字列を返す。</summary>
+    public static string ToGraftPanelPlacementValue(GraftPanelPlacementKind placement)
+        => placement == GraftPanelPlacementKind.Right ? "right" : "bottom";
+
     /// <summary>サイドバーのアイコンクリック（CommandParameterに<see cref="SideViewKind"/>）。</summary>
     public ICommand SelectSideViewCommand { get; }
 
     /// <summary>Ctrl+J・接ぎ木パネルのヘッダーボタン。</summary>
     public ICommand ToggleGraftPanelCommand { get; }
+
+    /// <summary>接ぎ木パネルのヘッダーの配置切替ボタン。下配置と右配置を1クリックで切り替える。</summary>
+    public ICommand ToggleGraftPanelPlacementCommand { get; }
 
     /// <summary>4.8: ブロック一覧の「エディタで開く」。マッチ位置をエディタで開く。</summary>
     public ICommand OpenBlockInEditorCommand { get; }
@@ -146,11 +261,76 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
     public ICommand ToggleQuickOpenCommand { get; }
 
     /// <summary>
+    /// Ctrl+/・ツールバーの「?」メニュー「キーボードショートカット一覧」。
+    /// キーボードショートカット一覧ウィンドウを開く。テキスト入力欄・エディタにフォーカスがある間は
+    /// Ctrl+/がエディタの行コメント切り替えに使われるため（ShellWindow.Keyboard.cs）、
+    /// そちらを優先しここは反応しない。
+    /// </summary>
+    public ICommand OpenShortcutsCommand { get; }
+
+    /// <summary>
+    /// 取扱説明書機能: F1・ツールバーの「?」メニュー「取扱説明書」。利用者向け取扱説明書
+    /// ウィンドウを開く。F1はテキスト入力欄・エディタ内でも常に反応する（他の操作と衝突する
+    /// キーではないため、9.5のような「エディタの標準操作を優先する」制約が無い）。
+    /// </summary>
+    public ICommand OpenManualCommand { get; }
+
+    /// <summary>ツールバーの「?」ボタン。ショートカット一覧・取扱説明書の2項目を持つメニューの開閉。</summary>
+    public ICommand ToggleHelpMenuCommand { get; }
+
+    /// <summary>
+    /// 画面上のチュートリアル（コーチマーク）を開始する。ツールバーの「?」メニュー
+    /// 「使い方を学ぶ」・コマンドパレットの両方から、いつでも再実行できる。
+    /// 初回起動ガイドの最終画面「使い方を学ぶ」もStartupCoordinator経由でこれと同じ経路
+    /// （<see cref="RequestStartTutorial"/>ではなく<c>ShellWindow.StartTutorial()</c>を直接呼ぶ）を
+    /// 使って開始する。実行中に呼んでも二重に始まらない（ShellWindow.Tutorial.cs参照）。
+    /// </summary>
+    public ICommand StartTutorialCommand { get; }
+
+    /// <summary>
+    /// ツールバーの「?」ボタンから開くメニュー（ショートカット一覧・取扱説明書）の開閉状態。
+    /// ShellWindow.axamlのPopup（HelpMenuPopup）へTwoWayでバインドする
+    /// （PromptCopyViewModel.IsOpenと同じ考え方）。
+    /// </summary>
+    public bool IsHelpMenuOpen
+    {
+        get => _isHelpMenuOpen;
+        set => SetProperty(ref _isHelpMenuOpen, value);
+    }
+
+    /// <summary>
     /// 4.4: 検索ビューを表示したとき（サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも
     /// <see cref="SelectSideView"/>を経由するため、ここで一括して発火する）、検索テキストボックスへ
     /// フォーカスするようViewへ要求する。
     /// </summary>
     public event EventHandler? RequestFocusSearchView;
+
+    /// <summary>ショートカット一覧ウィンドウを開くタイミングの通知。View側（ShellWindow）が購読する。</summary>
+    public event EventHandler? RequestOpenShortcuts;
+
+    /// <summary>取扱説明書ウィンドウを開くタイミングの通知。View側（ShellWindow）が購読する。</summary>
+    public event EventHandler? RequestOpenManual;
+
+    /// <summary>
+    /// 画面上のチュートリアル（コーチマーク）を開始するタイミングの通知。View側（ShellWindow）が
+    /// 購読し、実際のコントロールを指すオーバーレイ制御（ShellWindow.Tutorial.cs）を開始する。
+    /// </summary>
+    public event EventHandler? RequestStartTutorial;
+
+    /// <summary>
+    /// 機能改善: エディタ本文・差分表示（通常＋履歴）のいずれかでCtrl+マウスホイールにより
+    /// フォントサイズが確定した（ドラッグ中の連続変化ではなく、1回のホイール操作の結果）ことの
+    /// 通知。StartupCoordinatorが購読し、常駐のSettingsViewModel経由で設定への永続化
+    /// （デバウンス保存）を行う。
+    /// </summary>
+    public event EventHandler<double>? EditorFontSizeChangeRequested;
+
+    /// <summary>
+    /// 機能改善（差分の左右並列表示）: diff表示（通常＋履歴）のいずれかで並列／統合表示の
+    /// 切り替えが確定したことの通知。EditorFontSizeChangeRequestedと同じ経路でStartupCoordinatorが
+    /// 購読し、常駐のSettingsViewModel経由で設定への永続化を行う。
+    /// </summary>
+    public event EventHandler<bool>? DiffSideBySideChangeRequested;
 
     /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
@@ -194,6 +374,52 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             if (Graft.SelectedBlock is not null) Editor.ShowDiffTab(Graft.Diff);
             else Editor.CloseDiffTabIfOpen();
         }
+        else if (e.PropertyName == nameof(MainViewModel.IsDataDirectoryReadOnly))
+        {
+            // ShellViewModel.StatusBarWarning.cs参照。書き込み不可警告もステータスバーの
+            // 統合警告表示の対象のため、変化をここから中継する。
+            NotifyStatusBarWarningChanged();
+        }
+    }
+
+    /// <summary>
+    /// 修正1: <see cref="MainViewModel.HistoryDiff"/>の内容が変わるたびに、履歴差分タブを
+    /// 開く／内容を更新する（HasFilesがtrue）か、閉じる（false。選択解除・タブの×で閉じた
+    /// 直後の再クリア等）。HistoryDiffは選択のたびに同じインスタンスを使い回すため、この
+    /// イベント経由でしか「今開くべきか」を知る手段が無い（OnGraftPropertyChangedの
+    /// SelectedBlock分岐と同じ考え方）。
+    /// </summary>
+    private void OnHistoryDiffChanged(object? sender, EventArgs e)
+    {
+        if (Graft.HistoryDiff.HasFiles) Editor.ShowHistoryDiffTab(Graft.HistoryDiff);
+        else Editor.CloseHistoryDiffTabIfOpen();
+    }
+
+    /// <summary>
+    /// 修正1: 履歴差分タブがタブの×・Ctrl+W等で閉じられたら、履歴側の選択も解除する
+    /// （「タブは無いのに履歴一覧では選択済みのまま」という状態の矛盾を防ぐ）。
+    /// 既に選択解除済み（HistoryDiff.Clear経由でこのタブが閉じられた場合）はSelectedItemの
+    /// setterが変化なしとして何もしないため、ここから無限にイベントが往復することは無い。
+    /// </summary>
+    private void OnHistoryDiffTabClosed(object? sender, EventArgs e) => Graft.History.SelectedItem = null;
+
+    /// <summary>
+    /// ファイル単位の変更履歴: エクスプローラの右クリックメニュー「このファイルの変更履歴」。
+    /// 履歴ペインをそのファイルへ絞り込んだうえで、履歴ビューを開き一覧へフォーカスする
+    /// （フォーカス移動自体はShellWindow.OnRequestFocusHistoryが担うView側の責務のため、
+    /// ここではGraft.ShowHistoryCommand経由でその入口だけを呼ぶ）。
+    ///
+    /// Graft.ShowHistoryCommandをそのまま呼ばないのは、SelectSideView（サイドバーのアイコンを
+    /// 再クリックすると折りたたむ、9.2のトグル仕様）に巻き込まれるとの実機確認による不具合修正:
+    /// 既に履歴ビューを開いた状態でこのメニューを別のファイルへ実行すると「同じビューへの
+    /// 再選択」と見なされ、絞り込みが更新される代わりにサイドビューごと折りたたまれてしまう。
+    /// 既に履歴ビューが表示中（IsHistoryActive）ならこの呼び出しをスキップし、絞り込みの反映
+    /// だけにとどめることで、意図せぬ折りたたみを避ける。
+    /// </summary>
+    private void OnShowFileHistoryRequested(object? sender, string relativePath)
+    {
+        Graft.History.ShowHistoryForFile(relativePath);
+        if (!IsHistoryActive) Graft.ShowHistoryCommand.Execute(null);
     }
 
     /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
@@ -284,8 +510,16 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         => await SafeHandler.RunAsync("クイックオープンからのファイルを開く", () =>
             Editor.OpenFileAsync(fullPath, preview: true)).ConfigureAwait(true);
 
-    /// <summary>Ctrl+P。プロジェクト未選択時は何もしない（QuickOpenViewModel.ToggleAsyncが判定する）。</summary>
-    private async Task ToggleQuickOpenAsync() => await QuickOpen.ToggleAsync().ConfigureAwait(true);
+    /// <summary>
+    /// Ctrl+P。プロジェクト未選択時は何もしない（QuickOpenViewModel.ToggleAsyncが判定する）。
+    /// コマンドパレット（Ctrl+Shift+P）が開いていれば、同時に2つのオーバーレイが重なって
+    /// 表示されないよう先に閉じる（ShellViewModel.CommandPalette.csのToggleCommandPaletteと対）。
+    /// </summary>
+    private async Task ToggleQuickOpenAsync()
+    {
+        if (CommandPalette.IsOpen) CommandPalette.Close();
+        await QuickOpen.ToggleAsync().ConfigureAwait(true);
+    }
 
     private async void OnProjectSelected(object? sender, Project project)
         => await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
@@ -300,6 +534,30 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
             _currentProjectId = project.Id;
+        }).ConfigureAwait(true);
+
+    /// <summary>
+    /// プロジェクトペイン改善（要望1）: プロジェクトの削除等で一覧が空になり、選択できる
+    /// プロジェクトが1件も無くなったときの後始末。<see cref="OnProjectSelected"/>と対になる
+    /// 経路で、開いていたタブ・エクスプローラ・検索・クイックオープンを、一度もプロジェクトを
+    /// 選んだことが無い起動直後と同じ「プロジェクト未選択」の状態へ戻す（Editor.SetProject・
+    /// Explorer.SetProjectAsync・Search/QuickOpen.SetContextはいずれもnullを受け付ける設計のため、
+    /// OnProjectSelectedとほぼ同じ形で書ける）。ファイル自体は削除していないため、既に開いていた
+    /// タブが指すファイルは実在するが、「どのプロジェクトの一部か」を示す文脈が失われるため
+    /// 一貫性のため閉じる。
+    /// </summary>
+    private async void OnProjectSelectionCleared(object? sender, EventArgs e)
+        => await SafeHandler.RunAsync("プロジェクト削除後のクリア", async () =>
+        {
+            if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
+
+            await Editor.CloseAllAsync().ConfigureAwait(true);
+            Editor.SetProject(null);
+            await Explorer.SetProjectAsync(null).ConfigureAwait(true);
+            Search.SetContext(null, _settings);
+            QuickOpen.SetContext(null, _settings);
+
+            _currentProjectId = null;
         }).ConfigureAwait(true);
 
     /// <summary>

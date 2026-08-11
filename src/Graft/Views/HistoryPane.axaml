@@ -11,29 +11,75 @@
         - DatePicker.SelectedDate は DateTimeOffset? を直接扱うため、v2.0のWPF版で必要だった
           DateTime? との変換コンバータは使わない。
     -->
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*">
 
-        <!-- 見出しと復元ボタン -->
-        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
+        <!--
+            見出しと復元ボタン。2種類の復元操作を並べる。
+            - 「このリビジョンを取り消す」（RestoreCommand）: 選んだ1件だけを取り消す（従来からの単発復元）。
+            - 「ここまで戻す」（RestoreThroughCommand）: 選んだリビジョンより新しいものをすべて
+              新しい順に取り消し、選んだ時点の状態まで一気に戻す（追加機能）。
+            アイコン・文言（HelpTip・AutomationProperties.Name）の両方で明確に区別する。
+        -->
+        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto,Auto">
             <TextBlock Grid.Column="0"
                        Text="履歴"
                        VerticalAlignment="Center"
                        FontSize="{DynamicResource PaneHeadingFontSize}"
                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                        Foreground="{DynamicResource TextSecondary}" />
-            <Button Grid.Column="1"
+            <Button x:Name="RestoreButton"
+                    Grid.Column="1"
                     Command="{Binding RestoreCommand}"
                     Padding="4"
                     Background="Transparent"
                     BorderThickness="0"
-                    ToolTip.Tip="選択したリビジョン直前の状態へ復元"
-                    AutomationProperties.Name="選択したリビジョンへ復元">
+                    local:HelpTip.Standard="このリビジョンだけを取り消し、適用する直前の状態へ戻します。"
+                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョン（適用の記録）だけを取り消し、そのリビジョンを適用する直前の状態へファイルを戻します。それより新しいリビジョンには影響しません。選んだリビジョンより新しい変更もまとめて取り消したい場合は、隣の「ここまで戻す」ボタンを使ってください。"
+                    AutomationProperties.Name="このリビジョンを取り消す">
                 <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
+            </Button>
+            <Button Grid.Column="2"
+                    Command="{Binding RestoreThroughCommand}"
+                    Margin="2,0,0,0"
+                    Padding="4"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    local:HelpTip.Standard="選択したリビジョンより新しい変更をすべて取り消し、その時点まで一気に戻します。"
+                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョンより新しいリビジョンをすべて新しい順に取り消し、選んだリビジョンを適用した直後の状態を再現します。「このリビジョンを取り消す」が1件だけを取り消すのに対し、こちらは選んだ地点までまとめて戻します。実行前に対象のリビジョン数と影響するファイルの一覧を確認するダイアログが出ます。この操作自体も新しいリビジョンとして記録されるため、戻しすぎた場合は「このリビジョンを取り消す」であとから元に戻せます。最新のリビジョンを選んでいるときは取り消す対象が無いため無効になります。"
+                    AutomationProperties.Name="選択したリビジョンまでまとめて戻す">
+                <local:IconGlyph Data="{DynamicResource IconRewindGeometry}" />
             </Button>
         </Grid>
 
+        <!--
+            ファイル単位の変更履歴（エクスプローラの右クリックメニュー「このファイルの変更履歴」）で
+            絞り込み中であることを明示するバナー。絞り込みなしのときはIsVisible=falseで消える。
+            「解除しないと元の一覧に戻れない」という迷子を防ぐため、解除ボタンを同じ行に常設する。
+        -->
+        <Border Grid.Row="1"
+                Margin="8,0,8,4"
+                Padding="8,6"
+                Background="{DynamicResource BgHover}"
+                IsVisible="{Binding IsFileFiltered}">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="{Binding FileFilterBannerText}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           FontSize="{DynamicResource CaptionFontSize}" />
+                <Button Grid.Column="1"
+                        Content="×"
+                        Command="{Binding ClearFileFilterCommand}"
+                        Padding="6,2"
+                        Margin="4,0,0,0"
+                        local:HelpTip.Standard="ファイルでの絞り込みを解除し、すべてのリビジョンを表示します。"
+                        local:HelpTip.Detailed="エクスプローラの「このファイルの変更履歴」から絞り込んだ、ファイル単位の表示を解除します。解除すると、通常どおりプロジェクト全体のリビジョンが一覧に戻ります。"
+                        AutomationProperties.Name="ファイルでの絞り込みを解除" />
+            </Grid>
+        </Border>
+
         <!-- 全文検索（Ctrl+F） -->
-        <Grid Grid.Row="1" Margin="8,0,8,4" ColumnDefinitions="Auto,*">
+        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="Auto,*">
             <local:IconGlyph Grid.Column="0"
                              Data="{DynamicResource IconSearchGeometry}"
                              Width="14" Height="14"
@@ -42,51 +88,128 @@
             <TextBox x:Name="KeywordBox"
                      Grid.Column="1"
                      Text="{Binding Keyword}"
-                     AutomationProperties.Name="リビジョンの要約を検索" />
+                     AutomationProperties.Name="リビジョンの要約を検索"
+                     local:HelpTip.Standard="下の履歴一覧を、summary（変更のひとこと要約）に含まれる文字で絞り込みます。"
+                     local:HelpTip.Detailed="適用した変更につけられたひとこと要約（summary）の文字列で、下の履歴一覧を絞り込みます。入力すると即座に一覧が絞られ、空にすると全件表示に戻ります。過去にどんな変更を適用したか、キーワードで思い出しながら探したいときに使います。" />
         </Grid>
 
         <!-- type絞り込み -->
-        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
+        <Grid Grid.Row="3" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
+            <!--
+                課題2-2: 未選択時（TypeFilterがnull）は空欄のままで何を選ぶドロップダウンか
+                分からなかった。このComboBoxのControlTemplate（Themes/Controls.Input.axaml）は
+                PlaceholderTextを参照しないため（AvaloniaのComboBox標準templateとは異なる自前
+                実装）、PlaceholderTextを設定しても空欄のままだった。代わりに「すべての種別」を
+                選択肢の先頭（HistoryPaneViewModel.AllTypesOption）に加え、既定でそれを選択済みに
+                する（SelectedTypeOption経由。実際の絞り込みはTypeFilterのnullのまま変わらない）。
+            -->
             <ComboBox x:Name="TypeCombo"
                       Grid.Column="0"
                       ItemsSource="{Binding AvailableTypes}"
-                      SelectedItem="{Binding TypeFilter, Mode=TwoWay}"
-                      AutomationProperties.Name="種別で絞り込み" />
+                      SelectedItem="{Binding SelectedTypeOption, Mode=TwoWay}"
+                      AutomationProperties.Name="種別で絞り込み"
+                      local:HelpTip.Standard="下の履歴一覧を、リビジョンの種類（適用・復元など）で絞り込みます。"
+                      local:HelpTip.Detailed="下の履歴一覧を、そのリビジョンがどんな操作で作られたか（パッチの適用、以前の状態への復元、など）で絞り込みます。既定は「すべての種別」で絞り込みなしです。右の「×」ボタンでいつでも解除できます。" />
             <Button Grid.Column="1"
                     Content="×"
                     Click="OnClearTypeFilter"
                     Padding="6,2"
                     Margin="4,0,0,0"
-                    ToolTip.Tip="種別絞り込みを解除"
+                    local:HelpTip.Standard="種別絞り込みを解除"
+                    local:HelpTip.Detailed="左のドロップダウンで選んでいる種別による絞り込みを解除し、すべての種類のリビジョンを一覧に表示し直します。"
                     AutomationProperties.Name="種別絞り込みを解除" />
+        </Grid>
+
+        <!--
+            期間プリセット。手入力欄だけでは細かい範囲は指定できても、大半の用途である
+            「直近の適用を見たい」という操作のたびに日付を打ち直すのは不親切なため追加。
+            選ぶと下の手入力欄へ即座に反映する（HistoryPaneViewModel.DatePreset参照）。
+            サイドビューの幅が狭く「期間」行に収まらないため、専用の行を上に足している。
+        -->
+        <Grid Grid.Row="4" Margin="8,0,8,4" ColumnDefinitions="*">
+            <ComboBox Grid.Column="0"
+                      ItemsSource="{Binding AvailableDatePresets}"
+                      SelectedItem="{Binding DatePreset, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="期間のプリセットで絞り込み"
+                      local:HelpTip.Standard="「今日」「今週」など、よく使う期間をワンタッチで選べます。選ぶと下の開始日・終了日にも反映されます。"
+                      local:HelpTip.Detailed="下の履歴一覧を期間で絞り込む際の、よく使う範囲（今日・今週・今月など）をまとめて選べるショートカットです。選ぶと下の「期間」欄の開始日・終了日が自動的に書き換わります。任意の日付範囲を指定したい場合は、下の欄へ直接入力してください。">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={x:Static local:Converters.HistoryDatePresetToLabel}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
         </Grid>
 
         <!--
             日付範囲。日付選択コントロールではなく入力欄にしているのは、Avaloniaの
             DatePickerが英語の項目名（year/month/day）を表示し差し替えられないことと、
             サイドビューの幅に3項目分の枠が収まらないため（HistoryPaneViewModel参照）。
+            細かい範囲を指定したいときのために、上のプリセットとは別に残している。
         -->
-        <Grid Grid.Row="3" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
+        <Grid Grid.Row="5" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
             <TextBlock Grid.Column="0" Text="期間" VerticalAlignment="Center"
                        Margin="0,0,6,0"
                        FontSize="{DynamicResource CaptionFontSize}"
                        Foreground="{DynamicResource TextSecondary}" />
             <TextBox Grid.Column="1" Text="{Binding DateFromText}"
                      Watermark="2026-01-01"
-                     AutomationProperties.Name="開始日（年-月-日）" />
+                     AutomationProperties.Name="開始日（年-月-日）"
+                     local:HelpTip.Standard="この日以降に適用されたリビジョンだけを一覧に表示します（年-月-日の形式）。"
+                     local:HelpTip.Detailed="下の履歴一覧を絞り込む期間の開始日です。「2026-01-01」のように年-月-日の形式で入力してください。空にすると開始日側の制限は無くなります。上のプリセットを選ぶと自動で入力されます。" />
             <TextBlock Grid.Column="2" Text="〜" VerticalAlignment="Center" Margin="4,0"
                        Foreground="{DynamicResource TextSecondary}" />
             <TextBox Grid.Column="3" Text="{Binding DateToText}"
                      Watermark="2026-12-31"
-                     AutomationProperties.Name="終了日（年-月-日）" />
+                     AutomationProperties.Name="終了日（年-月-日）"
+                     local:HelpTip.Standard="この日以前に適用されたリビジョンだけを一覧に表示します（年-月-日の形式）。"
+                     local:HelpTip.Detailed="下の履歴一覧を絞り込む期間の終了日です。「2026-12-31」のように年-月-日の形式で入力してください。空にすると終了日側の制限は無くなります。上のプリセットを選ぶと自動で入力されます。" />
         </Grid>
 
-        <Grid Grid.Row="4">
+        <Grid Grid.Row="6">
             <ListBox x:Name="RevisionListBox"
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                      Background="Transparent"
-                     AutomationProperties.Name="リビジョン履歴一覧">
+                     AutomationProperties.Name="リビジョン履歴一覧"
+                     local:HelpTip.Standard="これまでに適用・復元した変更の一覧です。選んで上の復元ボタンを押すと、その時点の直前の状態に戻せます。"
+                     local:HelpTip.Detailed="これまでGraftで行った変更（パッチの適用や、以前の状態への復元）が新しい順に並びます。1件選ぶと、上の「復元」ボタンでその変更を適用する直前の状態へファイルを戻せます。オレンジ色の注意文が付いている項目は、何らかの理由で復元できない（元のファイルが既に大きく変わっている等）ことを示します。">
+                <!--
+                    修正2: 履歴の行の右クリックメニュー。右クリック時にその行を選択状態にしてから
+                    開く（既定では右クリックだけでは選択が変わらないため、HistoryPane.axaml.csの
+                    OnRevisionListPointerPressedで先に選択させる）ため、ここではSelectedItem
+                    ベースの既存コマンド（RestoreThroughCommand/RestoreCommand/ShowDiffCommand）を
+                    そのまま束縛でき、既存ボタンと同じ有効/無効条件に自然と揃う。
+                    ContextMenuの項目へのHelpTip適用については、汎用の添付プロパティ
+                    （Control全般に効く）のため機構上は付けられるが、実機確認の結果はPRの
+                    報告を参照。
+                -->
+                <ListBox.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="ここまで戻す"
+                                  Command="{Binding RestoreThroughCommand}"
+                                  local:HelpTip.Standard="選択したリビジョンより新しい変更をすべて取り消し、その時点まで一気に戻します。"
+                                  AutomationProperties.Name="選択したリビジョンまでまとめて戻す" />
+                        <MenuItem Header="このリビジョンを取り消す"
+                                  Command="{Binding RestoreCommand}"
+                                  local:HelpTip.Standard="このリビジョンだけを取り消し、適用する直前の状態へ戻します。"
+                                  AutomationProperties.Name="このリビジョンを取り消す" />
+                        <Separator />
+                        <MenuItem Header="差分を表示"
+                                  Command="{Binding ShowDiffCommand}"
+                                  local:HelpTip.Standard="このリビジョンの差分を、専用のタブで表示します。選択するだけでも自動的に開きます。"
+                                  AutomationProperties.Name="このリビジョンの差分を表示" />
+                        <Separator />
+                        <!-- E: バックアップフォルダを開く。「本当に退避されているか」を自分の目で
+                             確かめられる安心材料として、IFileManagerLauncherで back/ フォルダを開く。 -->
+                        <MenuItem Header="バックアップフォルダを開く"
+                                  Command="{Binding OpenBackupFolderCommand}"
+                                  local:HelpTip.Standard="このリビジョンのバックアップ（back/フォルダ）を、OSのファイルマネージャで開きます。実際に退避されているかを目で確かめられます。"
+                                  local:HelpTip.Detailed="このリビジョンを適用したときにGraftが自動で退避しておいたバックアップフォルダ（back/配下）を、OSのファイルマネージャで開きます。「復元」を押す前に、本当にバックアップが残っているかを自分の目で確認したいときに使います。バックアップの実体がディスク上に見つからない場合は無効になります。"
+                                  AutomationProperties.Name="このリビジョンのバックアップフォルダを開く" />
+                    </ContextMenu>
+                </ListBox.ContextMenu>
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
@@ -106,11 +229,17 @@
                                         Background="{DynamicResource BgHover}">
                                     <TextBlock Text="{Binding TypeText}" FontSize="{DynamicResource CaptionFontSize}" />
                                 </Border>
+                                <!--
+                                    細かいユーザビリティ改善3: 「3分前」「昨日」のような相対表現を
+                                    主表示にし、正確な日時（yyyy-MM-dd HH:mm）はホバーのツールチップで
+                                    確認できるようにする（RevisionRowViewModel.RelativeAppliedAtText参照）。
+                                -->
                                 <TextBlock Grid.Column="2"
-                                           Text="{Binding AppliedAtText}"
+                                           Text="{Binding RelativeAppliedAtText}"
                                            HorizontalAlignment="Right"
                                            FontSize="{DynamicResource CaptionFontSize}"
-                                           Foreground="{DynamicResource TextSecondary}" />
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           ToolTip.Tip="{Binding AppliedAtText}" />
                             </Grid>
                             <TextBlock Text="{Binding SummaryText}"
                                        FontSize="{DynamicResource CaptionFontSize}"
@@ -134,7 +263,7 @@
             <local:EmptyStateView State="{Binding State,
                                           Converter={x:Static local:Converters.HistoryPaneStateToEmptyState}}"
                                   IconGeometry="{DynamicResource IconHistoryGeometry}"
-                                  Message="AIの出力を適用すると、ここに履歴が残ります"
+                                  Message="{Binding EmptyStateMessage}"
                                   Issue="{Binding Error}" />
         </Grid>
     </Grid>

@@ -55,6 +55,15 @@ public static class ThemeManager
     private static bool _watcherAttached;
     private static AppTheme _selectedTheme = AppTheme.System;
 
+    // OnSystemThemeChangedはISystemThemeWatcher.Changed経由でOS側の監視スレッド
+    // （LinuxSystemThemeWatcherならgdbus監視プロセスの出力読み取りスレッド）から呼ばれる。
+    // Dispatcher.UIThreadは遅延生成・スレッド非安全な静的プロパティのため、そこを別スレッドから
+    // 直接読むと、headlessテストのテスト間リセットの窓と重なった場合に壊れたインスタンスが
+    // キャッシュされてしまう（DocumentSessionクラス冒頭のコメント・CI調査結果を参照）。
+    // 確実にUIスレッドで呼ばれる<see cref="Initialize"/>でのみ一度捕捉し、
+    // <see cref="OnSystemThemeChanged"/>からはこのフィールド越しに使う。
+    private static Dispatcher? _uiDispatcher;
+
     /// <summary>現在選択されているテーマ（解決前）。</summary>
     public static AppTheme SelectedTheme => _selectedTheme;
 
@@ -75,6 +84,9 @@ public static class ThemeManager
             _watcherInitialized = true;
             _themeWatcher = themeWatcher ?? new NullSystemThemeWatcher();
             _selectedTheme = initialTheme;
+            // Initializeは必ずUIスレッドから呼ばれる（App.axaml.cs参照）ため、
+            // ここで一度だけ捕捉する（フィールドのコメント参照）。
+            _uiDispatcher = Dispatcher.UIThread;
 
             if (_themeWatcher.IsSupported)
             {
@@ -132,13 +144,16 @@ public static class ThemeManager
             return;
         }
 
-        if (Dispatcher.UIThread.CheckAccess())
+        // _uiDispatcherはInitializeで必ず先に捕捉済み（このハンドラは_watcherAttachedが
+        // trueのとき、つまりInitializeが実行済みのときしか購読されない）。
+        var ui = _uiDispatcher;
+        if (ui is null || ui.CheckAccess())
         {
             ApplyResolvedTheme();
         }
         else
         {
-            Dispatcher.UIThread.Post(ApplyResolvedTheme);
+            ui.Post(ApplyResolvedTheme);
         }
     }
 

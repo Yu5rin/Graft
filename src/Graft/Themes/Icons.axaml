@@ -1,7 +1,7 @@
 <!--
   9.5 アイコン。v2.0のWPF版 Themes/Icons.xaml の移植（附録A・20章L2）。
   24×24のビューボックス、ストローク幅1.5px、線端・結合は丸め、塗りなしの
-  Geometryとして21種類を定義する。ラスタ画像は一切使わない。パスデータ（Data）は
+  Geometryとして23種類を定義する。ラスタ画像は一切使わない。パスデータ（Data）は
   原則としてv2.0のWPF版と同一の値を流用する（9.5）。
 
   【利用者からの指摘によるアイコン品質改善（意図的な変更・値を変えた箇所あり）】
@@ -25,6 +25,29 @@
     （円の描き方はIconXCircleGeometryと同じ2本の半円弧に揃えた）。
   - IconXGeometry: 24×24に対してbboxが12×12しかなく、他のアイコンより明らかに小さく
     見えたため、原点(6,6)-(18,18)を中心のまま少し拡げてbboxを14×14に広げた。
+
+  【Windows実機での指摘によるアイコン品質改善（不具合1・2）】
+  - IconRotateCcwGeometry（履歴ペインの「このリビジョンを取り消す」）: 「履歴の左側の
+    アイコンが崩れていてわからない」との指摘。実際に描画して確認したところ、矢じりが
+    「⊢」のような直角の角になっており、円弧の端との間にも隙間があって回転を表す記号として
+    読めなかった。円形の回転記号ではなく「曲がった矢印（undo）」の意匠へ描き直した
+    （利用者が実表示16pxでIconRewindGeometry・IconSearchGeometry・IconHistoryGeometryと
+    並べて違和感がないことを検証済みの座標をそのまま採用）。
+    【キー名と意匠のずれについて】 新しい意匠は円形の回転記号ではないため、
+    x:Key="IconRotateCcwGeometry"という名前（回転記号を指す）とは厳密には一致していないが、
+    HistoryPane.axaml等の参照箇所（DynamicResourceでこのキー名を直接参照している）への
+    波及を避けるため、キー名は変更せずそのまま使う。
+  - IconHelpCircleGeometry（ショートカット一覧を開くボタン）: 「？マークが少しずれていて
+    下の点もない」との指摘。原因は2つ。(1) 疑問符のフックが小さく上に寄っており、縦棒も
+    無かったため字形が崩れていた。(2) 下の点を表す M12,17 L12,17.01 が長さ0.01の退化した
+    線分（始点と終点がほぼ同一）になっており、丸い線端（StrokeLineCap="Round"）があれば
+    点として描かれる想定だったが、Avaloniaのレンダラーはこれを描画しない（実機で「点が無い」
+    と報告された不具合の直接の原因）。フックはベジェ曲線のまま字形を整え、縦棒を足した上で、
+    点は半径0.4の円弧2本（退化しない、確実に描画される図形）に置き換えた。
+  - IconAlertTriangleGeometry（要確認バッジ）も同じ「M12,17 L12,17.01」という退化した
+    線分で点を描く書き方だったため、ファイル全体を点検した上で同様に極小の円へ修正した
+    （他に同種の書き方は無かった）。
+    3つとも意匠は利用者が実描画で検証済みの座標をそのまま採用している。
 
   各アイコンは StreamGeometry（x:Key="IconXxxGeometry"）として持ち、実際の表示は
   IconGlyph に Data="{DynamicResource IconXxxGeometry}" で割り当てる。Strokeは既定で
@@ -55,9 +78,10 @@
         <!-- check: 適用可 -->
         <StreamGeometry x:Key="IconCheckGeometry">M5,13 L9,17 L19,7</StreamGeometry>
 
-        <!-- alert-triangle: 要確認 -->
+        <!-- alert-triangle: 要確認（下部の点を極小の円に変更。理由はファイル冒頭のコメント参照） -->
         <StreamGeometry x:Key="IconAlertTriangleGeometry">
-            M12,3 L21,20 L3,20 Z M12,9 L12,14 M12,17 L12,17.01
+            M12,3 L21,20 L3,20 Z M12,9 L12,14
+            M12,16.9 A0.4,0.4 0 1,0 12,17.7 A0.4,0.4 0 1,0 12,16.9
         </StreamGeometry>
 
         <!-- x-circle: 失敗 -->
@@ -74,9 +98,48 @@
             M15,12 A3,3 0 1,1 9,12 A3,3 0 1,1 15,12
         </StreamGeometry>
 
-        <!-- rotate-ccw: 復元 -->
+        <!-- rotate-ccw: 復元（単発。「このリビジョンを取り消す」）。従来の形は矢じりが
+             「⊢」のような直角の角になっており円弧の端との間にも隙間があって、実機で
+             「崩れていて何のアイコンか分からない」と指摘された。曲がった矢印（undo）の意匠に
+             描き直し、実表示16pxでIconRewindGeometry・IconSearchGeometry・IconHistoryGeometryと
+             並べて違和感がないことを利用者が検証済み。
+             【キー名と意匠のずれについて】 この意匠は円形の回転記号ではなく「曲がった矢印」で
+             あり、x:Key="IconRotateCcwGeometry"（回転記号を指す名前）とは厳密には合っていない。
+             HistoryPane.axaml等の参照箇所への波及を避けるため、キー名は変更せずそのまま使う。 -->
         <StreamGeometry x:Key="IconRotateCcwGeometry">
-            M4,12 A8,8 0 1,0 10,4.6 M4,12 L4,6 M4,12 L10,12
+            M3,7 L3,13 L9,13 M21,17 A9,9 0 0,0 12,8 A9,9 0 0,0 6,10.3 L3,13
+        </StreamGeometry>
+
+        <!-- rewind: まとめ戻し（「ここまで戻す」）。単発復元のrotate-ccw（円弧の矢印）とは
+             見た目をはっきり区別するため、早戻し（≪）の意匠にした（塗りなしの三角形2つ）。 -->
+        <StreamGeometry x:Key="IconRewindGeometry">
+            M12,5 L12,19 L4,12 Z M21,5 L21,19 L13,12 Z
+        </StreamGeometry>
+
+        <!-- refresh: 更新（ツリーの再読み込み）。rotate-ccwは「復元（元に戻す）」で
+             ExplorerView・HistoryPaneの2箇所から共用されており、反時計回りの矢印は復元の
+             意味として適切なため書き換えなかった。更新ボタンには時計回りの矢印がふさわしい
+             ため専用ジオメトリを新設した。
+
+             利用者が実描画で検証済みの座標をそのまま採用している（意匠は利用者指定、
+             座標は独自に描き直したり調整したりはしていない）。「再起動」型の意匠で、
+             中心(12,12)・半径7.5の円弧を、始点(15.75,5.5)＝角度300°（1時の位置、矢印の
+             付かない側の終端）から時計回り（large-arc=1, sweep=1）に約295°掃引し、
+             終点(7.7,5.86)＝角度235°（10時過ぎ、矢印側の終端）まで描く。切れ目は円の
+             上（12時付近）に残る。矢印は弧の終端(7.7,5.86)から北東の先端(10.57,3.85)へ
+             シャフトを伸ばし、そこから西へ(7.77,3.85)・南へ(10.57,6.65)の2本の傘（矢じり）
+             を出す。線の太さはIconStrokeThickness（1.5）に委ねている。
+
+             【注意: WPFのArcSegment/PathGeometryの弧のBoundsは、AvaloniaのSkiaレンダラーで
+             実際に曲線を描画しないと正しく求まらない（Avalonia.Headlessの既定
+             UseHeadlessDrawing=trueや素朴なBounds実装では、始点・終点だけの矩形になり
+             large-arc/sweepフラグの違いが反映されないことがある）。本アイコンの座標選定時、
+             large-arc/sweepフラグの組み合わせによっては指定した中心(12,12)とは別の円（数値的に
+             不安定な、ほぼ縮退した円）が選ばれてしまう組み合わせがあることを
+             UseHeadlessDrawing=falseの実描画で確認した上で、正しく中心(12,12)・半径7.5の円に
+             解決される組み合わせ（large-arc=1, sweep=1）を選んでいる。 -->
+        <StreamGeometry x:Key="IconRefreshGeometry">
+            M15.75,5.5 A7.5,7.5 0 1,1 7.7,5.86 M7.7,5.86 L10.57,3.85 M10.57,3.85 L7.77,3.85 M10.57,3.85 L10.57,6.65
         </StreamGeometry>
 
         <!-- folder: プロジェクト追加 -->
@@ -102,13 +165,21 @@
             M12,3 A9,9 0 1,0 12,21 A9,9 0 1,0 12,3 M12,7 L12,12 L16,14
         </StreamGeometry>
 
-        <!-- settings: 設定（歯車） -->
+        <!-- settings: 設定（歯車）。旧図形は「円のまわりに8本の短い線が放射状に出ている」形で、
+             これは太陽や舵輪の記号と同じ構造のため歯車として読めなかった（実際に描画して確認）。
+             歯車は輪郭そのものが凹凸している図形なので、輪郭を6歯の凸凹にして描き直した。
+             歯数を6に留めたのは、実表示16px（1歯あたり約2px）では8歯だと歯の間の谷が埋まって
+             輪郭がぼやけるため（IconHistoryGeometryが小サイズで潰れた件と同じ配慮）。
+             外径9.9はIconHelpCircleGeometryの円（半径9）と釣り合う大きさで、右端に並べたとき
+             片方だけ大きく見えないよう合わせてある。 -->
         <StreamGeometry x:Key="IconSettingsGeometry">
-            M19,12 A7,7 0 1,1 5,12 A7,7 0 1,1 19,12
-            M14.5,12 A2.5,2.5 0 1,1 9.5,12 A2.5,2.5 0 1,1 14.5,12
-            M19,12 L21,12 M16.95,16.95 L18.36,18.36 M12,19 L12,21
-            M7.05,16.95 L5.64,18.36 M5,12 L3,12 M7.05,7.05 L5.64,5.64
-            M12,5 L12,3 M16.95,7.05 L18.36,5.64
+            M9.64,2.39 L14.36,2.39 L14.04,5.72 L16.42,7.10 L19.15,5.15
+            L21.51,9.24 L18.46,10.63 L18.46,13.37 L21.51,14.76
+            L19.15,18.85 L16.42,16.90 L14.04,18.28 L14.36,21.61
+            L9.64,21.61 L9.96,18.28 L7.58,16.90 L4.85,18.85
+            L2.49,14.76 L5.54,13.37 L5.54,10.63 L2.49,9.24
+            L4.85,5.15 L7.58,7.10 L9.96,5.72 Z
+            M15.1,12 A3.1,3.1 0 1,1 8.9,12 A3.1,3.1 0 1,1 15.1,12
         </StreamGeometry>
 
         <!-- search: 検索（虫眼鏡） -->
@@ -144,7 +215,12 @@
         <!-- chevron-right: ツリー・パネルの折りたたみ（閉） -->
         <StreamGeometry x:Key="IconChevronRightGeometry">M9,5 L16,12 L9,19</StreamGeometry>
 
-        <!-- chevron-down: ツリー・パネルの折りたたみ（開） -->
+        <!-- chevron-left: タブが増えたときの左スクロールボタン（EditorPane.axaml）。
+             IconChevronRightGeometryをx=12中心で左右反転しただけの意匠。 -->
+        <StreamGeometry x:Key="IconChevronLeftGeometry">M15,5 L8,12 L15,19</StreamGeometry>
+
+        <!-- chevron-down: ツリー・パネルの折りたたみ（開）。タブ一覧ドロップダウンの
+             トグルアイコンとしても使う（EditorPane.axaml）。 -->
         <StreamGeometry x:Key="IconChevronDownGeometry">M5,9 L12,16 L19,9</StreamGeometry>
 
         <!-- plus: 新規作成 -->
@@ -157,9 +233,42 @@
             M6,7 L6,11 C6,14 9,15 12,15 L18,15
         </StreamGeometry>
 
-        <!-- panel-bottom: 接ぎ木パネルの開閉 -->
+        <!-- panel-bottom: 接ぎ木パネルの開閉・下配置（画面下寄りの帯を強調） -->
         <StreamGeometry x:Key="IconPanelBottomGeometry">
             M3,4 L21,4 L21,20 L3,20 Z M3,15 L21,15
+        </StreamGeometry>
+
+        <!-- panel-right: 接ぎ木パネルの配置切替（右配置。IconPanelBottomGeometryと対で使う。
+             画面右寄りの帯を強調した意匠で、区切り線の向きだけを90度変えて揃えている） -->
+        <StreamGeometry x:Key="IconPanelRightGeometry">
+            M3,4 L21,4 L21,20 L3,20 Z M15,4 L15,20
+        </StreamGeometry>
+
+        <!-- help-circle: ショートカット一覧を開く（円はIconXCircleGeometryと同じ描き方に揃えた）。
+             実機で「？の下の点が出ず、疑問符自体もずれて見える」との指摘を受け描き直した。
+             疑問符のフックはベジェ曲線のまま字形を整え、点は退化した線分ではなく極小の円で描く
+             （理由はファイル冒頭のコメント参照。意匠は利用者指定、描画して確認済みの座標を
+             そのまま採用）。 -->
+        <StreamGeometry x:Key="IconHelpCircleGeometry">
+            M12,3 A9,9 0 1,0 12,21 A9,9 0 1,0 12,3
+            M9.4,9.8 C9.4,8.1 10.6,7 12,7 C13.6,7 14.8,8 14.8,9.4 C14.8,11.2 12,11.6 12,13.6
+            M12,16.9 A0.4,0.4 0 1,0 12,17.7 A0.4,0.4 0 1,0 12,16.9
+        </StreamGeometry>
+
+        <!-- pin: プロジェクトペイン改善（要望3）。ピン留め状態を一覧上で見て分かるようにする
+             アイコン。地図ピン（雫形＋中心の穴）の意匠で、雫の輪郭とヘッド中央の円をそれぞれ
+             1本の弧で組み立てている（円の描き方はIconXCircleGeometry等と同じ2本の半円弧）。 -->
+        <StreamGeometry x:Key="IconPinGeometry">
+            M21,10 C21,17 12,23 12,23 C12,23 3,17 3,10 A9,9 0 1,1 21,10 Z
+            M15,10 A3,3 0 1,1 9,10 A3,3 0 1,1 15,10
+        </StreamGeometry>
+
+        <!-- trash: プロジェクトの削除（要望1）。蓋（横線＋つまみ）と本体（台形の箱）＋中の縦線2本
+             というfeatherアイコン風の一般的な「ごみ箱」の意匠。 -->
+        <StreamGeometry x:Key="IconTrashGeometry">
+            M4,7 L20,7 M9,7 L9,4 L15,4 L15,7
+            M6,7 L7,21 L17,21 L18,7
+            M10,11 L10,17 M14,11 L14,17
         </StreamGeometry>
 
         <!-- アイコン共通テーマ（IconGlyph、Views/IconGlyph.cs）。塗りなし・線端/結合は丸め・
@@ -188,6 +297,22 @@
                     </Viewbox>
                 </ControlTemplate>
             </Setter>
+            <!--
+                利用者からの指摘対応（無効なボタンの見た目）: 履歴ペインのツールバー等、
+                アイコンのみをContentに置いたボタン（Views/HistoryPane.axaml参照）は、
+                ボタン側の:disabled（Foreground変更）がIconGlyphのStrokeに何の影響も
+                与えないため、無効時もアイコンの色が変わらなかった。IconGlyph自身も
+                祖先のIsEnabledを反映した:disabled疑似クラスを持つ（Avaloniaの
+                IsEffectivelyEnabledによる伝播）ため、ここで自分のStrokeをtext.disabledへ
+                切り替えるだけで、内包するどのボタン・メニュー項目に置かれていても
+                一括してグレーアウトする。状態アイコン（適用可否のcheck/x-circle等）は
+                利用側でStrokeをStateOk/StateError等へローカル値として明示的に上書きして
+                いるため、ローカル値がスタイルより優先されこの規則の影響を受けない
+                （ブロックの状態表示は「無効」ではないため、これは意図どおり）。
+            -->
+            <Style Selector="^:disabled">
+                <Setter Property="Stroke" Value="{DynamicResource TextDisabled}" />
+            </Style>
         </ControlTheme>
 
     </Styles.Resources>

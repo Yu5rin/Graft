@@ -4,6 +4,7 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -25,6 +26,7 @@ public class FileParseScenarioTests : IDisposable
 
     private readonly string _appDirectory;
     private readonly string _projectDirectory;
+    private readonly ShownWindowTracker _windows = new();
 
     public FileParseScenarioTests()
     {
@@ -36,6 +38,10 @@ public class FileParseScenarioTests : IDisposable
 
     public void Dispose()
     {
+        // 表示したShellWindowを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -132,7 +138,13 @@ public class FileParseScenarioTests : IDisposable
         shell.Graft.Blocks.Should().ContainSingle("ダイアログで選んだファイルの内容がブロックとして並ぶ必要がある");
     }
 
-    private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(IDialogService? dialogs = null)
+    // window.Show()はShellWindow.OnLoaded経由で非同期にshell.Graft.InitializeAsync()を呼ぶ。
+    // ここでさらに明示的に呼ぶと初期化が二重に走り、settings.json/projects.jsonの読み直しが
+    // 競合する（ScenarioTests.OpenShellAsync参照、実機で5割前後の確率での失敗を確認した
+    // 事故と同じ種類の競合状態）。自分では呼ばず、OnLoaded経由の初期化完了を
+    // ShellWindowLoadWaiterで待つ（非同期I/Oを行わなくなったため、呼び出し側を変えずに
+    // 済むようasyncを外しTask.FromResultで包む）。
+    private Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(IDialogService? dialogs = null)
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
@@ -149,10 +161,10 @@ public class FileParseScenarioTests : IDisposable
             new FakeUiServices(),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
-        return (shell, window);
+        ShellWindowLoadWaiter.WaitForLayoutApplied(window);
+        return Task.FromResult<(ShellViewModel, Avalonia.Controls.Window)>((shell, window));
     }
 
     /// <summary>SEARCH/REPLACE形式のパッチ本文を組み立てる（仕様書4.1）。</summary>
@@ -196,6 +208,7 @@ public class FileParseScenarioTests : IDisposable
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 
         public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }
@@ -221,6 +234,7 @@ public class FileParseScenarioTests : IDisposable
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 
         public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(_path);
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }

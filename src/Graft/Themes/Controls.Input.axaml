@@ -25,8 +25,23 @@
     <DataTemplate x:Key="LabelItemTemplate">
         <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
     </DataTemplate>
+    <!--
+        実機検証で発見した不具合1: 500文字級の異常に長いプロジェクト名があると、
+        このテンプレートを共有するComboBox（コマンドバーのプロジェクト選択・設定画面の
+        プロジェクト選択等）を開いたとき、項目が1行で画面幅を超えて伸び、他の項目が
+        見えなくなっていた。Controls.Input.axaml内のComboBoxテーマは、この不可視の
+        ItemsControl（「幅の確保」コメント参照）でも同じItemTemplateを使って閉じた状態の
+        幅を計測するため、ここでMaxWidth＋TextTrimmingを掛けるだけで、開いた状態の
+        ドロップダウン項目・閉じた状態の選択表示の両方が一緒に収まる。
+        Name（生の値）ではなく DisplayName（Graft.Features.ProjectNameFormatterで正規化済み。
+        不具合2対応）を見るのは、空・改行混じりの異常な名前でも一覧が壊れないようにするため。
+    -->
     <DataTemplate x:Key="NameItemTemplate">
-        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+        <TextBlock Text="{Binding DisplayName}"
+                   VerticalAlignment="Center"
+                   MaxWidth="320"
+                   TextTrimming="CharacterEllipsis"
+                   ToolTip.Tip="{Binding DisplayName}" />
     </DataTemplate>
     <DataTemplate x:Key="DisplayTextItemTemplate">
         <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center" />
@@ -82,6 +97,17 @@
         </Style>
         <Style Selector="^:disabled">
             <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+        <!--
+            利用者からの指摘対応（無効なボタンの見た目）: ラベルの文字色（上のForeground）は
+            :disabledで変わるが、四角い箱自体（PART_Box）は枠線も背景も変わらないままだった。
+            チェックの済/未済にかかわらず、箱の枠線も灰色にして押せない（変更できない）ことを
+            示す。チェックマーク自体（PART_CheckMark、IconGlyph）はIcons.axaml側の
+            IconGlyph:disabledスタイルが祖先のIsEnabled伝播で自動的に効くため、ここで
+            個別に指定する必要はない。
+        -->
+        <Style Selector="^:disabled /template/ Border#PART_Box">
+            <Setter Property="BorderBrush" Value="{DynamicResource TextDisabled}" />
         </Style>
     </ControlTheme>
 

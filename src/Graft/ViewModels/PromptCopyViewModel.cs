@@ -64,7 +64,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
 
-        CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null);
+        CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null, context: "プロンプトのコピー");
     }
 
     /// <summary>
@@ -194,7 +194,11 @@ public sealed class PromptCopyViewModel : ObservableObject
         Settings = _settings,
         Mode = Context.SelectedMode,
         SelectedPaths = Context.Files
-            .Where(f => f is { IsDirectory: false, IsExcluded: false, IsChecked: true })
+            .Where(f => f is { IsDirectory: false, IsExcluded: false, State: ContextFileState.Full })
+            .Select(f => f.RelativePath)
+            .ToArray(),
+        HiddenPaths = Context.Files
+            .Where(f => f is { IsDirectory: false, IsExcluded: false, State: ContextFileState.Hidden })
             .Select(f => f.RelativePath)
             .ToArray(),
     };

@@ -1,16 +1,21 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows.Input;
+using Graft.Core;
 
 namespace Graft.ViewModels;
 
 /// <summary>
 /// エディタ領域のタブ種別（仕様書9.2）。<see cref="Document"/>は通常の編集対象ファイル、
 /// <see cref="Diff"/>は接ぎ木ブロックの差分プレビュー（読み取り専用・保存確認の対象外）を表す。
+/// <see cref="HistoryDiff"/>は修正1: 履歴のリビジョン選択に連動する差分専用タブ（1リビジョンが
+/// 変更した複数ファイルをまとめて表示する。<see cref="Diff"/>とは異なるビューモデルを持つ）。
 /// </summary>
 public enum EditorTabKind
 {
     Document,
     Diff,
+    HistoryDiff,
 }
 
 /// <summary>
@@ -31,6 +36,10 @@ public sealed class EditorTabViewModel : ObservableObject
     private bool _indentUseTabs;
     private int _indentWidth = 4;
     private bool _hasExternalConflict;
+    private bool _wordWrapDisabledForTab;
+    private int _selectionLength;
+    private bool _showMarkdownPreview;
+    private string? _markdownPreviewUnavailableReason;
 
     /// <summary>通常のドキュメントタブ（4.3節）。</summary>
     public EditorTabViewModel(Graft.Editor.DocumentSession session, Func<EditorTabViewModel, Task> closeRequested)
@@ -41,9 +50,31 @@ public sealed class EditorTabViewModel : ObservableObject
         _isModified = session.IsModified;
         session.ModifiedChanged += OnSessionModifiedChanged;
 
-        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
-        ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync);
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this), context: "タブを閉じる");
+        ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync, context: "変更を破棄して再読込");
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+        DisableWordWrapForTabCommand = new RelayCommand(() => WordWrapDisabledForTab = true);
+
+        // Markdownプレビュー機能（利用者指示）: .mdファイルは既定でプレビュー表示にする。
+        // ただしサイズ上限（MarkdownPreviewSizeGuard）を超える場合は、プレビューを試みる
+        // コストそのもの（巨大なMarkdownをUI要素へ丸ごと展開する処理）を避けたいため、
+        // 開いた時点で編集モードへフォールバックし、理由を画面上に残す
+        // （EditorPane.axaml「MarkdownModeBar」参照）。
+        IsMarkdownFile = string.Equals(Path.GetExtension(session.FileName), ".md", StringComparison.OrdinalIgnoreCase);
+        if (IsMarkdownFile)
+        {
+            // session.Document.TextLength/LineCountではなくInitialTextLength/InitialLineCountを
+            // 使う理由はDocumentSessionのコメント参照（TextDocumentのスレッド固定を踏む事故対策）。
+            _markdownPreviewUnavailableReason = MarkdownPreviewSizeGuard.EvaluateUnavailableReason(
+                session.InitialTextLength, session.InitialLineCount);
+            _showMarkdownPreview = _markdownPreviewUnavailableReason is null;
+        }
+
+        ToggleMarkdownPreviewCommand = new RelayCommand(() =>
+        {
+            if (MarkdownPreviewUnavailable) return;
+            ShowMarkdownPreview = !ShowMarkdownPreview;
+        });
     }
 
     /// <summary>
@@ -57,9 +88,29 @@ public sealed class EditorTabViewModel : ObservableObject
         _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
         Diff.PropertyChanged += OnDiffPropertyChanged;
 
-        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this));
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this), context: "タブを閉じる");
         ReloadDiscardingChangesCommand = new RelayCommand(() => { });
         DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+        DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 差分タブは対象外（HasExtremelyLongLineが常にfalse）。
+        ToggleMarkdownPreviewCommand = new RelayCommand(() => { }); // 差分タブは対象外（IsMarkdownFileが常にfalse）。
+    }
+
+    /// <summary>
+    /// 修正1: 履歴差分タブ（履歴のリビジョン選択に連動する複数ファイルぶんの差分表示）。
+    /// 通常の差分タブ（<see cref="Diff"/>）とは異なり<see cref="HistoryDiffViewModel"/>を持つ。
+    /// </summary>
+    public EditorTabViewModel(HistoryDiffViewModel historyDiff, Func<EditorTabViewModel, Task> closeRequested)
+    {
+        Kind = EditorTabKind.HistoryDiff;
+        HistoryDiff = historyDiff ?? throw new ArgumentNullException(nameof(historyDiff));
+        _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
+        HistoryDiff.PropertyChanged += OnHistoryDiffPropertyChanged;
+
+        CloseCommand = new AsyncRelayCommand(() => _closeRequested(this), context: "タブを閉じる");
+        ReloadDiscardingChangesCommand = new RelayCommand(() => { });
+        DismissExternalConflictCommand = new RelayCommand(() => HasExternalConflict = false);
+        DisableWordWrapForTabCommand = new RelayCommand(() => { }); // 履歴差分タブは対象外（HasExtremelyLongLineが常にfalse）。
+        ToggleMarkdownPreviewCommand = new RelayCommand(() => { }); // 履歴差分タブは対象外（IsMarkdownFileが常にfalse）。
     }
 
     /// <summary>タブ種別。<see cref="Views.EditorPane"/>がこれに応じて表示を切り替える。</summary>
@@ -71,6 +122,15 @@ public sealed class EditorTabViewModel : ObservableObject
     /// <summary>差分タブかどうか。</summary>
     public bool IsDiffTab => Kind == EditorTabKind.Diff;
 
+    /// <summary>修正1: 履歴差分タブかどうか。</summary>
+    public bool IsHistoryDiffTab => Kind == EditorTabKind.HistoryDiff;
+
+    /// <summary>
+    /// 不具合3対応の常時表示closeButtonを差分系タブ全般（通常のdiffタブ・履歴差分タブ）で
+    /// 共通に使うための判定（EditorPane.axamlのDiffCloseButton参照）。
+    /// </summary>
+    public bool IsAnyDiffTab => Kind is EditorTabKind.Diff or EditorTabKind.HistoryDiff;
+
     /// <summary>
     /// このタブが編集しているファイルのセッション。<see cref="Kind"/>が<see cref="EditorTabKind.Diff"/>
     /// のタブでは利用できない（呼び出し側は事前に<see cref="IsDocument"/>で判定すること）。
@@ -81,10 +141,24 @@ public sealed class EditorTabViewModel : ObservableObject
     /// <summary>差分タブの表示内容。<see cref="Kind"/>が<see cref="EditorTabKind.Document"/>のタブでは null。</summary>
     public DiffViewModel? Diff { get; }
 
-    /// <summary>タブ見出しに表示するファイル名（Documentタブ）または「差分: パス」（Diffタブ）。</summary>
-    public string Title => Kind == EditorTabKind.Document
-        ? Session.FileName
-        : Diff is { } d ? BuildDiffTitle(d) : "差分";
+    /// <summary>
+    /// 修正1: 履歴差分タブの表示内容。<see cref="Kind"/>が<see cref="EditorTabKind.HistoryDiff"/>の
+    /// タブでのみ非null。
+    /// </summary>
+    public HistoryDiffViewModel? HistoryDiff { get; }
+
+    /// <summary>
+    /// タブ見出しに表示するファイル名（Documentタブ）・「差分: パス」（Diffタブ）・
+    /// 「差分: r3」（履歴差分タブ。修正1: ファイル名だけだとどのリビジョンか分からないため
+    /// リビジョンラベルを出す）。
+    /// </summary>
+    public string Title => Kind switch
+    {
+        EditorTabKind.Document => Session.FileName,
+        EditorTabKind.Diff => Diff is { } d ? BuildDiffTitle(d) : "差分",
+        EditorTabKind.HistoryDiff => HistoryDiff is { RevisionLabel.Length: > 0 } h ? $"差分: {h.RevisionLabel}" : "差分",
+        _ => "差分",
+    };
 
     /// <summary>ツールチップ・読み上げ（AutomationProperties.Name）に表示するプロジェクト相対パス。</summary>
     public string ToolTipText => Kind == EditorTabKind.Document
@@ -122,8 +196,13 @@ public sealed class EditorTabViewModel : ObservableObject
     /// <summary>選択範囲の開始オフセット（文字単位）。</summary>
     public int SelectionStart { get; set; }
 
-    /// <summary>選択範囲の長さ（文字単位）。0は選択なし。</summary>
-    public int SelectionLength { get; set; }
+    /// <summary>
+    /// 選択範囲の長さ（文字単位）。0は選択なし。機能改善1（ステータスバーの選択文字数表示）で
+    /// 通知プロパティ化した。<see cref="Views.EditorPane"/>がTextArea.SelectionChangedのたびに
+    /// ここへ書き込み、<see cref="EditorPaneViewModel"/>がPropertyChangedを購読して
+    /// SelectionTextへ反映する（EditorPaneViewModel.OnTabPropertyChanged参照）。
+    /// </summary>
+    public int SelectionLength { get => _selectionLength; set => SetProperty(ref _selectionLength, value); }
 
     /// <summary>
     /// 一度でもこのタブが非表示側へ回り、スクロール位置が退避されたかどうか。falseのままなら
@@ -142,6 +221,66 @@ public sealed class EditorTabViewModel : ObservableObject
     /// </summary>
     public bool HasExternalConflict { get => _hasExternalConflict; set => SetProperty(ref _hasExternalConflict, value); }
 
+    /// <summary>
+    /// 課題3（再設計）: このタブが極端に長い行（<see cref="Graft.Editor.DocumentSession.LongLineThreshold"/>
+    /// 超）を含むかどうか。差分系タブでは<see cref="Session"/>を持たないため常にfalse
+    /// （<c>&amp;&amp;</c>の短絡評価によりSessionへは触れない）。通知バー（EditorPane.axaml）の
+    /// 表示条件として使う。
+    /// </summary>
+    public bool HasExtremelyLongLine => Kind == EditorTabKind.Document && Session.HasExtremelyLongLine;
+
+    /// <summary>
+    /// 課題3（再設計）: 「このファイルでは折り返しを無効にする」（通知バー）が押されたかどうか。
+    /// trueの間は、利用者の折り返し設定（<see cref="EditorPaneViewModel.WordWrap"/>）に
+    /// 関わらずこのタブに限って折り返しを無効化する（EditorPane.axaml.csのApplyWordWrapOption
+    /// 参照）。設定そのものへは永続化しない（このタブを閉じれば忘れる、一時的な逃げ道）。
+    /// </summary>
+    public bool WordWrapDisabledForTab { get => _wordWrapDisabledForTab; set => SetProperty(ref _wordWrapDisabledForTab, value); }
+
+    /// <summary>
+    /// Markdownプレビュー機能（利用者指示）: このタブが.mdファイルかどうか。差分系タブでは常にfalse。
+    /// コンストラクタで拡張子から一度だけ判定する（ファイル名は途中で変わらない前提。
+    /// リネーム＝別タブとして扱われるため問題ない）。
+    /// </summary>
+    public bool IsMarkdownFile { get; }
+
+    /// <summary>
+    /// Markdownプレビュー機能: 現在プレビュー表示中かどうか（falseなら編集モード）。
+    /// .mdファイルは既定でtrue（<see cref="MarkdownPreviewUnavailableReason"/>が非nullの場合を除く）。
+    /// 「一度でも編集に切り替えたタブは、そのタブが開いている間は編集のまま」（利用者指示）を
+    /// 満たすため、タブが閉じるまで保持される単純なミュータブルフラグとして持つ
+    /// （毎回自動でtrueへ戻す処理は一切行わない）。
+    /// </summary>
+    public bool ShowMarkdownPreview
+    {
+        get => _showMarkdownPreview;
+        set => SetProperty(ref _showMarkdownPreview, value, () => OnPropertyChanged(nameof(MarkdownModeToggleLabel)));
+    }
+
+    /// <summary>
+    /// Markdownプレビュー機能: プレビューが利用できない理由（<see cref="MarkdownPreviewSizeGuard"/>の
+    /// 上限超過等）。nullなら利用可能。非nullの間はモード切替ボタンを無効化する
+    /// （EditorPane.axaml「MarkdownModeBar」参照）。
+    /// </summary>
+    public string? MarkdownPreviewUnavailableReason
+    {
+        get => _markdownPreviewUnavailableReason;
+        private set => SetProperty(ref _markdownPreviewUnavailableReason, value, () => OnPropertyChanged(nameof(MarkdownPreviewUnavailable)));
+    }
+
+    /// <summary>プレビューが（サイズ上限等により）利用できない状態かどうか。</summary>
+    public bool MarkdownPreviewUnavailable => MarkdownPreviewUnavailableReason is not null;
+
+    /// <summary>モード切替ボタンのラベル。プレビュー中は「編集する」、編集中は「プレビューに戻る」。</summary>
+    public string MarkdownModeToggleLabel => ShowMarkdownPreview ? "編集する" : "プレビューに戻る";
+
+    /// <summary>
+    /// Markdownプレビュー機能: プレビュー⇔編集モードを切り替える。プレビュー不可の間は何もしない。
+    /// スクロール位置の引き継ぎ（利用者指示）はView側（EditorPane.axaml.cs）が
+    /// このプロパティ変更前後で行うため、ここでは状態のトグルのみを行う。
+    /// </summary>
+    public ICommand ToggleMarkdownPreviewCommand { get; private set; } = null!;
+
     /// <summary>タブを閉じる（未保存なら保存確認を挟む。差分タブでは確認なしで閉じる）。</summary>
     public ICommand CloseCommand { get; }
 
@@ -151,6 +290,9 @@ public sealed class EditorTabViewModel : ObservableObject
     /// <summary>通知バーの「無視」。バーを閉じ、現在の編集内容をそのまま保持する。</summary>
     public ICommand DismissExternalConflictCommand { get; }
 
+    /// <summary>課題3（再設計）: 通知バーの「このファイルでは折り返しを無効にする」。</summary>
+    public ICommand DisableWordWrapForTabCommand { get; }
+
     /// <summary>タブが一覧から取り除かれる際に呼び出し側から呼ぶ。イベント購読を解除する。</summary>
     public void DetachEvents()
     {
@@ -158,9 +300,13 @@ public sealed class EditorTabViewModel : ObservableObject
         {
             Session.ModifiedChanged -= OnSessionModifiedChanged;
         }
-        else if (Diff is not null)
+        else if (Kind == EditorTabKind.Diff && Diff is not null)
         {
             Diff.PropertyChanged -= OnDiffPropertyChanged;
+        }
+        else if (Kind == EditorTabKind.HistoryDiff && HistoryDiff is not null)
+        {
+            HistoryDiff.PropertyChanged -= OnHistoryDiffPropertyChanged;
         }
     }
 
@@ -196,4 +342,15 @@ public sealed class EditorTabViewModel : ObservableObject
 
     private static string BuildDiffTitle(DiffViewModel diff)
         => diff.FilePath is { } path ? $"差分: {path}" : "差分";
+
+    /// <summary>
+    /// 修正1: 履歴のリビジョン選択が変わる（<see cref="HistoryDiffViewModel.Load"/>の再実行）たびに、
+    /// 同じタブを使い回しながらタブ見出し（「差分: r3」）を追従させる（OnDiffPropertyChangedと同じ考え方）。
+    /// </summary>
+    private void OnHistoryDiffPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(HistoryDiffViewModel.RevisionLabel)) return;
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(ToolTipText));
+    }
 }

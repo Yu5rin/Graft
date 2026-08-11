@@ -1,11 +1,14 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
              x:Class="Graft.Views.StatusBarView"
              Focusable="False">
     <!--
         9.2/9.9 ステータスバー（24px）。行:列・選択文字数・エンコーディング・改行コード・言語は
-        ShellViewModel.Editor、接ぎ木状態・シンタックス無効化通知は ShellViewModel.Graft を
-        参照する。DataContextはShellWindowから継承する（上書きしない）。
+        ShellViewModel.Editor、接ぎ木状態は ShellViewModel.Graft を参照する。警告表示
+        （書き込み不可・シンタックス無効化・長い行）はShellViewModel自身が複数の警告源を
+        集約して公開する（ShellViewModel.StatusBarWarning.cs参照）。DataContextはShellWindow
+        から継承する（上書きしない）。
 
         v2.0のWPF版からの差分: Visibilityが無いためIsVisibleへ直接boolをバインドする
         （BoolToVisibilityコンバータが不要になる）。
@@ -18,18 +21,124 @@
 
             <!-- 左: エディタの状態（行:列・エンコーディング・改行コード・言語） -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <!--
+                    細かいユーザビリティ改善1: カーソル位置「行:列」（例: "12:34"）。ドキュメント
+                    タブ以外（差分・履歴差分タブ）ではEditor.CaretTextが空文字になる
+                    （EditorPaneViewModel.CaretText参照。カーソルの概念が無いタブでは出さない。
+                    他のEditor.*Textと同じく、空文字は見た目上そのまま非表示になるためIsVisibleは
+                    使わない）。
+                -->
                 <TextBlock Text="{Binding Editor.CaretText}" FontSize="{DynamicResource StatusBarFontSize}" />
+                <!-- 選択中のみ「(選択 128文字)」を追加表示する（選択なしは空文字。EditorPaneViewModel.SelectionText参照）。 -->
+                <TextBlock Text="{Binding Editor.SelectionText}"
+                           Margin="6,0,0,0"
+                           Foreground="{DynamicResource TextSecondary}"
+                           FontSize="{DynamicResource StatusBarFontSize}" />
                 <TextBlock Text="{Binding Editor.EncodingText}" Margin="12,0,0,0"
                            FontSize="{DynamicResource StatusBarFontSize}" />
                 <TextBlock Text="{Binding Editor.NewLineText}" Margin="12,0,0,0"
                            FontSize="{DynamicResource StatusBarFontSize}" />
                 <TextBlock Text="{Binding Editor.LanguageText}" Margin="12,0,0,0"
                            FontSize="{DynamicResource StatusBarFontSize}" />
-                <!-- 8.6: シンタックスハイライトが性能基準を満たさず無効化された場合の通知。 -->
-                <TextBlock Text="シンタックスハイライトを無効化しました" Margin="12,0,0,0"
+
+                <!--
+                    クリップボード監視（9章・10章）。警告スロット（StatusBarWarningText）とは
+                    別の独立したスロットにする（ShellViewModel.ClipboardWatch.cs参照）。
+                    「監視中」は平常状態の控えめな表示、パッチ検知の通知はクリックで解析できる
+                    アクセント色のボタンにする（確認なしに解析・適用はしない。押した瞬間に
+                    ShellViewModel.AnalyzeClipboardPatchCommandがクリップボードを読み直す）。
+
+                    細かいユーザビリティ改善2: 平常状態の表示（従来はTextBlock）をButtonへ
+                    変更し、クリックで一時停止／再開できるようにした（パスワードをコピーする間
+                    だけ止めたい、という用途）。Settings.ClipboardWatch.Enabledそのものは
+                    変更しない一時的な状態のため、アプリを再起動すると設定どおりに戻る
+                    （ShellViewModel.ClipboardWatch.csのコメント参照）。一時停止中は文言と
+                    色を変えてひと目で分かるようにする。
+                -->
+                <Button Content="{Binding ClipboardWatchStatusText}"
+                        Command="{Binding ToggleClipboardWatchPauseCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Classes="clipboardWatchToggle"
+                        Classes.paused="{Binding IsClipboardWatchPaused}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding IsClipboardWatchActive}"
+                        AutomationProperties.Name="{Binding ClipboardWatchStatusText}"
+                        local:HelpTip.Standard="クリックすると、クリップボード監視を一時停止／再開できます。設定自体は変わらず、アプリを再起動すると元に戻ります。"
+                        local:HelpTip.Detailed="クリップボードの内容を監視し、パッチ形式のテキストをコピーすると検知します。パスワードなど、コピーした内容を読み取られたくない間だけ一時的に止めたいときに使います。クリックのたびに一時停止・再開が切り替わり、一時停止中は文言と色が変わります。これは表示上・実行中だけの一時的な状態で、設定画面の「クリップボード監視」は変更しません。アプリを再起動すると、常に設定どおりの状態（既定はオン）で監視が始まります。"
+                        ToolTip.Tip="{Binding ClipboardWatchStatusText}" />
+                <Button Content="{Binding ClipboardPatchNoticeText}"
+                        Command="{Binding AnalyzeClipboardPatchCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding HasClipboardPatchNotice}"
+                        AutomationProperties.Name="パッチ形式のテキストを検知しました。クリックで解析"
+                        ToolTip.Tip="クリックすると、コマンドバーの「解析」と同じ処理でクリップボードの内容を読み直します。自動では解析・適用しません。" />
+
+                <!--
+                    ステータスバーの警告表示について: 書き込み不可（課題1）・シンタックス
+                    ハイライト無効化（8.6）・極端に長い行の無効化（課題3）は、もとはそれぞれ
+                    独立したTextBlockとして横並びに置かれていた。しかし複数の警告が同時に
+                    成立する組み合わせ（例: 書き込み不可のフォルダで、極端に長い行を含む
+                    ファイルを開いた場合）を実機のXvfb環境で検証したところ、ウィンドウの
+                    最小幅（960px）では警告文どうし・右側の接ぎ木状態表示
+                    （Grid.Column="1"）と文字が重なって判読できなくなることを確認した。
+                    そのため表示スロットを1つに統合し、複数成立時は最優先の1件＋「ほかN件」に
+                    要約する（詳細はShellViewModel.StatusBarWarning.csのコメント参照。全文は
+                    ToolTipで確認できる）。TextTrimmingとMaxWidthは、要約後もなお収まりきらない
+                    極端に狭いウィンドウに備えた最終防御。
+                -->
+                <TextBlock Text="{Binding StatusBarWarningText}"
+                           Margin="12,0,0,0"
+                           MaxWidth="420"
+                           TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource StateWarn}"
                            FontSize="{DynamicResource StatusBarFontSize}"
-                           IsVisible="{Binding Graft.Diff.SyntaxHighlightDisabled}" />
+                           IsVisible="{Binding HasStatusBarWarning}"
+                           ToolTip.Tip="{Binding StatusBarWarningTooltip}" />
+
+                <!--
+                    課題2: エクスプローラでの削除直後、数秒間だけ出す案内（ExplorerViewModel参照）。
+                    クリップボード監視の通知（上のButton）と同じ考え方で、クリックすると
+                    そのままExplorer.UndoDeleteCommandを実行して元に戻せる。数秒で自動的に
+                    消えるが、消えた後もCtrl+Zや右クリックメニューの「削除を元に戻す」は使える。
+                -->
+                <Button Content="{Binding Explorer.DeleteUndoNoticeText}"
+                        Command="{Binding Explorer.UndoDeleteCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Explorer.HasDeleteUndoNotice}"
+                        AutomationProperties.Name="{Binding Explorer.DeleteUndoNoticeText}"
+                        ToolTip.Tip="クリックすると直前の削除を元に戻します。" />
+
+                <!--
+                    機能2: パッチ適用が成功した直後、数秒間だけ出す「元に戻す」通知
+                    （MainViewModel.ApplyUndoNotice.cs）。クリップボード監視の通知・削除取り消し
+                    通知と同じ考え方（Buttonそのものがクリック可能な通知）。「元に戻す」は
+                    Ctrl+Zと同じUndoCommand（既存の単発復元経路）をそのまま再利用するため、
+                    クリックすると復元の確認ダイアログを挟んだうえで直前のリビジョンを取り消す。
+                -->
+                <Button Content="{Binding Graft.ApplyUndoNoticeText}"
+                        Command="{Binding Graft.UndoCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Graft.HasApplyUndoNotice}"
+                        AutomationProperties.Name="{Binding Graft.ApplyUndoNoticeText}"
+                        local:HelpTip.Standard="適用直後に数秒だけ表示される通知です。クリックすると直前のリビジョンを元に戻せます。"
+                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Zからいつでも元に戻せます。"
+                        ToolTip.Tip="クリックすると直前に適用したリビジョンを元に戻します。" />
             </StackPanel>
 
             <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->
@@ -37,4 +146,20 @@
                        VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
         </Grid>
     </Border>
+
+    <UserControl.Styles>
+        <!--
+            細かいユーザビリティ改善2: クリップボード監視インジケータ（Button化）の見た目。
+            平常時は他のステータスバー項目と同じ控えめな色、一時停止中はStateWarn（既存の
+            警告色。ContextCollectWindow.axamlのstatusMessage.warnと同じ考え方）で目立たせる。
+        -->
+        <Style Selector="Button.clipboardWatchToggle">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        </Style>
+        <Style Selector="Button.clipboardWatchToggle.paused">
+            <Setter Property="Foreground" Value="{DynamicResource StateWarn}" />
+        </Style>
+    </UserControl.Styles>
 </UserControl>

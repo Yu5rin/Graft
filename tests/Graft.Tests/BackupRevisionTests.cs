@@ -171,6 +171,52 @@ public class BackupRevisionTests
             .Should().BeEquivalentTo(new[] { 1, 2, 3 }, "削除済みのリビジョンも履歴記録としては復元不可のまま残るはず（仕様書13.1）");
     }
 
+    [Fact(DisplayName = "世代管理: バックアップ合計サイズが上限を超えた分も古い順に削除される")]
+    public async Task 世代管理で合計サイズ上限を超えた分も削除される()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        // 1件あたり2MBのファイルを退避させ、件数ではなくサイズ上限で削除が発生することを確認する
+        // （manifest.json分の誤差を吸収できるよう、閾値との間に十分な余白を持たせたサイズにする）。
+        var twoMb = new byte[2 * 1024 * 1024];
+        for (var i = 1; i <= 4; i++)
+        {
+            var (_, session) = await CreateRevisionAsync(harness, i, $"sha256:size{i}");
+            await File.WriteAllBytesAsync(Path.Combine(session.FolderPath, "payload.bin"), twoMb);
+        }
+
+        // MaxRevisions=0（無制限）にしてサイズ上限のみで判定させる。4件・約8MBのうち、
+        // 5MBを超える古い分（r1・r2、約4MB分）が削除され、新しい2件（約4MB）が残るはず。
+        var settings = new BackupSettings { MaxRevisions = 0, MaxTotalMB = 5, UseRecycleBin = false };
+        var removed = await harness.Revisions.EnforceRetentionAsync(harness.ProjectId, settings);
+
+        removed.IsSuccess.Should().BeTrue();
+        removed.Value.Should().Be(2, "合計サイズが5MB以下に収まるまで、古い順に2件削除されるはず");
+
+        var remaining = await harness.Revisions.ListAsync(harness.ProjectId);
+        remaining.Value.Where(r => r.IsRestorable).Select(r => r.Manifest.Revision)
+            .Should().BeEquivalentTo(new[] { 3, 4 }, "サイズ上限を満たすまで残るのは新しい2件のはず");
+    }
+
+    [Fact(DisplayName = "世代管理: 上限（件数・サイズとも）を超えていなければ何も削除しない")]
+    public async Task 世代管理は上限内なら何も削除しない()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        for (var i = 1; i <= 2; i++)
+        {
+            await CreateRevisionAsync(harness, i, $"sha256:keep{i}");
+        }
+
+        var settings = new BackupSettings { MaxRevisions = 100, MaxTotalMB = 500, UseRecycleBin = false };
+        var removed = await harness.Revisions.EnforceRetentionAsync(harness.ProjectId, settings);
+
+        removed.IsSuccess.Should().BeTrue();
+        removed.Value.Should().Be(0, "既定値（100件・500MB）は今回の2件では超過しないはず");
+        var projectBackupDir = harness.Paths.GetProjectBackupDirectory(harness.ProjectId);
+        Directory.EnumerateDirectories(projectBackupDir).Should().HaveCount(2);
+    }
+
     // ------------------------------------------------------------------
     // 6.2 ComputePatchHashの正規化
     // ------------------------------------------------------------------

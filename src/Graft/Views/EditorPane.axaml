@@ -19,6 +19,19 @@
         <Style Selector="TextBlock.tabTitle.preview">
             <Setter Property="FontStyle" Value="Italic" />
         </Style>
+        <!--
+            不具合3対応（副次的に見つかった不具合）: 閉じるボタンの既定非表示は、以前は
+            Button要素へ直接 IsVisible="False" を指定していた。AvaloniaはLocal値（XAML要素へ
+            直接指定した値）がStyleのSetterより優先されるため、この直接指定があると
+            :pointerover / :selected のStyleセレクタが一致してもIsVisible="True"へ上書きできず、
+            「ホバー中だけ表示」という既存のコメント・意図どおりには実際には動作していなかった
+            （実測で確認: ヘッドレステストでホバーさせても非表示のままだった）。既定値も含めて
+            Styleセレクタ側（優先順位が同じ階層）に揃えることで、後続の:pointerover/:selected
+            セレクタが正しく上書きできるようにする。
+        -->
+        <Style Selector="Button.tabClose">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
         <!-- 未保存を示す点は、ホバー中は閉じるボタンと入れ替える（v2.0のWPF版と同じ挙動）。 -->
         <Style Selector="ListBoxItem:pointerover TextBlock.modifiedDot">
             <Setter Property="IsVisible" Value="False" />
@@ -26,59 +39,109 @@
         <Style Selector="ListBoxItem:pointerover Button.tabClose">
             <Setter Property="IsVisible" Value="True" />
         </Style>
+        <!--
+            不具合3対応: 閉じるボタンはホバー時のみ表示だと、マウスがそのタブの上に無い限り
+            閉じる手段が画面上に一切見えず（差分/マッチ失敗タブが唯一のタブの場合は特に）、
+            初見のユーザーには分からなかった（実機検証で発覚）。選択中のタブでは常時表示に
+            することで、少なくとも「今見ている画面をどう閉じるか」は常に見える状態にする。
+            それ以外の非選択タブは従来どおりホバー時のみ（見た目の変化を最小限にする）。
+        -->
+        <Style Selector="ListBoxItem:selected Button.tabClose">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*">
 
-        <!-- ========== タブ見出し（4.3） ========== -->
-        <ListBox x:Name="TabStrip"
-                 Grid.Row="0"
-                 Theme="{StaticResource EditorTabStripTheme}"
-                 ItemContainerTheme="{StaticResource EditorTabItemTheme}"
-                 ItemsSource="{Binding Tabs}"
-                 SelectedItem="{Binding ActiveTab, Mode=TwoWay}"
-                 IsVisible="{Binding Tabs.Count, Converter={x:Static local:Converters.CountIsNotZero}}"
-                 AutomationProperties.Name="開いているファイルのタブ一覧">
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <!-- タブ見出しの右クリックメニュー。Command先はEditorPaneViewModel（Rootの
-                         DataContext）、CommandParameterはこの項目自身（タブ）。ContextMenuは
-                         配置対象（Border）の論理ツリーを共有するため、ElementName=Rootでの
-                         参照はExplorerView.axamlのContextMenuと同様に機能する。 -->
-                    <Border Background="Transparent">
-                        <Border.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="閉じる"
-                                          Command="{Binding CloseCommand}"
-                                          AutomationProperties.Name="このタブを閉じる" />
-                                <MenuItem Header="他のタブを閉じる"
-                                          Command="{Binding DataContext.CloseOtherTabsCommand, ElementName=Root}"
-                                          CommandParameter="{Binding}"
-                                          AutomationProperties.Name="他のタブをすべて閉じる" />
-                                <MenuItem Header="すべてのタブを閉じる"
-                                          Command="{Binding DataContext.CloseAllTabsCommand, ElementName=Root}"
-                                          AutomationProperties.Name="開いているタブをすべて閉じる" />
-                                <Separator />
-                                <MenuItem Header="フルパスをコピー"
-                                          Command="{Binding DataContext.CopyFullPathCommand, ElementName=Root}"
-                                          CommandParameter="{Binding}"
-                                          IsEnabled="{Binding IsDocument}"
-                                          AutomationProperties.Name="このタブのフルパスをコピー" />
-                                <MenuItem Header="ファイルマネージャで表示"
-                                          Command="{Binding DataContext.RevealInFileManagerCommand, ElementName=Root}"
-                                          CommandParameter="{Binding}"
-                                          IsEnabled="{Binding IsDocument}"
-                                          AutomationProperties.Name="このタブをファイルマネージャで表示" />
-                            </ContextMenu>
-                        </Border.ContextMenu>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Classes="tabTitle"
+        <!--
+            ========== タブ見出し（4.3） ==========
+            機能改善（タブが増えたときに到達できない問題）: タブ本体（TabStrip）の両脇に
+            左右スクロールボタン（依頼2）、右端にタブ一覧ドロップダウン（依頼3）を常設する。
+            行全体のIsVisibleは以前はListBox自身に付けていたが、スクロールボタン・
+            ドロップダウンも含めて開いているタブが無いときは丸ごと隠す必要があるため、
+            この行のGrid（TabStripRow）へ移した。
+        -->
+        <Grid x:Name="TabStripRow"
+              Grid.Row="0"
+              ColumnDefinitions="Auto,*,Auto,Auto"
+              IsVisible="{Binding Tabs.Count, Converter={x:Static local:Converters.CountIsNotZero}}">
+
+            <!-- 依頼2: 左スクロールボタン。収まっているとき（TabStripPanel.HasOverflowがfalse）は
+                 EditorPane.axaml.csがIsVisible=Falseにする（Auto列なので幅も0になり、見た目に
+                 影響しない）。 -->
+            <Button x:Name="TabScrollLeftButton"
+                    Grid.Column="0"
+                    Theme="{StaticResource EditorTabStripActionButtonTheme}"
+                    Click="OnTabScrollLeftClicked"
+                    IsVisible="False"
+                    local:HelpTip.Standard="タブを左へスクロールします。"
+                    local:HelpTip.Detailed="タブ見出しがすべて収まりきらないときだけ表示されるボタンです。押すたびに少しずつ左（前のタブ側）へスクロールします。左端まで来ると自動的に押せなくなります。タブ列の上でマウスホイールを回しても同じようにスクロールできます。"
+                    AutomationProperties.Name="タブを左へスクロール">
+                <local:IconGlyph Data="{DynamicResource IconChevronLeftGeometry}"
+                                  Width="14" Height="14"
+                                  Stroke="{DynamicResource TextSecondary}" />
+            </Button>
+
+            <ListBox x:Name="TabStrip"
+                     Grid.Column="1"
+                     Theme="{StaticResource EditorTabStripTheme}"
+                     ItemContainerTheme="{StaticResource EditorTabItemTheme}"
+                     ItemsSource="{Binding Tabs}"
+                     SelectedItem="{Binding ActiveTab, Mode=TwoWay}"
+                     AutomationProperties.Name="開いているファイルのタブ一覧">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <!-- タブ見出しの右クリックメニュー。Command先はEditorPaneViewModel（Rootの
+                             DataContext）、CommandParameterはこの項目自身（タブ）。ContextMenuは
+                             配置対象（Grid）の論理ツリーを共有するため、ElementName=Rootでの
+                             参照はExplorerView.axamlのContextMenuと同様に機能する。
+                             依頼1: 以前はStackPanelだったが、タブ幅が縮んだときにタイトルだけを
+                             省略記号で詰め、未保存マーク・閉じるボタンは常に全体を保つよう
+                             Grid（Title=*、それ以外=Auto）へ変更した。 -->
+                        <Grid Background="Transparent" ColumnDefinitions="*,Auto,Auto">
+                            <Grid.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="閉じる (Ctrl+W)"
+                                              Command="{Binding CloseCommand}"
+                                              AutomationProperties.Name="このタブを閉じる" />
+                                    <MenuItem Header="他のタブを閉じる"
+                                              Command="{Binding DataContext.CloseOtherTabsCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              AutomationProperties.Name="他のタブをすべて閉じる" />
+                                    <!-- D: 右側のタブを閉じる。既存2つ（他のタブ／すべてのタブ）と同じ作法
+                                         （保存確認あり）で、Tabsの表示順で右側のタブだけを閉じる。 -->
+                                    <MenuItem Header="右側のタブを閉じる"
+                                              Command="{Binding DataContext.CloseTabsToTheRightCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              local:HelpTip.Standard="このタブより右側にあるタブをすべて閉じます。未保存の変更があれば、タブごとに保存するか確認します。"
+                                              local:HelpTip.Detailed="タブ見出しの並び順で、このタブより右側にあるタブをすべて閉じます。このタブ自身と、左側のタブは残ります。未保存の変更があるタブが含まれる場合は、閉じる前にタブごとに保存するか確認するダイアログが出ます（「他のタブを閉じる」「すべてのタブを閉じる」と同じ作法です）。"
+                                              AutomationProperties.Name="このタブより右側のタブをすべて閉じる" />
+                                    <MenuItem Header="すべてのタブを閉じる"
+                                              Command="{Binding DataContext.CloseAllTabsCommand, ElementName=Root}"
+                                              AutomationProperties.Name="開いているタブをすべて閉じる" />
+                                    <Separator />
+                                    <MenuItem Header="フルパスをコピー"
+                                              Command="{Binding DataContext.CopyFullPathCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              IsEnabled="{Binding IsDocument}"
+                                              AutomationProperties.Name="このタブのフルパスをコピー" />
+                                    <MenuItem Header="ファイルマネージャで表示"
+                                              Command="{Binding DataContext.RevealInFileManagerCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              IsEnabled="{Binding IsDocument}"
+                                              AutomationProperties.Name="このタブをファイルマネージャで表示" />
+                                </ContextMenu>
+                            </Grid.ContextMenu>
+                            <TextBlock Grid.Column="0"
+                                       Classes="tabTitle"
                                        Classes.preview="{Binding IsPreview}"
                                        Text="{Binding Title}"
+                                       TextTrimming="CharacterEllipsis"
                                        VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextPrimary}"
                                        FontSize="{DynamicResource BodyFontSize}" />
-                            <TextBlock Classes="modifiedDot"
+                            <TextBlock Grid.Column="1"
+                                       Classes="modifiedDot"
                                        Text="●"
                                        Margin="6,0,0,0"
                                        VerticalAlignment="Center"
@@ -86,24 +149,168 @@
                                        Foreground="{DynamicResource TextSecondary}"
                                        IsVisible="{Binding IsModified}"
                                        AutomationProperties.Name="未保存の変更があります" />
-                            <Button Classes="tabClose"
+                            <Button Grid.Column="2"
+                                    Classes="tabClose"
                                     Command="{Binding CloseCommand}"
                                     Theme="{StaticResource EditorTabCloseButtonTheme}"
                                     Margin="6,0,0,0"
-                                    IsVisible="False"
+                                    local:HelpTip.Standard="このタブを閉じます。未保存の変更があれば保存するか確認します（Ctrl+W）。"
+                                    local:HelpTip.Detailed="このファイルをエディタから閉じます。保存していない変更が残っている場合は、閉じる前に「保存する／保存しない／キャンセル」を確認するダイアログが出ます。ファイル自体（ディスク上のファイル）は削除されません。ショートカットはCtrl+Wです。"
                                     AutomationProperties.Name="タブを閉じる" />
-                        </StackPanel>
-                    </Border>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <!-- 依頼2: 右スクロールボタン。左ボタンと表示条件は同じ（両端そろって出る／隠れる）。 -->
+            <Button x:Name="TabScrollRightButton"
+                    Grid.Column="2"
+                    Theme="{StaticResource EditorTabStripActionButtonTheme}"
+                    Click="OnTabScrollRightClicked"
+                    IsVisible="False"
+                    local:HelpTip.Standard="タブを右へスクロールします。"
+                    local:HelpTip.Detailed="タブ見出しがすべて収まりきらないときだけ表示されるボタンです。押すたびに少しずつ右（後のタブ側）へスクロールします。右端まで来ると自動的に押せなくなります。タブ列の上でマウスホイールを回しても同じようにスクロールできます。"
+                    AutomationProperties.Name="タブを右へスクロール">
+                <local:IconGlyph Data="{DynamicResource IconChevronRightGeometry}"
+                                  Width="14" Height="14"
+                                  Stroke="{DynamicResource TextSecondary}" />
+            </Button>
+
+            <!-- 依頼3: タブ一覧ドロップダウン。収まっているかどうかに関わらず常設する。 -->
+            <Button x:Name="TabListDropDownButton"
+                    Grid.Column="3"
+                    Theme="{StaticResource EditorTabStripActionButtonTheme}"
+                    Margin="2,0,4,0"
+                    local:HelpTip.Standard="開いているタブの一覧を表示します。ファイル名で絞り込んで選べます。"
+                    local:HelpTip.Detailed="タブが増えて見出しの並びだけでは目的のタブを探しにくいときに使います。押すと開いているタブの一覧が出て、上の検索欄にファイル名の一部を入力すると絞り込めます。一覧をクリックするとそのタブへ切り替わります。"
+                    AutomationProperties.Name="開いているタブの一覧を表示">
+                <local:IconGlyph Data="{DynamicResource IconChevronDownGeometry}"
+                                  Width="14" Height="14"
+                                  Stroke="{DynamicResource TextSecondary}" />
+                <Button.Flyout>
+                    <Flyout Placement="BottomEdgeAlignedRight">
+                        <Border Width="300" Padding="8"
+                                Background="{DynamicResource BgElevated}"
+                                BorderBrush="{DynamicResource BorderSubtle}"
+                                BorderThickness="1"
+                                CornerRadius="4">
+                            <DockPanel>
+                                <TextBox x:Name="TabPickerSearchBox"
+                                         DockPanel.Dock="Top"
+                                         Watermark="ファイル名で絞り込み"
+                                         Margin="0,0,0,6"
+                                         TextChanged="OnTabPickerSearchTextChanged"
+                                         KeyDown="OnTabPickerSearchKeyDown"
+                                         AutomationProperties.Name="タブをファイル名で絞り込み" />
+                                <ListBox x:Name="TabPickerList"
+                                         MaxHeight="320"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         SelectionChanged="OnTabPickerSelectionChanged"
+                                         AutomationProperties.Name="開いているタブの一覧">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Title}"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextPrimary}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="●"
+                                                           Margin="6,0,0,0"
+                                                           VerticalAlignment="Center"
+                                                           FontSize="8"
+                                                           Foreground="{DynamicResource TextSecondary}"
+                                                           IsVisible="{Binding IsModified}"
+                                                           AutomationProperties.Name="未保存の変更があります" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Border>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
 
         <!-- ========== エディタ本体 ========== -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,*">
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,Auto,*">
+
+            <!--
+                Markdownプレビュー機能（利用者指示）: .mdファイルのタブでのみ表示するモード切替バー。
+                プレビュー⇔編集の切替ボタン（ダブルクリック・Escでも切り替わる。詳細はEditorPane.axaml.cs
+                OnToggleMarkdownPreviewClicked・OnTunnelKeyDown参照）に加え、サイズ上限
+                （MarkdownPreviewSizeGuard）超過時はボタンを無効化し理由を表示する。
+            -->
+            <Border x:Name="MarkdownModeBar"
+                    Grid.Row="0"
+                    Background="{DynamicResource BgElevated}"
+                    BorderBrush="{DynamicResource BorderSubtle}"
+                    BorderThickness="0,0,0,1"
+                    Padding="12,6"
+                    IsVisible="{Binding ActiveTab.IsMarkdownFile, FallbackValue=False}"
+                    AutomationProperties.Name="Markdownプレビューの切替">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0"
+                               Text="Markdownプレビュー"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondary}"
+                               FontSize="{DynamicResource CaptionFontSize}" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding ActiveTab.MarkdownPreviewUnavailableReason}"
+                               IsVisible="{Binding ActiveTab.MarkdownPreviewUnavailable, FallbackValue=False}"
+                               Margin="12,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource StateWarn}"
+                               FontSize="{DynamicResource CaptionFontSize}"
+                               TextWrapping="Wrap" />
+                    <Button x:Name="MarkdownModeToggleButton"
+                            Grid.Column="2"
+                            Content="{Binding ActiveTab.MarkdownModeToggleLabel}"
+                            Click="OnToggleMarkdownPreviewClicked"
+                            IsEnabled="{Binding !ActiveTab.MarkdownPreviewUnavailable}"
+                            local:HelpTip.Standard="Markdownのプレビュー表示と編集モードを切り替えます。プレビュー本文のダブルクリック、編集モードでのEscキーでも切り替えられます。"
+                            local:HelpTip.Detailed="Markdown（.md）ファイルは既定でプレビュー表示（見出し・表・コードブロックの構文強調・チェックリストなどを装飾して表示）です。このボタンで編集モード（通常のテキスト編集）へ切り替えられます。一度編集モードにすると、このタブを開いている間は編集モードのままです（毎回プレビューへ戻ると煩わしいため）。プレビュー本文をダブルクリックしても編集モードへ切り替わり、ダブルクリックした段落に対応する行へカーソルが移動します。編集モードでEscキーを押すとプレビューへ戻ります（検索欄が開いている間はそちらのEscが優先されます）。ファイルが大きすぎる場合はこのボタンが無効になり、常に編集モードになります。"
+                            AutomationProperties.Name="Markdownのプレビューと編集を切り替え" />
+                </Grid>
+            </Border>
+
+            <!--
+                課題3（再設計）: 極端に長い行（1行20,000文字超）を含むファイルの非モーダル通知バー。
+                構文強調・括弧の対応付けはその行だけキャップされ（ファイル全体は通常どおり）、
+                折り返しは利用者の設定にそのまま従う。ただし折り返し有効時は1行10万文字クラスの
+                ファイルで書式計算が数百ms→1.5秒前後に悪化しうる実測があるため、このファイルに
+                限って折り返しを切れる逃げ道をここに置く（DocumentSession.LongLineThreshold・
+                EditorPane.axaml.csのApplyWordWrapOption参照）。ボタンを押すと消える
+                （EditorTabViewModel.WordWrapDisabledForTab）。
+            -->
+            <Border x:Name="LongLineBar"
+                    Grid.Row="1"
+                    Background="{DynamicResource BgElevated}"
+                    BorderBrush="{DynamicResource StateWarn}"
+                    BorderThickness="0,0,0,2"
+                    Padding="12,8"
+                    IsVisible="{Binding ActiveTab.HasExtremelyLongLine, FallbackValue=False}"
+                    AutomationProperties.Name="極端に長い行の通知">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0"
+                               Text="極端に長い行（20,000文字超）があります。その行のみ構文強調を簡略化しています。折り返しが有効だと、この行の表示が重くなることがあります。"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextPrimary}"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="このファイルでは折り返しを無効にする"
+                            Command="{Binding ActiveTab.DisableWordWrapForTabCommand}"
+                            Margin="8,0,0,0"
+                            IsVisible="{Binding !ActiveTab.WordWrapDisabledForTab}"
+                            local:HelpTip.Standard="折り返しの設定自体は変えず、このタブに限って折り返しを無効にします。"
+                            local:HelpTip.Detailed="この行は20,000文字を超えているため、折り返しを有効にしたまま表示すると書式計算が重くなることがあります（実測で数百ms〜1.5秒前後）。このボタンは折り返しの設定（設定画面・ステータスバーのトグル）自体は変更せず、このタブに限って折り返しをオフにします。横スクロールで内容は引き続き確認できます。タブを閉じれば元に戻ります。"
+                            AutomationProperties.Name="このファイルでは折り返しを無効にする" />
+                </Grid>
+            </Border>
 
             <!-- 4.6: 外部変更検知（E702）の非モーダル通知バー。 -->
             <Border x:Name="ConflictBar"
-                    Grid.Row="0"
+                    Grid.Row="2"
                     Background="{DynamicResource BgElevated}"
                     BorderBrush="{DynamicResource StateWarn}"
                     BorderThickness="0,0,0,2"
@@ -120,20 +327,27 @@
                             Content="再読込"
                             Command="{Binding ActiveTab.ReloadDiscardingChangesCommand}"
                             Margin="8,0,0,0"
+                            local:HelpTip.Standard="未保存の編集を破棄し、ディスク上の最新の内容を読み込み直します。"
+                            local:HelpTip.Detailed="このファイルが、Graftの外（他のエディタやAIによる適用など）で書き換えられたことを検知しました。「再読込」を押すと、今エディタに残っている未保存の編集内容は失われ、ディスク上の最新の内容に置き換わります。自分の編集より、外部での変更を優先したいときに使います。"
                             AutomationProperties.Name="編集を破棄してディスクの内容を再読込" />
                     <Button Grid.Column="2"
                             Content="無視"
                             Command="{Binding ActiveTab.DismissExternalConflictCommand}"
                             Margin="8,0,0,0"
+                            local:HelpTip.Standard="この通知を閉じ、現在編集中の内容をそのまま保持します（ディスク上の変更は無視されます）。"
+                            local:HelpTip.Detailed="この通知バーを閉じます。エディタ上の未保存の編集内容はそのまま残り、ディスク側の変更は取り込みません。このあと保存すると、ディスク上の変更を上書きすることになります。自分の編集を優先したいときに使います。"
                             AutomationProperties.Name="この通知を無視して編集を続ける" />
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="3">
+                <!-- 課題3（再設計）: WordWrapはここでバインドせずEditorPane.axaml.csの
+                     ApplyWordWrapOptionで一括管理する（利用者の設定＋タブごとの一時的な無効化
+                     [WordWrapDisabledForTab]の両方を反映する必要があるため。
+                     ShowSpaces/ShowTabs/HighlightCurrentLine等と同じ方針）。 -->
                 <ae:TextEditor x:Name="Editor"
                                FontSize="{Binding FontSize}"
                                ShowLineNumbers="{Binding ShowLineNumbers}"
-                               WordWrap="{Binding WordWrap}"
                                HorizontalScrollBarVisibility="Auto"
                                VerticalScrollBarVisibility="Auto"
                                AutomationProperties.Name="コードエディタ">
@@ -163,10 +377,42 @@
                     </ae:TextEditor.ContextMenu>
                 </ae:TextEditor>
 
+                <!--
+                    Markdownプレビュー機能（利用者指示）: .mdファイルのプレビュー本体。
+                    Editorと同じセルへ重ねて置き、EditorPane.axaml.csがモードに応じて
+                    どちらか一方だけを表示する（DiffHost等と同じ「重ねてIsVisibleで切り替える」方式）。
+                -->
+                <local:MarkdownPreviewView x:Name="MarkdownPreviewHost"
+                                            IsVisible="False"
+                                            AutomationProperties.Name="Markdownプレビュー" />
+
                 <!-- 9.2/4.8: diffはエディタ領域の専用タブとして開く。 -->
                 <local:DiffView x:Name="DiffHost"
                                 IsVisible="False"
                                 AutomationProperties.Name="差分表示タブ" />
+
+                <!-- 修正1: 履歴のリビジョン選択に連動する履歴差分タブ（複数ファイルぶんの差分）。 -->
+                <local:HistoryDiffView x:Name="HistoryDiffHost"
+                                       IsVisible="False"
+                                       AutomationProperties.Name="履歴差分表示タブ" />
+
+                <!--
+                    不具合3対応: 差分／マッチ失敗タブから元のコード編集へ戻る手段が、タブの
+                    閉じるボタン（既定はホバー時のみ表示）以外に見当たらないという指摘への対応。
+                    差分タブの右上に常時見える「閉じる」ボタンを重ねて置く（タブ見出しの閉じる
+                    ボタンと同じ見た目を流用）。閉じた後の戻り先はEditorPaneViewModel.
+                    ResolveReturnTabが決める（元ファイルのタブ→直前のタブ→先頭タブの順）。
+                    修正1: 履歴差分タブでも同じボタンを使い回す（IsAnyDiffTab）。
+                -->
+                <Button x:Name="DiffCloseButton"
+                        Theme="{StaticResource EditorTabCloseButtonTheme}"
+                        Click="OnDiffCloseClicked"
+                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,10,14,0"
+                        IsVisible="{Binding ActiveTab.IsAnyDiffTab, FallbackValue=False}"
+                        local:HelpTip.Standard="差分表示を閉じて、直前のコード編集に戻ります（Ctrl+Wと同じ）。"
+                        local:HelpTip.Detailed="この差分（マッチ失敗の場合は下の再判定パネルも含む）を閉じ、元のコード編集画面に戻ります。差分の元になったファイルのタブが開いていればそこへ、無ければこの差分タブを開く直前に見ていたタブへ戻ります。ショートカットはCtrl+Wです。"
+                        AutomationProperties.Name="差分表示を閉じてコード編集に戻る" />
 
                 <TextBlock Text="開いているファイルはありません"
                            HorizontalAlignment="Center"

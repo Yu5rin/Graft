@@ -80,12 +80,46 @@ public sealed class BlockItemViewModel : ObservableObject
     public bool HasIssue => Plan.Issues.Count > 0;
 
     /// <summary>
-    /// 問題のインライン表示テキスト。エラーコードと対処方法を併記する（仕様書8.8）。
-    /// 赤い帯ではなく該当行に表示することを想定している。
+    /// 1ブロックに複数の問題が付く場合（例: PathGuard.Inspectがサイズ超過E203と排他ロックE204を
+    /// 同時に返す、読み取り専用の解決不能パスなど）に一覧へ表示する上限件数。
+    /// ShellViewModel.StatusBarWarning.cs と同じ「上限＋『ほかN件』」の流儀（不具合1対応）。
+    /// 際限なく縦へ伸びて他の行の表示を圧迫しないよう抑える。
     /// </summary>
-    public string? IssueText => Plan.Issues.Count == 0
-        ? null
-        : string.Join(Environment.NewLine, Plan.Issues.Select(i => $"{i.ToDisplayText()}  対処: {i.Remedy}"));
+    private const int MaxIssueLines = 3;
+
+    /// <summary>
+    /// 問題のインライン表示行。エラーコードと対処方法を併記する（仕様書8.8）。
+    /// 赤い帯ではなく該当行に表示することを想定している。
+    /// 不具合1対応: 以前は<see cref="Environment.NewLine"/>で連結した1本のTextBlock.Textに
+    /// していたが、1ブロックに複数件の問題が付いたとき（前述のPathGuard.Inspectの例など）
+    /// 表示件数の上限が無く際限なく縦に伸びうる構造だった。GraftPanel.axaml側は
+    /// ItemsControl（ItemsPanelにStackPanelを明示）でこのプロパティを1件ずつ別々の
+    /// TextBlockとして描画するため、1行に収める処理（改行の埋め込み方）に依存せず、
+    /// 各問題が確実に縦へ並ぶ。
+    /// </summary>
+    public IReadOnlyList<string> IssueLines
+    {
+        get
+        {
+            if (Plan.Issues.Count == 0) return Array.Empty<string>();
+
+            var lines = Plan.Issues.Take(MaxIssueLines)
+                .Select(i => $"{i.ToDisplayText()}  対処: {i.Remedy}")
+                .ToList();
+            if (Plan.Issues.Count > MaxIssueLines)
+            {
+                lines.Add($"ほか{Plan.Issues.Count - MaxIssueLines}件");
+            }
+
+            return lines;
+        }
+    }
+
+    /// <summary>
+    /// 問題のインライン表示テキスト（1本の文字列版）。読み上げ・テストからの参照用に残す。
+    /// 画面表示は<see cref="IssueLines"/>（ItemsControl）側を使う。
+    /// </summary>
+    public string? IssueText => Plan.Issues.Count == 0 ? null : string.Join("\n", IssueLines);
 
     /// <summary>追加・削除行数の表示。</summary>
     public string AddedRemovedText => $"+{Plan.Added} -{Plan.Removed}";
@@ -94,11 +128,21 @@ public sealed class BlockItemViewModel : ObservableObject
     public bool IsSelected
     {
         get => _isSelected;
-        set => SetProperty(ref _isSelected, value);
+        set
+        {
+            if (!SetProperty(ref _isSelected, value)) return;
+            OnPropertyChanged(nameof(ToggleLabel));
+        }
     }
 
     /// <summary>失敗ブロックは適用しようがないためトグル操作の対象外とする。</summary>
     public bool CanToggle => Plan.CanApply;
+
+    /// <summary>
+    /// B: ブロック一覧の右クリックメニュー「チェックを付ける／外す」の動的ラベル
+    /// （Space キーと同じ、ショートカット表記込み。仕様書9.5・ShortcutsWindow.axaml参照）。
+    /// </summary>
+    public string ToggleLabel => (IsSelected ? "チェックを外す" : "チェックを付ける") + " (Space)";
 
     /// <summary>読み上げ・アクセシビリティ用の行全体の説明（8.14）。</summary>
     public string AutomationName => $"{PathText}、{DescriptionText}、{StatusText}、{AddedRemovedText}";

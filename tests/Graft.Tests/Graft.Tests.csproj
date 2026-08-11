@@ -44,6 +44,29 @@
     <Compile Include="..\..\src\Graft\Platform\Linux\X11ClipboardWriter.cs" LinkBase="Linked\Platform\Linux" />
     <Compile Include="..\..\src\Graft\Platform\Linux\X11ClipboardWriter.SelectionResponder.cs" LinkBase="Linked\Platform\Linux" />
     <!--
+      課題3: 自動起動（スタートアップフォルダ方式）。WindowsAutoStartService・
+      LinuxAutoStartServiceはいずれもBCLのファイルI/Oのみで構成され、Win32 P/Invoke・
+      レジストリ・libX11のいずれにも依存しないため、OSを問わずそのまま検証できる。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\Windows\WindowsAutoStartService.cs" LinkBase="Linked\Platform\Windows" />
+    <Compile Include="..\..\src\Graft\Platform\Linux\LinuxAutoStartService.cs" LinkBase="Linked\Platform\Linux" />
+    <!--
+      多重起動防止のGlobal\スコープ不具合の修正（LinuxSingleInstanceGuard・X11WindowActivator）。
+      いずれもWin32 P/Invoke・WPFに依存せず、BCLのプロセス起動とlibX11のP/Invoke宣言のみで
+      構成されるため、他OSでの単体テスト実行を妨げない（実際の呼び出しはOS判定や
+      「接続できなければfalse」で静かに縮退する）。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\Linux\LinuxSingleInstanceGuard.cs" LinkBase="Linked\Platform\Linux" />
+    <Compile Include="..\..\src\Graft\Platform\Linux\X11WindowActivator.cs" LinkBase="Linked\Platform\Linux" />
+    <!--
+      不具合対応: Windowsのフォーカス窃取防止でSetForegroundWindowが拒否される問題への
+      AttachThreadInput回避策（WindowsSingleInstanceGuard.ActivateWindowHandle）。回避策を
+      試みるべきかどうかの判定（ForegroundActivationDecision）はWin32 P/Invokeを一切含まない
+      純粋ロジックのみで構成されるため、Windows実機以外でも単体テストで検証できる
+      （ForegroundActivationDecisionTests.cs参照）。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\Windows\ForegroundActivationDecision.cs" LinkBase="Linked\Platform\Windows" />
+    <!--
       ViewModel層は基本的にUIテスト（tests/Graft.UiTests）の担当だが、
       WindowLayoutStore はウィンドウ位置・サイズの幾何計算（8.11・9.6）そのものであり、
       画面を出さずに検証できる。実機で「画面構成が取得できないと最小サイズまで縮む」

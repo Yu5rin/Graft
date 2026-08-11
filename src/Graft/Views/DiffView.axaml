@@ -80,6 +80,8 @@
                 <Button Content="{Binding Left.Text}" Command="{Binding ExpandCommand}"
                         HorizontalContentAlignment="Left" Padding="8,4" Background="{DynamicResource BgHover}"
                         BorderThickness="0" Foreground="{DynamicResource TextSecondary}"
+                        views:HelpTip.Standard="変更のない行をまとめて省略しています。クリックすると周辺の行を段階的に表示します（「すべて展開」でまとめて表示することもできます）。"
+                        views:HelpTip.Detailed="ここには変更の無い行がたくさん続いていたため、まとめて折りたたんで表示しています。差分を見やすくするための表示上の省略で、実際のファイルからは何も削除されていません。このボタンをクリックすると、周辺の行が少しずつ表示されます。まとめて全部見たい場合は、画面上部の「すべて展開」ボタンを使ってください。"
                         AutomationProperties.Name="{Binding RowAutomationName}"
                         IsVisible="{Binding IsOmitted}" />
 
@@ -104,16 +106,26 @@
         <!-- ツールバー -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="{DynamicResource SpacingSmThickness}">
             <RadioButton GroupName="DiffMode" Content="並列" Margin="0,0,8,0" VerticalAlignment="Center"
-                         IsChecked="{Binding IsSideBySide}" AutomationProperties.Name="並列表示に切り替え" />
+                         IsChecked="{Binding IsSideBySide}" AutomationProperties.Name="並列表示に切り替え"
+                         views:HelpTip.Standard="変更前と変更後を左右に並べて表示します。"
+                         views:HelpTip.Detailed="変更前のコードを左、変更後のコードを右に並べて表示します。何がどう変わったかを左右見比べながら確認したいときに向いています。" />
             <RadioButton GroupName="DiffMode" Content="統合" Margin="0,0,16,0" VerticalAlignment="Center"
                          IsChecked="{Binding !IsSideBySide}"
-                         AutomationProperties.Name="統合表示に切り替え" />
+                         AutomationProperties.Name="統合表示に切り替え"
+                         views:HelpTip.Standard="削除された行と追加された行を、1つの流れの中に上下に並べて表示します。"
+                         views:HelpTip.Detailed="変更前・変更後を左右に分けず、削除された行（マイナス表示）と追加された行（プラス表示）を1本の流れの中で上下に並べて表示します。狭い画面でも変更の量を把握しやすい表示です。" />
             <ToggleButton Content="折り返し" Margin="0,0,8,0" IsChecked="{Binding WordWrap}"
-                          AutomationProperties.Name="長い行の折り返しを切り替え" />
+                          AutomationProperties.Name="長い行の折り返しを切り替え"
+                          views:HelpTip.Standard="長い1行を折り返して表示します。表示だけの設定です。"
+                          views:HelpTip.Detailed="1行が画面幅を超える長いコードを、横スクロールの代わりに折り返して表示するかどうかです。表示上の見た目だけの設定で、ファイルへ改行が書き込まれるわけではありません。" />
             <ToggleButton Content="空白を表示" Margin="0,0,8,0" IsChecked="{Binding ShowWhitespace}"
-                          AutomationProperties.Name="空白文字の可視化を切り替え" />
+                          AutomationProperties.Name="空白文字の可視化を切り替え"
+                          views:HelpTip.Standard="タブや行末の空白を記号で見えるようにします。空白だけの変更に気付きやすくなります。"
+                          views:HelpTip.Detailed="タブ文字や行末の余分な空白を、小さな記号として可視化します。見た目には分かりにくい「空白だけの変更」に気付きやすくするための表示切り替えです。" />
             <ToggleButton Content="すべて展開" Margin="0,0,16,0" IsChecked="{Binding IsFullyExpanded}"
-                          AutomationProperties.Name="省略範囲をすべて展開" />
+                          AutomationProperties.Name="省略範囲をすべて展開"
+                          views:HelpTip.Standard="変更のない行をまとめて省略している箇所を、一括ですべて表示します。"
+                          views:HelpTip.Detailed="差分の中で変更が無い行が続く箇所は、見やすさのため折りたたんで省略表示されています。オンにすると、そうした省略箇所を一括ですべて展開して全文を表示します。あくまで表示上の省略・展開で、ファイルの内容自体には影響しません。" />
             <TextBlock Text="表示行数が多いためシンタックスハイライトを無効化しました"
                        Foreground="{DynamicResource StateWarn}" VerticalAlignment="Center"
                        IsVisible="{Binding SyntaxHighlightDisabled}" />
@@ -130,7 +142,9 @@
                            VerticalAlignment="Center" Margin="0,0,16,0" />
                 <CheckBox Content="この変更を適用に含める" IsChecked="{Binding IsIncluded}"
                           IsEnabled="{Binding CanToggleInclusion}"
-                          AutomationProperties.Name="この変更を適用に含める" />
+                          AutomationProperties.Name="この変更を適用に含める"
+                          views:HelpTip.Standard="この変更は完全一致ではなく「似ている」判定で見つかったものです。内容を確認したうえで、適用に含めるかどうかを選べます。"
+                          views:HelpTip.Detailed="この変更箇所は、変更前のコードが実際のファイルと一字一句までは一致せず、「似ている」と判定するマッチング（設定の「マッチング」タブ参照）で見つかったものです。誤って別の箇所を書き換えてしまわないよう、内容をよく確認してからチェックの有無を決めてください。オンのままなら通常どおり「適用」を押したときに書き込まれ、オフにすればこの変更だけ除外して他の変更のみ適用できます。" />
             </StackPanel>
         </Border>
 
@@ -140,6 +154,27 @@
                  FontFamily="{DynamicResource CodeFontFamily}" FontSize="{Binding CodeFontSize}"
                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                  AutomationProperties.Name="差分表示">
+            <!--
+                C: 差分表示の右クリックメニュー。並行して同ファイルで進む左右並列表示対応との
+                衝突を避けるため、ContextMenuの追加以外は変更しない。
+            -->
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="変更前をコピー"
+                              Command="{Binding CopyBeforeCommand}"
+                              views:HelpTip.Standard="このブロックの変更前の全文をクリップボードへコピーします。新規作成ブロックでは使えません。"
+                              AutomationProperties.Name="変更前の全文をコピー" />
+                    <MenuItem Header="変更後をコピー"
+                              Command="{Binding CopyAfterCommand}"
+                              views:HelpTip.Standard="このブロックの変更後の全文をクリップボードへコピーします。削除ブロックでは使えません。"
+                              AutomationProperties.Name="変更後の全文をコピー" />
+                    <Separator />
+                    <MenuItem Header="この差分をunified diff形式でコピー"
+                              Command="{Binding CopyUnifiedDiffCommand}"
+                              views:HelpTip.Standard="この変更をunified diff形式でクリップボードへコピーします。AIへ「この変更のここを直して」と依頼するときに貼れる形です。"
+                              AutomationProperties.Name="この差分をunified diff形式でコピー" />
+                </ContextMenu>
+            </ListBox.ContextMenu>
             <ListBox.Styles>
                 <Style Selector="ListBoxItem">
                     <Setter Property="Padding" Value="0" />

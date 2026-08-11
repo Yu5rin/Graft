@@ -21,15 +21,28 @@ namespace Graft.ViewModels;
 /// </summary>
 public sealed partial class EditorPaneViewModel : ObservableObject
 {
-    // SettingsStoreの検証範囲（editor.fontSize: 6〜72）と合わせる。Ctrl+マウスホイールでの
-    // 変更時にもこの範囲を超えないようにする。
-    private const double MinFontSize = 6;
-    private const double MaxFontSize = 72;
+    // 機能改善（Ctrl+マウスホイールでの文字サイズ変更）: ホイール操作でのクランプ範囲は8〜32。
+    // settings.json自体（SettingsStoreのeditor.fontSize検証）は6〜72とより広い範囲を許容するが
+    // （設定画面のJSON直接編集タブ等からの手動設定を尊重するため）、ホイール操作という
+    // 連続入力についてはDiffViewModel.CodeFontSizeと同じ範囲に揃え、極端な値へ暴走しないようにする。
+    private const double MinFontSize = 8;
+    private const double MaxFontSize = 32;
 
     private readonly EditorTabManager _manager;
-    private readonly Settings _settings;
+    // 機能3（Ctrl+Shift+Tで直前に閉じたタブを開き直す）: 記録が空、または残っている記録が
+    // すべて実体の無いファイルだった場合の案内に使う（EditorPaneViewModel.RecentlyClosed.cs）。
+    private readonly IDialogService _dialogs;
+    // 機能改善: UpdateSettings経由で設定画面・他のCtrl+マウスホイール操作からのフォントサイズ
+    // 変更を反映できるよう、DiffViewModelと同じくreadonlyにしない（課題1のコメント参照）。
+    private Settings _settings;
     private readonly ObservableCollection<EditorTabViewModel> _tabs = new();
     private EditorTabViewModel? _diffTab;
+    // 修正1: 履歴差分タブ（1個だけ使い回す。ShowHistoryDiffTab/CloseHistoryDiffTab参照）。
+    private EditorTabViewModel? _historyDiffTab;
+    // 不具合3対応: 差分タブへ切り替える直前にアクティブだったタブ。差分タブを閉じたときに
+    // 「元のファイルのタブが開いていなければ直前のタブへ戻る」ためのフォールバック先として使う
+    // （ResolveReturnTab参照）。
+    private EditorTabViewModel? _tabBeforeDiff;
     private EditorTabViewModel? _activeTab;
     private double _fontSize;
     private bool _wordWrap;
@@ -39,6 +52,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     {
         Ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _manager = new EditorTabManager(dialogs);
         _manager.Tabs.CollectionChanged += OnManagerTabsChanged;
 
@@ -49,6 +63,8 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         ToggleWordWrapCommand = new RelayCommand(() => WordWrap = !WordWrap);
         ToggleShowWhitespaceCommand = new RelayCommand(() => ShowWhitespace = !ShowWhitespace);
         InitializeTabActionCommands(); // タブ見出し右クリックメニュー（TabActions.cs）。
+        ReopenLastClosedTabCommand = new AsyncRelayCommand(
+            () => ReopenLastClosedTabAsync(), context: "閉じたタブを再度開く"); // Ctrl+Shift+T（RecentlyClosed.cs）。
     }
 
     /// <summary>開いているタブの一覧（ドキュメント＋差分タブ、9.2）。</summary>
@@ -75,12 +91,34 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         }
     }
 
-    /// <summary>エディタのフォントサイズ（Ctrl+マウスホイールで変更、プロジェクトごとに記憶）。</summary>
+    /// <summary>エディタのフォントサイズ（Ctrl+マウスホイールで変更、設定として永続化）。</summary>
     public double FontSize
     {
         get => _fontSize;
         set => SetProperty(ref _fontSize, Math.Clamp(value, MinFontSize, MaxFontSize));
     }
+
+    /// <summary>
+    /// 機能改善: View（EditorPane.axaml.cs）がCtrl+マウスホイールを検知したときに呼ぶ。
+    /// <see cref="FontSize"/>を直接インクリメントする代わりにこのメソッドを経由させる理由は、
+    /// 値の即時反映（ローカル表示）に加えて<see cref="FontSizeChangeCommitted"/>を発火し、
+    /// 設定への永続化・差分表示側との同期をShellViewModel経由で行わせるため
+    /// （<see cref="UpdateSettings"/>のコメント参照。設定側からの反映と自分自身が発火した
+    /// 変更を区別する必要があるため、プロパティのsetter自体にイベント発火を持たせていない）。
+    /// </summary>
+    public void AdjustFontSize(double delta)
+    {
+        FontSize += delta;
+        FontSizeChangeCommitted?.Invoke(this, FontSize);
+    }
+
+    /// <summary>
+    /// 機能改善: Ctrl+マウスホイールでの変更をShellViewModelへ伝える通知。実際の設定への
+    /// 永続化（デバウンス保存）と、差分表示側（DiffViewModel.CodeFontSize）との同期は
+    /// ShellViewModelが仲介する（並行実装を避けるため、既存のSettingsViewModelのデバウンス保存を
+    /// そのまま使う。ShellViewModel.EditorFontSizeChangeRequested参照）。
+    /// </summary>
+    public event EventHandler<double>? FontSizeChangeCommitted;
 
     /// <summary>折り返し表示。</summary>
     public bool WordWrap { get => _wordWrap; set => SetProperty(ref _wordWrap, value); }
@@ -110,11 +148,36 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     public ICommand ToggleWordWrapCommand { get; }
     public ICommand ToggleShowWhitespaceCommand { get; }
 
+    /// <summary>機能3: Ctrl+Shift+T。直前に閉じたタブを開き直す（RecentlyClosed.cs）。</summary>
+    public ICommand ReopenLastClosedTabCommand { get; private set; } = null!;
+
     /// <summary>現在のプロジェクトルートの絶対パス。未選択時はnull（4.7 Gitガターの対象設定に使う）。</summary>
     public string? ProjectRoot { get; private set; }
 
     /// <summary>いずれかのタブが保存された（4.7 Gitガターの更新契機）。</summary>
     public event EventHandler<EditorTabViewModel>? TabSaved;
+
+    /// <summary>
+    /// 修正1: 履歴差分タブが閉じられた（×・Ctrl+W・タブ全閉じ等いずれの経路でも）ことの通知。
+    /// ShellViewModelがこれを受けて履歴側の選択（History.SelectedItem）を解除し、
+    /// 「タブは無いのに履歴側は選択済みのまま」という状態の矛盾を防ぐ。
+    /// </summary>
+    public event EventHandler? HistoryDiffTabClosed;
+
+    /// <summary>
+    /// 機能改善: 設定画面での変更、または他のCtrl+マウスホイール操作（差分表示側）で
+    /// 確定したフォントサイズを、実行中のエディタへその場で反映する
+    /// （ShellViewModel.EditorFontSizeChangeRequested → StartupCoordinator →
+    /// SettingsViewModel経由の保存 → MainViewModel.UpdateSettings→ShellViewModel、という
+    /// 経路の末端）。<see cref="FontSizeChangeCommitted"/>は発火しない
+    /// （ここでの反映は「既に確定済みの値を映すだけ」であり、これを再度確定通知として
+    /// 送り返すと無意味な保存要求が循環してしまうため）。
+    /// </summary>
+    public void UpdateSettings(Settings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        FontSize = _settings.Editor.FontSize;
+    }
 
     /// <summary>プロジェクト切替。開いていたタブは呼び出し側が閉じてから設定する。</summary>
     public void SetProject(string? projectRoot)
@@ -122,6 +185,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         ProjectRoot = projectRoot;
         _manager.SetProjectRoot(projectRoot);
         ActiveTab = null;
+        _tabBeforeDiff = null;
         OnPropertyChanged(nameof(ProjectRoot));
     }
 
@@ -151,6 +215,14 @@ public sealed partial class EditorPaneViewModel : ObservableObject
             _tabs.Add(_diffTab);
         }
 
+        // 不具合3対応: 差分タブへ切り替える直前にアクティブだったタブを覚えておく
+        // （ResolveReturnTab参照）。既に差分タブを表示中の状態から別ブロックを選び直した場合
+        // （ブロック一覧の選択変更のたびにここを通る）は上書きしない。
+        if (!ReferenceEquals(ActiveTab, _diffTab))
+        {
+            _tabBeforeDiff = ActiveTab;
+        }
+
         ActiveTab = _diffTab;
     }
 
@@ -160,12 +232,41 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (_diffTab is { } tab) CloseDiffTab(tab);
     }
 
+    /// <summary>
+    /// 修正1: 履歴のリビジョン選択に連動して履歴差分タブを開く。既に開いていれば
+    /// アクティブ化するだけで新しいタブは増やさない（<paramref name="historyDiff"/>は
+    /// 呼び出し側で使い回される単一インスタンスのため、内容の差し替え自体はそちら側で完結する。
+    /// HistoryDiffViewModel.Load参照）。
+    /// </summary>
+    public void ShowHistoryDiffTab(HistoryDiffViewModel historyDiff)
+    {
+        ArgumentNullException.ThrowIfNull(historyDiff);
+        if (_historyDiffTab is null)
+        {
+            _historyDiffTab = new EditorTabViewModel(historyDiff, tab => { CloseHistoryDiffTab(tab); return Task.CompletedTask; });
+            _tabs.Add(_historyDiffTab);
+        }
+
+        ActiveTab = _historyDiffTab;
+    }
+
+    /// <summary>修正1: 履歴の選択解除等で、確認なしに履歴差分タブを閉じる。</summary>
+    public void CloseHistoryDiffTabIfOpen()
+    {
+        if (_historyDiffTab is { } tab) CloseHistoryDiffTab(tab);
+    }
+
     /// <summary>未保存なら確認ダイアログを出す。falseはユーザーがキャンセルしたことを表す。</summary>
     public async Task<bool> CloseTabAsync(EditorTabViewModel tab)
     {
         if (tab.Kind == EditorTabKind.Diff)
         {
             CloseDiffTab(tab);
+            return true;
+        }
+        if (tab.Kind == EditorTabKind.HistoryDiff)
+        {
+            CloseHistoryDiffTab(tab);
             return true;
         }
 
@@ -184,6 +285,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (!closed) return false;
 
         if (_diffTab is { } tab) CloseDiffTab(tab);
+        if (_historyDiffTab is { } historyTab) CloseHistoryDiffTab(historyTab);
         ActiveTab = null;
         return true;
     }
@@ -244,6 +346,26 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     public EditorTabViewModel? PeekMruNeighbor() => _manager.NextByMru();
 
     /// <summary>
+    /// 機能改善（タブのドラッグ並べ替え）: <paramref name="tab"/>をドキュメントタブの並びの中で
+    /// <paramref name="targetIndex"/>（0起点、ドラッグ開始前の並び順での挿入先）へ移動する。
+    /// ドキュメントタブのみが対象で、差分タブ・履歴差分タブは常に末尾に固定のため対象外
+    /// （<see cref="InsertDocumentTab"/>の不変条件を崩さないため、呼ばれても無視する）。
+    /// <paramref name="targetIndex"/>はドキュメントタブだけを数えた範囲（<see cref="Tabs"/>全体
+    /// ではなく<see cref="EditorTabManager.Tabs"/>と同じ基準）で指定する。
+    ///
+    /// 実際の並び替えは<see cref="EditorTabManager.MoveTab"/>（MRU順は変更しない）に委譲し、
+    /// その結果は<see cref="OnManagerTabsChanged"/>のMoveハンドラ経由で<see cref="Tabs"/>
+    /// （View束縛対象）へも反映される。並び順自体は<see cref="Tabs"/>を素直に読むだけの
+    /// 既存のプロジェクト状態保存（ShellViewModel.CaptureProjectState→layout.json）に
+    /// そのまま乗るため、再起動後もドラッグした並び順が保たれる。
+    /// </summary>
+    public void ReorderTab(EditorTabViewModel tab, int targetIndex)
+    {
+        if (tab.Kind != EditorTabKind.Document) return;
+        _manager.MoveTab(tab, targetIndex);
+    }
+
+    /// <summary>
     /// 外部変更検知（4.6）。エクスプローラ側の<c>FileWatchService</c>がディスク上の変更を
     /// 検知した際にこのメソッドを呼ぶ。未保存の変更が無ければ黙って再読込し、あれば
     /// <see cref="EditorTabViewModel.HasExternalConflict"/>を立てて非モーダルの通知バーを出す
@@ -285,10 +407,33 @@ public sealed partial class EditorPaneViewModel : ObservableObject
 
     // ---- ステータスバー表示（9.2）。差分タブがアクティブな間は対象外（E5でステータスバー本体を実装）。 ----
 
-    public string CaretText => ActiveTab is { Kind: EditorTabKind.Document } t ? $"行 {t.CaretLine}, 列 {t.CaretColumn}" : string.Empty;
+    /// <summary>
+    /// 細かいユーザビリティ改善1: カーソル位置を「行:列」形式（例: "12:34"）で表示する。
+    /// 差分タブ・履歴差分タブにはカーソルの概念が無いため空文字にする（ActiveTabのKindガード）。
+    /// </summary>
+    public string CaretText => ActiveTab is { Kind: EditorTabKind.Document } t ? $"{t.CaretLine}:{t.CaretColumn}" : string.Empty;
+
+    /// <summary>
+    /// 細かいユーザビリティ改善1: 選択中のみ「(選択 128文字)」を追加表示する（選択なしは空文字＝非表示）。
+    /// 文字数はEditorTabViewModel.SelectionLength（TextArea.SelectionChangedのたびにView側が書き込む、
+    /// AvalonEdit標準のO(1)プロパティ由来）をそのまま使うため、選択のたびに文書全体を再計算するような
+    /// 重い処理は発生しない。
+    /// </summary>
+    public string SelectionText => ActiveTab is { Kind: EditorTabKind.Document, SelectionLength: > 0 } t
+        ? $"(選択 {t.SelectionLength}文字)"
+        : string.Empty;
+
     public string EncodingText => ActiveTab is { Kind: EditorTabKind.Document } t ? EncodingLabel(t.Session.Shape) : string.Empty;
     public string NewLineText => ActiveTab is { Kind: EditorTabKind.Document } t ? NewLineLabel(t.Session.Shape.NewLine) : string.Empty;
     public string LanguageText => ActiveTab is { Kind: EditorTabKind.Document } t ? LanguageLabel(t.Session.FileName) : string.Empty;
+
+    /// <summary>
+    /// 課題3（再設計）: アクティブなタブに極端に長い行（20,000文字超）があるか
+    /// （ステータスバー通知用）。名前は据え置くが、実際の挙動はファイル全体の無効化ではなく
+    /// 「その行だけ構文強調・括弧の言語認識をキャップする」に変わっている
+    /// （ShellViewModel.StatusBarWarning.csの文言・EditorPane.axaml.cs参照）。
+    /// </summary>
+    public bool ActiveTabHasLongLineWarning => ActiveTab is { Kind: EditorTabKind.Document } t && t.Session.HasExtremelyLongLine;
 
     private IEnumerable<EditorTabViewModel> DocumentTabs => _tabs.Where(t => t.Kind == EditorTabKind.Document);
 
@@ -297,16 +442,68 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (!ReferenceEquals(tab, _diffTab)) return;
 
         var wasActive = ReferenceEquals(tab, ActiveTab);
+        var returnTo = wasActive ? ResolveReturnTab(tab) : null;
         _tabs.Remove(tab);
         _diffTab = null;
+        _tabBeforeDiff = null;
         tab.PropertyChanged -= OnTabPropertyChanged;
         tab.DetachEvents();
-        if (wasActive) ActiveTab = Tabs.Count > 0 ? Tabs[0] : null;
+        if (wasActive) ActiveTab = returnTo;
     }
 
     /// <summary>
-    /// <see cref="EditorTabManager.Tabs"/>（ドキュメントタブのみ）の増減を、差分タブと合成した
-    /// <see cref="Tabs"/>（View束縛対象）へ反映する。ドキュメントタブは常に差分タブより前に並べる。
+    /// 修正1: 履歴差分タブを閉じる。通常の差分タブ（ResolveReturnTabで元ファイルへ戻る等）と
+    /// 異なり「戻るべき元のタブ」という概念が無いため、フォールバック先は単純に先頭のタブとする。
+    /// 閉じた後は<see cref="HistoryDiffTabClosed"/>で履歴側の選択解除をShellViewModelへ委ねる。
+    /// </summary>
+    private void CloseHistoryDiffTab(EditorTabViewModel tab)
+    {
+        if (!ReferenceEquals(tab, _historyDiffTab)) return;
+
+        var wasActive = ReferenceEquals(tab, ActiveTab);
+        _tabs.Remove(tab);
+        _historyDiffTab = null;
+        tab.PropertyChanged -= OnTabPropertyChanged;
+        tab.DetachEvents();
+        if (wasActive) ActiveTab = Tabs.Count > 0 ? Tabs[0] : null;
+
+        HistoryDiffTabClosed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 不具合3対応: 差分タブを閉じたときの戻り先を決める。マッチ失敗時の画面から
+    /// コード編集へ戻る手段が見当たらないという指摘への対応（差分タブ自体を閉じる導線は
+    /// EditorTabViewModel.CloseCommand・タブの閉じるボタン・Ctrl+Wに加えて用意する）。
+    /// 優先順位: 1. 差分の元になったファイルのタブが開いていればそこへ、
+    /// 2. 差分タブを開く直前にアクティブだったタブへ、3. それも無ければ先頭のタブへ。
+    /// </summary>
+    private EditorTabViewModel? ResolveReturnTab(EditorTabViewModel closedDiffTab)
+    {
+        var originalFullPath = ResolveDiffFullPath(closedDiffTab);
+        if (originalFullPath is not null)
+        {
+            var original = DocumentTabs.FirstOrDefault(t => PathsEqual(t.Session.FullPath, originalFullPath));
+            if (original is not null) return original;
+        }
+
+        if (_tabBeforeDiff is not null && !ReferenceEquals(_tabBeforeDiff, closedDiffTab) && _tabs.Contains(_tabBeforeDiff))
+        {
+            return _tabBeforeDiff;
+        }
+
+        return Tabs.Count > 0 ? Tabs[0] : null;
+    }
+
+    private string? ResolveDiffFullPath(EditorTabViewModel diffTab)
+    {
+        if (diffTab.Diff?.FilePath is not { } relativePath || ProjectRoot is null) return null;
+        return Path.Combine(ProjectRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    /// <summary>
+    /// <see cref="EditorTabManager.Tabs"/>（ドキュメントタブのみ）の増減・並べ替えを、差分タブと
+    /// 合成した<see cref="Tabs"/>（View束縛対象）へ反映する。ドキュメントタブは常に差分タブより
+    /// 前に並べる。
     /// </summary>
     private void OnManagerTabsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -318,6 +515,14 @@ public sealed partial class EditorPaneViewModel : ObservableObject
             case NotifyCollectionChangedAction.Remove when e.OldItems is not null:
                 foreach (EditorTabViewModel tab in e.OldItems) _tabs.Remove(tab);
                 break;
+            case NotifyCollectionChangedAction.Move:
+                // 機能改善（タブのドラッグ並べ替え）: _manager.Tabsはドキュメントタブのみを
+                // 持ち、_tabs側でもドキュメントタブは常に先頭から連続して並ぶ（InsertDocumentTab
+                // の不変条件）ため、_manager.Tabs上のインデックスはそのまま_tabs上の
+                // インデックスとしても有効。差分系タブの位置には触れないため、そのまま
+                // ObservableCollection.Moveへ委譲できる。
+                _tabs.Move(e.OldStartingIndex, e.NewStartingIndex);
+                break;
             case NotifyCollectionChangedAction.Reset:
                 foreach (var tab in _tabs.Where(t => t.Kind == EditorTabKind.Document).ToList()) _tabs.Remove(tab);
                 foreach (var tab in _manager.Tabs) InsertDocumentTab(tab);
@@ -325,9 +530,16 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// ドキュメントタブは常に差分系タブ（通常の差分タブ・履歴差分タブ）より前に並べる。
+    /// 修正1で履歴差分タブが増えたことにより、通常の差分タブと同時に開いている場合もあるため、
+    /// 両者のうち一覧内で最も手前（インデックスが小さい）の位置の直前へ挿入する。
+    /// </summary>
     private void InsertDocumentTab(EditorTabViewModel tab)
     {
-        var insertIndex = _diffTab is not null ? _tabs.IndexOf(_diffTab) : _tabs.Count;
+        var specialTabs = new[] { _diffTab, _historyDiffTab };
+        var insertIndex = specialTabs.Where(t => t is not null).Select(t => _tabs.IndexOf(t!))
+            .DefaultIfEmpty(_tabs.Count).Min();
         _tabs.Insert(Math.Max(0, insertIndex), tab);
     }
 
@@ -359,14 +571,21 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(CaretText));
         }
+
+        if (e.PropertyName == nameof(EditorTabViewModel.SelectionLength))
+        {
+            OnPropertyChanged(nameof(SelectionText));
+        }
     }
 
     private void RaiseStatusChanged()
     {
         OnPropertyChanged(nameof(CaretText));
+        OnPropertyChanged(nameof(SelectionText));
         OnPropertyChanged(nameof(EncodingText));
         OnPropertyChanged(nameof(NewLineText));
         OnPropertyChanged(nameof(LanguageText));
+        OnPropertyChanged(nameof(ActiveTabHasLongLineWarning));
     }
 
     private static string EncodingLabel(TextShape shape)

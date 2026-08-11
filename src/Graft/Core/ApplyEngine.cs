@@ -12,8 +12,13 @@ public sealed partial class ApplyEngine
 {
     private readonly BackupManager _backup;
     private readonly RevisionStore _revisions;
-    private readonly MatchEngine _matcher;
-    private readonly DryRunPlanner _planner;
+    // 課題1: マッチング設定（類似度しきい値・あいまい一致の可否・範囲警告行数）は設定画面の
+    // 変更を実行中に反映できるよう、readonlyにせず差し替え可能にしておく
+    // （UpdateMatchOptions参照）。BackupやSafety等、他の設定はApplyContext.Settings経由で
+    // ドライラン・適用のたびに渡されるため差し替え不要（呼び出し元で都度最新値を積める）だが、
+    // マッチングだけはMatchEngineインスタンスに固定で焼き込む設計のため、この対応が要る。
+    private MatchEngine _matcher;
+    private DryRunPlanner _planner;
 
     public ApplyEngine(BackupManager backup, RevisionStore revisions, MatchEngine matcher)
     {
@@ -26,6 +31,25 @@ public sealed partial class ApplyEngine
     /// <summary>6.1 ドライラン。ファイルへは一切書き込まない。</summary>
     public Task<GraftResult<DryRunResult>> DryRunAsync(Patch patch, ApplyContext ctx, CancellationToken ct = default)
         => _planner.PlanAsync(patch, ctx, ct);
+
+    /// <summary>
+    /// 課題1: 設定画面でのマッチング設定変更を実行中のアプリへ反映する。<see cref="MatchEngine"/>は
+    /// コンストラクタで受け取ったオプションをフィールドへ固定で保持する不変な設計のため、値を
+    /// 差し替えるにはインスタンスごと作り直す必要がある。それに依存する<see cref="DryRunPlanner"/>
+    /// も同様に作り直す（RevisionStoreは使い回す。ドライラン計画自体は状態を持たないため、
+    /// 作り直しても進行中の処理には影響しない）。
+    ///
+    /// 呼び出し元の責務: 適用処理（ドライラン確定〜書き込み〜適用後フック）の実行中には
+    /// 呼ばないこと。書き込み中（<see cref="ApplyFileGroupAsync"/>）はこのインスタンスを
+    /// フィールド経由で直接参照するため、途中で差し替わると同一リビジョン内のファイルが
+    /// 前半と後半で異なるしきい値で処理されてしまう。呼び出し元（MainViewModel）は
+    /// 適用処理中の反映を保留する設計になっている前提のため、本メソッド自体は排他制御を持たない。
+    /// </summary>
+    public void UpdateMatchOptions(MatchOptions options)
+    {
+        _matcher = new MatchEngine(options);
+        _planner = new DryRunPlanner(_matcher, _revisions);
+    }
 
     /// <summary>6.1 本適用。バックアップ取得後に書き込み、manifest を確定する。</summary>
     public async Task<GraftResult<RevisionManifest>> ApplyAsync(DryRunResult plan, ApplyContext ctx, CancellationToken ct = default)
@@ -62,7 +86,25 @@ public sealed partial class ApplyEngine
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
         if (!completed.IsSuccess) return GraftResult<RevisionManifest>.Fail(completed.Issues);
 
-        return GraftResult<RevisionManifest>.Ok(finalManifest, dupIssues.Issues);
+        // 不具合1対応: 7.4の世代管理（RevisionStore.EnforceRetentionAsync）は実装済みだったが
+        // 呼び出し元が存在せず、設定画面の「最大保持リビジョン数」「バックアップ合計上限」が
+        // 一切効いていなかった。リビジョンが確定した直後（=これ以上このリビジョンの実体を
+        // 参照する処理が無くなった時点）に実行するのが最も安全なタイミングのため、ここで行う。
+        // 失敗時の扱い: 適用そのものは直前のCompleteAsyncで既に確定済みであり、世代整理
+        // （古いフォルダの削除）が失敗したからといって「適用が失敗した」と利用者に見せると
+        // 実際には成功しているのに誤解を招く。そのためEnforceRetentionAsyncの失敗は
+        // 適用結果をFailへ倒さず、Warningのissueとして合流させるだけにとどめる。
+        // 通知の要否: 削除件数を適用のたびにダイアログで知らせると、通常運用時（上限超過は
+        // 稀ではなく毎回発生しうる）はポップアップが頻発してうるさくなる。呼び出し元
+        // （MainViewModel.ApplyAsync）は現状issuesを成功時ダイアログへ反映していないため、
+        // ここではissuesに合流させるだけにとどめ、ログへ出すかどうかは呼び出し側の判断に委ねる。
+        var retention = await _revisions.EnforceRetentionAsync(ctx.ProjectId, ctx.Settings.Backup, ct).ConfigureAwait(false);
+
+        // ついでの修正: CompleteAsync自身が返すissues（history.jsonl追記失敗時のWarning等）が
+        // これまで呼び出し元へ一切伝わっていなかった（このメソッドの戻り値に含めていなかった）
+        // ため、あわせて合流させる。適用が成功したこと自体には影響しない付随情報。
+        var mergedIssues = dupIssues.Issues.Concat(executed.Issues).Concat(completed.Issues).Concat(retention.Issues).ToList();
+        return GraftResult<RevisionManifest>.Ok(finalManifest, mergedIssues);
     }
 
     // ------------------------------------------------------------------
@@ -153,7 +195,7 @@ public sealed partial class ApplyEngine
         var deleteResult = ExecuteDeletes(eligible, ctx, entries);
         if (!deleteResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(deleteResult.Issues);
 
-        return GraftResult<List<RevisionEntry>>.Ok(entries);
+        return GraftResult<List<RevisionEntry>>.Ok(entries, textResult.Issues);
     }
 
     private static GraftResult<bool> ExecuteMkdirs(List<BlockPlan> eligible, ApplyContext ctx, List<RevisionEntry> entries)
@@ -169,7 +211,7 @@ public sealed partial class ApplyEngine
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return GraftResult<bool>.Fail(ErrorCode.E402, ex.Message, path: p.Path);
+                return GraftResult<bool>.Fail(ErrorCode.E402, ExceptionMessages.Describe(ex), path: p.Path);
             }
 
             entries.Add(new RevisionEntry { Path = p.Path, Operation = EntryOperation.Mkdir, Desc = p.Description });
@@ -195,7 +237,7 @@ public sealed partial class ApplyEngine
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                return GraftResult<bool>.Fail(ErrorCode.E402, ex.Message, path: p.Path);
+                return GraftResult<bool>.Fail(ErrorCode.E402, ExceptionMessages.Describe(ex), path: p.Path);
             }
 
             entries.Add(new RevisionEntry
@@ -217,11 +259,17 @@ public sealed partial class ApplyEngine
             .Where(p => p.Operation is EntryOperation.Modify or EntryOperation.Create)
             .GroupBy(p => p.Path, StringComparer.OrdinalIgnoreCase);
 
+        var writeIssues = new List<GraftIssue>();
         foreach (var group in groups)
         {
             var plansForFile = group.ToList();
             var written = await ApplyFileGroupAsync(group.Key, plansForFile, ctx, ct).ConfigureAwait(false);
             if (!written.IsSuccess) return GraftResult<bool>.Fail(written.Issues);
+
+            // SafeFileWriterが検出した警告・情報（退避方式を使った／書き込み直後の検証で
+            // やり直した等）は、以前は捨てられて呼び出し元へ一切伝わっていなかった。
+            // ApplyAsyncの戻り値まで合流させ、ログや画面へ出せるようにする。
+            writeIssues.AddRange(written.Issues);
 
             var (existedBefore, hashBefore, hashAfter) = written.Value;
             if (!existedBefore) session.TrackCreated(group.Key);
@@ -233,7 +281,7 @@ public sealed partial class ApplyEngine
                 Desc = plansForFile[0].Description, MatchStage = (int)stage, HashBefore = hashBefore, HashAfter = hashAfter,
             });
         }
-        return GraftResult<bool>.Ok(true);
+        return GraftResult<bool>.Ok(true, writeIssues);
     }
 
     /// <summary>
@@ -278,7 +326,7 @@ public sealed partial class ApplyEngine
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
                 {
                     return GraftResult<(bool, string?, string)>.Fail(
-                        ErrorCode.E402, $"親フォルダを作成できませんでした: {ex.Message}", path: path);
+                        ErrorCode.E402, $"親フォルダを作成できませんでした: {ExceptionMessages.Describe(ex)}", path: path);
                 }
             }
         }
@@ -297,6 +345,20 @@ public sealed partial class ApplyEngine
         RestoreReadOnlyIfNeeded(fullPath, clearedReadOnly);
         if (!written.IsSuccess) return GraftResult<(bool, string?, string)>.Fail(written.Issues);
 
-        return GraftResult<(bool, string?, string)>.Ok((existed, hashBefore, FileTextIO.ComputeHash(finalText)));
+        // 実機不具合対応: hashAfterはメモリ上のfinalTextからではなく、書き込み直後にディスクを
+        // 読み直した実測値から計算する。SafeFileWriterは既にバイト列レベルでの検証を済ませて
+        // 「成功」を返しているが、manifest.jsonに記録するhashAfterは「本当にディスク上にある
+        // 内容」を表すべきであり、メモリ上の値をそのまま信用しない。読み直しに失敗した場合
+        // （検証をすり抜けたのちに何らかの理由で消えた等、極めて稀なケース）は書き込み自体を
+        // 失敗として扱う。
+        var verifyRead = await FileTextIO.ReadAsync(fullPath, ct).ConfigureAwait(false);
+        if (!verifyRead.IsSuccess)
+        {
+            return GraftResult<(bool, string?, string)>.Fail(
+                ErrorCode.E402, "書き込み後の確認読み込みに失敗しました。ファイルが見つからないか読み取れません", path: path);
+        }
+
+        return GraftResult<(bool, string?, string)>.Ok(
+            (existed, hashBefore, FileTextIO.ComputeHash(verifyRead.Value.Text)), written.Issues);
     }
 }

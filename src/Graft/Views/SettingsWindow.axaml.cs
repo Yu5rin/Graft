@@ -9,16 +9,19 @@ namespace Graft.Views;
 /// 設定画面（仕様書14章）。DataContextには<see cref="SettingsViewModel"/>を受け取る。
 /// v2.0のWPF版からの移植（19章 L3）。
 ///
-/// バグ2の対応: 「閉じる」ボタン・Escapeキー・ウィンドウの×（<see cref="Window.Closing"/>）の
-/// 3経路はすべて<see cref="RequestCloseAsync"/>へ集約し、未保存の変更確認とテーマプレビューの
-/// 取り消し（<see cref="SettingsViewModel.RequestCloseAsync"/>）を必ず通す。
-/// <see cref="Window.Closing"/>は同期イベントで非同期の確認を待てないため、確認前は一旦
-/// <c>e.Cancel = true</c>で止め、確認が済んでから<see cref="_closeApproved"/>を立てて
-/// 改めて<see cref="Close()"/>を呼び直す。
+/// 即時反映方式への移行に伴い、「閉じる」ボタン・Escapeキー・ウィンドウの×
+/// （<see cref="Window.Closing"/>）の3経路が共有していた「未保存の変更を確認する」処理は
+/// 撤去した。即時反映方式では変更のたびに（デバウンスを挟みつつ）保存されるため、
+/// 「未保存の変更」という状態自体が存在しない。3経路とも、保留中の自動保存があれば
+/// <see cref="SettingsViewModel.FlushPendingSaveAsync"/>で待たずに確定させてから、
+/// 確認なしでそのままウィンドウを閉じる。<see cref="Window.Closing"/>は同期イベントで
+/// 非同期の確定処理を待てないため、一旦<c>e.Cancel = true</c>で止め、確定が済んでから
+/// <see cref="_closeApproved"/>を立てて改めて<see cref="Close()"/>を呼び直す構造は維持する
+/// （3経路が同じ入口を通ることの検証価値は保存確認の有無に関わらず残るため）。
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    // trueの間はClosingハンドラを素通りさせる（確認済み、または確認後の再Close呼び出し）。
+    // trueの間はClosingハンドラを素通りさせる（確定済み、または確定後の再Close呼び出し）。
     private bool _closeApproved;
 
     /// <summary>headlessテスト・デザイナ用の引数なしコンストラクタ。</summary>
@@ -27,6 +30,14 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
+        // 細かいユーザビリティ改善5: 開いた直後の初期フォーカスを最初のカテゴリタブへ当てる
+        // （即時反映方式のため単一の既定ボタンが無く、入力欄も一意に決まらないため。
+        // タブへフォーカスすれば矢印キーでカテゴリを移動できる）。TabControl自体は既定で
+        // Focusable=falseのため、選択中のTabItem（GeneralTabItem）を対象にする。
+        // headlessテスト・デザイナ用のこのコンストラクタでも効くよう、DataContextを必要としない
+        // ここに置く（DataContextを持つコンストラクタ側にだけ置くと、テストで既定コンストラクタを
+        // 直接使った場合にフォーカスが当たらなくなる）。
+        Loaded += (_, _) => GeneralTabItem.Focus();
     }
 
     public SettingsWindow(SettingsViewModel viewModel) : this()
@@ -35,45 +46,52 @@ public partial class SettingsWindow : Window
         DataContext = viewModel;
         Loaded += async (_, _) =>
             await SafeHandler.RunAsync("設定画面の初期化", () => viewModel.InitializeAsync()).ConfigureAwait(true);
+
+        // 不具合3: 「再起動」ボタン。ViewModelはAvaloniaのApplication型に依存させない方針のため
+        // （SettingsViewModel.RestartRequestedのコメント参照）、実際の再起動はここ（コードビハインド）
+        // からApp.RequestRestartへ委譲する（AboutView.OnLogViewerRequestedと同じ役割分担）。
+        // SettingsViewModel自体は常駐インスタンスとして使い回される（StartupCoordinator.OpenSettings
+        // 参照）一方、SettingsWindowは開くたびに新規生成されるため、購読したままだと設定画面を
+        // 複数回開いた分だけハンドラが多重登録されてしまう。ウィンドウが閉じたら必ず解除する。
+        viewModel.RestartRequested += OnRestartRequested;
+        Closed += (_, _) => viewModel.RestartRequested -= OnRestartRequested;
     }
 
-    private void OnCloseClicked(object? sender, RoutedEventArgs e) => _ = RequestCloseAsync();
+    private static void OnRestartRequested(object? sender, EventArgs e)
+    {
+        if (Avalonia.Application.Current is App app) app.RequestRestart();
+    }
+
+    private void OnCloseClicked(object? sender, RoutedEventArgs e) => _ = CloseAsync();
 
     private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) _ = RequestCloseAsync();
+        if (e.Key == Key.Escape) _ = CloseAsync();
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (_closeApproved) return; // 確認済みの本物のClose呼び出しなのでそのまま閉じさせる
+        if (_closeApproved) return; // 確定済みの本物のClose呼び出しなのでそのまま閉じさせる
 
         // ×ボタンでのCloseは同期的に発火するため、ここでは一旦キャンセルし、
-        // 非同期の確認（RequestCloseAsync）を経てから改めてClose()する。
+        // 非同期の確定処理（CloseAsync）を経てから改めてClose()する。
         e.Cancel = true;
-        _ = RequestCloseAsync();
+        _ = CloseAsync();
     }
 
     /// <summary>
-    /// 閉じるボタン・Escape・×の共通入口。未保存の変更があれば
-    /// <see cref="SettingsViewModel.RequestCloseAsync"/>で確認・保存/破棄を行い、
-    /// 閉じてよい場合のみ実際にウィンドウを閉じる。
+    /// 閉じるボタン・Escape・×の共通入口。保留中の自動保存（デバウンス待ち）があれば
+    /// 待たずに確定させてから、実際にウィンドウを閉じる。
     /// </summary>
-    private async Task RequestCloseAsync()
+    private async Task CloseAsync()
     {
         if (_closeApproved) return; // 二重に呼ばれても再入しない
 
-        // 既定はtrue（想定外の例外時は閉じる方向へフェイルセーフする。設計目標5）。
-        var shouldClose = true;
         if (DataContext is SettingsViewModel viewModel)
         {
-            await SafeHandler.RunAsync("設定画面を閉じる確認", async () =>
-            {
-                shouldClose = await viewModel.RequestCloseAsync().ConfigureAwait(true);
-            }).ConfigureAwait(true);
+            await SafeHandler.RunAsync(
+                "設定を閉じる", () => viewModel.FlushPendingSaveAsync()).ConfigureAwait(true);
         }
-
-        if (!shouldClose) return;
 
         _closeApproved = true;
         Close();

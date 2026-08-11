@@ -27,9 +27,9 @@ public sealed class HookSettingsViewModel : ObservableObject
         Projects = new ObservableCollection<Project>();
         Hooks = new ObservableCollection<HookEntry>();
 
-        AddCommand = new AsyncRelayCommand(AddAsync, () => _selectedProject is not null);
-        DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => _selectedHook is not null);
-        SaveCommand = new AsyncRelayCommand(SaveAsync, () => _selectedProject is not null);
+        AddCommand = new AsyncRelayCommand(AddAsync, () => _selectedProject is not null, context: "フックの追加");
+        DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => _selectedHook is not null, context: "フックの削除");
+        SaveCommand = new AsyncRelayCommand(SaveAsync, () => _selectedProject is not null, context: "フックの保存");
     }
 
     public ObservableCollection<Project> Projects { get; }
@@ -137,7 +137,7 @@ public sealed class HookSettingsViewModel : ObservableObject
         if (selectedIndex >= 0) Projects[selectedIndex] = _selectedProject;
         OnPropertyChanged(nameof(SelectedProject));
 
-        StatusMessage = $"「{_selectedProject.Name}」の適用後フックを保存しました。";
+        StatusMessage = $"「{_selectedProject.DisplayName}」の適用後フックを保存しました。";
     }
 
     private void RaiseCommandStates()

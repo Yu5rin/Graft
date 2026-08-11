@@ -64,8 +64,8 @@ public sealed class ProjectMatcher
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(projects);
 
-        var checkedPaths = ExtractCandidatePaths(patch);
         var connected = projects.Where(p => !p.IsDisconnected).ToList();
+        var checkedPaths = ExtractCandidatePaths(patch, connected);
 
         if (checkedPaths.Count == 0)
         {
@@ -124,7 +124,7 @@ public sealed class ProjectMatcher
             decision = ProjectMatchDecision.Blocked;
             issues.Add(GraftIssue.Of(
                 ErrorCode.E303,
-                detail: $"最も一致率が高いプロジェクト「{best.Project.Name}」でも一致率{best.Ratio:P0}のため、適用をブロックしました。"));
+                detail: $"最も一致率が高いプロジェクト「{best.Project.DisplayName}」でも一致率{best.Ratio:P0}のため、適用をブロックしました。"));
         }
 
         var outcome = new ProjectMatchOutcome { Decision = decision, Best = best, Candidates = candidates };
@@ -132,19 +132,40 @@ public sealed class ProjectMatcher
     }
 
     /// <summary>
-    /// 一致率算出の分母となるパスを抽出する。FULL形式・MKDIRなど新規作成が前提の
-    /// パスは、存在しなくて当然のため分母から除く。RENAMEは移動元のみを対象とする。
+    /// 一致率算出の分母となるパスを抽出する。新規ファイル作成にあたるブロックは、
+    /// 存在しなくて当然のため分母から除く。RENAMEは移動元のみを対象とする。
     /// 同一パスの重複は除去する（大文字小文字は区別しない）。
+    ///
+    /// 「新規作成にあたるか」の判定基準は、実際の適用処理（<see cref="ApplyEngine"/>が委譲する
+    /// DryRunPlanner.BuildBlockPlan）が Create / Modify を決める基準と一致させる必要がある
+    /// （ここがずれると「判定では新規扱いなのに適用では既存ファイルを上書きする」という
+    /// 食い違いが起きる）。DryRunPlannerは対象パスがファイルとして実在しない場合にのみ
+    /// Createと判定するが、その"実在するプロジェクト"は自動判定の結果次第でまだ決まっていない
+    /// （判定対象は複数プロジェクトの候補）。そこで「接続済みのどのプロジェクトにも実在しない
+    /// パスに限り、除外して良い」という基準を採る。1つでも実在するプロジェクトがあれば、
+    /// 最終的にそのプロジェクトが選ばれた場合はApplyEngineが既存ファイルへの上書き（Modify）
+    /// として扱いうるため、除外せず通常どおり判定対象へ含める（存在するプロジェクトでは一致、
+    /// 存在しないプロジェクトでは不一致として扱われ、従来どおりの一致率計算に委ねられる）。
+    ///
+    /// MKDIRはApplyEngine側でも実在有無を問わずディレクトリ作成として扱われる
+    /// （Directory.CreateDirectoryは対象が既にあっても失敗しない）ため、無条件に除外する。
+    /// unified diff の /dev/null からの新規作成（UnifiedDiffAdapter）は、この時点では
+    /// 既に通常のFullContentBlockへ変換済みのため、特別扱いは不要でFULL形式と同じ基準に乗る。
     /// </summary>
-    private static IReadOnlyList<string> ExtractCandidatePaths(Patch patch)
+    private static IReadOnlyList<string> ExtractCandidatePaths(Patch patch, IReadOnlyList<Project> connected)
     {
         var paths = new List<string>();
         foreach (var block in patch.Blocks)
         {
             switch (block)
             {
-                case FullContentBlock:
                 case MkdirBlock:
+                    break;
+                case FullContentBlock full:
+                    if (connected.Any(p => ExistsCaseInsensitive(p.Root, full.Path)))
+                    {
+                        paths.Add(full.Path);
+                    }
                     break;
                 case RenameBlock rename:
                     paths.Add(rename.FromPath);

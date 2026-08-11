@@ -1,8 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.MatchingSettingsView"
              AutomationProperties.Name="マッチング設定">
-    <!-- 14章「matching」区分（5章マッチングエンジンの挙動）。 -->
+    <!--
+        14章「matching」区分（5章マッチングエンジンの挙動）。
+        即時反映方式（14章）の確定タイミングの理屈はGeneralSettingsView参照。
+    -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
         Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
@@ -11,17 +15,27 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="16,8,16,16">
             <TextBlock Text="マッチングエンジン" Classes="sectionHeading first" />
+            <TextBlock Text="AIが出した変更を実際のコードのどこへ当てはめるかを決める仕組みの調整です。通常は既定値のままで問題ありません。"
+                       Classes="fieldHint" TextWrapping="Wrap" Margin="0,0,0,8" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="類似度マッチの閾値（0〜1）" Classes="fieldLabel" />
-                <TextBox Text="{Binding SimilarityThresholdText}" Width="120"
-                         AutomationProperties.Name="類似度マッチの閾値" />
+                <TextBox Text="{Binding SimilarityThresholdText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="類似度マッチの閾値"
+                         views:HelpTip.Standard="コードが完全一致しなくても「似ている」と判定して当てはめる基準の厳しさです。既定は0.85で、1に近いほど厳しくなります。"
+                         views:HelpTip.Detailed="AIが示した変更前のコードが、実際のファイルの内容と一字一句までは一致しない場合に、「どれくらい似ていれば同じ箇所とみなすか」を0〜1の数値で決めます。既定は0.85です。1に近づけるほど厳しくなり、似ているだけの別の箇所を誤って書き換えるリスクは減りますが、少しの差でも一致とみなされず適用に失敗しやすくなります。0に近づけるほど適用は通りやすくなりますが、意図しない箇所に当たるリスクがわずかに増えます。迷ったら既定のままにしてください。" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="類似度マッチ（段階5）を許可する"
-                      IsChecked="{Binding AllowSimilarityMatch}" AutomationProperties.Name="類似度マッチを許可する" />
+                      IsChecked="{Binding AllowSimilarityMatch}" AutomationProperties.Name="類似度マッチを許可する"
+                      views:HelpTip.Standard="完全一致しないコードも「似ている」判定で当てはめることを許可します。既定はオンです。"
+                      views:HelpTip.Detailed="Graftは変更前のコードを何段階かの方法（完全一致→徐々に緩い一致）で探しますが、そのうち最後の手段である「似ているコードを探す」段階を使ってよいかどうかです。オンにすると（既定）、完全には一致しなくても上の閾値を満たせば適用できる可能性が広がります。オフにすると、この最後の段階を使わなくなり、完全一致に近いものしか適用されなくなるため、より慎重な運用になります（適用に失敗する頻度は増えます）。" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="アンカー範囲の警告閾値（行）" Classes="fieldLabel" />
-                <TextBox Text="{Binding RangeWarningLinesText}" Width="120"
-                         AutomationProperties.Name="アンカー範囲の警告閾値" />
+                <TextBox Text="{Binding RangeWarningLinesText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="アンカー範囲の警告閾値"
+                         views:HelpTip.Standard="AIが「〇〇行目から△△行目まで」のように範囲指定で変更を示したとき、その範囲が広すぎる場合に警告する行数の目安です。既定は300行です。"
+                         views:HelpTip.Detailed="AIの回答が変更前コードの全文を書かず、開始・終了位置（アンカー）の範囲指定だけで変更箇所を示すことがあります。その指定範囲がここで指定した行数を超えて広い場合、意図しない範囲を書き換えてしまう可能性があるとして警告を表示します。既定は300行です。警告が出ても適用自体は可能ですが、内容をよく確認してから進めることをおすすめします。" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

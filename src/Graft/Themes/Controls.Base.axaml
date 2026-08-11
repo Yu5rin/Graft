@@ -30,6 +30,27 @@
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
     </Style>
 
+    <!--
+        利用者からの指摘対応（無効なボタンの見た目）: Button/ToggleButton/CheckBox/ComboBoxの
+        ControlTheme（Controls.axaml・Controls.Input.axaml）はいずれも:disabledで自分自身の
+        Foregroundをtext.disabledへ変えているが、これは「文字列をそのままContentへ渡した
+        ボタン」（例: 接ぎ木パネルの「失敗を再依頼」）でしか効いていなかった。「破棄」
+        「プレビュー」「適用」のようにContentへ StackPanel＋アイコン＋TextBlock を組んで
+        いるボタンは、内側のTextBlockがこのファイル冒頭の暗黙スタイル（Foreground:
+        text.primary固定）を持つため、ボタン側のForeground変更を受け取れず無効時も
+        文字色が変わらなかった（8.14の指摘の直接原因）。
+
+        AvaloniaのIsEnabled/:disabledは実効的な有効状態（祖先のIsEnabledも考慮した
+        IsEffectivelyEnabled）で決まるため、disabledなボタンの内側のTextBlockにも
+        :disabled疑似クラスは伝播している。個々のボタンへ直接色を継ぎ足すのではなく、
+        ここでTextBlock自身に対する:disabledスタイルを（同じファイル内で後から）
+        追加することで、ボタンに限らずあらゆる場所でTextBlockが無効な祖先を持てば
+        一括して灰色になるようにする（アイコンはIconGlyph側のStroke。Icons.axaml参照）。
+    -->
+    <Style Selector="TextBlock:disabled">
+        <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+    </Style>
+
     <!-- ========== ListBox（既定の書式のみ。ListBoxItemはControls.Input.axaml側） ========== -->
     <Style Selector="ListBox">
         <Setter Property="Background" Value="{DynamicResource BgSurface}" />

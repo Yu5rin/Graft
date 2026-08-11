@@ -23,14 +23,40 @@ public sealed class AvaloniaTrayIcon : ITrayIcon
     private TrayMenuDescriptor? _menu;
     private bool _disposed;
 
+    // Dispatcher.UIThreadは遅延生成・スレッド非安全な静的プロパティで、headlessテストの
+    // テストごとのリセットの窓に別スレッドから読まれると壊れたインスタンスがキャッシュされる
+    // （Graft.Editor.DocumentSessionクラス冒頭のコメント・CI調査結果を参照）。Disposeが
+    // 万一UIスレッド以外から呼ばれても安全なよう、必ずUIスレッドで実行されるコンストラクタで
+    // 一度だけ捕捉しておく。
+    private readonly Dispatcher _uiDispatcher = Dispatcher.UIThread;
+
     public AvaloniaTrayIcon(IDesktopNotifier notifier)
     {
         _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
     }
 
-    public bool IsSupported => true;
+    /// <summary>
+    /// 課題2向けの修正: 以前は常にtrueを返しており、実際にはトレイが機能しない環境
+    /// （Linuxでデスクトップ環境がStatusNotifierItem/D-Busに対応していない場合）でも
+    /// 「対応」と誤って表明していた。仕様書2.3「未対応は許容しない。必ず縮退した代替を
+    /// 用意し、利用できない旨をUIに明示する」に従い、実際に判定できる範囲で修正する。
+    ///
+    /// Windowsのシェルトレイ（NotifyIcon）はOSが常に提供するため常にtrue。
+    /// Linuxでは、AvaloniaのトレイアイコンはD-Bus経由のStatusNotifierItemで実現されており、
+    /// D-Busセッションバスが無い環境（多くのウィンドウマネージャ単体構成やこの検証環境の
+    /// ようなヘッドレス環境）では確実に機能しない。StatusNotifierWatcherが実際に
+    /// 存在するかまでは同期的に判定できない（D-Bus越しの非同期な名前解決が必要）ため、
+    /// ここでは「セッションバス自体があるか」を簡易な目安とする（完全ではないが、
+    /// バスが無ければ確実に非対応と判定できる、xdg標準の一般的な確認方法）。
+    /// </summary>
+    public bool IsSupported => OperatingSystem.IsWindows() || HasLinuxSessionBus();
 
-    public string? UnsupportedReason => null;
+    public string? UnsupportedReason => IsSupported
+        ? null
+        : "この環境ではタスクトレイ（StatusNotifierItem）に対応していないため、トレイ機能は利用できません。";
+
+    private static bool HasLinuxSessionBus()
+        => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"));
 
     public void Configure(TrayMenuDescriptor menu)
     {
@@ -64,8 +90,8 @@ public sealed class AvaloniaTrayIcon : ITrayIcon
         if (_disposed) return;
         _disposed = true;
 
-        // TrayIconの破棄はUIスレッドで行う必要がある。
-        Dispatcher.UIThread.Invoke(() =>
+        // TrayIconの破棄はUIスレッドで行う必要がある（_uiDispatcherの由来はフィールドのコメント参照）。
+        _uiDispatcher.Invoke(() =>
         {
             _icon?.Dispose();
             _icon = null;
@@ -75,6 +101,13 @@ public sealed class AvaloniaTrayIcon : ITrayIcon
     private static NativeMenu BuildMenu(TrayMenuDescriptor descriptor)
     {
         var menu = new NativeMenu();
+
+        // 課題2: 「タスクトレイに常駐する」設定でウィンドウを隠したあと、メニューからも
+        // 復帰できるようにする（左クリックのみだと発見しづらいため明示的な項目を設ける）。
+        var open = new NativeMenuItem("開く");
+        open.Click += (_, _) => descriptor.OnRestoreMainWindow();
+        menu.Items.Add(open);
+        menu.Items.Add(new NativeMenuItemSeparator());
 
         var watch = new NativeMenuItem("クリップボード監視")
         {

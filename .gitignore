@@ -8,3 +8,6 @@ artifacts/
 
 # UIテストが出力する画面キャプチャ（目視確認用の生成物）
 tests/Graft.UiTests/screenshots/
+
+# dotnet test実行時に生成されるテスト結果（全テストプロジェクト共通）
+tests/*/TestResults/

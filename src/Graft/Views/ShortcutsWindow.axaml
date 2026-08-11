@@ -1,0 +1,97 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Graft.Views.ShortcutsWindow"
+        Title="キーボードショートカット"
+        Width="640" Height="680"
+        MinWidth="480" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        AutomationProperties.Name="キーボードショートカット一覧">
+    <!--
+        利用者からの指摘対応: 20個以上のキーボードショートカット（ShellWindow.Keyboard.cs）が
+        定義されているのに、それを知る手段が「プロンプト」ボタンのツールチップ1箇所しか
+        無かった。ここに機能分類ごとにまとめて一覧表示する。
+
+        内容自体は<c>Graft.Features.ShortcutCatalog</c>が唯一の情報源（機能改善: コマンドパレット
+        追加に伴い、キー表記・説明文をコマンドパレット側と二重管理しないための一元化）。
+        ここではWindow直下に直接書く構造（AboutView.axamlの「バージョン情報」と同じ考え方）は
+        保ちつつ、分類ごとの見出し・行だけをShortcutsWindow.axaml.cs（コードビハインド）が
+        ShortcutCatalogから組み立てて<see cref="ShortcutListPanel"/>へ流し込む。専用のViewModelは
+        持たない（静的な内容のみで、アプリの状態に依存する項目が無いため）。
+        開く手段はShellWindow.axamlの「?」ボタンとCtrl+/の2通り（ShellWindow.Keyboard.cs）。
+        Escapeで閉じる（QueueWindow・ContextCollectWindowと同じコードビハインドの仕組み）。
+
+        ShortcutCatalogに載せているのはShellWindow.Keyboard.csが実際にフォーカス位置に関わらず
+        処理するキーのみ。クイックオープン・コマンドパレット表示中の上下キー・Enter・Escapeのような
+        「開いた後の内部操作」は自明な標準操作のため一覧からは省く（検索オーバーレイの内部操作も同様）。
+    -->
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Margin="16,16,16,8">
+            <TextBlock Text="キーボードショートカット"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}" />
+            <TextBlock Text="機能ごとに分類しています。Escapeでこのウィンドウを閉じます。"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Margin="0,4,0,0" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="16,0,16,8" VerticalScrollBarVisibility="Auto">
+            <!-- 分類見出し・キー表記・説明文の各行は、コードビハインドがShortcutCatalogから
+                 組み立ててここへ追加する（このStackPanel自体はXAML上は空のまま）。 -->
+            <StackPanel x:Name="ShortcutListPanel" />
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">
+            <!--
+                細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 唯一の操作である
+                「閉じる」をEnterでも実行できるようにする（IsDefault）。開いた直後の初期フォーカスも
+                この既定ボタンへ当てる（入力欄が無いウィンドウのため。ShortcutsWindow.axaml.cs参照）。
+            -->
+            <Button x:Name="CloseButton" Content="閉じる" Click="OnCloseClicked" IsDefault="True"
+                    AutomationProperties.Name="閉じる" />
+        </StackPanel>
+    </Grid>
+
+    <Window.Styles>
+        <Style Selector="TextBlock.categoryHeading">
+            <Setter Property="FontSize" Value="{DynamicResource PaneHeadingFontSize}" />
+            <Setter Property="FontWeight" Value="{DynamicResource PaneHeadingFontWeight}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="Margin" Value="0,16,0,4" />
+        </Style>
+        <Style Selector="Border.shortcutGroup">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Grid.shortcutRow">
+            <Setter Property="Margin" Value="12,7,12,0" />
+        </Style>
+        <!-- 各グループ内の最後の行だけ下側にも余白を持たせ、グループの境界線と詰まりすぎないようにする。 -->
+        <Style Selector="Grid.shortcutRow.last">
+            <Setter Property="Margin" Value="12,7,12,7" />
+        </Style>
+        <Style Selector="Border.keyBadge">
+            <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+        <Style Selector="TextBlock.keyText">
+            <Setter Property="FontFamily" Value="{DynamicResource CodeFontFamily}" />
+            <Setter Property="FontSize" Value="{DynamicResource CaptionFontSize}" />
+        </Style>
+        <Style Selector="TextBlock.descText">
+            <Setter Property="Margin" Value="8,2,0,0" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+    </Window.Styles>
+</Window>

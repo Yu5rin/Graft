@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:Graft.Views"
         x:Class="Graft.Views.ShellWindow"
+        x:Name="RootWindow"
         Title="Graft"
         Width="1280" Height="800"
         MinWidth="{DynamicResource MinWindowWidth}"
@@ -13,8 +14,10 @@
     <!--
         9.2 レイアウト: 上からコマンドバー(40px)／本体／ステータスバー(24px)。
         本体は左からサイドバー(48px固定)／サイドビュー(幅可変・記憶)／エディタ領域＋
-        接ぎ木パネル(下部、高さ可変・記憶)。GridSplitterで幅・高さを調整できる。
-        実際の幅・高さの計算・記憶はShellWindow.axaml.csが担う。キーボード操作（9.5・附録A）は
+        接ぎ木パネル。接ぎ木パネルはコードの下（既定、高さ可変・記憶）とコードの右
+        （3列、幅可変・記憶）のどちらかに配置でき、切替は接ぎ木パネルのヘッダーボタンで行う
+        （利用者からの改善要望）。GridSplitterで幅・高さを調整できる。
+        実際の幅・高さ・配置の計算・記憶はShellWindow.axaml.csが担う。キーボード操作（9.5・附録A）は
         ShellWindow.Keyboard.csに分割する（1ファイル400行上限のため）。
         AutomationProperties.Nameはすべての操作可能要素に日本語で設定する（9.3・8.14）。
 
@@ -40,9 +43,38 @@
                 Background="{DynamicResource BgSurface}"
                 BorderBrush="{DynamicResource BorderSubtle}"
                 BorderThickness="0,0,0,1">
-            <Grid Margin="12,0" ColumnDefinitions="Auto,*,Auto">
+            <!--
+                課題3（ボタンの左詰め）: 以前はColumnDefinitions="Auto,*,Auto"で、左端が
+                プロジェクト選択、右端がボタン群という配置だった。ウィンドウが広いと
+                プロジェクト選択とボタン群の間に大きな空白ができ、視線移動が長くなる
+                （実機で確認済み）ため、ボタン群をプロジェクト選択のすぐ右（列1）へ寄せ、
+                余白（*）は列2へ追い出す。
 
-                <ComboBox Grid.Column="0"
+                列3（右端）には「設定」「?（ヘルプメニュー）」の2つを置く。元は「?」だけが
+                列3にあり、「設定」はファイル→解析→…→履歴と続くワークフロー順のボタン群
+                （列1）の最後にあったが、「一般的なソフトでは設定は右端にある」という
+                利用者からの指摘を受けて列3へ移した。「履歴」は移していない。履歴は
+                「適用」で書き換えた内容を元に戻す（復元する）操作の入口でもあり、
+                参照系（設定・ヘルプ）の側へ寄せてしまうと、いざ復元したいときに
+                ワークフローの手元から遠くなるためである。結果として列3は「ワークフローの
+                外側にある補助機能」の置き場所になる。「設定」はアプリ全体の動作を調整する
+                補助機能、「?」ヘルプメニューは画面の使い方そのものを調べる補助機能で、
+                どちらもワークフローの一部ではない点で共通する。右端に固定しておけば、
+                ウィンドウ幅やワークフロー側のボタンの増減で列1の並びが変わっても
+                「困ったときはここ」という位置が動かない（実機でウィンドウを最小幅まで
+                狭めても両グループが欠けずに収まることを確認済み）。
+
+                不具合5対応: 列構成をAuto,*,AutoからAuto,Auto,*,Autoへ変更した（課題3対応）ため、
+                ボタン列（列1）を包むScrollViewerのMaxWidthを求める計算式も列の増減に合わせて
+                作り直した。プロジェクト選択ComboBox・設定ボタン・ショートカット一覧ボタンの
+                実測幅（Bounds.Width）をウィンドウ幅から差し引く方式にしており、列3の中身が
+                今後増減しても固定値を書き直さずに済む（計算の詳細はConverters.
+                ToolbarButtonsMaxWidthのコメント参照）。
+            -->
+            <Grid x:Name="CommandBarGrid" Margin="12,0" ColumnDefinitions="Auto,Auto,*,Auto">
+
+                <ComboBox x:Name="ProjectComboBox"
+                          Grid.Column="0"
                           MinWidth="180"
                           VerticalAlignment="Center"
                           ItemsSource="{Binding Graft.ProjectPane.Items}"
@@ -50,57 +82,194 @@
                           ItemTemplate="{StaticResource NameItemTemplate}"
                           AutomationProperties.Name="プロジェクトを選択" />
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <!--
+                    不具合5対応: layout.jsonの極端な値からの復元でウィンドウがMinWidth
+                    （960px）まで縮んだ場合、このボタン列は幅がAuto（内容に合わせて伸びる）の
+                    ため、右端のボタン（履歴など）が画面外へはみ出し押せなくなっていた
+                    （実機で確認）。ツールバーの構造自体（ボタンの並び・個数・列配置）は変えず、
+                    ScrollViewerで包んで収まらない分を横スクロールできるようにするだけに留める。
+                    GridのAuto列にScrollViewerを置いて「残り幅」の計算を自動化させる方法は、
+                    実機検証でウィンドウが最小幅まで縮んだ場合に機能しないことを確認した
+                    （ScrollViewerが実際の残り幅を受け取れず、内容が画面外へクリップされずに
+                    あふれる）。そのためMaxWidthはウィンドウ幅とプロジェクト選択ComboBox・
+                    設定ボタン・ショートカット一覧ボタンの実測幅から直接計算する
+                    （Converters.ToolbarButtonsMaxWidth参照）。
+                -->
+                <ScrollViewer x:Name="ToolbarButtonsScroll"
+                              Grid.Column="1"
+                              Margin="12,0,0,0"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              VerticalAlignment="Center">
+                    <ScrollViewer.MaxWidth>
+                        <MultiBinding Converter="{x:Static views:Converters.ToolbarButtonsMaxWidth}">
+                            <Binding ElementName="RootWindow" Path="ClientSize.Width" />
+                            <Binding ElementName="ProjectComboBox" Path="Bounds.Width" />
+                            <Binding ElementName="SettingsButton" Path="Bounds.Width" />
+                            <Binding ElementName="ShortcutsButton" Path="Bounds.Width" />
+                        </MultiBinding>
+                    </ScrollViewer.MaxWidth>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- 10章: プロジェクトのフォルダ構成・ファイル内容を確認するコンテキスト収集画面。
                          ツールチップは「このボタンが何をするものか」を初見で分かる言葉で書く。
                          ボタン名（ファイル・解析・キュー）だけでは機能が伝わらないという
                          利用者からの指摘への対応で、AutomationProperties.Name（読み上げ用の
-                         短い操作名）とは別に、目的と使いどころを1〜2文で添える。 -->
+                         短い操作名）とは別に、目的と使いどころを1〜2文で添える。
+
+                         ツールチップの表示レベル（表示しない／標準／くわしい）は
+                         views:HelpTip.Standard・views:HelpTip.Detailed の添付プロパティで
+                         2種類の文言を持たせ、実際に表示されるToolTip.Tipへの反映は
+                         HelpTipクラスが設定に応じて一括で行う（詳細はHelpTip.csのコメント）。
+                         そのためこの画面ではToolTip.Tipを直接は書かない。 -->
                     <Button Content="ファイル"
                             Command="{Binding Graft.OpenContextCollectCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="プロジェクトのファイルを選んで、AIに渡すコード一式をまとめてコピーします。AIに質問する前の準備に使います。"
+                            views:HelpTip.Standard="プロジェクトのファイルを選んで、AIに渡すコード一式をまとめてコピーします。AIに質問する前の準備に使います。"
+                            views:HelpTip.Detailed="AIに質問する前に、プロジェクト内のどのファイルを読んでもらうかを選ぶ画面を開きます。左側でファイルにチェックを入れると、その中身をまとめてコピーする準備ができます。コピーした内容をChatGPTやClaudeなどのAIとの会話に貼り付けてから、直してほしい内容を伝えてください。ここではまだファイルは変更されません。"
                             AutomationProperties.Name="プロジェクトのファイル一覧とコンテキスト収集を開く" />
                     <Button Content="解析"
                             Command="{Binding Graft.PasteAndParseCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です。"
+                            views:HelpTip.Standard="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です。"
+                            views:HelpTip.Detailed="ChatGPTやClaudeなどのAIに修正を頼んで返ってきた回答を、まるごとコピーしてからこのボタンを押します。Graftが回答の中からコード変更の部分だけを探し出し、下の接ぎ木パネルに一覧表示します。この時点ではまだファイルは書き換わりません。内容を確認して「適用」を押すまで、あなたのコードは安全なままです。"
                             AutomationProperties.Name="クリップボードのパッチを解析" />
                     <!-- 4.10: 分割パッチの受け取り。キューへ追加／キュー一覧を開く。 -->
                     <Button Content="キューへ追加"
                             Command="{Binding Graft.AddCurrentPatchToQueueCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="解析した変更をすぐ適用せず、順番待ちに溜めます。AIが変更を数回に分けて出してきたときに使います。"
+                            views:HelpTip.Standard="解析した変更をすぐ適用せず、順番待ちに溜めます。AIが変更を数回に分けて出してきたときに使います。"
+                            views:HelpTip.Detailed="AIの回答が長く、修正が何回かに分けて送られてくることがあります。そのたびに「解析」で読み取った内容を、このボタンで順番待ちの列（キュー）に追加できます。追加してもファイルはまだ変わりません。すべての回答を解析し終えたら「キュー」ボタンを押して一覧を開き、まとめて適用してください。"
                             AutomationProperties.Name="現在の解析結果をパッチキューへ追加" />
                     <Button Content="{Binding Graft.Queue.Items.Count, StringFormat=キュー（{0}）}"
                             Command="{Binding Graft.OpenQueueCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="順番待ちにしてある変更の一覧を開きます。括弧内は現在の待ち件数です。まとめて適用できます。"
+                            views:HelpTip.Standard="順番待ちにしてある変更の一覧を開きます。括弧内は現在の待ち件数です。まとめて適用できます。"
+                            views:HelpTip.Detailed="「キューへ追加」で溜めておいた変更の一覧を開きます。ボタンの括弧内の数字は、今たまっている件数です。開いた画面で内容を確認し、不要なものを取り除いてから、まとめて適用できます。"
                             AutomationProperties.Name="パッチキューを開く" />
                     <Button Content="適用"
                             Command="{Binding Graft.ApplyCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
+                            views:HelpTip.Standard="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
+                            views:HelpTip.Detailed="「解析」で読み取った変更を、実際にファイルへ書き込みます。押す前には自動でバックアップ（元の状態のコピー）が作られるため、結果が気に入らなければサイドバーの「履歴」からいつでも元に戻せます。設定で「適用前にプレビューを表示する」を有効にしていれば、書き込む前に差分を確認する画面が挟まります。"
                             AutomationProperties.Name="適用を実行" />
                     <!-- 4.8.4 コピー操作: テンプレート選択ドロップダウン。Ctrl+Shift+Cでも同じ操作。 -->
                     <Button x:Name="PromptButton"
                             Content="プロンプト"
                             Command="{Binding Graft.OpenPromptDropdownCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="AIへの依頼文をコピーします。Graftが読み取れる形式で回答するよう指示する文面です（Ctrl+Shift+C）。"
+                            views:HelpTip.Standard="AIへの依頼文をコピーします。Graftが読み取れる形式で回答するよう指示する文面です（Ctrl+Shift+C）。"
+                            views:HelpTip.Detailed="AIに「Graftが読み取れる決まった形式で回答してください」と伝えるための文章（テンプレート）を選び、クリップボードへコピーします。コピーした文章をAIとの会話に貼り付けてから、続けて直してほしい内容を書いてください。こうしておくと、AIの回答をあとで「解析」ボタンで正しく読み取れるようになります。ショートカットキーはCtrl+Shift+Cです。"
                             AutomationProperties.Name="プロンプトテンプレートを選んでコピー" />
-                    <!-- 9.2: サイドバーの履歴ビューを開く動作にする。 -->
-                    <Button Content="履歴"
+                    <!-- 9.2: サイドバーの履歴ビューを開く動作にする。「設定は右端に」という
+                         利用者からの指摘対応後もここに残す（下の右端グループのコメント参照）。
+                         x:Nameはワークフロー側の末尾ボタンとして回帰テスト（不具合5の
+                         横スクロール到達性）が参照する。 -->
+                    <Button x:Name="HistoryButton"
+                            Content="履歴"
                             Command="{Binding Graft.ShowHistoryCommand}"
                             Margin="4,0"
-                            ToolTip.Tip="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
+                            views:HelpTip.Standard="これまでに適用した変更の一覧を開きます。選んで元に戻す（復元する）ことができます。"
+                            views:HelpTip.Detailed="これまでに「適用」したすべての変更が、時系列の一覧として記録されています。過去のどれかを選ぶと、その時点の内容を確認したり、その状態へ復元（元に戻す）したりできます。誤った変更を適用してしまったときのやり直し手段です。"
                             AutomationProperties.Name="履歴ビューを開く" />
-                    <Button Content="設定"
-                            Command="{Binding Graft.OpenSettingsCommand}"
-                            Margin="4,0"
-                            ToolTip.Tip="テーマ・エディタ・安全機構などの設定を開きます。"
-                            AutomationProperties.Name="設定を開く" />
                 </StackPanel>
+                </ScrollViewer>
+
+                <!--
+                    右端固定グループ（「設定」「?」ヘルプメニュー）。ワークフローの操作ボタン群
+                    （列1）とは性質が異なる補助機能をまとめて列3（コマンドバー右端）に独立させる
+                    （このGrid冒頭のコメント参照）。x:Name="CommandBarRightGroup"は回帰テスト
+                    （設定ボタンが右端グループにあることの確認）が拠り所にする。
+                -->
+                <StackPanel x:Name="CommandBarRightGroup"
+                            Grid.Column="3"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+
+                    <!--
+                        設定: 「一般的なソフトでは設定は右端にある」という利用者からの指摘で、
+                        ワークフロー順のボタン群（列1、元は履歴の次）からこの右端グループへ
+                        移した。文字ラベル「設定」のまま残す案も検討したが、隣の「?」ボタン
+                        （アイコンのみ・Background="Transparent" BorderThickness="0"）と並べたとき
+                        文字とアイコンで見た目がちぐはぐになるため、Icons.axamlの既存の歯車
+                        アイコン（IconSettingsGeometry）で「?」と同じ作法（透明背景・枠なし・
+                        Padding・アイコンサイズ）に揃えた。アイコンのみだと初見で意味が
+                        伝わりにくい懸念があるため、views:HelpTip.Standard/Detailedと
+                        AutomationProperties.Nameは元の文言のまま維持し、マウスオーバーの
+                        ツールチップと読み上げで「設定」であることが分かるようにする。
+                        x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を兼ねる。
+                    -->
+                    <Button x:Name="SettingsButton"
+                            Command="{Binding Graft.OpenSettingsCommand}"
+                            Margin="0,0,4,0"
+                            VerticalAlignment="Center"
+                            Padding="6"
+                            Background="Transparent" BorderThickness="0"
+                            views:HelpTip.Standard="テーマ・エディタ・安全機構などの設定を開きます。"
+                            views:HelpTip.Detailed="Graft全体の動作を調整する設定画面を開きます。見た目の色（テーマ）、この説明文の詳しさ、エディタの表示、バックアップの保持数など、多くの項目をここでまとめて変更できます。変更は入力した瞬間に自動で保存されるため、保存ボタンを押す必要はありません。"
+                            AutomationProperties.Name="設定を開く">
+                        <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconSettingsGeometry}" />
+                    </Button>
+
+                    <!-- ヘルプメニュー（「取扱説明書」「キーボードショートカット一覧」の2項目）。
+                         元は「キーボードショートカット一覧を開く」単機能のボタンだったが、
+                         取扱説明書機能の追加に伴い2つの補助機能を1つのボタンから両方へ到達できる
+                         よう、PromptButton（プロンプトテンプレート選択）と同じ「ボタン＋Popup」の
+                         作法でメニュー化した。
+                         x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を兼ねる。 -->
+                    <Button x:Name="ShortcutsButton"
+                            Command="{Binding ToggleHelpMenuCommand}"
+                            VerticalAlignment="Center"
+                            Padding="6"
+                            Background="Transparent" BorderThickness="0"
+                            views:HelpTip.Standard="取扱説明書（F1）・キーボードショートカット一覧（Ctrl+/）を開くメニューを表示します。"
+                            views:HelpTip.Detailed="Graftの使い方をまとめた取扱説明書と、キーボードショートカットの一覧を開くためのメニューを表示します。取扱説明書はキーボードでF1を、ショートカット一覧はCtrl+/を押しても、このボタンを経由せず直接開けます。"
+                            AutomationProperties.Name="ヘルプメニューを開く">
+                        <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconHelpCircleGeometry}" />
+                    </Button>
+                </StackPanel>
+
+                <!-- ヘルプメニューの中身。PromptPopupと同じ配置作法（Placement="Bottom"・
+                     IsLightDismissEnabled・ViewModelのbool状態へTwoWayバインド）。 -->
+                <Popup x:Name="HelpMenuPopup"
+                       PlacementTarget="{Binding #ShortcutsButton}"
+                       Placement="Bottom"
+                       IsLightDismissEnabled="True"
+                       IsOpen="{Binding IsHelpMenuOpen, Mode=TwoWay}">
+                    <Border Background="{DynamicResource BgElevated}"
+                            BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="1"
+                            Padding="4"
+                            MinWidth="220"
+                            AutomationProperties.Name="ヘルプメニュー">
+                        <StackPanel>
+                            <Button Content="取扱説明書"
+                                    Command="{Binding OpenManualCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Background="Transparent" BorderThickness="0"
+                                    views:HelpTip.Standard="Graftの使い方をまとめた取扱説明書を開きます（F1）。"
+                                    AutomationProperties.Name="取扱説明書を開く" />
+                            <Button Content="キーボードショートカット一覧"
+                                    Command="{Binding OpenShortcutsCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Background="Transparent" BorderThickness="0"
+                                    views:HelpTip.Standard="キーボードショートカットの一覧を開きます（Ctrl+/）。"
+                                    AutomationProperties.Name="キーボードショートカット一覧を開く" />
+                            <!--
+                                画面上のチュートリアル（コーチマーク）: 利用者からの指摘
+                                （「接ぎ木が体験できない」）への対応で追加。初回起動ガイドの
+                                最終画面「使い方を学ぶ」から開始する体験を、あとからいつでも
+                                再実行できる入口をここに置く（コマンドパレットにも同じ操作を追加）。
+                            -->
+                            <Button Content="使い方を学ぶ"
+                                    Command="{Binding StartTutorialCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Background="Transparent" BorderThickness="0"
+                                    views:HelpTip.Standard="サンプルを使って、実際の画面上で接ぎ木の一連の流れ（解析→差分確認→適用→履歴→復元）を体験します。"
+                                    views:HelpTip.Detailed="実際のGraftの画面上でコントロールを指しながら、解析→差分確認→適用→履歴確認→復元までの一連の流れを1つずつ体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断できます。"
+                                    AutomationProperties.Name="使い方を学ぶ（画面上のチュートリアルを開始）" />
+                        </StackPanel>
+                    </Border>
+                </Popup>
 
                 <!-- 4.8.4: テンプレート選択ドロップダウン。名称の右に展開後の推定トークン数を表示する。 -->
                 <Popup x:Name="PromptPopup"
@@ -155,6 +324,16 @@
 
         <!-- ============== 本体: サイドバー／サイドビュー／エディタ＋接ぎ木パネル ============== -->
         <Grid Grid.Row="1" x:Name="BodyGrid">
+            <!--
+                要望1（実機からの改善要望）: サイドビュー列（列1）の MinWidth は
+                ここでは 0 のまま置く。折りたたみ機能（ViewModel.IsSideViewCollapsed）は
+                この列の幅を GridLength(0) へ直接書き換えることで実現しており、MinWidthを
+                ここで正の値にしてしまうと折りたたみ時にその値へ切り上げられてしまい
+                「折りたたむと0にならない」という別の不具合になる。そのため実際の
+                ドラッグ下限（ペインを潰しきれないようにする最小幅）は、展開中だけ
+                ShellWindow.axaml.cs（ApplySideViewState）が動的に付け外しする
+                （折りたたみ機能と喧嘩しないための対応）。
+            -->
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="48" />
                 <ColumnDefinition Width="260" MinWidth="0" />
@@ -193,27 +372,59 @@
                 </Border>
             </Grid>
 
+            <!--
+                要望1: 掴みやすさのため幅は6px（実機で4pxは掴みにくかったため6pxへ）とし、
+                カーソルを左右リサイズ形状にして「ここはドラッグできる」と分かるようにする。
+                GridSplitterはThumb派生のTemplatedControlのため、ControlTheme側に
+                ControlTemplate（Border 1枚）を与えないと何も描画されずヒットテストの
+                対象にもならない＝ドラッグが一切効かないという不具合があった
+                （Controls.Layout.axamlのGridSplitterテーマ参照。実機・headlessテスト
+                双方でPointerPressedすら発火しないことを確認して特定した）。
+            -->
             <GridSplitter x:Name="SideViewSplitter"
                           Grid.Column="2"
-                          Width="4"
+                          Width="6"
                           HorizontalAlignment="Center"
                           VerticalAlignment="Stretch"
+                          Cursor="SizeWestEast"
                           Background="{DynamicResource BorderSubtle}"
                           AutomationProperties.Name="サイドビューとエディタの境界" />
 
-            <!-- エディタ領域 ＋ 接ぎ木パネル（下部、高さ可変） -->
-            <!-- 行の定義はコードビハインドから寸法を書き換えるため、Gridに名前を付けて
-                 RowDefinitions[1]（スプリッタ）・[2]（接ぎ木パネル）として参照する
-                 （AvaloniaのXAMLコンパイラはRow/ColumnDefinitionのx:Nameに対して
-                 フィールドを生成しないため、v2.0のWPF版のように定義自体へ名前は付けられない）。 -->
+            <!--
+                エディタ領域 ＋ 接ぎ木パネル。配置（下／右）はGraftPanel.axamlのヘッダーボタンで
+                切り替えられる（利用者からの改善要望）。行・列の定義はコードビハインドから寸法を
+                書き換えるため、Gridに名前を付けてRowDefinitions[1]/[2]・ColumnDefinitions[1]/[2]を
+                位置で参照する（AvaloniaのXAMLコンパイラはRow/ColumnDefinitionのx:Nameに対して
+                フィールドを生成しないため、v2.0のWPF版のように定義自体へ名前は付けられない）。
+
+                下配置（既定）: 行方向を使う。[0]エディタ／[1]水平スプリッタ／[2]接ぎ木パネル。
+                列は[0]（*）のみを使い、[1][2]は幅0へたたんでおく。
+                右配置: 列方向を使う。[0]エディタ／[1]垂直スプリッタ／[2]接ぎ木パネル。
+                行は[0]（*、MinHeight=120）がGrid全体の高さを占め、[1][2]は高さ0へたたんでおく。
+                接ぎ木パネル（views:GraftPanel）自体は常に1つのインスタンスのままで、
+                ShellWindow.axaml.cs（ApplyGraftPanelState）がGrid.SetRow/Grid.SetColumnで
+                位置だけを付け替える（2枚のレイアウトを複製して片方を隠す方式は取らない）。
+            -->
             <Grid Grid.Column="3" x:Name="EditorAreaGrid">
+                <!-- エディタ行（[0]）のMinHeightは常時固定で構わない（折りたたみ対象ではないため）。
+                     接ぎ木パネル行（[2]）のMinHeightは列1と同じ理由で折りたたみ（ヘッダーのみ32px）と
+                     喧嘩するため、ShellWindow.axaml.cs（ApplyGraftPanelState）が動的に付け外す。 -->
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*" />
+                    <RowDefinition Height="*" MinHeight="120" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="32" />
                 </Grid.RowDefinitions>
+                <!-- 列側は右配置のときだけ使う。既定（下配置）は[1][2]とも幅0にたたみ、
+                     エディタ列（[0]）だけがGridの全幅を占める。エディタ列のMinWidthは、
+                     右配置で接ぎ木パネル側を広げ過ぎてもエディタが潰れきらないための下限
+                     （BodyGrid列3のMinWidth=320と同じ考え方）。 -->
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="200" />
+                    <ColumnDefinition Width="0" />
+                    <ColumnDefinition Width="0" />
+                </Grid.ColumnDefinitions>
 
-                <Border Grid.Row="0"
+                <Border Grid.Row="0" Grid.Column="0"
                         x:Name="EditorHost"
                         Focusable="True"
                         Background="{DynamicResource BgSurface}"
@@ -221,24 +432,57 @@
                     <views:EditorPane DataContext="{Binding Editor}" />
                 </Border>
 
-                <!-- クイックオープン（Ctrl+P）。エディタ領域の上部中央に浮かせて重ねる。 -->
-                <views:QuickOpenOverlay Grid.Row="0"
+                <!-- クイックオープン（Ctrl+P）。エディタ領域の上部中央に浮かせて重ねる
+                     （配置に関わらずエディタの真上にだけ重なればよいため、常にGrid.Column=0）。 -->
+                <views:QuickOpenOverlay Grid.Row="0" Grid.Column="0"
                                         x:Name="QuickOpenOverlayControl"
                                         DataContext="{Binding QuickOpen}" />
 
+                <!-- コマンドパレット（Ctrl+Shift+P、機能改善）。クイックオープンと同じ配置。
+                     ShellViewModelが2つのオーバーレイを同時に開かないよう調停する
+                     （ShellViewModel.CommandPalette.cs参照）ため、ここでは単純に重ねるだけでよい。 -->
+                <views:CommandPaletteOverlay Grid.Row="0" Grid.Column="0"
+                                             x:Name="CommandPaletteOverlayControl"
+                                             DataContext="{Binding CommandPalette}" />
+
+                <!-- 下配置用（水平スプリッタ）。右配置中はShellWindow.axaml.csがIsVisible=Falseにする。 -->
                 <GridSplitter x:Name="GraftSplitter"
-                              Grid.Row="1"
-                              Height="4"
+                              Grid.Row="1" Grid.Column="0"
+                              Height="6"
                               HorizontalAlignment="Stretch"
                               VerticalAlignment="Center"
+                              Cursor="SizeNorthSouth"
                               Background="{DynamicResource BorderSubtle}"
                               AutomationProperties.Name="エディタと接ぎ木パネルの境界" />
 
-                <views:GraftPanel Grid.Row="2" x:Name="GraftPanelControl" />
+                <!-- 右配置用（垂直スプリッタ）。下配置中はShellWindow.axaml.csがIsVisible=Falseにする。
+                     GridSplitterのControlTheme（Controls.Layout.axaml）はテンプレートを持つため、
+                     下配置のGraftSplitterと同じくドラッグが効く。 -->
+                <GridSplitter x:Name="GraftSplitterRight"
+                              Grid.Row="0" Grid.Column="1"
+                              Width="6"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Stretch"
+                              Cursor="SizeWestEast"
+                              Background="{DynamicResource BorderSubtle}"
+                              IsVisible="False"
+                              AutomationProperties.Name="エディタと接ぎ木パネルの境界（右配置）" />
+
+                <views:GraftPanel x:Name="GraftPanelControl" Grid.Row="2" Grid.Column="0" />
             </Grid>
         </Grid>
 
         <!-- ============== ステータスバー（24px） ============== -->
         <views:StatusBarView Grid.Row="2" />
+
+        <!--
+            画面上のチュートリアル（コーチマーク）のオーバーレイ。コマンドバー・本体・
+            ステータスバーの3行すべてに重なるよう、この最上位Gridの最後の子として
+            Grid.RowSpan="3"で配置する（Avaloniaは子の描画順=Z順のため、最後に置くことで
+            必ず最前面に来る）。既定は非表示（TutorialOverlay.axaml側でIsVisible="False"）。
+            実際の開始・進行の制御はShellWindow.Tutorial.cs、対象コントロールを明るく見せる
+            仕組み・吹き出しの位置計算はTutorialOverlay.axaml.csが担う。
+        -->
+        <views:TutorialOverlay x:Name="TutorialOverlayControl" Grid.Row="0" Grid.RowSpan="3" />
     </Grid>
 </Window>

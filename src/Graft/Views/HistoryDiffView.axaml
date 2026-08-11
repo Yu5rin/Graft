@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.HistoryDiffView"
+             x:Name="Root">
+    <!--
+        修正1: 履歴のリビジョン選択に連動して開く「履歴差分タブ」の中身。DataContextには
+        HistoryDiffViewModel を受け取る。
+
+        複数ファイルの表示方法については HistoryDiffViewModel のクラスコメント参照。
+        ファイルごとの見出し（パス・操作種別）＋既存のDiffViewをそのまま縦に並べる構造とし、
+        既存のDiffView/DiffViewModelの能力（並列/統合切替・折り返し・空白表示・すべて展開・
+        シンタックスハイライト・diffジャンプ）はファイルごとに独立してそのまま使える。
+        各DiffViewの高さを固定し内部のListBoxの仮想化を保つことで、ファイル単位の折りたたみ
+        表示に近い体感を保ちつつ、全体はこのScrollViewerでスクロールして全ファイルを閲覧できる。
+    -->
+    <Grid Background="{DynamicResource BgSurface}" RowDefinitions="Auto,*">
+
+        <!-- 「現在のファイル内容ではなく、過去の適用の記録である」ことを明示するバナー。 -->
+        <Border Grid.Row="0" Background="{DynamicResource BgElevated}"
+                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
+                Padding="{DynamicResource SpacingSmThickness}">
+            <StackPanel Orientation="Horizontal">
+                <views:IconGlyph Data="{DynamicResource IconHistoryGeometry}"
+                                 Stroke="{DynamicResource TextSecondary}" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding BannerText}" VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextSecondary}"
+                           AutomationProperties.Name="{Binding BannerText}" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1">
+            <ItemsControl ItemsSource="{Binding Files}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:HistoryDiffFileViewModel">
+                        <StackPanel Margin="0,0,0,12">
+                            <!-- ファイルごとの見出し区切り（パス＋操作種別）。 -->
+                            <Border Background="{DynamicResource BgHover}"
+                                    BorderBrush="{DynamicResource BorderSubtle}"
+                                    BorderThickness="0,1"
+                                    Padding="8,4">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding PathText}"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimary}"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding OperationText}" Margin="8,0,0,0"
+                                               Foreground="{DynamicResource TextSecondary}" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 1ファイルぶんの差分。高さを固定し、ListBoxの仮想化を保つ。 -->
+                            <views:DiffView DataContext="{Binding Diff}" Height="480"
+                                            AutomationProperties.Name="{Binding AutomationName}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

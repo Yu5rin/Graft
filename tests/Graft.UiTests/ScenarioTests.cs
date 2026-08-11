@@ -7,6 +7,7 @@ using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
+using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 using Graft.Views;
 
@@ -27,6 +28,7 @@ public class ScenarioTests : IDisposable
     private readonly string _appDirectory;
     private readonly string _projectDirectory;
     private readonly FakeClipboard _clipboard = new();
+    private readonly ShownWindowTracker _windows = new();
 
     public ScenarioTests()
     {
@@ -38,6 +40,10 @@ public class ScenarioTests : IDisposable
 
     public void Dispose()
     {
+        // 表示したウィンドウを後始末する（ShownWindowTracker参照。閉じ忘れると
+        // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」がCIで不定期に出る）。
+        _windows.Dispose();
+
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -130,6 +136,59 @@ public class ScenarioTests : IDisposable
         window.CaptureRenderedFrame().Should().NotBeNull();
     }
 
+    /// <summary>
+    /// 不具合1の回帰テスト（実機のスクリーンショットで見つかった「1ファイルに複数のエラーが
+    /// あるとき、エラー行が同じ位置に重なって描画される」現象）。
+    /// ピクセル単位の重なり自体をheadlessテストで安定して検証するのは難しい
+    /// （実際にheadlessで幅・折り返し・スクロール・仮想化・実機同等のX11環境まで幅広く
+    /// 再現を試みたが、いずれも重ならずに描画された）ため、ここでは検証可能な形へ
+    /// 目的を落とし込む: 同一ファイルに対する複数のSEARCH失敗が、1つに丸められたり
+    /// 互いを上書きしたりせず、それぞれ独立したブロック（BlockItemViewModel）として
+    /// 保持されることを確認する。取り違えて重ね描きされていれば、ここでBlocksの件数や
+    /// 行番号の対応がずれて検出できる。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "不具合1: 同一ファイルの複数のSEARCH失敗が個別のブロックとして保持される")]
+    public async Task 同一ファイルの複数のSEARCH失敗が個別のブロックとして保持される()
+    {
+        var targetPath = Path.Combine(_projectDirectory, "utf8bom-sample.txt");
+        await File.WriteAllTextAsync(targetPath, string.Concat(Enumerable.Range(1, 15).Select(n => $"{n}行目\n")))
+            .ConfigureAwait(true);
+
+        var (shell, window) = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+
+        // 同一FILEセクションに、ファイル内に存在しないSEARCH部を2つ含める。
+        _clipboard.Text = """
+            <<<< FILE: utf8bom-sample.txt
+            summary: 不具合1回帰テスト
+            <<<<<<< SEARCH
+            存在しない行A
+            =======
+            置換後A
+            >>>>>>> REPLACE
+            <<<<<<< SEARCH
+            存在しない行B
+            =======
+            置換後B
+            >>>>>>> REPLACE
+            >>>> END
+
+            """;
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+
+        // 2件とも取り違え・重ね描きされず、別々のブロックとして残っていること。
+        shell.Graft.Blocks.Should().HaveCount(2, "2つのSEARCH失敗はそれぞれ独立したブロックになる必要がある");
+        shell.Graft.Blocks.Should().OnlyContain(b => b.IsError, "SEARCH不一致のブロックはすべて失敗として示される必要がある");
+        shell.Graft.Blocks.Select(b => b.PathText).Should().AllBeEquivalentTo("utf8bom-sample.txt");
+
+        // 各ブロックのエラー文が互いを上書きしていないこと（同一の文字列に潰れていないこと）。
+        var issueTexts = shell.Graft.Blocks.Select(b => b.IssueText).ToList();
+        issueTexts.Should().OnlyHaveUniqueItems("2件のエラー文が同じ内容に潰れていれば重ね描きと見分けが付かない");
+        issueTexts.Should().AllSatisfy(t => t.Should().Contain("E101"));
+
+        window.CaptureRenderedFrame().Should().NotBeNull();
+    }
+
     [AvaloniaFact(DisplayName = "検索結果の選択変更（単一クリック・キーボード移動）で該当行へジャンプする")]
     public void 検索結果を選択するとジャンプ要求が発火する()
     {
@@ -148,7 +207,7 @@ public class ScenarioTests : IDisposable
         vm.Groups.Add(group);
 
         var view = new SearchView { DataContext = vm };
-        var window = new Window { Width = 400, Height = 400, Content = view };
+        var window = _windows.Track(new Window { Width = 400, Height = 400, Content = view });
         window.Show();
 
         (string FullPath, int Line)? requested = null;
@@ -230,15 +289,35 @@ public class ScenarioTests : IDisposable
         shell.Editor.Tabs.Should().Contain(tabA, "キャンセルされたタブは閉じずに残す必要がある");
     }
 
+    /// <summary>
+    /// このファイルの各テストは <c>window.CaptureRenderedFrame()</c> でシナリオの各段階の描画結果を
+    /// 確認する（クラス概要コメントのとおり「UIが追随することまで確認する」のが目的）ため、
+    /// 本物のShellWindowを実体化する必要がある。
+    ///
+    /// そのためwindow.Show()は必須だが、window.Show()はShellWindow.OnLoadedを介して非同期に
+    /// MainViewModel.InitializeAsyncを呼ぶ。ここでさらに明示的にInitializeAsyncを呼んでしまうと、
+    /// 2つの初期化が実行順序不定のまま同時に走り、settings.json/projects.jsonの読み直しが
+    /// 競合する（LiveSettingsPropagationTests.OpenShellAsync参照。実機で5割前後の確率での
+    /// 失敗を確認した事故と同じ種類の競合状態）。そこでこのメソッドはInitializeAsyncを
+    /// 自分では呼ばず、OnLoaded経由の初期化が完了するのを待つだけにする。ProjectPane.Stateは
+    /// InitializeAsyncの最後に呼ばれるProjectPane.LoadAsyncの完了時点で必ずLoading以外へ
+    /// 変わるため、これを初期化完了の合図として使う（初期化が1回しか走らないので安全に待てる）。
+    /// </summary>
     private async Task<(ShellViewModel Shell, Avalonia.Controls.Window Window)> OpenShellAsync(IDialogService? dialogs = null)
     {
         var appPaths = new AppPaths(_appDirectory);
         appPaths.EnsureCoreDirectoriesExist();
 
+        // ShowPreview（課題1）はこのファイルの各シナリオの対象外なので明示的にfalseにし、
+        // ApplyCommandが素通りする従来どおりの挙動のまま検証できるようにする
+        // （ApplyPreviewWindowTests.csで専用の回帰テストを別に用意する）。
+        var settingsStore = new SettingsStore(appPaths);
+        await settingsStore.SaveAsync(new Settings { ShowPreview = false }).ConfigureAwait(true);
+
         var shell = StartupCoordinator.BuildShellViewModel(
             appPaths,
-            new Settings(),
-            new SettingsStore(appPaths),
+            new Settings { ShowPreview = false },
+            settingsStore,
             new PatchQueue(appPaths),
             new ProjectStore(appPaths),
             new RevisionStore(appPaths),
@@ -247,10 +326,33 @@ public class ScenarioTests : IDisposable
             new FakeUiServices(_clipboard),
             openSettings: () => { });
 
-        var window = new ShellWindow(shell) { Width = 1280, Height = 800 };
+        var window = _windows.Track(new ShellWindow(shell) { Width = 1280, Height = 800 });
         window.Show();
-        await shell.Graft.InitializeAsync().ConfigureAwait(true);
+        await WaitForShellInitializedAsync(shell).ConfigureAwait(true);
         return (shell, window);
+    }
+
+    /// <summary>
+    /// window.Show()（ShellWindow.OnLoaded経由）が裏で走らせているMainViewModel.InitializeAsyncの
+    /// 完了を、それ自身を呼び直すことなく待つ。ProjectPaneViewModelはLoading状態で構築され、
+    /// InitializeAsyncの最後で呼ぶProjectPane.LoadAsyncが完了するまでLoadingのまま変わらないため、
+    /// これが変わったことをもって初期化完了とみなせる。
+    /// </summary>
+    private static async Task WaitForShellInitializedAsync(ShellViewModel shell)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            while (shell.Graft.ProjectPane.State == ProjectPaneState.Loading)
+            {
+                await Task.Delay(10, cts.Token).ConfigureAwait(true);
+            }
+        }
+        catch (OperationCanceledException ex)
+        {
+            throw new TimeoutException(
+                "ShellWindow.OnLoaded経由の初期化が30秒以内に完了しませんでした（ProjectPane.StateがLoadingのまま）。", ex);
+        }
     }
 
     /// <summary>SEARCH/REPLACE形式のパッチ本文を組み立てる（仕様書4.1）。</summary>
@@ -299,6 +401,7 @@ public class ScenarioTests : IDisposable
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 
         public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }
@@ -320,6 +423,7 @@ public class ScenarioTests : IDisposable
         public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 
         public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 
         public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
     }

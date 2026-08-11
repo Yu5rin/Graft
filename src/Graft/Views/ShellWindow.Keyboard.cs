@@ -26,6 +26,24 @@ public partial class ShellWindow
     {
         if (DataContext is not ShellViewModel) return;
 
+        // 画面上のチュートリアル（コーチマーク）実行中は、Escでの中断のみをここで処理し
+        // （Handled=trueにする）、それ以外のキーはHandledにせずそのまま素通りさせる。
+        // こうすることで、以降のCtrl+Enter（適用）等Graft自体のショートカット処理
+        // （このメソッドの続き）には到達させず、背後のショートカットがチュートリアルの
+        // 進行と競合してサンプル以外の状態を壊すことを防ぎつつ、TutorialOverlay側の
+        // 既定ボタン（PrimaryButton、フォーカス済み）に対するEnter等の通常のキー操作は
+        // 妨げない（実際の操作は必ず吹き出し内のボタンから行わせる設計。ShellWindow.
+        // Tutorial.csのクラスコメント参照）。
+        if (_tutorialActive)
+        {
+            if (e.Key == Key.Escape)
+            {
+                _ = ExitTutorialFromKeyboardAsync();
+                e.Handled = true;
+            }
+            return;
+        }
+
         // クイックオープン（Ctrl+P）が開いている間は、上下キー・Enter・Escapeを
         // フォーカス位置に関わらずここで処理する。検索ボックス（TextBox）へフォーカスが
         // あってもトンネリング段階のこのハンドラが先に届くため、他の分岐より前に判定する。
@@ -35,9 +53,38 @@ public partial class ShellWindow
             return;
         }
 
+        // 機能改善: コマンドパレット（Ctrl+Shift+P）が開いている間も同様に、上下キー・Enter・
+        // Escapeをフォーカス位置に関わらずここで処理する（QuickOpenと同じ理由）。
+        if (ViewModel.CommandPalette.IsOpen && HandleCommandPaletteKey(e.Key))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
+            // Markdownプレビュー機能: このハンドラはShellWindow（EditorPaneの祖先）に付いており、
+            // トンネリング段階ではEditorPane自身のOnTunnelKeyDownより先に実行される。無条件に
+            // ここでHandled=trueにすると、検索・置換オーバーレイを閉じるEsc（SearchOverlay.
+            // axaml.cs）やMarkdownプレビューの編集→プレビュー復帰Esc（EditorPane.MarkdownPreview.cs
+            // TryHandleMarkdownPreviewEscape）に一切Escapeが届かなくなる（実機検証で発覚。
+            // ヘッドレスUIテストはEditorPane単体で組み立てるため、この祖先経由の競合は
+            // 検出できていなかった）。それらのエディタ内Esc機能を優先すべき状況では、ここでは
+            // 何もせずそのままトンネルの続き（EditorPane側）へ委ねる。
+            if (ShouldDeferEscapeToEditor()) return;
+
             ViewModel.Graft.DiscardCommand.Execute(null);
+            e.Handled = true;
+            return;
+        }
+
+        // 取扱説明書機能: F1はOSの慣習どおりヘルプを開く唯一の目的のキーで、他のどの操作とも
+        // 衝突しない。そのためCtrl系ショートカット（HandleUnconditionalShortcut）やテキスト入力欄
+        // 判定（inTextInput）を経由せず、ここで無条件に処理する。エディタ内・ダイアログの
+        // 入力欄にフォーカスがあっても取扱説明書を開けるのが自然なため。
+        if (e.Key == Key.F1)
+        {
+            ViewModel.OpenManualCommand.Execute(null);
             e.Handled = true;
             return;
         }
@@ -67,6 +114,20 @@ public partial class ShellWindow
             return;
         }
 
+        // 不具合修正（実機報告）: Markdownプレビュー表示中はCtrl+Z/Ctrl+Yがどこにも
+        // 届かず、プレビューのチェックボックスON/OFFを取り消せなかった。真因・詳細は
+        // EditorPane.MarkdownPreview.cs の TryHandleMarkdownPreviewUndoRedo 参照。
+        // エクスプローラの削除の取り消し（Ctrl+Z、直下の分岐）・テキスト入力欄の取り消しは
+        // 対象外にする（そちらへフォーカスがあるときはこの分岐へ入らせない）。
+        if (e.KeyModifiers == KeyModifiers.Control && e.Key is Key.Z or Key.Y
+            && !IsTextInput(focused) && !IsDescendant(focused, ExplorerViewControl)
+            && EditorHost.Child is EditorPane markdownPane
+            && markdownPane.TryHandleMarkdownPreviewUndoRedo(redo: e.Key == Key.Y))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (inTextInput)
         {
             // Ctrl+F/H/G/W/Tab/Ctrl+//Ctrl+Space、Ctrl+Z/Y（アンドゥ/リドゥ）等は
@@ -76,6 +137,13 @@ public partial class ShellWindow
 
         if (e.KeyModifiers == KeyModifiers.Control)
         {
+            // 課題2: エクスプローラにフォーカスがあるときのCtrl+Zは「削除の取り消し」に使うため、
+            // ここでは横取りしない（Handledをtrueにしない）。ExplorerView.axamlの
+            // UserControl.KeyBindings（バブリング段階）へそのまま届かせ、
+            // ExplorerViewModel.UndoDeleteCommandを実行させる。エディタ内のCtrl+Z
+            // （テキストの取り消し）はこれより前のinTextInput分岐で既に処理済みのため衝突しない。
+            if (e.Key == Key.Z && IsDescendant(focused, ExplorerViewControl)) return;
+
             e.Handled = HandlePlainCtrlGatedShortcut(e.Key);
             return;
         }
@@ -85,6 +153,24 @@ public partial class ShellWindow
             // 附録A キーマップ移行: 素の1〜9は仕様書3.2によりCtrl+Alt+1〜9へ変更された。
             ViewModel.NotifyLegacyKey(LegacyKey.ProjectDigit);
         }
+    }
+
+    /// <summary>
+    /// Markdownプレビュー機能: Escapeを「キューの破棄」として処理せず、エディタ領域
+    /// （<see cref="EditorPane"/>自身のOnTunnelKeyDown）へ譲るべきかどうかを判定する。
+    /// - 検索・置換オーバーレイが開いている間はそちらのEscを優先する（既存機能、4.4節）。
+    /// - アクティブタブがMarkdown（.md）文書タブで、かつ編集モード中（プレビュー中でない・
+    ///   サイズ上限で編集固定でもない）なら、プレビューへ戻るEscを優先する。
+    /// どちらにも該当しなければfalse（従来どおりキューの破棄を実行する）。
+    /// </summary>
+    private bool ShouldDeferEscapeToEditor()
+    {
+        if (EditorHost.Child is not EditorPane pane) return false;
+        if (pane.Search.IsOpen) return true;
+
+        var tab = ViewModel.Editor.ActiveTab;
+        return tab is { Kind: EditorTabKind.Document, IsMarkdownFile: true, MarkdownPreviewUnavailable: false }
+               && !tab.ShowMarkdownPreview;
     }
 
     /// <summary>Ctrl+Shift+*・Ctrl+Alt+*・一部の素のCtrl+*（J/S/Enter）をフォーカス位置に関係なく処理する。</summary>
@@ -106,6 +192,14 @@ public partial class ShellWindow
             case Key.E: ViewModel.SelectSideView(SideViewKind.Explorer); return true;
             case Key.F: ViewModel.SelectSideView(SideViewKind.Search); return true;
             case Key.S: _ = ViewModel.Editor.SaveAllAsync(); return true;
+            // 機能3: 直前に閉じたタブを開き直す（ブラウザのCtrl+Shift+Tと同じ操作感）。
+            // AvaloniaEdit・TextBox等の標準操作にCtrl+Shift+Tは無く、アプリ内の他のキーとも
+            // 衝突しないことを確認済み（ShortcutsWindow.axaml・本ファイルの既存switch文を
+            // 検索して確認。詳細はEditorPaneViewModel.RecentlyClosed.cs参照）。
+            case Key.T: _ = ViewModel.Editor.ReopenLastClosedTabAsync(); return true;
+            // 機能改善: コマンドパレット。既存のCtrl+Shift+*と衝突しないことを確認済み
+            // （このswitch文・全axamlのKeyBindingを検索して確認。ShortcutCatalog.cs参照）。
+            case Key.P: ViewModel.ToggleCommandPaletteCommand.Execute(null); return true;
             default: return false;
         }
     }
@@ -152,6 +246,19 @@ public partial class ShellWindow
         }
     }
 
+    /// <summary>コマンドパレットが開いている間の上下キー・Enter・Escape（HandleQuickOpenKeyと同じ操作感）。</summary>
+    private bool HandleCommandPaletteKey(Key key)
+    {
+        switch (key)
+        {
+            case Key.Escape: ViewModel.CommandPalette.Close(); return true;
+            case Key.Down: ViewModel.CommandPalette.MoveSelection(1); return true;
+            case Key.Up: ViewModel.CommandPalette.MoveSelection(-1); return true;
+            case Key.Enter: ViewModel.CommandPalette.ConfirmSelection(); return true;
+            default: return false;
+        }
+    }
+
     /// <summary>
     /// テキスト入力欄・エディタのいずれにもフォーカスが無いときだけ届く素のCtrl+*。
     /// V/Z/Hは附録Aのキーマップ移行通知（旧キーが押されたことを1回だけ知らせる）。
@@ -164,6 +271,11 @@ public partial class ShellWindow
             case Key.Z: ViewModel.NotifyLegacyKey(LegacyKey.UndoCtrlZ); return true;
             case Key.H: ViewModel.NotifyLegacyKey(LegacyKey.HistoryCtrlH); return true;
             case Key.OemComma: ViewModel.Graft.OpenSettingsCommand.Execute(null); return true;
+            // Ctrl+/: ショートカット一覧を開く。ドキュメントタブを開いたエディタ内では同じキーが
+            // 行コメントの切り替え（EditorPane.axaml.cs）に使われているため、ここは
+            // テキスト入力欄・エディタの外（inTextInputがfalse）でのみ届く経路にとどめ、
+            // 既存の行コメント操作を横取りしないようにする。
+            case Key.OemQuestion or Key.Divide: ViewModel.OpenShortcutsCommand.Execute(null); return true;
             default: return false; // F/G/W/Tab/Y/Space等はここでも何もしない。
         }
     }

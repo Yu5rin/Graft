@@ -3,6 +3,7 @@
              xmlns:local="clr-namespace:Graft.Views"
              xmlns:vm="clr-namespace:Graft.ViewModels"
              x:Class="Graft.Views.SearchView"
+             x:Name="Root"
              Background="{DynamicResource BgSurface}">
     <!--
         4.4 ファイル横断検索（Ctrl+Shift+F）のサイドビュー。結果はファイル→行のツリーで表示し、
@@ -62,25 +63,35 @@
                      Text="{Binding Query}"
                      Watermark="検索する文字列"
                      KeyDown="OnQueryBoxKeyDown"
-                     AutomationProperties.Name="検索文字列（ファイル横断）" />
+                     AutomationProperties.Name="検索文字列（ファイル横断）"
+                     local:HelpTip.Standard="プロジェクト内の全ファイルを対象に検索する文字列です。Enterキーまたは右の虫眼鏡で検索します。"
+                     local:HelpTip.Detailed="開いている1ファイルの中だけでなく、プロジェクト全体のファイルを横断して検索する文字列を入力します（Ctrl+Shift+Fでこの検索欄にフォーカスします）。入力してEnterキーを押すか、右端の虫眼鏡アイコンを押すと検索を実行します。結果は下にファイルごと・行ごとのツリーで表示され、クリックするとその行へジャンプします。" />
 
             <ToggleButton Grid.Column="1" Classes="searchOption"
                           IsChecked="{Binding UseRegex, Mode=OneWay}"
                           Command="{Binding ToggleRegexCommand}" Content=".*"
-                          ToolTip.Tip="正規表現を使用" AutomationProperties.Name="正規表現を使用" />
+                          local:HelpTip.Standard="正規表現を使用"
+                          local:HelpTip.Detailed="検索文字列を正規表現（パターンで文字列を指定する記法）として解釈します。オンにすると「\d+」で数字の連続を探す、といった柔軟な検索ができます。使い方が分からない場合はオフのままで構いません（入力した文字列そのままを検索します）。"
+                          AutomationProperties.Name="正規表現を使用" />
             <ToggleButton Grid.Column="2" Classes="searchOption"
                           IsChecked="{Binding CaseSensitive, Mode=OneWay}"
                           Command="{Binding ToggleCaseCommand}" Content="Aa"
-                          ToolTip.Tip="大文字と小文字を区別" AutomationProperties.Name="大文字と小文字を区別" />
+                          local:HelpTip.Standard="大文字と小文字を区別"
+                          local:HelpTip.Detailed="オンにすると、検索文字列の大文字・小文字を区別して探します（例: 「Name」と「name」を別の文字列として扱う）。オフのとき（既定）は大文字・小文字を区別せずに探します。"
+                          AutomationProperties.Name="大文字と小文字を区別" />
             <ToggleButton Grid.Column="3" Classes="searchOption"
                           IsChecked="{Binding WholeWord, Mode=OneWay}"
                           Command="{Binding ToggleWholeWordCommand}" Content="ab"
-                          ToolTip.Tip="単語単位で検索" AutomationProperties.Name="単語単位で検索" />
+                          local:HelpTip.Standard="単語単位で検索"
+                          local:HelpTip.Detailed="オンにすると、検索文字列が単語として独立している箇所だけを探します（例: 「cat」で検索したとき「category」の一部には一致しません）。他の単語の一部を誤ってヒットさせたくないときに使います。"
+                          AutomationProperties.Name="単語単位で検索" />
 
             <Button Grid.Column="4" Command="{Binding SearchCommand}"
                     Width="26" Height="26" Margin="2,0,0,0" Padding="0"
                     Background="Transparent"
-                    ToolTip.Tip="検索" AutomationProperties.Name="ファイル横断検索を実行">
+                    local:HelpTip.Standard="検索"
+                    local:HelpTip.Detailed="上の欄に入力した文字列で、プロジェクト内のすべてのファイルを横断的に検索します。結果は下に、ファイルごと・行ごとのツリーとして表示されます。Enterキーを押しても同じように検索できます。"
+                    AutomationProperties.Name="ファイル横断検索を実行">
                 <local:IconGlyph Data="{DynamicResource IconSearchGeometry}" Width="14" Height="14" />
             </Button>
         </Grid>
@@ -90,9 +101,13 @@
             <TextBox Grid.Column="0"
                      Text="{Binding ReplaceText}"
                      Watermark="置換後の文字列"
-                     AutomationProperties.Name="置換文字列（ファイル横断）" />
+                     AutomationProperties.Name="置換文字列（ファイル横断）"
+                     local:HelpTip.Standard="上の検索結果すべてを、この文字列に置き換えるための入力欄です。「すべて置換」を押すまでファイルは変わりません。"
+                     local:HelpTip.Detailed="上で検索した文字列を、ここに入力した文字列へ一括で置き換えたいときに使います。入力しただけではまだ何も変わらず、右の「すべて置換」を押した時点で初めてプロジェクト内の全ファイルへ書き込まれます（実行前に対象件数の確認ダイアログが出ます）。書き込み後はサイドバーの「履歴」から元に戻せます。" />
             <Button Grid.Column="1" Content="すべて置換" Command="{Binding ReplaceAllCommand}"
-                    Margin="4,0,0,0" AutomationProperties.Name="ファイル横断ですべて置換" />
+                    Margin="4,0,0,0" AutomationProperties.Name="ファイル横断ですべて置換"
+                    local:HelpTip.Standard="上の検索結果すべてを、置換文字列で一括して書き換えます。実行前に件数の確認があります。"
+                    local:HelpTip.Detailed="現在の検索条件に一致するすべての箇所を、上の置換文字列で一括して書き換えます。実行前に「〇件を置換します」という確認ダイアログが出るので、意図した件数か確認してからOKしてください。実行するとプロジェクト内の複数ファイルが実際に書き換わります（元に戻したい場合はサイドバーの「履歴」を使ってください）。" />
         </Grid>
 
         <!-- ========== 状態表示 ========== -->
@@ -113,7 +128,9 @@
             <Button Content="検索を中止" Command="{Binding CancelCommand}"
                     HorizontalAlignment="Left" Margin="0,4,0,0"
                     IsVisible="{Binding IsSearching}"
-                    AutomationProperties.Name="ファイル横断検索を中止" />
+                    AutomationProperties.Name="ファイル横断検索を中止"
+                    local:HelpTip.Standard="実行中の検索を途中で止めます。ここまでに見つかった結果はそのまま残ります。"
+                    local:HelpTip.Detailed="大きなプロジェクトで検索に時間がかかっているときに、途中で処理を打ち切ります。打ち切るまでに見つかっていた結果はそのまま一覧に残ります。ファイルへの書き込みは行わないため、中止しても安全です。" />
         </StackPanel>
 
         <!-- ========== 結果ツリー（ファイル→行） ========== -->
@@ -123,7 +140,9 @@
                   ItemContainerTheme="{StaticResource SearchTreeItemTheme}"
                   Background="Transparent" BorderThickness="0"
                   KeyDown="OnResultKeyDown"
-                  AutomationProperties.Name="検索結果（ファイルと行のツリー）">
+                  AutomationProperties.Name="検索結果（ファイルと行のツリー）"
+                  local:HelpTip.Standard="検索結果をファイルごと・行ごとにまとめた一覧です。行をクリックすると、そのファイルを開いて該当行へジャンプします。"
+                  local:HelpTip.Detailed="検索に一致した箇所を、ファイルごとにまとめてツリー表示しています。ファイル名の行を開閉すると中の一致行が展開・折りたたみでき、いずれかの一致行をクリックするとそのファイルがエディタで開き、該当する行までジャンプします。ここで何かをクリックしてもファイルの内容が変わることはありません。">
             <TreeView.DataTemplates>
                 <TreeDataTemplate DataType="vm:SearchFileGroupViewModel" ItemsSource="{Binding Hits}">
                     <StackPanel Orientation="Horizontal" Margin="2"
@@ -134,18 +153,45 @@
                     </StackPanel>
                 </TreeDataTemplate>
                 <DataTemplate DataType="vm:SearchHitViewModel">
-                    <StackPanel Orientation="Horizontal" Margin="2"
-                                AutomationProperties.Name="{Binding AutomationName}">
-                        <TextBlock Text="{Binding LineNumber}" Width="34"
-                                   Foreground="{DynamicResource TextSecondary}"
-                                   FontSize="{DynamicResource CaptionFontSize}" />
-                        <TextBlock Text="{Binding Before}" Foreground="{DynamicResource TextSecondary}"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Match}" Foreground="{DynamicResource TextPrimary}"
-                                   Background="{DynamicResource BgSelected}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding After}" Foreground="{DynamicResource TextSecondary}"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
+                    <!--
+                        A: 検索結果の右クリックメニュー。Borderで行全体を覆い、余白部分での
+                        右クリックも拾えるようにする（EditorPane.axamlのタブ見出しと同じ作法）。
+                        Command先はSearchViewModel（Rootの DataContext）、CommandParameterは
+                        この項目自身（ヒット行）。
+                    -->
+                    <Border Background="Transparent">
+                        <Border.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="開く（該当行へジャンプ） (Enter)"
+                                          Command="{Binding DataContext.JumpCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このファイルをエディタで開き、該当行へジャンプします。行をクリックしても同じです。"
+                                          AutomationProperties.Name="開く（該当行へジャンプ）" />
+                                <MenuItem Header="パスをコピー"
+                                          Command="{Binding DataContext.CopyPathCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このファイルのフルパスをクリップボードへコピーします。"
+                                          AutomationProperties.Name="このファイルのパスをコピー" />
+                                <MenuItem Header="ファイルマネージャで表示"
+                                          Command="{Binding DataContext.RevealCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このファイルをOSのファイルマネージャで選択表示します。"
+                                          AutomationProperties.Name="このファイルをファイルマネージャで表示" />
+                            </ContextMenu>
+                        </Border.ContextMenu>
+                        <StackPanel Orientation="Horizontal" Margin="2"
+                                    AutomationProperties.Name="{Binding AutomationName}">
+                            <TextBlock Text="{Binding LineNumber}" Width="34"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       FontSize="{DynamicResource CaptionFontSize}" />
+                            <TextBlock Text="{Binding Before}" Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Match}" Foreground="{DynamicResource TextPrimary}"
+                                       Background="{DynamicResource BgSelected}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding After}" Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Border>
                 </DataTemplate>
             </TreeView.DataTemplates>
         </TreeView>

@@ -26,7 +26,7 @@ public partial class DiffView : UserControl
         if (e.KeyModifiers != KeyModifiers.Control) return;
         if (DataContext is not DiffViewModel vm) return;
 
-        vm.CodeFontSize += e.Delta.Y > 0 ? 1 : -1;
+        vm.AdjustCodeFontSize(e.Delta.Y > 0 ? 1 : -1);
         e.Handled = true;
     }
 }

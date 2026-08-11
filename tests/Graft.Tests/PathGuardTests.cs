@@ -55,6 +55,18 @@ public class PathGuardTests
         result.Errors.Single().Code.Should().Be(ErrorCode.E202);
     }
 
+    [Fact(DisplayName = "不具合2: 拡張子の無いファイル名（Dockerfile等）はホワイトリストの対象外として許可される")]
+    public void 拡張子の無いファイル名は許可される()
+    {
+        using var ws = new TempWorkspace();
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        var result = guard.Resolve("Dockerfile");
+
+        result.IsSuccess.Should().BeTrue(
+            "拡張子ホワイトリストは危険な拡張子（.exe等）の遮断が目的であり、拡張子そのものが無い名前は対象外のはず");
+    }
+
     [Fact(DisplayName = "拡張子の比較は大文字小文字を無視する")]
     public void 拡張子の比較は大文字小文字を無視する()
     {
@@ -124,6 +136,12 @@ public class PathGuardTests
             result.Value.IsReadOnly.Should().BeTrue();
             var warning = result.Issues.Single(i => i.Code == ErrorCode.E205);
             warning.Severity.Should().Be(Severity.Warning);
+
+            // 課題2-1回帰テスト: 「確認のうえ属性を解除できます」は誰が何をするか曖昧だった。
+            // ApplyContext.AllowReadOnlyOverrideは常にfalse（Graftが自動で解除することはない）
+            // ため、利用者自身が解除する必要があることを明示した文言になっているか確認する。
+            warning.Remedy.Should().Contain("解除してから", "Graftが自動で解除するわけではなく、利用者が解除する必要があることを明示するため");
+            warning.Remedy.Should().NotBe("確認のうえ属性を解除できます", "誰が何をするか分からない旧文言に戻っていないこと");
         }
         finally
         {
@@ -152,7 +170,7 @@ public class PathGuardTests
         using var outside = new TempWorkspace();
         outside.WriteText("secret.txt", "ルート外の内容");
 
-        ws.CreateDirectorySymlink("linked", outside.RootPath);
+        if (TryCreateSymlinkOrSkip(ws, "linked", outside.RootPath) is null) return;
         var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
 
         var result = guard.Resolve("linked/secret.txt");
@@ -166,12 +184,37 @@ public class PathGuardTests
     {
         using var ws = new TempWorkspace();
         var realDir = ws.CreateDirectory("real");
-        ws.CreateDirectorySymlink("linked", realDir);
+        if (TryCreateSymlinkOrSkip(ws, "linked", realDir) is null) return;
         var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
 
         var result = guard.Resolve("linked/inside.txt");
 
         result.IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// シンボリックリンクを実際に作成してみて、権限不足で作成できない環境ではテストをスキップする
+    /// （不具合3）。Windowsでのシンボリックリンク作成には管理者権限または開発者モードが必要で、
+    /// 一般ユーザーの通常環境では<see cref="IOException"/>（ERROR_PRIVILEGE_NOT_HELD）になる。
+    /// これはこの環境固有の制約であり、テスト対象（PathGuard）の不具合ではないため、
+    /// 「常にWindowsならスキップ」ではなく実際に権限エラーになった場合のみスキップする
+    /// （開発者モードが有効なWindows環境では通常どおり実行される）。Linux上では通常権限で
+    /// 常に成功するため、このテストはLinux上では必ず実行される。
+    /// </summary>
+    private static string? TryCreateSymlinkOrSkip(TempWorkspace ws, string linkRelativePath, string targetAbsolutePath)
+    {
+        try
+        {
+            return ws.CreateDirectorySymlink(linkRelativePath, targetAbsolutePath);
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine(
+                "シンボリックリンクを作成する権限が無いためこのテストをスキップします"
+                + $"（{ex.Message}）。実行するには、Windowsで「開発者モード」を有効にするか、"
+                + "テストを管理者として実行してください。");
+            return null;
+        }
     }
 
     [Fact(DisplayName = "1リビジョンあたりのファイル数上限を超えるとE203になる")]
@@ -197,5 +240,55 @@ public class PathGuardTests
         var result = guard.CheckFileCount(2);
 
         result.IsSuccess.Should().BeTrue();
+    }
+
+    // ------------------------------------------------------------------
+    // エクスプローラへの既存ファイル取り込み（依頼）用のResolveImportTarget。
+    // 拡張子ホワイトリストは適用しない（画像等の非テキスト資産の取り込みが主な動機のため）が、
+    // ルート外脱出・シンボリックリンク経由の脱出防止は他のResolve系メソッドと同様に必須。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ResolveImportTargetは拡張子ホワイトリストを適用しない（画像等の取り込みが動機のため）")]
+    public void ResolveImportTargetは拡張子ホワイトリストを適用しない()
+    {
+        using var ws = new TempWorkspace();
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        // .png はPathGuardOptions.Defaultの許可拡張子に含まれず、通常のResolveならE202になる。
+        var normal = guard.Resolve("assets/photo.png");
+        normal.IsSuccess.Should().BeFalse("前提: 既定の許可拡張子には.pngが含まれない");
+
+        var result = guard.ResolveImportTarget("assets/photo.png");
+
+        result.IsSuccess.Should().BeTrue("取り込みは拡張子ホワイトリストの対象外であるべき");
+        result.Value.Should().Be(Path.Combine(ws.RootPath, "assets", "photo.png"));
+    }
+
+    [Fact(DisplayName = "ResolveImportTargetでも上位ディレクトリ参照(..)はE201になる")]
+    public void ResolveImportTargetも上位ディレクトリ参照はE201になる()
+    {
+        using var ws = new TempWorkspace();
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        var result = guard.ResolveImportTarget("../outside.png");
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors.Single().Code.Should().Be(ErrorCode.E201);
+    }
+
+    [Fact(DisplayName = "ResolveImportTargetでもシンボリックリンク経由でルート外へ出るパスはE201になる")]
+    public void ResolveImportTargetもシンボリックリンク経由でルート外はE201になる()
+    {
+        using var ws = new TempWorkspace();
+        using var outside = new TempWorkspace();
+        outside.WriteText("secret.png", "ルート外の内容");
+
+        if (TryCreateSymlinkOrSkip(ws, "linked", outside.RootPath) is null) return;
+        var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+        var result = guard.ResolveImportTarget("linked/secret.png");
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors.Single().Code.Should().Be(ErrorCode.E201);
     }
 }

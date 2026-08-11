@@ -10,6 +10,12 @@ public sealed record Settings
     /// <summary>テーマ。"dark" / "light" / "system" のいずれか。</summary>
     public string Theme { get; init; } = "system";
 
+    /// <summary>
+    /// 「操作の説明」（ツールチップ）の表示レベル。"off"（表示しない） / "standard"（標準の説明、
+    /// 既定） / "detailed"（くわしい説明）のいずれか。<see cref="Graft.Views.HelpTip"/>参照。
+    /// </summary>
+    public string TooltipDetail { get; init; } = "standard";
+
     /// <summary>適用モード。"allOrNothing" / "partial" のいずれか。</summary>
     public string ApplyMode { get; init; } = "allOrNothing";
 
@@ -57,6 +63,27 @@ public sealed record Settings
 
     /// <summary>ログ出力レベル。trace/debug/info/warn/error のいずれか（15章）。</summary>
     public string LogLevel { get; init; } = "info";
+
+    /// <summary>
+    /// 課題2: ウィンドウを×で閉じたときの動作。"exit"（終了する。既定）/
+    /// "tray"（タスクトレイに常駐する）のいずれか。トレイが使えない環境では
+    /// "tray"を選んでいても実際には終了する（縮退。<c>ShellWindow.OnClosing</c>参照）。
+    /// </summary>
+    public string CloseBehavior { get; init; } = "exit";
+
+    /// <summary>課題3: PC起動時に自動で起動するか。既定はオフ。</summary>
+    public bool LaunchAtStartup { get; init; } = false;
+
+    /// <summary>
+    /// 不具合修正: ウィンドウを最小化したときにタスクトレイへ格納するか。既定はオフ
+    /// （＝Windowsの通常の慣習どおり、最小化してもタスクバーに残る）。
+    /// オンにすると、最小化した瞬間にウィンドウがタスクバーからも消え、タスクトレイの
+    /// アイコンからのみ復帰できるようになる（クリップボード監視やホットキー貼り付けを
+    /// すぐ使えるよう、常に起動しておきたい利用者向け）。トレイが使えない環境では、
+    /// この設定がオンでも実際には通常の最小化のまま（縮退。<c>StartupCoordinator.
+    /// StartAsync</c>のwindow.PropertyChangedハンドラ参照）。
+    /// </summary>
+    public bool MinimizeToTray { get; init; } = false;
 }
 
 /// <summary>コードエディタ設定（v2.0 仕様書15章・4章）。</summary>
@@ -65,8 +92,18 @@ public sealed record EditorSettings
     /// <summary>コード表示のフォントサイズ。Ctrl+マウスホイールで変更できる。</summary>
     public double FontSize { get; init; } = 13;
 
-    /// <summary>長い行を折り返すかどうか。</summary>
-    public bool WordWrap { get; init; } = false;
+    /// <summary>
+    /// 長い行を折り返すかどうか。既定はオン（課題3の再設計で false→true へ変更）。
+    /// 以前は「極端に長い行（20,000文字超）を含むファイルでは、この設定に関わらず
+    /// 強制的にオフにする」という例外があったが、利用者の設定を無断で上書きすること
+    /// 自体が問題という指摘を受けて廃止した。1行10万文字クラスのファイルで折り返しを
+    /// 有効なまま開くと書式計算が数百ms→1.5秒前後に悪化する実測はあるが、これは
+    /// 利用者が選べばよいコストと整理し、代わりにそのファイルに限って折り返しを切れる
+    /// 逃げ道（通知バーの「このファイルでは折り返しを無効にする」）を用意した
+    /// （<see cref="Graft.ViewModels.EditorTabViewModel.WordWrapDisabledForTab"/>・
+    /// <see cref="Graft.Editor.DocumentSession.LongLineThreshold"/>）。
+    /// </summary>
+    public bool WordWrap { get; init; } = true;
 
     /// <summary>タブ・行末空白を可視化するかどうか。</summary>
     public bool ShowWhitespace { get; init; } = false;
@@ -110,6 +147,32 @@ public sealed record ClipboardWatchSettings
     /// "active"（アクティブ表示）のいずれか。
     /// </summary>
     public string Action { get; init; } = "notify";
+
+    /// <summary>
+    /// 機能追加: パッチ形式を検知したら、その場で自動的に解析するか。既定はオン。
+    /// オフの場合は従来どおり通知のみで、通知をクリックするまで解析しない。
+    /// オンでも、解析結果やパッチキューに未処理の内容が残っている間は自動解析せず通知に
+    /// 留める（StartupCoordinator.OnClipboardPatchDetected参照）。
+    /// </summary>
+    public bool AutoParse { get; init; } = true;
+
+    /// <summary>
+    /// 機能追加: パッチ形式を検知したら、Graftのウィンドウを前面に表示するか。既定はオン。
+    /// <see cref="AutoParse"/>の有無に関わらず、この設定がオンの間は常に前面化する
+    /// （検知したこと自体を伝えるのが目的であり、解析の有無は別軸のため）。
+    ///
+    /// 不具合修正: この設定がオフの場合、自動解析の有無に関わらず<see cref="Action"/>
+    /// （「反応時の挙動」）へ厳密に従う。以前は自動解析した場合に限り<see cref="Action"/>を
+    /// 無視して無条件に前面化する特例があったが、自動解析は既定オンのため、この設定を
+    /// オフにしていても実機ではほぼ常にその特例へ入ってしまい、「反応時の挙動＝トレイ通知のみ」
+    /// を選んでいてもウィンドウが前面に出てしまう不具合になっていた。この特例は廃止した。
+    ///
+    /// 前面化そのものは多重起動検出時の前面化と同じ実装が提供する
+    /// <c>ISingleInstanceGuard.ActivateWindowHandle</c>（自分のウィンドウのハンドルを直接
+    /// 指定する経路。タイトルを再検索する<c>ActivateExistingInstance</c>とは異なる）を再利用する
+    /// （StartupCoordinator.ClipboardActivation.cs参照）。
+    /// </summary>
+    public bool ActivateOnDetect { get; init; } = true;
 }
 
 /// <summary>バックアップ・世代管理設定（7.4章）。</summary>
@@ -169,6 +232,15 @@ public sealed record DiffSettings
 
     /// <summary>空白文字（タブ・行末空白）を可視化するか。</summary>
     public bool ShowWhitespace { get; init; } = false;
+
+    /// <summary>
+    /// 機能改善: diff表示を並列（左右、既定）にするか統合（上下）にするか。
+    /// DiffViewModel.IsSideBySideの初期値・既定値として使う。diff表示ヘッダーの
+    /// 切り替えボタンで変更すると即座にここへ永続化される（DiffViewModel.
+    /// SideBySideChangeCommitted参照。既存のCtrl+マウスホイールでのフォントサイズ確定と
+    /// 同じ即時反映の作法）。
+    /// </summary>
+    public bool SideBySide { get; init; } = true;
 }
 
 /// <summary>安全機構設定（13章）。</summary>

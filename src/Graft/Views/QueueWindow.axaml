@@ -32,7 +32,9 @@
             <ListBox x:Name="QueueListBox"
                      ItemsSource="{Binding Items}"
                      Background="{DynamicResource BgSurface}"
-                     AutomationProperties.Name="キュー内のブロック一覧">
+                     AutomationProperties.Name="キュー内のブロック一覧"
+                     views:HelpTip.Standard="「キューへ追加」で溜めておいた変更の一覧です。まだファイルには反映されていません。"
+                     views:HelpTip.Detailed="コマンドバーの「キューへ追加」で順番待ちに溜めておいた変更の一覧です。AIの回答が複数回に分けて送られてきたときに使う仕組みで、ここに並んでいる間はまだファイルへ反映されていません。不要な項目は各行の「削除」で個別に取り除け、すべて揃ったら下の「結合して適用へ進む」でまとめて確認・適用できます。">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
@@ -58,6 +60,8 @@
                                     VerticalAlignment="Top"
                                     Command="{Binding DataContext.RemoveCommand, ElementName=Root}"
                                     CommandParameter="{Binding}"
+                                    views:HelpTip.Standard="このブロックだけをキューから取り除きます。他のブロックには影響しません。"
+                                    views:HelpTip.Detailed="この1件だけを順番待ちの列（キュー）から取り除きます。同じキュー内の他のブロックはそのまま残るので、不要になったものだけを選んで削除できます。"
                                     AutomationProperties.Name="このブロックをキューから削除" />
                         </Grid>
                     </DataTemplate>
@@ -77,13 +81,27 @@
             <Button Content="すべて削除"
                     Command="{Binding ClearCommand}"
                     Margin="0,0,8,0"
+                    views:HelpTip.Standard="キューに溜まっているブロックをすべて削除します（確認あり）。元に戻せないので注意してください。"
+                    views:HelpTip.Detailed="今キューに溜まっているブロックを、すべてまとめて削除します。押すと確認ダイアログが出るので、そこで承認すると実行されます。一度削除すると元に戻せないため、必要なブロックが残っていないか確認してから押してください。"
                     AutomationProperties.Name="キューをすべて削除" />
-            <Button Content="結合して適用へ進む"
+            <!--
+                細かいユーザビリティ改善5（ダイアログのキー操作総点検）: このウィンドウの
+                肯定的な既定操作（Enterで実行）は「結合して適用へ進む」とする（IsDefault）。
+                開いた直後の初期フォーカスもここへ当てる（QueueWindow.axaml.cs参照）。
+            -->
+            <Button x:Name="MergeButton"
+                    Content="結合して適用へ進む"
                     Command="{Binding MergeCommand}"
+                    IsDefault="True"
                     Margin="0,0,8,0"
+                    views:HelpTip.Standard="キュー内のブロックを1つの変更としてまとめ、通常の解析結果と同じようにプレビュー・適用へ進みます。"
+                    views:HelpTip.Detailed="複数回に分けてキューへ追加しておいたブロックを1つの変更としてまとめ、コマンドバーの「解析」を実行したときと同じ画面（接ぎ木パネル）へ渡します。そこでいつも通り内容を確認し、「適用」を押すとまとめてファイルへ書き込まれます。"
                     AutomationProperties.Name="キューを結合して解析結果へ渡す" />
-            <Button Content="閉じる"
+            <Button x:Name="CloseButton"
+                    Content="閉じる"
                     Click="OnCloseClicked"
+                    views:HelpTip.Standard="このウィンドウを閉じます（Esc）。"
+                    views:HelpTip.Detailed="このキュー画面を閉じます。キュー自体の中身は消えず、次に「キュー」ボタンを押したときにまた表示されます。キーボードのEscキーでも閉じられます。"
                     AutomationProperties.Name="閉じる" />
         </StackPanel>
     </Grid>

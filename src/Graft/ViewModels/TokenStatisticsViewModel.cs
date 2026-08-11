@@ -36,7 +36,7 @@ public sealed class TokenStatisticsViewModel : ObservableObject
             new("月別", TokenStatistics.Granularity.Month),
         };
 
-        RefreshCommand = new AsyncRelayCommand(RefreshAsync);
+        RefreshCommand = new AsyncRelayCommand(RefreshAsync, context: "トークン統計の更新");
     }
 
     /// <summary>選択可能なプロジェクト一覧（先頭に「すべて」を含まない。全体集計は別途 <see cref="LoadAllAsync"/> を使う）。</summary>

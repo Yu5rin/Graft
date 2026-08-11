@@ -1,10 +1,12 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.DiffSettingsView"
              AutomationProperties.Name="表示・コンテキスト設定">
     <!--
         14章「syntax」「diff」「context」「encoding」「clipboardWatch」区分をまとめる
         （8.6シンタックス・8.13 diff表示制御・10章コンテキスト収集の各設定）。
+        即時反映方式（14章）の確定タイミングの理屈はGeneralSettingsView参照。
     -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
@@ -15,55 +17,105 @@
         <StackPanel Margin="16,8,16,16">
             <TextBlock Text="シンタックスハイライト" Classes="sectionHeading first" />
             <CheckBox Classes="settingRow" Content="シンタックスハイライトを有効にする" IsChecked="{Binding SyntaxEnabled}"
-                      AutomationProperties.Name="シンタックスハイライトを有効にする" />
+                      AutomationProperties.Name="シンタックスハイライトを有効にする"
+                      views:HelpTip.Standard="コードの文法要素（キーワード・文字列など）を色分け表示します。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、エディタやdiff（差分）表示でコードのキーワード・文字列・コメントなどを言語ごとの文法に応じて色分けし、読みやすくします。オフにすると全て単色のプレーンテキストとして表示されます。表示だけの設定でファイルの内容には影響しません。" />
             <CheckBox Classes="settingRow" Content="行番号を表示する" IsChecked="{Binding ShowLineNumbers}"
-                      AutomationProperties.Name="行番号を表示する" />
+                      AutomationProperties.Name="行番号を表示する"
+                      views:HelpTip.Standard="diff（差分）表示に行番号を表示します。既定はオンです。"
+                      views:HelpTip.Detailed="適用前プレビューなどのdiff（差分）表示に行番号を表示するかどうかです（エディタ側の行番号は「エディタ」タブで別途設定します）。既定はオンです。" />
 
             <TextBlock Text="diff表示" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="前後のコンテキスト行数" Classes="fieldLabel" />
-                <TextBox Text="{Binding ContextLinesText}" Width="120"
-                         AutomationProperties.Name="前後のコンテキスト行数" />
+                <TextBox Text="{Binding ContextLinesText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="前後のコンテキスト行数"
+                         views:HelpTip.Standard="差分表示で、変更が無い行を変更箇所の前後に何行分表示するかです。既定は3行です。"
+                         views:HelpTip.Detailed="適用前プレビューなどの差分表示で、実際に変更された行の前後に、変更の無い行（文脈を確認するための周辺コード）を何行分あわせて表示するかです。既定は3行です。増やすと変更箇所の前後の文脈を確認しやすくなりますが、表示が縦に長くなります。" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="長い行を折り返す" IsChecked="{Binding WordWrap}"
-                      AutomationProperties.Name="長い行を折り返す" />
+                      AutomationProperties.Name="長い行を折り返す"
+                      views:HelpTip.Standard="差分表示で、1行が画面幅を超えるとき折り返して表示します。既定はオフです。"
+                      views:HelpTip.Detailed="適用前プレビューなどの差分表示で、長い1行を横スクロールではなく折り返して表示するかどうかです。既定はオフです（エディタ側の折り返しは「エディタ」タブで別途設定します）。" />
             <CheckBox Classes="settingRow" Content="空白文字を可視化する" IsChecked="{Binding ShowWhitespace}"
-                      AutomationProperties.Name="空白文字を可視化する" />
+                      AutomationProperties.Name="空白文字を可視化する"
+                      views:HelpTip.Standard="差分表示で、タブや行末の空白を記号で見えるようにします。既定はオフです。"
+                      views:HelpTip.Detailed="適用前プレビューなどの差分表示で、タブ文字や行末の余分な空白を記号として可視化するかどうかです。既定はオフです（エディタ側の可視化は「エディタ」タブで別途設定します）。空白だけの変更差分に気付きやすくなります。" />
+            <!-- 機能改善: 差分の左右並列表示。差分表示ヘッダーの「並列」「統合」ボタンで
+                 切り替えるたびここにも即座に反映される（DiffViewModel.SideBySideChangeCommitted
+                 参照）。逆にここで切り替えると、開いている全ての差分表示へ即座に反映される。 -->
+            <CheckBox Classes="settingRow" Content="差分表示を左右並列にする" IsChecked="{Binding SideBySide}"
+                      AutomationProperties.Name="差分表示を左右並列にする"
+                      views:HelpTip.Standard="変更前と変更後を左右に並べて表示します。オフにすると上下の統合表示になります。既定はオンです。"
+                      views:HelpTip.Detailed="差分表示の既定の見せ方を選びます。オン（既定）では変更前のコードを左、変更後のコードを右に並べて表示し、対応する行が横に揃います。オフでは削除された行と追加された行を1つの流れの中に上下に並べて表示する統合表示になります。差分表示のヘッダーにある「並列」「統合」ボタンで、開いている画面ごとに一時的に切り替えることもでき、その選択はここへも自動的に反映されます。" />
 
             <TextBlock Text="コンテキスト収集" Classes="sectionHeading" />
             <CheckBox Classes="settingRow" Content=".gitignoreを尊重する" IsChecked="{Binding RespectGitignore}"
-                      AutomationProperties.Name="gitignoreを尊重する" />
+                      AutomationProperties.Name="gitignoreを尊重する"
+                      views:HelpTip.Standard="「ファイル」画面でのコンテキスト収集時、.gitignoreに書かれたファイルを一覧から除外します。既定はオンです。"
+                      views:HelpTip.Detailed="コマンドバーの「ファイル」から開くコンテキスト収集画面で、プロジェクト内のファイル一覧を作るときに.gitignoreの指定を尊重するかどうかです。オンにすると（既定）、node_modulesやビルド成果物などGit管理対象外のファイルが一覧から自動的に除外され、AIへ渡す内容を絞り込みやすくなります。オフにすると、.gitignoreに関わらず全ファイルが一覧に出ます。" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="トークン概算比率（文字数÷この値）" Classes="fieldLabel" />
-                <TextBox Text="{Binding TokenRatioText}" Width="120"
-                         AutomationProperties.Name="トークン概算比率" />
+                <TextBox Text="{Binding TokenRatioText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="トークン概算比率"
+                         views:HelpTip.Standard="コピーする文字数からAIのトークン数をおおまかに見積もる際の割り算の値です。既定は2.5（文字数÷2.5）です。"
+                         views:HelpTip.Detailed="コンテキスト収集画面やトークン統計タブで表示する「推定トークン数」は、実際にAIへ送って数えるわけではなく、「コピーする文字数 ÷ この値」という簡易な計算で見積もっています。既定は2.5です。目安の値であり、実際にAIが消費するトークン数と厳密には一致しません。通常は変更する必要はありません。" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="トークン数の警告閾値" Classes="fieldLabel" />
-                <TextBox Text="{Binding TokenWarnThresholdText}" Width="120"
-                         AutomationProperties.Name="トークン数の警告閾値" />
+                <TextBox Text="{Binding TokenWarnThresholdText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="トークン数の警告閾値"
+                         views:HelpTip.Standard="コンテキスト収集でコピーする内容の推定トークン数がこれを超えると警告します。既定は50000です。"
+                         views:HelpTip.Detailed="コンテキスト収集画面でファイルを選んでコピーしようとしたとき、上の比率で見積もった推定トークン数がこの値を超える場合に警告を表示します。既定は50000です。AIの入力上限に収まらず回答が途中で切れてしまうといった事態に気付きやすくするための目安で、警告が出てもコピー自体はできます。" />
             </StackPanel>
 
             <TextBlock Text="新規ファイル" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="エンコーディング" Classes="fieldLabel" />
-                <TextBox Text="{Binding NewFileEncoding}" Width="160"
-                         AutomationProperties.Name="新規ファイルのエンコーディング" />
+                <TextBox Text="{Binding NewFileEncoding, UpdateSourceTrigger=LostFocus}" Width="160"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="新規ファイルのエンコーディング"
+                         views:HelpTip.Standard="パッチの適用でこれまで存在しなかったファイルを新規作成するとき使う文字コードです。既定はutf-8です。"
+                         views:HelpTip.Detailed="AIの回答に含まれる変更が、プロジェクト内にまだ存在しないファイルの新規作成だった場合に使う文字コードです。既定は「utf-8」です。既存ファイルを編集する場合は、そのファイル自身の文字コードがそのまま使われるため、この設定は影響しません。特別な事情がない限り既定のままで問題ありません。" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="BOMを付与する" IsChecked="{Binding NewFileBom}"
-                      AutomationProperties.Name="新規ファイルにBOMを付与する" />
+                      AutomationProperties.Name="新規ファイルにBOMを付与する"
+                      views:HelpTip.Standard="新規作成するファイルの先頭に、UTF-8であることを示す目印（BOM）を付けます。既定はオフです。"
+                      views:HelpTip.Detailed="新規作成するファイルの先頭に、BOM（バイト順マーク。そのファイルがUTF-8であることを示す数バイトの目印）を付けるかどうかです。既定はオフです。一部のWindows向けツールはBOMがあることを前提にする場合がありますが、多くのプログラミング言語・ツールではBOMが無い方が望ましいため、特別な事情がなければオフのままで問題ありません。" />
 
             <TextBlock Text="クリップボード監視" Classes="sectionHeading" />
             <CheckBox Classes="settingRow" Content="クリップボード監視を有効にする"
                       IsChecked="{Binding ClipboardWatchEnabled}"
-                      AutomationProperties.Name="クリップボード監視を有効にする" />
+                      IsEnabled="{Binding IsClipboardWatchSupported}"
+                      AutomationProperties.Name="クリップボード監視を有効にする"
+                      views:HelpTip.Standard="AIの回答らしき内容がクリップボードにコピーされたことを自動的に検知します。既定はオフです。"
+                      views:HelpTip.Detailed="オンにすると、Graftがバックグラウンドで動いている間、クリップボードにコピーされた内容を監視し、Graftが読み取れる形式のパッチらしき文章が見つかると自動的に反応します（反応時の挙動は下で選べます）。既定はオフです。「解析」ボタンを毎回押す手間を省きたい場合に使いますが、機密情報を含む文章をコピーした際にも反応してしまう可能性があるため、常時監視されることが気になる場合はオフのままにしてください。" />
+            <TextBlock Text="{Binding ClipboardWatchUnsupportedReason}" Classes="fieldHint"
+                       IsVisible="{Binding !IsClipboardWatchSupported}" TextWrapping="Wrap" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="反応時の挙動" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ClipboardActionOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}"
                           SelectedValue="{Binding SelectedClipboardAction}"
-                          AutomationProperties.Name="クリップボード監視反応時の挙動" />
+                          AutomationProperties.Name="クリップボード監視反応時の挙動"
+                          views:HelpTip.Standard="クリップボード監視がパッチらしき内容を検知したときの通知方法を選びます。既定は「トレイ通知のみ」です。"
+                          views:HelpTip.Detailed="上のクリップボード監視がパッチらしき内容を見つけたときの反応方法を選びます。「トレイ通知のみ」（既定）はタスクトレイに控えめな通知を出すだけで、ウィンドウは前面に出てきません。「非アクティブ表示」はGraftのウィンドウを表示しますが前面には出さず、「アクティブ表示」はウィンドウを前面に出して即座に確認できるようにします。作業の邪魔になりにくい順に「トレイ通知のみ」→「非アクティブ表示」→「アクティブ表示」です。いずれの場合も、実際にファイルへ書き込まれることはなく、「適用」を押すまでは安全です。なお、下の「検知したら前面に表示する」がオンの間は、この設定に関わらず常にウィンドウが前面に出ます。オフの間は、自動解析したかどうかに関わらずこの設定にそのまま従います。" />
             </StackPanel>
+            <CheckBox Classes="settingRow" Content="検知したら自動で解析する"
+                      IsChecked="{Binding ClipboardAutoParse}"
+                      IsEnabled="{Binding IsClipboardWatchSupported}"
+                      AutomationProperties.Name="クリップボード監視で検知したら自動で解析する"
+                      views:HelpTip.Standard="クリップボード監視がパッチ形式を検知したら、その場で自動的に解析します。既定はオンです。オフにすると通知のみになり、クリックするまで解析されません。"
+                      views:HelpTip.Detailed="オンにすると（既定）、クリップボード監視がパッチ形式のテキストを検知した瞬間に自動的に解析し、接ぎ木パネルを開いて結果を表示します。ただし、既に解析済みの結果が接ぎ木パネルに残っている場合や、パッチキューに未適用のブロックが残っている場合は、確認中・作業中の内容を自動解析で見失わないよう自動解析を行わず、従来どおり通知のみにとどめます（クリックすれば解析できます）。オフにすると常に通知のみとなり、内容を確認してから任意のタイミングでクリックして解析できます。いずれの場合も、実際にファイルへ書き込まれることはなく、「適用」を押すまでは安全です。" />
+            <CheckBox Classes="settingRow" Content="検知したら前面に表示する"
+                      IsChecked="{Binding ClipboardActivateOnDetect}"
+                      IsEnabled="{Binding IsClipboardWatchSupported}"
+                      AutomationProperties.Name="クリップボード監視で検知したら前面に表示する"
+                      views:HelpTip.Standard="クリップボード監視がパッチ形式を検知したら、自動解析の有無に関わらずGraftのウィンドウを前面に表示します。既定はオンです。オフにすると、自動解析の有無に関わらず「反応時の挙動」の設定にそのまま従います。"
+                      views:HelpTip.Detailed="オンにすると（既定）、クリップボード監視がパッチ形式のテキストを検知した瞬間に、上の「検知したら自動で解析する」の設定や「反応時の挙動」の選択に関わらず、必ずGraftのウィンドウを前面に表示します。最小化されていれば元の大きさへ戻し、タスクトレイに隠れていればまず表示してから前面化します。既に前面に表示されている場合は何もしません（不要なちらつきを避けるためです）。オフにすると、自動解析したかどうかに関わらず、前面化するかどうかは上の「反応時の挙動」の設定に厳密に従います。「トレイ通知のみ」ならウィンドウは前面に出さず通知だけを出し、「非アクティブ表示」なら表示はしても前面には出さず、「アクティブ表示」を選んだ場合のみ前面化します（自動解析した結果であっても、「トレイ通知のみ」「非アクティブ表示」を選んでいる間は前面には出しません）。Windowsでは、他のアプリを操作中はOSの制約により前面化が拒否され、タスクバーのアイコンが点滅するだけになることがあります（不具合ではありません）。" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>
