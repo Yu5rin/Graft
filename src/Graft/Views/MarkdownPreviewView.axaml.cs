@@ -26,18 +26,25 @@ public partial class MarkdownPreviewView : UserControl
     /// Markdown全文から本文を組み立て直す。呼び出し側（EditorPane）は編集中のバッファ
     /// （<c>DocumentSession.Document.Text</c>）をそのまま渡すこと。ディスクを読み直さない
     /// （利用者指示の追加要件4: 未保存の編集を反映するため）。
+    /// <paramref name="baseDirectory"/>は相対パス画像の解決に使う基準ディレクトリ
+    /// （表示中の.mdファイルのあるフォルダ）。<paramref name="onChecklistToggled"/>を渡すと
+    /// チェックリストが操作可能（クリック・キーボードでON/OFF）になる。
     /// </summary>
     public void Render(
         string markdown,
         Action<string> onAnchorClicked,
         Action<string>? onRelativeLinkClicked,
-        Action<string>? onExternalLinkClicked)
+        Action<string>? onExternalLinkClicked,
+        string? baseDirectory = null,
+        Action<int, bool>? onChecklistToggled = null)
     {
         ContentPanel.Children.Clear();
 
         var result = ManualMarkdownRenderer.Render(
             markdown, onAnchorClicked, onRelativeLinkClicked, onExternalLinkClicked,
-            onBlockDoubleClicked: line => BlockDoubleClicked?.Invoke(line));
+            onBlockDoubleClicked: line => BlockDoubleClicked?.Invoke(line),
+            baseDirectory: baseDirectory,
+            onChecklistToggled: onChecklistToggled);
 
         _blocks = result.Blocks;
         _anchors = result.Anchors;
