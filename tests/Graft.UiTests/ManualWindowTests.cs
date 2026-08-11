@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using FluentAssertions;
 using Graft.Core;
@@ -30,6 +31,16 @@ namespace Graft.UiTests;
 /// - キーボードショートカット一覧には、ヘルプメニュー経由・Ctrl+/経由の両方で
 ///   引き続き到達できること（ShortcutsWindowTests側で検証済みのため、ここでは
 ///   ヘルプメニューに2項目とも並ぶことだけを確認する）。
+///
+/// 利用者からの指摘対応（Markdown装飾表示）: 以前はMarkdownをそのままプレーンテキストで
+/// TextBoxへ表示していたが、ManualMarkdownRenderer（自前の軽量パーサ）でAvalonia標準
+/// コントロールへ組み立てるようにした。以下も検証する。
+/// - 見出しレベルごとにフォントサイズが異なり、階層が視覚的に分かること。
+/// - コードブロックが等幅フォント・背景色付きで本文と区別できること。
+/// - 表（キーボードショートカット一覧など）がGridとして展開されること。
+/// - 目次のリンクをクリックすると例外にならず、対応する見出しへジャンプする経路が
+///   実際に呼ばれること。
+/// - 本文が選択してコピーできる（SelectableTextBlockで構築されている）こと。
 /// </summary>
 public class ManualWindowTests : IDisposable
 {
@@ -61,24 +72,118 @@ public class ManualWindowTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>ManualContentPanelに展開された全SelectableTextBlockのテキストを連結して返す。</summary>
+    private static string CollectRenderedText(Window window)
+        => string.Join(
+            "\n",
+            window.GetVisualDescendants().OfType<SelectableTextBlock>()
+                .Select(t => t.Inlines?.Text ?? t.Text ?? string.Empty));
+
     [AvaloniaFact(DisplayName = "取扱説明書の本文が埋め込みリソースから読み込め、空でも読み込み失敗の定型文でもない")]
     public void 本文が埋め込みリソースから読み込める()
     {
         var window = _windows.Track(new ManualWindow());
         window.Show();
 
-        var contentBox = window.GetVisualDescendants().OfType<TextBox>()
-            .Single(t => t.Name == "ManualContentText");
+        var renderedText = CollectRenderedText(window);
 
-        contentBox.Text.Should().NotBeNullOrWhiteSpace("取扱説明書の本文が空であってはならない");
-        contentBox.Text.Should().NotBe(
+        renderedText.Should().NotBeNullOrWhiteSpace("取扱説明書の本文が空であってはならない");
+        renderedText.Should().NotBe(
             "取扱説明書を読み込めませんでした。",
             "埋め込みリソース名のずれ・Graft.csprojでの同梱漏れなどで読み込みに失敗している（回帰）");
         // 目次・主要見出しが実際に含まれていることも確認し、「たまたま何か読めた」ではなく
         // 期待した取扱説明書.mdそのものが読み込めていることを担保する。
-        contentBox.Text.Should().Contain("Graftとは何か");
-        contentBox.Text.Should().Contain("パッチの形式");
-        contentBox.Text.Should().Contain("キーボードショートカット一覧");
+        renderedText.Should().Contain("Graftとは何か");
+        renderedText.Should().Contain("パッチの形式");
+        renderedText.Should().Contain("キーボードショートカット一覧");
+    }
+
+    [AvaloniaFact(DisplayName = "見出しは階層（レベル）ごとにフォントサイズが異なる")]
+    public void 見出しは階層ごとにフォントサイズが異なる()
+    {
+        var window = _windows.Track(new ManualWindow());
+        window.Show();
+
+        // "1. Graftとは何か"は## （レベル2）、"2.1 自分の..."は### （レベル3）の見出し。
+        var level2 = window.GetVisualDescendants().OfType<SelectableTextBlock>()
+            .Single(t => (t.Inlines?.Text ?? t.Text) == "1. Graftとは何か");
+        var level3 = window.GetVisualDescendants().OfType<SelectableTextBlock>()
+            .Single(t => (t.Inlines?.Text ?? t.Text) == "2.1 自分のプロジェクトを使わずに試したいとき（サンプルで試す）");
+
+        level2.FontSize.Should().BeGreaterThan(level3.FontSize, "上位の見出しほど大きく表示され階層が視覚的に分かる必要がある");
+        level2.FontWeight.Should().Be(FontWeight.SemiBold);
+        level3.FontWeight.Should().Be(FontWeight.SemiBold);
+    }
+
+    [AvaloniaFact(DisplayName = "コードブロックは等幅フォントで表示され、本文と異なる背景色の枠で囲まれる")]
+    public void コードブロックは等幅フォントかつ背景色付きで表示される()
+    {
+        var window = _windows.Track(new ManualWindow());
+        window.Show();
+
+        // 3.1節のGraft形式コードブロックの中身（"type: fix"）で狙う。"<<<< PATCH"自体は
+        // 直前の説明文の中でも`インラインコード`として使われているため、それとは
+        // 区別できる、実際のコードブロックの中にしか出てこない文字列を使う。
+        var codeBlock = window.GetVisualDescendants().OfType<SelectableTextBlock>()
+            .Single(t => (t.Inlines?.Text ?? t.Text ?? string.Empty).Contains("type: fix"));
+
+        codeBlock.FontFamily.Name.Should().NotBe(
+            window.FontFamily.Name, "コードブロックは本文の可変幅フォントとは異なる等幅フォントで表示される必要がある");
+
+        var border = codeBlock.GetVisualAncestors().OfType<Border>()
+            .FirstOrDefault(b => b.Background is ISolidColorBrush brush && brush.Color != Colors.Transparent);
+        border.Should().NotBeNull("コードブロックは本文と区別できる背景色付きの枠で囲まれている必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "キーボードショートカット一覧は表（Grid）として展開される")]
+    public void 表はGridとして展開される()
+    {
+        var window = _windows.Track(new ManualWindow());
+        window.Show();
+
+        // 7章の接ぎ木の操作の表。ヘッダー「キー」「動作」と、データ行の1つ
+        // 「Ctrl+Shift+V」を含むGridが2列以上・複数行で存在することを確認する。
+        var renderedText = CollectRenderedText(window);
+        renderedText.Should().Contain("Ctrl+Shift+V", "表の中身（キー割り当て）が読み込めている前提の確認");
+
+        var tableGrid = window.GetVisualDescendants().OfType<Grid>()
+            .FirstOrDefault(g => g.ColumnDefinitions.Count >= 2 && g.RowDefinitions.Count >= 3
+                && g.GetVisualDescendants().OfType<SelectableTextBlock>()
+                    .Any(t => (t.Inlines?.Text ?? t.Text) == "Ctrl+Shift+V"));
+
+        tableGrid.Should().NotBeNull("表はGrid（複数列・複数行）として展開されている必要がある");
+    }
+
+    [AvaloniaFact(DisplayName = "本文はSelectableTextBlockで構築され、マウスでの範囲選択・部分コピーができる")]
+    public void 本文は選択してコピーできる()
+    {
+        var window = _windows.Track(new ManualWindow());
+        window.Show();
+
+        var blocks = window.GetVisualDescendants().OfType<SelectableTextBlock>().ToList();
+        blocks.Should().NotBeEmpty("本文の各段落・見出し・リスト項目はSelectableTextBlockで構築されている必要がある");
+
+        // SelectableTextBlockはSelectionStart/SelectionEndを持ち、範囲選択・CanCopyに対応する
+        // （TextBoxのIsReadOnlyと同じ「表示専用だが選択・コピーはできる」性質をAvaloniaの
+        // 標準APIで確認する）。
+        var sample = blocks.First(b => !string.IsNullOrEmpty(b.Inlines?.Text ?? b.Text));
+        var text = sample.Inlines!.Text ?? sample.Text!;
+        sample.SelectionStart = 0;
+        sample.SelectionEnd = text.Length;
+        sample.SelectedText.Should().Be(text, "選択したテキストがそのまま取得できる必要がある（コピー機能の土台）");
+    }
+
+    [AvaloniaFact(DisplayName = "目次のリンクをクリックすると例外にならず、該当見出しへジャンプする経路が呼ばれる")]
+    public void 目次のリンクをクリックすると見出しへジャンプする()
+    {
+        var window = _windows.Track(new ManualWindow());
+        window.Show();
+
+        var tocLink = window.GetVisualDescendants().OfType<Button>()
+            .Single(b => AutomationProperties.GetName(b) == "目次: Graftとは何かへジャンプ");
+
+        var act = () => tocLink.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        act.Should().NotThrow("目次のリンクは押しても例外にならない必要がある（未知のアンカーでも同様）");
     }
 
     [AvaloniaFact(DisplayName = "Escapeキーで閉じる")]

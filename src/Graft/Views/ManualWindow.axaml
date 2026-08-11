@@ -15,12 +15,20 @@
         取扱説明書機能: F1・ツールバーの「?」メニュー「取扱説明書」から開く専用ウィンドウ。
         ShortcutsWindow・LogViewerWindow・OpenSourceLicensesWindowと同じく、静的な内容の
         表示が主体のためViewModelは持たず、本文はコードビハインド（ManualWindow.axaml.cs）が
-        埋め込みリソースから読み込んでそのままテキストへ流し込む。
+        埋め込みリソースから読み込む。
 
-        本文はMarkdown（docs/取扱説明書.md）をそのままのプレーンテキストとして表示する
-        （専用のMarkdownレンダラを追加で依存させない方針。9.1「装飾なし」とも矛盾しない）。
-        IsReadOnly="True"のTextBoxに入れているのは、LogViewerWindowと同じ理由
-        （ボタンでのコピーに加え、マウスでの範囲選択・部分コピーもできるようにするため）。
+        利用者からの指摘対応: 本文はMarkdown（docs/取扱説明書.md）そのままのプレーンテキスト
+        表示だったが、装飾して見出し・箇条書き・表などが視覚的に分かるようにしてほしいという
+        指摘を受けた。専用のMarkdownレンダリングライブラリは追加せず（依存を最小限に保つ方針。
+        Graft.csproj参照）、実際にdocs/取扱説明書.mdで使われている記法だけを対象にした自前の
+        簡易パーサ（ManualMarkdownRenderer）でAvalonia標準コントロールへ組み立てる
+        （詳細はManualMarkdownRenderer.csのクラスコメント参照）。
+
+        本文は選択してコピーできる必要がある（説明書の一部を引用したい場面があるため）ため、
+        各段落・見出し・リスト項目・表のセルはいずれもSelectableTextBlockで構築する
+        （マウスでの範囲選択・部分コピーが効く）。「コピー」ボタンは従来どおり生のMarkdown
+        全文をクリップボードへコピーする（表示上の装飾を含まないプレーンテキストの方が
+        テキストエディタなどへの貼り付けや引用に扱いやすいため）。
     -->
     <Grid RowDefinitions="Auto,*,Auto">
 
@@ -38,16 +46,14 @@
         <Border Grid.Row="1" Margin="16,0,16,8"
                 Background="{DynamicResource BgSurface}"
                 BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1">
-            <TextBox x:Name="ManualContentText"
-                     IsReadOnly="True"
-                     AcceptsReturn="True"
-                     TextWrapping="Wrap"
-                     FontFamily="{DynamicResource UiFontFamily}"
-                     FontSize="{DynamicResource BodyFontSize}"
-                     Background="Transparent" BorderThickness="0"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto"
-                     AutomationProperties.Name="取扱説明書の本文" />
+            <ScrollViewer x:Name="ManualContentScroll"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <!-- 見出し・段落・リスト・コードブロック・表などの各ブロックは、
+                     コードビハインドがManualMarkdownRendererで組み立ててここへ追加する
+                     （ShortcutsWindow.axamlのShortcutListPanelと同じ構成）。 -->
+                <StackPanel x:Name="ManualContentPanel" Margin="16,12" />
+            </ScrollViewer>
         </Border>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">

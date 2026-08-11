@@ -284,6 +284,22 @@
                     </Viewbox>
                 </ControlTemplate>
             </Setter>
+            <!--
+                利用者からの指摘対応（無効なボタンの見た目）: 履歴ペインのツールバー等、
+                アイコンのみをContentに置いたボタン（Views/HistoryPane.axaml参照）は、
+                ボタン側の:disabled（Foreground変更）がIconGlyphのStrokeに何の影響も
+                与えないため、無効時もアイコンの色が変わらなかった。IconGlyph自身も
+                祖先のIsEnabledを反映した:disabled疑似クラスを持つ（Avaloniaの
+                IsEffectivelyEnabledによる伝播）ため、ここで自分のStrokeをtext.disabledへ
+                切り替えるだけで、内包するどのボタン・メニュー項目に置かれていても
+                一括してグレーアウトする。状態アイコン（適用可否のcheck/x-circle等）は
+                利用側でStrokeをStateOk/StateError等へローカル値として明示的に上書きして
+                いるため、ローカル値がスタイルより優先されこの規則の影響を受けない
+                （ブロックの状態表示は「無効」ではないため、これは意図どおり）。
+            -->
+            <Style Selector="^:disabled">
+                <Setter Property="Stroke" Value="{DynamicResource TextDisabled}" />
+            </Style>
         </ControlTheme>
 
     </Styles.Resources>

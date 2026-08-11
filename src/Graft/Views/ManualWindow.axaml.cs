@@ -18,6 +18,14 @@ namespace Graft.Views;
 /// 参照する経路（<see cref="IFileManagerLauncher"/>でOSの既定アプリから開く等）は
 /// 配布後の実機で「ファイルが見つからない」事故になる。オープンソースライセンス表記
 /// （<see cref="OpenSourceLicensesWindow"/>）と同じ理由・同じ方式で埋め込みリソース化した。
+///
+/// 【表示の装飾】
+/// 利用者からの指摘対応: 埋め込んだMarkdownをそのままプレーンテキスト表示していたが、
+/// 見出し・箇条書き・表などが視覚的に分かるよう装飾表示してほしいとの指摘を受けた。
+/// <see cref="ManualMarkdownRenderer"/>（自前の軽量パーサ。外部ライブラリは追加しない方針）で
+/// Avalonia標準コントロールへ組み立て、<see cref="ManualContentPanel"/>へ流し込む。
+/// 目次（Markdown内の[見出し名](#アンカー)）はクリックで該当見出しへスクロールする
+/// （<see cref="JumpToAnchor"/>）。
 /// </summary>
 public partial class ManualWindow : Window
 {
@@ -25,19 +33,26 @@ public partial class ManualWindow : Window
     internal const string ResourceName = "Graft.Docs.取扱説明書.md";
 
     private readonly string _manualText;
+    private readonly IReadOnlyDictionary<string, Control> _anchors;
 
     public ManualWindow()
     {
         InitializeComponent();
         _manualText = LoadManualText();
-        ManualContentText.Text = _manualText;
+
+        var rendered = ManualMarkdownRenderer.Render(_manualText, JumpToAnchor);
+        _anchors = rendered.Anchors;
+        foreach (var block in rendered.Blocks)
+        {
+            ManualContentPanel.Children.Add(block);
+        }
 
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
         // 細かいユーザビリティ改善5: 本文は読み取り専用の閲覧欄のため、初期フォーカスは既定ボタンへ。
         Loaded += (_, _) => CloseButton.Focus();
     }
 
-    /// <summary>埋め込みリソースから取扱説明書の本文を読み込む。読み込めない場合は利用者に分かる文言を返す。</summary>
+    /// <summary>埋め込みリソースから取扱説明書の本文（生のMarkdown）を読み込む。読み込めない場合は利用者に分かる文言を返す。</summary>
     private static string LoadManualText()
     {
         try
@@ -51,6 +66,15 @@ public partial class ManualWindow : Window
         catch (IOException)
         {
             return "取扱説明書を読み込めませんでした。";
+        }
+    }
+
+    /// <summary>目次から該当見出しへスクロールする。未知のアンカーは何もしない（壊れたリンクで例外にしない）。</summary>
+    private void JumpToAnchor(string anchor)
+    {
+        if (_anchors.TryGetValue(anchor, out var target))
+        {
+            target.BringIntoView();
         }
     }
 
