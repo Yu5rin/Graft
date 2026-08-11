@@ -35,6 +35,15 @@ public sealed class LinuxGlobalHotkeys : IGlobalHotkeys
     private volatile bool _running;
     private bool _disposed;
 
+    // RunEventLoopはX11イベントを待つ専用スレッド（StartLoop参照）から呼ばれるため、
+    // コールバックをUIスレッドへ戻す際にDispatcher.UIThreadを直接読んではならない。
+    // Dispatcher.UIThreadは遅延生成・スレッド非安全な静的プロパティで、headlessテストの
+    // テストごとのリセットの窓に別スレッドから読まれると壊れたインスタンスがキャッシュされる
+    // （DocumentSessionクラス冒頭のコメント・CI調査結果を参照）。コンストラクタは
+    // （StartupCoordinatorやLinuxPlatformServicesの生成経路から）必ずUIスレッドで実行される
+    // ため、そこで一度だけ捕捉しておく。
+    private readonly Dispatcher _uiDispatcher = Dispatcher.UIThread;
+
     public bool IsSupported => TryOpenDisplay();
 
     public string? UnsupportedReason
@@ -202,7 +211,8 @@ public sealed class LinuxGlobalHotkeys : IGlobalHotkeys
             }
 
             // コールバックはViewModelの操作を伴うため、必ずUIスレッドへ戻してから呼ぶ。
-            if (callback is not null) Dispatcher.UIThread.Post(callback);
+            // （_uiDispatcherの由来はフィールドのコメント参照）
+            if (callback is not null) _uiDispatcher.Post(callback);
         }
     }
 

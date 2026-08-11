@@ -26,6 +26,14 @@ public sealed partial class StartupCoordinator
         ProjectStore projectStore, RevisionStore revisionStore, IDialogService dialogService,
         RevisionRestorer revisionRestorer, List<GraftIssue> issues, Task initialWatchSignal)
     {
+        // Dispatcher.UIThreadは遅延生成・スレッド非安全な静的プロパティで、headlessテストでは
+        // テストごとの一瞬の再構築の窓に別スレッドから読まれると壊れたインスタンスが
+        // キャッシュされてしまう（DocumentSessionクラス冒頭のコメント参照）。このメソッドは
+        // StartAsync側から`_ = RunStartupValidationAsync(...)`と投げっぱなしで呼ばれ（起動を
+        // 待たせないため）、直後にConfigureAwait(false)でスレッドプールへ移るため、
+        // まだ呼び出し元のUIスレッドにいるこの時点で捕捉しておく。
+        var ui = Dispatcher.UIThread;
+
         var loaded = await projectStore.LoadAsync().ConfigureAwait(false);
         // issuesはUIスレッド側（ExplorerViewModel.WatchStartCompletedHandler、不具合4対応）からも
         // 追加されうる共有リストのため、ここでの追加もロックで保護する。
@@ -72,7 +80,7 @@ public sealed partial class StartupCoordinator
         }
         _logger?.Info("startup", "起動時検証を完了しました");
 
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        await ui.InvokeAsync(() =>
         {
             // ここまでで起動時に検出した問題を集め終えたとみなし、以降のファイル監視失敗は
             // ExplorerViewModel自身の即時ダイアログへ戻す（不具合4対応。StartAsync参照）。
