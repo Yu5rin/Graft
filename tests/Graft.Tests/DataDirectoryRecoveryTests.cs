@@ -114,4 +114,23 @@ public class DataDirectoryRecoveryTests
 
         AppPaths.DefaultUserDataDirectory().Should().Be(expected);
     }
+
+    // 利用者からの明示的な要望: 復帰確認ダイアログで「キャンセル」（タイトルバーの×を含む）を
+    // 選んだ場合はGraftを終了する。「終了すべきか」の判定（DataDirectoryRecoveryOutcome.
+    // ShouldExitProcess）は副作用の無い純粋なプロパティのため、ここで結果種別ごとに固定する。
+    // 実際に終了させる副作用（Views.App.OnFrameworkInitializationCompletedのEnvironment.Exit）は
+    // Avalonia依存でありユニットテストの対象にしない（手動のXvfb実機検証で確認する）。
+    [Theory(DisplayName = "ShouldExitProcessはCancelledのときだけtrueを返す")]
+    [InlineData(DataDirectoryRecoveryResult.NotApplicable, false)]
+    [InlineData(DataDirectoryRecoveryResult.Recovered, false)]
+    [InlineData(DataDirectoryRecoveryResult.RecoveredPointerWriteFailed, false)]
+    [InlineData(DataDirectoryRecoveryResult.DeclinedAndMarkedPortable, false)]
+    [InlineData(DataDirectoryRecoveryResult.DeclinedPointerWriteFailed, false)]
+    [InlineData(DataDirectoryRecoveryResult.Cancelled, true)]
+    public void ShouldExitProcessは結果種別に応じて判定する(DataDirectoryRecoveryResult result, bool expected)
+    {
+        var outcome = new DataDirectoryRecoveryOutcome(result, "/tmp/dummy");
+
+        outcome.ShouldExitProcess.Should().Be(expected);
+    }
 }

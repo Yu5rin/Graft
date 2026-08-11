@@ -670,8 +670,21 @@ public enum DataDirectoryRecoveryResult
     /// <summary>「いいえ」を選んだが、ポータブルを明示するポインタファイルを書けなかった（次回起動でまた尋ねる）。</summary>
     DeclinedPointerWriteFailed,
 
-    /// <summary>ダイアログを閉じる等で決めなかった。ポインタは一切書かず、次回起動でまた尋ねる。</summary>
-    Postponed,
+    /// <summary>
+    /// キャンセル（「キャンセル」ボタン、またはタイトルバーの×）で閉じた。ポインタは一切書かず、
+    /// 呼び出し元（<see cref="Views.App"/>）はGraftそのものをその場で終了させる。
+    ///
+    /// 【なぜ「保留して起動を続ける」ではなく「終了」なのか】以前はここで起動をそのまま続けていたが、
+    /// それだと利用者が「今は決めない」を選んだつもりでも、続く起動処理
+    /// （<see cref="AppPaths.EnsureCoreDirectoriesExist"/>がexeフォルダ直下にback/・logs/を作り、
+    /// 続けてsettings.json等も書く）によってexeフォルダ自身に既知のGraftデータができてしまう。
+    /// すると次回起動時には<see cref="DataDirectoryRecovery.ShouldPromptForRecovery"/>の条件2
+    /// （exeフォルダに既知データが1つも無い）が永久に不成立となり、二度とこの確認が出せなくなる
+    /// （実機のWindows環境で「キャンセルしても再度尋ねられない」として報告された不具合の真因）。
+    /// 起動を継続しない限りexeフォルダには何も書かれないため、終了させれば次回起動時にまた
+    /// 同じ確認が出せる。これが利用者の期待する「決めなかった」の実際の意味になる。
+    /// </summary>
+    Cancelled,
 }
 
 /// <summary>
@@ -685,4 +698,13 @@ public sealed record DataDirectoryRecoveryOutcome(DataDirectoryRecoveryResult Re
     /// <summary>3条件を満たさず、確認自体を行わなかった場合の既定値。</summary>
     public static readonly DataDirectoryRecoveryOutcome NotApplicable =
         new(DataDirectoryRecoveryResult.NotApplicable, null);
+
+    /// <summary>
+    /// 呼び出し元（<see cref="Views.App.OnFrameworkInitializationCompleted"/>）が
+    /// Graftそのものを終了させるべきかどうかの判定（副作用の無い純粋なプロパティ）。
+    /// 実際に終了させる処理（<see cref="Environment.Exit(int)"/>等）自体はここでは行わない
+    /// （判定と副作用を分けることで、この判定だけを単体テストできるようにする。
+    /// <see cref="DataDirectoryRecoveryResult.Cancelled"/>のコメント参照）。
+    /// </summary>
+    public bool ShouldExitProcess => Result == DataDirectoryRecoveryResult.Cancelled;
 }

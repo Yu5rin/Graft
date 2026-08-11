@@ -100,6 +100,30 @@ public partial class App : Application
                 new AvaloniaDialogService(), AppContext.BaseDirectory, AppPaths.DefaultUserDataDirectory())
             .ConfigureAwait(true);
 
+        // 利用者からの明示的な要望への対応: 復帰確認ダイアログで「キャンセル」（タイトルバーの×を
+        // 含む）を選んだ場合はGraftそのものを終了する（DataDirectoryRecoveryResult.Cancelledの
+        // コメント参照。要点のみ再掲: 起動をそのまま続けるとexeフォルダにback/・logs/等が
+        // 作られてしまい、次回以降ずっとこの確認自体が二度と出せなくなる不具合があったため）。
+        // 「終了すべきか」の判定自体はDataDirectoryRecoveryOutcome.ShouldExitProcess（副作用の無い
+        // 純粋なプロパティ）に委ね、ここでは実際の終了という副作用だけを行う。
+        //
+        // 終了方法にEnvironment.Exit(0)を選ぶ理由: この時点ではAppPathsもLoggerもウィンドウも
+        // 一切作っておらず、後始末が必要な状態が無い（datapath.txtにも一切触れていない）ため、
+        // Avaloniaのシャットダウン手順（desktop.Shutdown/TryShutdown、イベント発火、
+        // ウィンドウの後始末等）を経由する必要が無い。実機報告の不具合修正（多重起動検出時、
+        // 上のOnFrameworkInitializationCompletedコメント・TryAcquireSingleInstanceAsync呼び出し部の
+        // コメント参照）でも同じ理由から同じAPIを使っており、単純な即時終了で十分かつ安全と
+        // 判断した。desktop.Shutdown()も候補だったが、この経路はダイアログ表示という実際のawaitを
+        // 経ておりDispatcher.UIThread.MainLoopは既に開始しているため理屈のうえでは動作しうるものの、
+        // 何もしていないこの時点で使う積極的な理由が無く、Xvfb実機検証でEnvironment.Exit(0)が
+        // 問題なく即座に終了しdatapath.txt・logs/・settings.jsonのいずれも作られないことを
+        // 確認した（作業記録参照）ため、こちらを採用する。
+        if (recoveryOutcome.ShouldExitProcess)
+        {
+            Environment.Exit(0);
+            return;
+        }
+
         _coordinator = new Views.StartupCoordinator(dataDirectoryRecoveryOutcome: recoveryOutcome);
 
         // 不具合2: 自己再起動で起動した新プロセスかどうかを起動引数から判定する
