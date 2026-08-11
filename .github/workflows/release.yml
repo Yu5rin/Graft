@@ -1,5 +1,12 @@
-# v で始まるタグを push すると、Windows と Linux 向けの発行物一式を生成し、
-# GitHub Release として公開する。
+# Windows と Linux 向けの発行物一式を生成し、GitHub Release として公開するワークフロー。
+#
+# リリースは tools/New-Release.ps1 を使った手作業で行う方針のため、タグ push では
+# 動かさない。かつては v で始まるタグを push すると自動発火する設定だったが、
+# tools/New-Release.ps1 による手作業のリリースと二重に動いてしまい、同じ版の書庫
+# （Graft-<バージョン>-win-x64.zip と Graft-v<バージョン>-win-x64.zip 等）が
+# 並んで公開される事故が起きたため、workflow_dispatch（Actions画面からの手動実行のみ）に変更した。
+# 中身の発行手順（Windows・Linux両対応、書庫の作り方、初回起動が遅くなる設定の回避など）は
+# 動作実績のある知見のため、そのまま残してある。手元で試したいときはActions画面から手動実行できる。
 #
 # 発行は README「発行」節と同じコマンドを使う。単一ファイル形式の自己完結型のため、
 # 利用者側に .NET ランタイムの導入は要らない。PublishSingleFile / EnableCompressionInSingleFile
@@ -12,9 +19,7 @@
 name: リリース
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
