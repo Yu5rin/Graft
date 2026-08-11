@@ -83,8 +83,16 @@ public sealed class EditorTabManager
     {
         if (tab.Session.IsModified)
         {
+            // 不具合修正（実機報告）: ボタンの並びを「保存」「破棄」「キャンセル」（Windowsの
+            // 作法と逆）から「保存」「保存しない」「キャンセル」へ直す指示だったが、
+            // 「保存されていない変更があります。保存しますか？」という疑問文に対しては
+            // 「はい」「いいえ」の方が問いと答えの形が揃う（「保存しますか？」→「保存」/
+            // 「保存しない」だと問いと答えが重複してかえって分かりにくい）ため、
+            // 最終的に「はい」「いいえ」を採用した。並び順は変わらず「肯定→否定→キャンセル」
+            // （AvaloniaDialogService.ConfirmThreeWayAsync参照）で、「はい」＝保存が既定
+            // ボタン（Enter）になる。保存は非破壊的な操作のため、既定ボタンにしてよい。
             var message = $"「{tab.Title}」には保存されていない変更があります。保存しますか？";
-            var choice = await _dialogs.ConfirmThreeWayAsync("変更の保存", message, "保存", "破棄").ConfigureAwait(true);
+            var choice = await _dialogs.ConfirmThreeWayAsync("変更の保存", message, "はい", "いいえ").ConfigureAwait(true);
             if (choice is null) return false; // キャンセル
             if (choice == true)
             {

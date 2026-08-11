@@ -923,13 +923,19 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
                 }
 
                 // 黙って上書きしないこと（依頼の必須要件）。上書き／別名で保存／中止の3択で確認する。
+                // 不具合2点検（実機報告の横断チェック）: 「上書き」は取り込み先の既存ファイルを
+                // バックアップ無しでFile.Copy(overwrite: true)により完全に置き換える不可逆な操作
+                // （FileImportService参照）。AvaloniaDialogService.ConfirmThreeWayAsyncの既定ボタン
+                // （IsDefault、Enterで実行される）にこの破壊的な選択肢を渡さないよう、非破壊的な
+                // 「別名で保存」をyesLabel（既定）に、「上書き」をnoLabelに渡す
+                // （下のdecision==true/falseの分岐もこの入れ替えに合わせて反転させている）。
                 var kind = isDirectory ? "フォルダ" : "ファイル";
                 var decision = await _dialogs.ConfirmThreeWayAsync(
                     "同名の項目があります",
                     $"取り込み先に同名の{kind}「{name}」が既にあります。上書きしますか？",
-                    "上書き", "別名で保存").ConfigureAwait(true);
+                    "別名で保存", "上書き").ConfigureAwait(true);
 
-                if (decision == true)
+                if (decision == false)
                 {
                     overwrite = true;
                     plan.Add(new FileImportPlanItem
@@ -943,7 +949,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
                     break;
                 }
 
-                if (decision == false)
+                if (decision == true)
                 {
                     var suggestion = SuggestUniqueName(relativeDir, name, isDirectory);
                     var newName = await _dialogs.PromptAsync(

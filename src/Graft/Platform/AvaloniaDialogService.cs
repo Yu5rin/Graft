@@ -33,9 +33,50 @@ namespace Graft.Platform;
 /// デスクトップの表示中ウィンドウを探すが、万一見つからない場合はモーダルにできないため、
 /// 非モーダルの<see cref="Window.Show()"/>へ縮退する（呼び出し不能で例外を投げるより安全側。
 /// headlessテスト環境で<c>ApplicationLifetime</c>が未設定の場合もこの経路を通る）。
+///
+/// 【不具合修正（実機報告）: ボタンの並び順】以前はボタンを「キャンセル→否定→肯定」の順に
+/// 並べていたが、実機（Windows）のスクリーンショットで「保存されていない変更があります」の
+/// 確認ダイアログが「キャンセル」「破棄」「保存」の順に表示され、Windowsの作法
+/// （メモ帳・Office・VS Codeはいずれも肯定的な選択肢が左）と逆になっていることが判明した。
+/// <see cref="ConfirmAsync"/>・<see cref="ConfirmThreeWayAsync"/>・<see cref="PromptAsync"/>の
+/// 3つ（ボタンを複数持つ既定実装）すべてで「肯定→否定→キャンセル」の順（左から）に統一する
+/// （<see cref="ShowMessageAsync"/>・<see cref="ShowActionMessageAsync"/>はボタン1つのみのため
+/// 対象外）。既定ボタン（IsDefault、Enterで実行される）は引き続き最も左の肯定的なボタンに
+/// 付けるが、それが破壊的・不可逆な操作を意味する場合は、呼び出し側で
+/// どちらのラベルを<c>yesLabel</c>に渡すか（＝どちらを既定にするか）を選ぶ必要がある
+/// （<see cref="ConfirmThreeWayAsync"/>のコメント参照。呼び出し元の例:
+/// <see cref="Graft.ViewModels.ProjectPaneViewModel"/>のプロジェクト削除確認）。
 /// </summary>
 public sealed class AvaloniaDialogService : IDialogService
 {
+    /// <summary>
+    /// テスト専用の差し替え口。ボタン行を組み立て終え、実際に表示する（<see cref="ShowModal"/>を
+    /// 呼ぶ）直前に、その時点のウィンドウと左から並んだボタン一覧を通知する。
+    ///
+    /// 【なぜ要るか】<c>DialogKeyboardCoverageTests</c>のコメントにあるとおり、
+    /// <see cref="ConfirmAsync"/>等が動的に組み立てる<see cref="Window"/>は<see cref="Task{TResult}"/>
+    /// しか外部へ返さず、実際に表示されたダイアログへ外部（テスト）からアクセスする手段が無い
+    /// （<see cref="ShowModal"/>がオーナーを見つけられないheadlessテスト環境では非モーダルの
+    /// <see cref="Window.Show()"/>へ縮退するため、<see cref="Window.OwnedWindows"/>経由でも
+    /// 辿れない）。不具合2（ボタンの並び順が実機で逆だった）の回帰を自動テストで押さえるため、
+    /// 他のテスト用差し替え口（<see cref="Views.EditorPane.MarkdownLinkDialogs"/>等）と同じ考え方で
+    /// この最小限のフックを追加した。本番では常にnull（呼び出しコストは無視できるnullチェックのみ）。
+    /// </summary>
+    internal static Action<Window, IReadOnlyList<Button>>? OnButtonRowBuiltForTests;
+
+    /// <summary>
+    /// <see cref="OnButtonRowBuiltForTests"/>を、<paramref name="buttons"/>（<c>AddButtonRow</c>が
+    /// 返した右詰めのボタン行そのもの）の<c>Children</c>から実際の並び順を読み取って呼び出す。
+    /// 呼び出し元が別途組み立てた配列を渡すのではなく、必ずこの<c>Children</c>から読み取ることで、
+    /// テストが検証する順序が実際に表示される順序と一致することを保証する（ボタンを追加する
+    /// 順序を直す修正を将来誰かがうっかり戻しても、テストの側は自動的にそれを検知できる）。
+    /// </summary>
+    private static void NotifyButtonRowBuiltForTests(Window window, StackPanel buttons)
+    {
+        if (OnButtonRowBuiltForTests is null) return;
+        OnButtonRowBuiltForTests(window, buttons.Children.OfType<Button>().ToList());
+    }
+
     public Task<bool> ConfirmAsync(string title, string message)
     {
         var window = BuildShell(title, out var body);
@@ -47,11 +88,14 @@ public sealed class AvaloniaDialogService : IDialogService
         var cancel = CreateButton("キャンセル", isDefault: false, isCancel: true);
         ok.Click += (_, _) => Complete(window, tcs, true);
         cancel.Click += (_, _) => Complete(window, tcs, false);
-        buttons.Children.Add(cancel);
+        // 不具合修正（実機報告）: Windowsの作法（メモ帳・Office等）は肯定的な選択肢が左。
+        // 「肯定→否定→キャンセル」の順に揃える（クラスコメント・AddButtonRow参照）。
         buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
 
         window.Loaded += (_, _) => ok.Focus();
         window.Closed += (_, _) => tcs.TrySetResult(false);
+        NotifyButtonRowBuiltForTests(window, buttons);
         ShowModal(window);
         return tcs.Task;
     }
@@ -70,12 +114,16 @@ public sealed class AvaloniaDialogService : IDialogService
         yes.Click += (_, _) => Complete(window, tcs, true);
         no.Click += (_, _) => Complete(window, tcs, false);
         cancel.Click += (_, _) => Complete(window, tcs, null);
-        buttons.Children.Add(cancel);
-        buttons.Children.Add(no);
+        // 不具合修正（実機報告）: 「肯定→否定→キャンセル」の順に揃える（ConfirmAsync参照）。
+        // 呼び出し側は「肯定（yesLabel）」に破壊的・不可逆な選択肢を渡さないこと
+        // （yesLabelは既定ボタン＝Enterで実行されるため。各呼び出し元のコメント参照）。
         buttons.Children.Add(yes);
+        buttons.Children.Add(no);
+        buttons.Children.Add(cancel);
 
         window.Loaded += (_, _) => yes.Focus();
         window.Closed += (_, _) => tcs.TrySetResult(null);
+        NotifyButtonRowBuiltForTests(window, buttons);
         ShowModal(window);
         return tcs.Task;
     }
@@ -95,8 +143,9 @@ public sealed class AvaloniaDialogService : IDialogService
         var cancel = CreateButton("キャンセル", isDefault: false, isCancel: true);
         ok.Click += (_, _) => Complete(window, tcs, input.Text);
         cancel.Click += (_, _) => Complete(window, tcs, null);
-        buttons.Children.Add(cancel);
+        // 不具合修正（実機報告）: 「肯定→キャンセル」の順に揃える（ConfirmAsync参照）。
         buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
 
         window.Loaded += (_, _) =>
         {
@@ -104,6 +153,7 @@ public sealed class AvaloniaDialogService : IDialogService
             input.SelectAll();
         };
         window.Closed += (_, _) => tcs.TrySetResult(null);
+        NotifyButtonRowBuiltForTests(window, buttons);
         ShowModal(window);
         return tcs.Task;
     }

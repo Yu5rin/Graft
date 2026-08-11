@@ -134,6 +134,57 @@ public partial class EditorPane
     }
 
     /// <summary>
+    /// 不具合修正（実機報告）: プレビュー表示中のCtrl+Z/Ctrl+Y。
+    ///
+    /// 【真因】プレビュー表示中は<see cref="Editor"/>（AvaloniaEdit本体のTextArea）が非表示
+    /// （<see cref="ApplyMarkdownPreviewMode"/>で<c>Editor.IsVisible = false</c>）であり、
+    /// Avaloniaでは非表示のコントロールへフォーカスは乗らない。そのためAvaloniaEdit自身が
+    /// 持つCtrl+Z/Ctrl+Yの既定キーバインドには、そもそもキー入力が届く経路が無い
+    /// （キー入力はフォーカス済み要素からその祖先へバブリングするだけで、非表示で
+    /// フォーカスも持たない兄弟のEditorへは経路が存在しない）。
+    ///
+    /// チェックボックスのクリックでON/OFFした変更自体は<see cref="OnMarkdownChecklistToggled"/>の
+    /// <c>TextDocument.Replace</c>により<c>UndoStack</c>へ正しく記録される。しかし、その直後に
+    /// <see cref="OnDocumentChangedForMarkdownPreview"/>がプレビューを丸ごと再構築する
+    /// （<see cref="RenderMarkdownPreview"/>が<c>ContentPanel.Children.Clear()</c>してから
+    /// 組み立て直す）ため、直前までフォーカスを持っていたチェックボックスのControlインスタンス
+    /// 自体が破棄され、フォーカスは<see cref="EditorHost"/>の外（多くはTopLevelそのもの）へ
+    /// 落ちる。この状態でShellWindow.Keyboard.csのCtrl+Zは「素のCtrl+Z」として
+    /// <c>HandlePlainCtrlGatedShortcut</c>（附録Aのキーマップ移行通知のみを行う経路）へ流れ、
+    /// 実際の取り消しは一切行われないまま握りつぶされていた（実機でのみ再現し、UndoStackを
+    /// 直接呼ぶ以前のヘッドレステストでは検出できなかった真因）。
+    ///
+    /// ここではAvaloniaEdit本体の既定バインドに頼らず、表示中タブのDocument.UndoStackを
+    /// ShellWindow.Keyboard.csから直接操作する。エディタ内の通常編集と全く同じ
+    /// UndoStackを使うため、通常の編集操作と完全に同じ順序・粒度（1回のCtrl+Zにつき1操作分）で
+    /// 取り消し/やり直しができる。取り消し/やり直し後の再描画は
+    /// <see cref="OnDocumentChangedForMarkdownPreview"/>がDocument.Changedを検知して自動的に行う。
+    /// </summary>
+    /// <param name="redo">trueならRedo（Ctrl+Y）、falseならUndo（Ctrl+Z）。</param>
+    /// <returns>
+    /// プレビュー表示中のMarkdownタブが対象であればtrue（呼び出し側はこの結果でe.Handledをtrueにする。
+    /// 何も取り消す/やり直す対象が無くてもtrueを返す。通常のエディタのCtrl+Zと同様、
+    /// プレビュー表示中は常にこのキーをここで消費し、他へは渡さない）。対象外（プレビュー非表示・
+    /// 非Markdownタブ等）ならfalse。
+    /// </returns>
+    internal bool TryHandleMarkdownPreviewUndoRedo(bool redo)
+    {
+        if (_loadedTab is not { Kind: EditorTabKind.Document, IsMarkdownFile: true } tab) return false;
+        if (!tab.ShowMarkdownPreview || !MarkdownPreviewHost.IsVisible) return false;
+
+        var undoStack = tab.Session.Document.UndoStack;
+        if (redo)
+        {
+            if (undoStack.CanRedo) undoStack.Redo();
+        }
+        else
+        {
+            if (undoStack.CanUndo) undoStack.Undo();
+        }
+        return true;
+    }
+
+    /// <summary>
     /// テーマ切替（設定画面でのライト/ダーク切替・システム追従）時に、表示中のMarkdownプレビューを
     /// 再構築する。
     ///

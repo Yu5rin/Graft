@@ -279,16 +279,22 @@ public sealed class ProjectPaneViewModel : ObservableObject
         if (item is null) return;
         var project = item.Project;
 
+        // 不具合2点検（実機報告の横断チェック）: 以前は「履歴も削除する」（不可逆）をyesLabelに
+        // 渡しており、AvaloniaDialogService.ConfirmThreeWayAsyncの既定ボタン（IsDefault、Enterで
+        // 実行される）が破壊的な選択肢になってしまっていた。既定ボタンには非破壊的な「履歴は残す」を
+        // 渡し、Enterキーの誤操作で履歴が復元不能にならないようにする（yesLabel/noLabelの意味が
+        // 入れ替わるため、下のdeleteHistoryの導出も反転させている）。
         var choice = await _dialogs.ConfirmThreeWayAsync(
             "プロジェクトを削除",
             $"プロジェクト「{project.DisplayName}」をGraftの一覧から削除します。\n\n" +
             $"・削除されるのはGraftの登録情報だけです。フォルダそのもの（{project.Root}）や、中のファイルは一切削除されません。\n" +
             "・これまでの変更履歴（バックアップ）をどうするか選んでください。「履歴も削除する」を選ぶと、以後は復元できなくなります。「履歴は残す」を選んだ場合、同じフォルダを後でもう一度登録すると、履歴も自動的に復活します。",
-            "履歴も削除する",
-            "履歴は残す").ConfigureAwait(true);
+            "履歴は残す",
+            "履歴も削除する").ConfigureAwait(true);
         if (choice is null) return; // キャンセル
 
-        var result = await _store.RemoveAsync(project.Id, deleteHistory: choice.Value).ConfigureAwait(true);
+        var deleteHistory = !choice.Value; // 「履歴は残す」(choice==true)ならdeleteHistory=false。
+        var result = await _store.RemoveAsync(project.Id, deleteHistory: deleteHistory).ConfigureAwait(true);
         if (!result.IsSuccess)
         {
             await ShowFailureAsync("プロジェクトを削除できませんでした", result.Issues).ConfigureAwait(true);
