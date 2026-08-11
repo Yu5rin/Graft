@@ -73,6 +73,10 @@
             -->
             <Grid x:Name="CommandBarGrid" Margin="12,0" ColumnDefinitions="Auto,Auto,*,Auto">
 
+                <!-- 利用者からの要望: クリックしてフォーカスを当てなくても、マウスカーソルを
+                     乗せてホイールを回すだけでプロジェクトを切り替えられるようにする。
+                     ComboBox既定のホイール処理（無し）を上書きする実装はShellWindow.
+                     ProjectComboBox.cs（トンネリング段階でPointerWheelChangedを拾う）参照。 -->
                 <ComboBox x:Name="ProjectComboBox"
                           Grid.Column="0"
                           MinWidth="180"

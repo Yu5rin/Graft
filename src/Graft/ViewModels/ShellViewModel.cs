@@ -59,6 +59,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private bool _isGraftPanelOpen;
     private GraftPanelPlacementKind _graftPanelPlacement = GraftPanelPlacementKind.Bottom;
     private string? _currentProjectId;
+    private bool _isProjectSwitchBusy;
     // 取扱説明書機能: ツールバーの「?」ボタンをメニュー化した（ショートカット一覧・取扱説明書の
     // 2項目）。開閉状態はPromptCopyViewModel.IsOpenと同じ考え方でTwoWayバインディングのPopupへ
     // 直接持たせる（ShellWindow.axamlのHelpMenuPopup参照）。
@@ -207,6 +208,20 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     /// <inheritdoc cref="IsExplorerActive"/>
     public bool IsSearchActive => IsSideViewActive(SideViewKind.Search);
+
+    /// <summary>
+    /// <see cref="OnProjectSelected"/>（プロジェクトの切り替え本体）が実行中かどうか。
+    /// コマンドバーのプロジェクト選択ComboBoxのホイール操作（利用者からの要望。
+    /// ShellWindow.ProjectComboBox.cs参照）が、前の切り替えが終わらないうちに次々と
+    /// SelectedIndexを進めてしまわないようにするための目印として公開する。切り替え1件は
+    /// Editor.CloseAllAsync（未保存の確認ダイアログを含みうる）等の重い処理を伴うため、
+    /// ホイールの1回転で数十件分キューされる事故を防ぐ（連続切り替え対策）。
+    /// </summary>
+    public bool IsProjectSwitchBusy
+    {
+        get => _isProjectSwitchBusy;
+        private set => SetProperty(ref _isProjectSwitchBusy, value);
+    }
 
     /// <summary>接ぎ木パネルが展開されているかどうか。通常時はfalse（折りたたみ）。</summary>
     public bool IsGraftPanelOpen
@@ -521,20 +536,35 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         await QuickOpen.ToggleAsync().ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// <see cref="IsProjectSwitchBusy"/>をtry/finallyで囲むのは、途中で例外が飛んでも
+    /// （SafeHandler.RunAsyncが捕捉した場合を含む）フラグが立ちっぱなしになって以後
+    /// 一切ホイールで切り替えられなくなる、という詰み方を避けるため。
+    /// </summary>
     private async void OnProjectSelected(object? sender, Project project)
-        => await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
+    {
+        IsProjectSwitchBusy = true;
+        try
         {
-            if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
+            await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
+            {
+                if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
 
-            await Editor.CloseAllAsync().ConfigureAwait(true);
-            Editor.SetProject(project.Root);
-            await Explorer.SetProjectAsync(project).ConfigureAwait(true);
-            Search.SetContext(project, _settings);
-            QuickOpen.SetContext(project, _settings);
-            await RestoreProjectStateAsync(project).ConfigureAwait(true);
+                await Editor.CloseAllAsync().ConfigureAwait(true);
+                Editor.SetProject(project.Root);
+                await Explorer.SetProjectAsync(project).ConfigureAwait(true);
+                Search.SetContext(project, _settings);
+                QuickOpen.SetContext(project, _settings);
+                await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
-            _currentProjectId = project.Id;
-        }).ConfigureAwait(true);
+                _currentProjectId = project.Id;
+            }).ConfigureAwait(true);
+        }
+        finally
+        {
+            IsProjectSwitchBusy = false;
+        }
+    }
 
     /// <summary>
     /// プロジェクトペイン改善（要望1）: プロジェクトの削除等で一覧が空になり、選択できる
