@@ -61,6 +61,19 @@ public partial class App : Application
         if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop) return;
         _desktop = desktop;
 
+        // 不具合（データ保存先の復帰確認で「はい」「いいえ」を押すとそのまま終了する）:
+        // ShutdownModeの既定値OnLastWindowCloseは、「開いているウィンドウが0枚になった瞬間」を
+        // 終了条件として扱う。desktop.MainWindowを割り当てる（このメソッド末尾）より前に
+        // 確認ダイアログ・起動時検証のダイアログを1枚でも開閉すると、その時点では
+        // メインウィンドウがまだ1枚も無いため「最後のウィンドウが閉じた」と誤判定され、
+        // メインウィンドウが立つより先にアプリごと終了してしまう（実機のXvfb環境で、
+        // 孤立したユーザーフォルダの復帰確認ダイアログを閉じた直後に後始末ログだけが記録され
+        // window.Show()まで到達しないことを確認した）。desktop.MainWindowを割り当てるまでの間は
+        // OnExplicitShutdown（ウィンドウの開閉では終了しない）へ切り替え、割り当てた直後に
+        // 元のOnLastWindowClose（×で閉じたら終了する、既存のOnShutdownRequested・トレイ格納の
+        // 設定が前提とする挙動）へ必ず戻す。
+        desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
         // 想定外の例外は最上位で記録する（附録A.4）。ユーザー操作起因の失敗は各所で
         // GraftResult として扱われ、ここには到達しない。
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
@@ -129,6 +142,12 @@ public partial class App : Application
 
         await _coordinator.StartAsync().ConfigureAwait(true);
         desktop.MainWindow = _coordinator.MainWindow;
+
+        // 上のOnExplicitShutdownへの切り替えコメント参照。メインウィンドウを割り当てた
+        // 直後に既定の挙動へ戻す。OnExplicitShutdownのままにしてしまうと、以後×ボタンで
+        // ウィンドウを閉じてもプロセスが終了しなくなり（OnShutdownRequested・トレイ格納の
+        // 設定と噛み合わなくなる）、この不具合とは別の不具合を生んでしまう。
+        desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
     }
 
     /// <summary>
