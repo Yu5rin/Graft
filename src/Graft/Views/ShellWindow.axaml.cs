@@ -98,6 +98,7 @@ public partial class ShellWindow : Window
     {
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
+        InitializeProjectComboBoxWheel(); // ShellWindow.ProjectComboBox.cs参照。
     }
 
     public ShellWindow(ShellViewModel viewModel) : this()
