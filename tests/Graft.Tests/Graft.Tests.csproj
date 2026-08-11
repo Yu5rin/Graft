@@ -67,6 +67,16 @@
     -->
     <Compile Include="..\..\src\Graft\Platform\Windows\ForegroundActivationDecision.cs" LinkBase="Linked\Platform\Windows" />
     <!--
+      利用者からの要望: タイトルバー色のテーマ連動。COLORREF変換・Windows 11以降判定・
+      「非Windowsでは適用しない」判定（WindowsTitleBarThemeSupport.ShouldApply）は
+      いずれもWin32 P/Invokeを一切呼ばない純粋関数のみで構成されるため、上と同じ理由で
+      Windows実機以外でも単体テストで検証できる（WindowsTitleBarThemeSupportTests.cs参照）。
+      DWMを実際に呼び出すWindowsTitleBarTheme.cs本体（AvaloniaのWindow/Colorに依存し、
+      本プロジェクトはAvalonia非依存という方針のため）はここには取り込まず、
+      tests/Graft.UiTests側で検証する。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\Windows\WindowsTitleBarThemeSupport.cs" LinkBase="Linked\Platform\Windows" />
+    <!--
       ViewModel層は基本的にUIテスト（tests/Graft.UiTests）の担当だが、
       WindowLayoutStore はウィンドウ位置・サイズの幾何計算（8.11・9.6）そのものであり、
       画面を出さずに検証できる。実機で「画面構成が取得できないと最小サイズまで縮む」
