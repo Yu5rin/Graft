@@ -46,6 +46,24 @@ namespace Graft.UiTests.TestSupport;
 /// <see cref="InvalidOperationException"/>で失敗させる。既に閉じられたダイアログは
 /// OwnedWindowsから外れるため誤検出しない。これにより「巻き添えで別テストが落ちる」
 /// のではなく、漏らした本人のテストがその場で失敗するようになる。
+///
+/// 再発防止（ビューモデルのDispose漏れ、CI間欠失敗の調査対応）: <c>ShellWindow</c>の
+/// <c>DataContext</c>（<see cref="Graft.ViewModels.ShellViewModel"/>）は<c>IDisposable</c>で、
+/// <c>Dispose()</c>は内部の<c>ExplorerViewModel</c>経由で<c>FileSystemWatcher</c>を止める。
+/// 本番ではアプリ終了時に<c>StartupCoordinator.DisposeAsync</c>がこれを呼ぶが、多くのUIテストは
+/// <c>StartupCoordinator</c>を経由せず<c>StartupCoordinator.BuildShellViewModel</c>で直接
+/// <c>ShellViewModel</c>を組み立てているため、この経路を素通りしてしまう。<c>window.Close()</c>
+/// だけではビューモデルは破棄されず、<c>Dispose()</c>されないままの<c>FileSystemWatcher</c>が
+/// 監視を続けたまま残る。テストの一時ディレクトリ（プロジェクトルート）はテスト側の
+/// <c>Dispose()</c>で直後に再帰削除されることが多く、その削除そのものが大量の
+/// <c>Deleted</c>イベントをスレッドプール上で発火させる。イベントの配線をたどると
+/// （<c>DocumentSession.ReloadAsync</c>等）最終的に<c>Dispatcher.UIThread</c>を
+/// バックグラウンドスレッドから読む経路へ繋がっており、これがheadlessテストの
+/// テストごとのディスパッチャ再構築の窓と重なると<c>PlatformNotSupportedException</c>を
+/// 引き起こしうる（本タスクでのCI間欠失敗の調査で判明。DocumentSessionクラス冒頭の
+/// コメント参照）。個々のテストファイルを1つずつ直す代わりに、ここで
+/// <c>window.DataContext</c>が<c>IDisposable</c>ならCloseの直後にまとめて破棄することで、
+/// このヘルパを使う全テスト（大多数）を一括で救う。
 /// </summary>
 public sealed class ShownWindowTracker : IDisposable
 {
@@ -107,6 +125,7 @@ public sealed class ShownWindowTracker : IDisposable
                 leakedOwnedWindows.Add($"{child.GetType().Name}(owner={window.GetType().Name})");
                 try
                 {
+                    DisposeDataContextIfNeeded(child);
                     child.Close();
                 }
                 catch
@@ -117,6 +136,10 @@ public sealed class ShownWindowTracker : IDisposable
 
             try
             {
+                // クラス冒頭のコメント参照: DataContext（ShellViewModel等）のDisposeも
+                // ここでまとめて行う。表示を消してから後始末する実際のアプリの終了処理の
+                // 順序に合わせ、Close()より前に呼ぶ。
+                DisposeDataContextIfNeeded(window);
                 window.Close();
             }
             catch
@@ -148,6 +171,26 @@ public sealed class ShownWindowTracker : IDisposable
                 + string.Join(", ", leakedOwnedWindows)
                 + "。テスト内でイベントを発火させる際、ShellWindow等が同じイベントを購読して"
                 + "本物のダイアログを開いていないか確認してください。");
+        }
+    }
+
+    /// <summary>
+    /// クラス冒頭のコメント参照: <paramref name="window"/>の<c>DataContext</c>が
+    /// <see cref="IDisposable"/>（<c>ShellViewModel</c>等）なら破棄する。個別のDisposeが
+    /// 失敗しても他のウィンドウの後始末を止めないよう、ここで捕捉してカウンタへ積む
+    /// （Close()自体の失敗時と同じ方針）。
+    /// </summary>
+    private static void DisposeDataContextIfNeeded(Window window)
+    {
+        if (window.DataContext is not IDisposable disposable) return;
+
+        try
+        {
+            disposable.Dispose();
+        }
+        catch
+        {
+            Interlocked.Increment(ref _closeFailureCount);
         }
     }
 }

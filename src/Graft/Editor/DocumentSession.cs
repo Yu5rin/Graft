@@ -19,6 +19,20 @@ namespace Graft.Editor;
 /// スレッドプール上へ移るため、続けて<see cref="TextDocument"/>を生成・変更する箇所だけは
 /// <see cref="Dispatcher.UIThread"/>へ明示的に切り替えて実行する
 /// （<see cref="OpenAsync"/>・<see cref="SaveAsync"/>・<see cref="ReloadAsync"/>参照）。
+///
+/// 【なぜUIスレッドへ戻す直前に<c>Dispatcher.UIThread</c>を毎回読み直さないか】
+/// <c>Dispatcher.UIThread</c>は遅延生成のうえスレッド非安全な静的プロパティで、
+/// まだ誰も読んでいない状態で最初に読んだスレッドの<c>IDispatcherImpl</c>を
+/// キャッシュしてしまう。headlessテストではテストごとに1回、セッションのディスパッチャ
+/// スレッドが<c>Dispatcher.ResetForUnitTests()</c>でこのキャッシュを空にしてから
+/// headless用の実装を登録し直しており、この一瞬の窓の間に別スレッド（ここでは
+/// <c>ConfigureAwait(false)</c>で移ったスレッドプール上のスレッド）が<c>Dispatcher.UIThread</c>を
+/// 読むと、<c>IControlledDispatcherImpl</c>を実装しない壊れたインスタンスがキャッシュされ、
+/// 以降そのテストプロセス全体で<c>PlatformNotSupportedException</c>が出るようになる
+/// （実際にCIで間欠的に観測した）。そのため<see cref="OpenAsync"/>・<see cref="SaveAsync"/>・
+/// <see cref="ReloadAsync"/>はいずれも、まだ呼び出し元のスレッド（UIスレッド）にいる
+/// メソッド冒頭で<c>Dispatcher.UIThread</c>を一度だけローカル変数へ捕捉し、
+/// <c>ConfigureAwait(false)</c>後はその捕捉済みインスタンスだけを使う。
 /// </summary>
 public sealed class DocumentSession : IDisposable
 {
@@ -137,6 +151,10 @@ public sealed class DocumentSession : IDisposable
     public static async Task<GraftResult<DocumentSession>> OpenAsync(
         string fullPath, string projectRoot, CancellationToken ct = default)
     {
+        // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく
+        // （このあとConfigureAwait(false)でスレッドプールへ移るため）。
+        var ui = Dispatcher.UIThread;
+
         if (!File.Exists(LongPath.Extended(fullPath)))
         {
             return GraftResult<DocumentSession>.Fail(ErrorCode.E204, "ファイルが見つかりません", path: fullPath);
@@ -167,7 +185,7 @@ public sealed class DocumentSession : IDisposable
 
         // TextDocumentの生成はUIスレッドへ切り替えてから行う（クラス冒頭のコメント参照）。
         // DispatcherOperationはConfigureAwaitを持たないため素直にawaitする。
-        var session = await Dispatcher.UIThread.InvokeAsync(
+        var session = await ui.InvokeAsync(
             () => new DocumentSession(
                 fullPath, relativePath, new TextDocument(text), shape, hasExtremelyLongLine,
                 initialTextLength, initialLineCount));
@@ -181,6 +199,9 @@ public sealed class DocumentSession : IDisposable
     /// </summary>
     public async Task<GraftResult<bool>> SaveAsync(CancellationToken ct = default)
     {
+        // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく。
+        var ui = Dispatcher.UIThread;
+
         var result = await FileTextIO.WriteAsync(FullPath, Document.Text, Shape, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
@@ -193,7 +214,7 @@ public sealed class DocumentSession : IDisposable
 
         // UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う必要がある
         // （クラス冒頭のコメント参照）。
-        await Dispatcher.UIThread.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
+        await ui.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
         return result;
     }
 
@@ -209,6 +230,9 @@ public sealed class DocumentSession : IDisposable
     /// </summary>
     public async Task<GraftResult<bool>> ReloadAsync(CancellationToken ct = default)
     {
+        // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく。
+        var ui = Dispatcher.UIThread;
+
         var read = await FileTextIO.ReadAsync(FullPath, ct).ConfigureAwait(false);
         if (!read.IsSuccess)
         {
@@ -219,7 +243,7 @@ public sealed class DocumentSession : IDisposable
 
         // Document/UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う
         // 必要がある（クラス冒頭のコメント参照）。Document.Textの読み取りも同様。
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        await ui.InvokeAsync(() =>
         {
             if (Shape == shape && string.Equals(Document.Text, text, StringComparison.Ordinal))
             {

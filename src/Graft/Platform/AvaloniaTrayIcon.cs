@@ -23,6 +23,13 @@ public sealed class AvaloniaTrayIcon : ITrayIcon
     private TrayMenuDescriptor? _menu;
     private bool _disposed;
 
+    // Dispatcher.UIThreadは遅延生成・スレッド非安全な静的プロパティで、headlessテストの
+    // テストごとのリセットの窓に別スレッドから読まれると壊れたインスタンスがキャッシュされる
+    // （Graft.Editor.DocumentSessionクラス冒頭のコメント・CI調査結果を参照）。Disposeが
+    // 万一UIスレッド以外から呼ばれても安全なよう、必ずUIスレッドで実行されるコンストラクタで
+    // 一度だけ捕捉しておく。
+    private readonly Dispatcher _uiDispatcher = Dispatcher.UIThread;
+
     public AvaloniaTrayIcon(IDesktopNotifier notifier)
     {
         _notifier = notifier ?? throw new ArgumentNullException(nameof(notifier));
@@ -83,8 +90,8 @@ public sealed class AvaloniaTrayIcon : ITrayIcon
         if (_disposed) return;
         _disposed = true;
 
-        // TrayIconの破棄はUIスレッドで行う必要がある。
-        Dispatcher.UIThread.Invoke(() =>
+        // TrayIconの破棄はUIスレッドで行う必要がある（_uiDispatcherの由来はフィールドのコメント参照）。
+        _uiDispatcher.Invoke(() =>
         {
             _icon?.Dispose();
             _icon = null;
