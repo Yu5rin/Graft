@@ -98,8 +98,10 @@ public sealed class WindowLayoutState
 
 /// <summary>
 /// ウィンドウ・ペインレイアウトの永続化（仕様書8.11）。
-/// 保存先は <c>AppPaths.BaseDirectory</c> 配下の <c>layout.json</c>
-/// （<see cref="AppPaths"/> 自体には layout.json 用のプロパティが無いため、ここで組み立てる）。
+/// 保存先は <see cref="AppPaths.WindowLayoutFilePath"/>（<c>AppPaths.BaseDirectory</c> 配下の
+/// <c>layout.json</c>）。不具合2の修正で <see cref="AppPaths"/> 側にプロパティとして持たせた
+/// （<see cref="Infra.DataDirectoryMigrator"/> のコピー対象一覧と同じファイル名を単一の情報源から
+/// 参照するようにするため。詳細はそちらのコメント参照）。
 /// </summary>
 public sealed class WindowLayoutStore
 {
@@ -109,7 +111,7 @@ public sealed class WindowLayoutStore
     public WindowLayoutStore(AppPaths paths)
     {
         ArgumentNullException.ThrowIfNull(paths);
-        _filePath = Path.Combine(paths.BaseDirectory, "layout.json");
+        _filePath = paths.WindowLayoutFilePath;
     }
 
     /// <summary>layout.json を読み込む。存在しない・破損している場合は既定値から再生成する。</summary>

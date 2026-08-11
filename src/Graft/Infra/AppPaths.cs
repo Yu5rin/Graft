@@ -68,6 +68,21 @@ public sealed class AppPaths
     /// <summary>ログの起点ディレクトリ（logs/）。</summary>
     public string LogsDirectory => Path.Combine(BaseDirectory, "logs");
 
+    /// <summary>
+    /// 初回起動ガイド（<see cref="Views.OnboardingWindow"/>）の完了マーカーファイルの絶対パス。
+    /// 不具合2の修正: 以前は<see cref="Views.OnboardingWindow"/>側でファイル名を直書きしており、
+    /// <see cref="DataDirectoryMigrator"/>のコピー対象一覧（<see cref="AppPaths"/>の各プロパティを
+    /// そのまま使う設計）に載っていなかった。ここへプロパティとして持たせることで、
+    /// 両者が同じファイル名を単一の情報源から参照するようにする。
+    /// </summary>
+    public string OnboardingMarkerFilePath => Path.Combine(BaseDirectory, "onboarding.done");
+
+    /// <summary>
+    /// ウィンドウレイアウト（<see cref="ViewModels.WindowLayoutStore"/>）の絶対パス。
+    /// <see cref="OnboardingMarkerFilePath"/>と同じ理由（不具合2）でここへプロパティとして持たせる。
+    /// </summary>
+    public string WindowLayoutFilePath => Path.Combine(BaseDirectory, "layout.json");
+
     /// <summary>指定プロジェクトのバックアップディレクトリ（back/&lt;プロジェクトID&gt;/）。</summary>
     public string GetProjectBackupDirectory(string projectId)
         => Path.Combine(BackupRootDirectory, projectId);

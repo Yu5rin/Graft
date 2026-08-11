@@ -79,17 +79,17 @@ public sealed class ProjectPaneViewModel : ObservableObject
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
-        AddProjectCommand = new AsyncRelayCommand(AddProjectViaDialogAsync);
+        AddProjectCommand = new AsyncRelayCommand(AddProjectViaDialogAsync, context: "プロジェクトの追加");
 
         // プロジェクトペイン改善: 削除・ピン留め・表示名変更・タグ編集・場所の変更。
         // すべて「右クリックメニューの1項目としても、ボタンとしても呼べる」ようにするため、
         // HistoryPaneのMenuItem群と同じ設計（CommandParameterを使わずSelectedItemを直接見る）に
         // 揃える。右クリックで選択行を切り替える処理はView側（ProjectPane.axaml.cs）が担う。
-        DeleteProjectCommand = new AsyncRelayCommand(DeleteSelectedProjectAsync, () => SelectedItem is not null);
-        TogglePinCommand = new AsyncRelayCommand(ToggleSelectedPinAsync, () => SelectedItem is not null);
-        RenameProjectCommand = new AsyncRelayCommand(RenameSelectedProjectAsync, () => SelectedItem is not null);
-        EditTagsCommand = new AsyncRelayCommand(EditSelectedTagsAsync, () => SelectedItem is not null);
-        RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null);
+        DeleteProjectCommand = new AsyncRelayCommand(DeleteSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの削除");
+        TogglePinCommand = new AsyncRelayCommand(ToggleSelectedPinAsync, () => SelectedItem is not null, context: "ピン留めの切り替え");
+        RenameProjectCommand = new AsyncRelayCommand(RenameSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクト名の変更");
+        EditTagsCommand = new AsyncRelayCommand(EditSelectedTagsAsync, () => SelectedItem is not null, context: "タグの編集");
+        RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの場所の変更");
     }
 
     /// <summary>コマンドバー・空状態から呼ぶ「フォルダ選択で登録」（仕様書3.2）。</summary>

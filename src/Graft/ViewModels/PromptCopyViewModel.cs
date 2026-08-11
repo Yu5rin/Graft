@@ -64,7 +64,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
 
-        CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null);
+        CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null, context: "プロンプトのコピー");
     }
 
     /// <summary>

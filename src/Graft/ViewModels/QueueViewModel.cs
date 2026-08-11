@@ -45,7 +45,7 @@ public sealed class QueueViewModel : ObservableObject
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
 
         RemoveCommand = new RelayCommand<QueuedBlockRowViewModel>(RemoveItem);
-        ClearCommand = new AsyncRelayCommand(ClearAsync, () => Items.Count > 0);
+        ClearCommand = new AsyncRelayCommand(ClearAsync, () => Items.Count > 0, context: "キューのクリア");
         MergeCommand = new RelayCommand(() => MergeRequested?.Invoke(this, EventArgs.Empty), () => Items.Count > 0);
 
         Refresh();

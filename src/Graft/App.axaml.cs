@@ -1,9 +1,13 @@
+using System.Diagnostics;
+using System.IO;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Graft.Core;
+using Graft.Infra;
 using Graft.Platform;
 using Graft.Themes;
 using Graft.ViewModels;
@@ -23,6 +27,12 @@ public partial class App : Application
     // 後始末（DisposeAsync）が完了したあとの2回目のShutdownRequestedを
     // そのまま通す（＝キャンセルしない）ための目印。
     private bool _cleanupCompleted;
+
+    // 不具合3: 設定画面「データ保存先の移行」完了ダイアログの「再起動」ボタン
+    // （SettingsViewModel.RestartRequested→SettingsWindow.OnRestartRequested経由）で立てる。
+    // trueの間にOnShutdownRequestedへ到達すると、後始末の完了（多重起動防止Mutexの解放を含む）を
+    // 待ってから新プロセスを起動する（RestartSequencerのコメント参照）。
+    private bool _restartRequested;
 
     public override void Initialize()
     {
@@ -148,6 +158,31 @@ public partial class App : Application
 
         e.Cancel = true; // 後始末が終わるまで、いったん終了を保留する。
 
+        if (_restartRequested)
+        {
+            // 不具合3: 新プロセスの起動は「後始末（多重起動防止Mutexの解放を含む）が完全に
+            // 完了したあと」でなければならない（RestartSequencerのコメント参照）。
+            // CleanupAsyncの完了を待ってからTryStartNewProcessを呼び、その後（起動の成否に
+            // よらず）旧プロセスを終了させる、という順序をRestartSequencer側で保証する。
+            await RestartSequencer.RunAsync(
+                cleanupAndReleaseGuard: CleanupAsync,
+                startNewProcess: TryStartNewProcess,
+                shutdownCurrentProcess: () => _desktop?.Shutdown()).ConfigureAwait(true);
+            return;
+        }
+
+        await CleanupAsync().ConfigureAwait(true);
+        _desktop?.Shutdown();
+    }
+
+    /// <summary>
+    /// 課題1由来の通常の後始末一式（テーマ・<see cref="Views.StartupCoordinator.DisposeAsync"/>）。
+    /// <see cref="Views.StartupCoordinator.DisposeAsync"/>の中で多重起動防止Mutexも解放される
+    /// （<c>_platform.SingleInstance.Dispose()</c>）ため、不具合3の再起動でもこのメソッドの完了を
+    /// 新プロセス起動の前提条件として使う。
+    /// </summary>
+    private async Task CleanupAsync()
+    {
         ThemeManager.Shutdown();
         if (_coordinator is not null)
         {
@@ -155,6 +190,46 @@ public partial class App : Application
         }
 
         _cleanupCompleted = true;
+    }
+
+    /// <summary>
+    /// 不具合3: 新プロセスの起動を試みる。実行ファイルパスの解決は<see cref="AppRestart"/>
+    /// （単体テスト対象の純粋な部分）に委ね、ここでは実際の<see cref="Process.Start(ProcessStartInfo)"/>
+    /// 呼び出しのみを行う。ここに到達する前に<see cref="ViewModels.SettingsViewModel"/>側で
+    /// <see cref="AppRestart.CanRestart"/>による事前確認は済んでいる想定だが、実行ファイルが
+    /// その後に削除された等の極端なケースに備え、失敗しても例外を外へ投げない
+    /// （失敗時は新プロセスを起動せず、旧プロセスは通常どおり終了する。この時点ではもう
+    /// ウィンドウが後始末で破棄済みのため、利用者への「手動で再起動してください」という通知は
+    /// 事前確認の時点で済ませてあり、ここでは改めて出さない）。
+    /// </summary>
+    private static bool TryStartNewProcess()
+    {
+        try
+        {
+            var startInfo = AppRestart.BuildStartInfo();
+            if (startInfo is null) return false;
+
+            using var process = Process.Start(startInfo);
+            return process is not null;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 不具合3: <see cref="ViewModels.SettingsViewModel.RestartRequested"/>
+    /// （<see cref="Views.SettingsWindow"/>経由）から呼ばれる。実際の後始末・新プロセス起動・
+    /// 旧プロセス終了は<see cref="OnShutdownRequested"/>（<see cref="RestartSequencer"/>経由）が
+    /// 担う。ここでは「次にShutdownRequestedが来たら再起動として扱う」フラグを立て、
+    /// 通常の×ボタンと同じ経路（<see cref="IClassicDesktopStyleApplicationLifetime.Shutdown"/>）で
+    /// 終了処理を起動するだけに留める（後始末のロジックを二重化しないため）。
+    /// </summary>
+    public void RequestRestart()
+    {
+        if (_restartRequested) return; // 多重クリック等での二重要求を防ぐ。
+        _restartRequested = true;
         _desktop?.Shutdown();
     }
 

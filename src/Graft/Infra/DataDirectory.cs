@@ -105,12 +105,23 @@ public static class DataDirectoryMigrator
 {
     // 移行対象のファイル。AppPathsが定義する各パスをそのまま使うことで、対象ファイルが
     // 将来増減してもここを個別に追随させる必要がないようにする。
+    //
+    // 不具合2の修正: OnboardingMarkerFilePath（初回起動ガイドの完了マーカー、
+    // <see cref="Views.OnboardingWindow.GetMarkerFilePath"/>が参照）とWindowLayoutFilePath
+    // （ウィンドウレイアウト、<see cref="ViewModels.WindowLayoutStore"/>が参照）は、
+    // 以前はAppPaths自体にプロパティが無く各利用側がPath.Combineで自前に組み立てていたため、
+    // このコピー対象一覧に挙がっておらず、移行後にオンボーディングが再表示される・
+    // レイアウトが既定に戻る、という不具合の原因になっていた。AppPaths側にプロパティとして
+    // 追加し（そちらのコメント参照）、ここでも同じプロパティを参照することで、
+    // 「AppPathsのプロパティを網羅すれば移行対象も網羅できる」という当初の設計意図どおりに戻す。
     private static IEnumerable<(string Src, string Dst)> BuildFilePairs(AppPaths source, AppPaths target)
     {
         yield return (source.SettingsFilePath, target.SettingsFilePath);
         yield return (source.ProjectsFilePath, target.ProjectsFilePath);
         yield return (source.TemplatesFilePath, target.TemplatesFilePath);
         yield return (source.QueueFilePath, target.QueueFilePath);
+        yield return (source.OnboardingMarkerFilePath, target.OnboardingMarkerFilePath);
+        yield return (source.WindowLayoutFilePath, target.WindowLayoutFilePath);
     }
 
     // 移行対象のディレクトリ（バックアップ一式・ログ一式）。

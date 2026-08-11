@@ -122,12 +122,42 @@ public sealed partial class SettingsViewModel
         }
 
         IsDataDirectoryMigrationPending = true;
-        await _dialogService.ShowMessageAsync("移行しました",
+
+        // 不具合3: 「OK」だけだった通知ボタンを「再起動」に変え、押されたら実際にアプリを
+        // 再起動する。実際のプロセス起動・多重起動防止Mutexとの競合回避はViewModelの責務外
+        // （ViewModelをAvaloniaのApplication型に依存させない方針）のため、押されたことだけを
+        // RestartRequestedイベントで通知し、実処理はView側（SettingsWindow.axaml.cs経由でApp）へ
+        // 委譲する（LogViewerRequestedと同じ役割分担）。
+        var restartConfirmed = await _dialogService.ShowActionMessageAsync("移行しました",
             $"データを次の場所へコピーしました。{Environment.NewLine}{target}{Environment.NewLine}{Environment.NewLine}" +
             $"元の場所（{_appPaths.BaseDirectory}）のデータはそのまま残しています。" +
-            $"{Environment.NewLine}{Environment.NewLine}この変更を使い始めるには、Graftを再起動してください。")
+            $"{Environment.NewLine}{Environment.NewLine}この変更を使い始めるには、Graftの再起動が必要です。",
+            "再起動")
             .ConfigureAwait(true);
+        if (!restartConfirmed) return;
+
+        // 後始末を始めてから「実は再起動できない」と分かるより、始める前に諦められる方が
+        // 実害が小さい（RestartSequencer.RunAsyncのコメント参照）ため、ここで事前に確認する。
+        if (!AppRestart.CanRestart())
+        {
+            await _dialogService.ShowMessageAsync("再起動できません",
+                "実行ファイルの場所を特定できなかったため、自動的に再起動できませんでした。" +
+                "手動でGraftを再起動してください。")
+                .ConfigureAwait(true);
+            return;
+        }
+
+        RestartRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// 不具合3: 移行完了ダイアログの「再起動」ボタンが押され、かつ再起動が可能と確認できたときに
+    /// 発火する。ViewModelはAvaloniaのApplication/Window型に依存させない方針のため、実際の
+    /// 再起動処理（後始末→新プロセス起動→旧プロセス終了。多重起動防止Mutexとの競合回避を含む、
+    /// <see cref="Core.RestartSequencer"/>参照）はView側（<see cref="Views.SettingsWindow"/>経由で
+    /// <see cref="Graft.App"/>）が担う。
+    /// </summary>
+    public event EventHandler? RestartRequested;
 
     /// <summary>移行前の確認文言。コピーであって移動ではないこと・再起動が必要なことを明記する。</summary>
     private string BuildMigrationConfirmText(string target) =>
