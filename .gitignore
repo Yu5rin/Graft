@@ -11,3 +11,7 @@ tests/Graft.UiTests/screenshots/
 
 # dotnet test実行時に生成されるテスト結果（全テストプロジェクト共通）
 tests/*/TestResults/
+
+# tools\New-Release.ps1 が作るリリース用ZIP
+Graft-*-win-x64.zip
+
