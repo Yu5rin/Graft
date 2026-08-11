@@ -1,6 +1,9 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAssertions;
@@ -220,5 +223,108 @@ public class EditorOpenScrollPositionTests : IDisposable
         editor.SelectionLength.Should().Be(line.Length,
             "開いた直後の遅延スクロール補正で選択範囲が消えてはならない");
         editor.SelectedText.Should().Be("{");
+    }
+
+    /// <summary>
+    /// 統合テスト（Markdownプレビュー機能との競合確認）: 本クラスが対象とする遅延スクロール
+    /// 補正（<see cref="EditorPane.RestoreViewStateFrom"/>）は、タブ切替（<c>ApplyDocumentTab</c>）
+    /// のたびに、その時点のプレビュー/編集モードのスクロール位置を捉えてBackground優先度で
+    /// 予約する。.mdタブを一度離れて（プレビュー表示のまま）戻ってきたあと、プレビュー本文の
+    /// ブロックをダブルクリックして編集モードへ切り替えた場合に、最終的なスクロール位置が
+    /// ダブルクリックした段落へ正しく合っている（タブ再訪時点の古い位置へ巻き戻っていない）
+    /// ことを確認する。
+    ///
+    /// 【設計メモ】ヘッドレステストで両者の競合を狙って発火順序を作ろうとしたところ、
+    /// <c>window.CaptureRenderedFrame()</c>自体がBackground優先度のジョブも含めて実行して
+    /// しまう（実測で確認済み。<see cref="Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame"/>
+    /// 参照）ため、プレビュー側のブロックをダブルクリックするために必要なレイアウト確定
+    /// （少なくとも1回のCaptureRenderedFrame）が、常にその前段階で遅延補正を先に消化してしまい、
+    /// 「エディタが見えている状態で古い位置に巻き戻る」という順序をヘッドレス環境内では意図的に
+    /// 作れなかった（実機の連続レンダリングでも同様に、ヒットテスト可能な操作の前には必ず
+    /// レイアウト/レンダーパスが完了しており、その過程でBackground優先度のジョブも先に処理される
+    /// ため、同じ理由で競合しないと判断できる）。そのため本テストは狙った内部レースを直接
+    /// 再現するのではなく、実際に利用者が行う一連の操作（タブを離れて戻る→ダブルクリックで
+    /// 編集モードへ切替）を最後まで実行し、最終的な表示位置が正しいことを確認する形にした。
+    /// <see cref="EditorPane.axaml.cs"/>のRestoreViewStateFromには、念のため
+    /// （プレビュー⇔編集の切替とタブ再訪の重なりに対する防御的な措置として）モードが変わって
+    /// いたら遅延補正を行わないガードを残してある。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "タブを離れて戻った直後にプレビューをダブルクリックしても正しい行へ切り替わる")]
+    public async Task タブ再訪後のダブルクリックで正しい行の編集モードへ切り替わる()
+    {
+        Directory.CreateDirectory(_root);
+        var vm = new EditorPaneViewModel(new Settings(), new NullDialogService(), new AvaloniaUiServices());
+        vm.SetProject(_root);
+
+        var sb = new System.Text.StringBuilder("# 見出し\n\n");
+        for (var i = 0; i < 80; i++) sb.Append($"段落{i}の本文です。ダブルクリックのターゲット候補です。\n\n");
+        var mdPath = Path.Combine(_root, "long.md");
+        await File.WriteAllTextAsync(mdPath, sb.ToString());
+        var otherPath = Path.Combine(_root, "other.txt");
+        await File.WriteAllTextAsync(otherPath, "short\n");
+
+        var mdTab = (await vm.OpenFileAsync(mdPath)).Value;
+        var otherTab = (await vm.OpenFileAsync(otherPath)).Value;
+
+        var pane = new EditorPane { DataContext = vm };
+        var window = _windows.Track(new Window { Width = 1000, Height = 700, Content = pane });
+        window.Show();
+
+        vm.ActiveTab = mdTab;
+        for (var i = 0; i < 3; i++)
+        {
+            window.CaptureRenderedFrame().Should().NotBeNull();
+            Dispatcher.UIThread.RunJobs();
+        }
+        mdTab.ShowMarkdownPreview.Should().BeTrue("初期状態はプレビュー表示のはず（テスト条件）");
+
+        // 別タブへ移り、また戻る。mdTabにHasViewState=trueが保存され、RestoreViewStateFromが
+        // 遅延補正をBackground優先度で予約する。
+        vm.ActiveTab = otherTab;
+        window.CaptureRenderedFrame().Should().NotBeNull();
+        Dispatcher.UIThread.RunJobs();
+
+        vm.ActiveTab = mdTab;
+        for (var i = 0; i < 3; i++)
+        {
+            window.CaptureRenderedFrame().Should().NotBeNull();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // プレビュー本文の後方のブロックをダブルクリックして編集モードへ切り替える。ターゲットは
+        // 初期スクロール位置（先頭）では画面外にあるため、まずBringIntoViewでプレビューの
+        // ScrollViewerをスクロールしてから実座標を取る。
+        var target = pane.MarkdownPreviewHost.GetVisualDescendants().OfType<SelectableTextBlock>()
+            .Single(b => (b.Text ?? b.Inlines?.Text ?? string.Empty).Contains("段落70の本文です"));
+        target.BringIntoView();
+        window.CaptureRenderedFrame().Should().NotBeNull();
+        var point = target.TranslatePoint(new Point(4, 4), window)!.Value;
+        point.Y.Should().BeInRange(0, 700,
+            "テスト条件として、ダブルクリック対象はBringIntoViewでウィンドウの可視範囲内に来ている必要がある");
+        window.MouseMove(point);
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+
+        mdTab.ShowMarkdownPreview.Should().BeFalse("ダブルクリックで編集モードへ切り替わったはず");
+        pane.Editor.IsVisible.Should().BeTrue();
+
+        var expectedLine = pane.Editor.Document.GetLineByOffset(
+            pane.Editor.Document.Text.IndexOf("段落70の本文です", StringComparison.Ordinal)).LineNumber;
+        pane.Editor.TextArea.Caret.Line.Should().Be(expectedLine,
+            "ダブルクリックした段落に対応する行へカーソルが置かれているはず");
+
+        // レイアウト・遅延補正を含めて完全に落ち着かせてから、最終的なスクロール位置を確認する。
+        for (var i = 0; i < 3; i++)
+        {
+            window.CaptureRenderedFrame().Should().NotBeNull();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        var offset = ((IScrollable)pane.Editor.TextArea).Offset.Y;
+        offset.Should().BeGreaterThan(0,
+            "ダブルクリックした段落は文書の後方にあり、編集モードでは実際にスクロールしているはず" +
+            "（タブ再訪時点の古い位置＝0へ巻き戻っていたら失敗する）");
     }
 }

@@ -86,15 +86,51 @@ public partial class EditorPane
     /// <summary>
     /// プレビュー本文を編集中バッファ（<c>tab.Session.Document.Text</c>）から組み立て直す。
     /// リンクの種別ごとの扱いは<see cref="ManualMarkdownRenderer"/>が振り分け、ここでは
-    /// 実際のジャンプ・タブオープン・外部起動を行うハンドラだけを渡す。
+    /// 実際のジャンプ・タブオープン・外部起動を行うハンドラだけを渡す。相対パス画像の解決には
+    /// 表示中の.mdファイルのあるフォルダ（<c>tab.Session.FullPath</c>の親）を基準ディレクトリ
+    /// として渡す。チェックリストは<see cref="OnMarkdownChecklistToggled"/>経由で編集中バッファへ
+    /// 書き戻せるようにする（.mdプレビュー限定。取扱説明書<see cref="ManualWindow"/>は
+    /// このメソッドを経由しないため引き続き表示専用）。
     /// </summary>
     private void RenderMarkdownPreview(EditorTabViewModel tab)
     {
+        var baseDirectory = Path.GetDirectoryName(tab.Session.FullPath);
         MarkdownPreviewHost.Render(
             tab.Session.Document.Text,
             MarkdownPreviewHost.JumpToAnchor,
             OnMarkdownRelativeLinkClicked,
-            OnMarkdownExternalLinkClicked);
+            OnMarkdownExternalLinkClicked,
+            baseDirectory,
+            OnMarkdownChecklistToggled);
+    }
+
+    /// <summary>
+    /// プレビュー内のチェックリストがクリック・キーボードでON/OFFされたときに呼ばれる。
+    /// 対象行（<paramref name="lineNumber"/>、1始まり）の<c>- [ ]</c>/<c>- [x]</c>を
+    /// 編集中バッファ（<c>tab.Session.Document</c>）へ直接書き換える。
+    ///
+    /// 【利用者指示（方針変更）】当初はチェックリストを表示専用としていたが、「チェックの
+    /// ON/OFFができない」との指摘を受けて操作可能へ変更した。<see cref="AvaloniaEdit.Document.TextDocument.Replace"/>を
+    /// 使うことで、通常のエディタ編集と同じくAvaloniaEditの<c>UndoStack</c>へ自動的に記録される
+    /// （Ctrl+Zで戻せる・保存前は未保存マークが付く。<see cref="Graft.Editor.DocumentSession.IsModified"/>
+    /// が<c>UndoStack.IsOriginalFile</c>の否定であるため、この書き換えだけで自動的に未保存扱いになる）。
+    /// 自動保存はしない（保存はCtrl+Sのまま。他の編集操作と挙動を揃えるため明示的に何もしない）。
+    /// 書き換え後は<see cref="OnDocumentChangedForMarkdownPreview"/>がDocument.Changedを検知して
+    /// 自動でプレビューを再描画するため、ここから明示的に再描画を呼ぶ必要はない。
+    /// </summary>
+    private void OnMarkdownChecklistToggled(int lineNumber, bool isChecked)
+    {
+        if (_loadedTab is not { Kind: EditorTabKind.Document, IsMarkdownFile: true } tab) return;
+
+        var document = tab.Session.Document;
+        if (lineNumber < 1 || lineNumber > document.LineCount) return;
+
+        var docLine = document.GetLineByNumber(lineNumber);
+        var lineText = document.GetText(docLine.Offset, docLine.Length);
+        var updated = ManualMarkdownRenderer.SetChecklistLineChecked(lineText, isChecked);
+        if (updated is null || updated == lineText) return;
+
+        document.Replace(docLine.Offset, docLine.Length, updated);
     }
 
     /// <summary>

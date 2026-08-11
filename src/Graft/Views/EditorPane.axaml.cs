@@ -299,9 +299,29 @@ public partial class EditorPane : UserControl
         var hasViewState = tab.HasViewState;
         var x = tab.ScrollOffsetX;
         var y = tab.ScrollOffsetY;
+        // Markdownプレビュー機能との競合対策（防御的措置）: この時点でのプレビュー/編集モードを
+        // 覚えておく。タブ切替直後（本メソッドの呼び出し元はApplyDocumentTab）はまだ「タブを
+        // 離れる前のモード」のままだが、この遅延補正が発火するまでの間に、利用者がプレビュー
+        // 本文のダブルクリック・切替ボタン・Escでプレビュー⇔編集を切り替える可能性がある
+        // （EditorPane.MarkdownPreview.csのApplyMarkdownPreviewMode参照）。その切替は
+        // MoveCaretToで正しい新しいスクロール位置へ同期的に合わせ直すが、その直後にこの遅延
+        // 補正がhasViewStateの古いx/y（タブを離れる前・別モードだった時点のオフセット）で
+        // 上書きしてしまうと、切替直後に合わせたはずの位置が古い位置へ巻き戻ってしまう可能性が
+        // ある。モードが変わっていたら「タブは変わっていないが状況が変わった」とみなし、
+        // ApplyMarkdownPreviewMode側が既に合わせた位置を信頼してこの遅延補正は何もしない。
+        // 【検証メモ】ヘッドレステストでこの順序（プレビュー→編集切替の直後に遅延補正が発火）を
+        // 意図的に再現しようとしたところ、切替のヒットテストに必要なレイアウト確定
+        // （CaptureRenderedFrame）自体がBackground優先度のジョブも合わせて処理してしまうため、
+        // 「エディタが見えている状態で古い位置に上書きされる」順序をテスト内では作れなかった
+        // （EditorOpenScrollPositionTests.タブ再訪後のダブルクリックで正しい行の編集モードへ
+        // 切り替わる のコメント参照）。実機の連続レンダリングでも同様の理由でこの順序にはならない
+        // と考えられるが、コードを読んだだけでは競合し得る形になっていたため、安全側として
+        // このガードは残す。
+        var showMarkdownPreviewAtSchedule = tab.ShowMarkdownPreview;
         Dispatcher.UIThread.Post(() =>
         {
             if (!ReferenceEquals(_loadedTab, tab)) return; // 遅延実行中に別タブへ切り替わっていたら何もしない
+            if (tab.ShowMarkdownPreview != showMarkdownPreviewAtSchedule) return; // 同上: プレビュー⇔編集切替と競合させない
             if (hasViewState)
             {
                 // 不具合修正2: Editor.ScrollToVerticalOffset/ScrollToHorizontalOffsetは

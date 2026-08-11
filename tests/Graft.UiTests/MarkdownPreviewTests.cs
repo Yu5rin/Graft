@@ -338,13 +338,20 @@ public class MarkdownPreviewTests : IDisposable
     }
 
     // ------------------------------------------------------------------
-    // 7. チェックリスト（表示専用）
+    // 7. チェックリスト（.mdプレビューでは操作可能。方針変更の回帰）
+    //
+    // 【方針変更の経緯】当初「チェックリストは表示専用（クリックしてもファイルを書き換えない）」
+    // という指示だったが、「チェックボックスのON/OFFができない」との利用者指摘を受けて撤回され、
+    // .mdプレビューではクリック・キーボードで実際にON/OFFでき、編集中バッファ
+    // （<c>DocumentSession.Document</c>）へ書き戻す方針に変わった（EditorPane.MarkdownPreview.cs
+    // のOnMarkdownChecklistToggled参照）。取扱説明書（<see cref="ManualWindow"/>）は埋め込み
+    // リソースで編集対象が無いため、引き続き表示専用のまま（別クラスManualWindowTests、および
+    // ManualMarkdownRendererGfmTestsのレンダラ単体テストで確認する）。
     // ------------------------------------------------------------------
 
-    [AvaloniaFact(DisplayName = "チェックリストはCheckBoxとして描画され、クリックしても状態・ファイルは変わらない")]
-    public async Task チェックリストが表示専用で描画される()
+    [AvaloniaFact(DisplayName = "チェックリストはCheckBoxとして描画され、初期状態は本文の[ ]/[x]と一致する")]
+    public async Task チェックリストの初期状態が本文と一致する()
     {
-        var path = Path.Combine(_root, "doc.md");
         var original = "- [ ] 未完了の項目\n- [x] 完了した項目\n";
         var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
         await OpenFileAsync(vm, "doc.md", original).ConfigureAwait(true);
@@ -354,9 +361,19 @@ public class MarkdownPreviewTests : IDisposable
         checkboxes.Should().HaveCount(2);
         checkboxes.Should().Contain(c => c.IsChecked == false);
         checkboxes.Should().Contain(c => c.IsChecked == true);
-        checkboxes.Should().OnlyContain(c => !c.IsHitTestVisible, "表示専用のためポインタ操作を受け付けてはならない");
+    }
 
-        var uncheckedBox = checkboxes.Single(c => c.IsChecked == false);
+    [AvaloniaFact(DisplayName = "チェックリストをクリックすると編集中バッファが書き換わり、未保存になる")]
+    public async Task チェックリストのクリックでバッファが書き換わり未保存になる()
+    {
+        var path = Path.Combine(_root, "doc.md");
+        var original = "- [ ] 未完了の項目\n- [x] 完了した項目\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        var tab = await OpenFileAsync(vm, "doc.md", original).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+
+        var uncheckedBox = pane.MarkdownPreviewHost.GetVisualDescendants().OfType<CheckBox>().Single(c => c.IsChecked == false);
+        uncheckedBox.IsHitTestVisible.Should().BeTrue(".mdプレビューのチェックボックスは操作可能でなければならない");
         var point = uncheckedBox.TranslatePoint(
             new Point(uncheckedBox.Bounds.Width / 2, uncheckedBox.Bounds.Height / 2), window)!.Value;
         window.MouseMove(point);
@@ -364,9 +381,76 @@ public class MarkdownPreviewTests : IDisposable
         window.MouseUp(point, MouseButton.Left);
         window.CaptureRenderedFrame();
 
-        uncheckedBox.IsChecked.Should().BeFalse("クリックしても見た目の状態は変わらないはず");
+        tab.Session.Document.Text.Should().Be(
+            "- [x] 未完了の項目\n- [x] 完了した項目\n", "クリックした行の[ ]が[x]へ書き換わるはず");
+        tab.Session.IsModified.Should().BeTrue("編集操作なので未保存マークが付くはず");
         (await File.ReadAllTextAsync(path).ConfigureAwait(true)).Should().Be(
-            original, "プレビューからのクリックでファイルが書き換わってはならない");
+            original, "自動保存はしない。ディスクはCtrl+Sまで変わらないはず");
+    }
+
+    [AvaloniaFact(DisplayName = "チェックリストのクリックはCtrl+Zで取り消せる")]
+    public async Task チェックリストのクリックはCtrlZで取り消せる()
+    {
+        var original = "- [ ] 未完了の項目\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        var tab = await OpenFileAsync(vm, "doc.md", original).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+
+        var checkbox = pane.MarkdownPreviewHost.GetVisualDescendants().OfType<CheckBox>().Single();
+        var point = checkbox.TranslatePoint(new Point(checkbox.Bounds.Width / 2, checkbox.Bounds.Height / 2), window)!.Value;
+        window.MouseMove(point);
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        window.CaptureRenderedFrame();
+        tab.Session.Document.Text.Should().Be("- [x] 未完了の項目\n");
+
+        tab.Session.Document.UndoStack.Undo();
+
+        tab.Session.Document.Text.Should().Be(original, "Ctrl+Zに相当するUndoStack.Undo()で元に戻るはず");
+        tab.Session.IsModified.Should().BeFalse("元ファイルの状態まで戻れば未保存マークも消えるはず");
+    }
+
+    [AvaloniaFact(DisplayName = "チェックリストのクリック後、プレビューの表示も追従する")]
+    public async Task チェックリストのクリック後プレビュー表示が追従する()
+    {
+        var original = "- [ ] 未完了の項目\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        await OpenFileAsync(vm, "doc.md", original).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+
+        var checkbox = pane.MarkdownPreviewHost.GetVisualDescendants().OfType<CheckBox>().Single();
+        var point = checkbox.TranslatePoint(new Point(checkbox.Bounds.Width / 2, checkbox.Bounds.Height / 2), window)!.Value;
+        window.MouseMove(point);
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        await PumpUntilAsync(() =>
+            pane.MarkdownPreviewHost.GetVisualDescendants().OfType<CheckBox>().Any(c => c.IsChecked == true)).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+
+        pane.MarkdownPreviewHost.GetVisualDescendants().OfType<CheckBox>().Single().IsChecked.Should().BeTrue(
+            "再描画後のチェックボックスも書き換え後の本文（[x]）と一致するはず");
+    }
+
+    [AvaloniaFact(DisplayName = "インデントした入れ子のチェックリストをクリックしても、インデントと後続テキストが壊れない")]
+    public async Task ネストしたチェックリストのクリックでインデントと後続テキストが保たれる()
+    {
+        var original = "- [ ] 親項目\n  - [ ] 子項目 それでも残す末尾\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        var tab = await OpenFileAsync(vm, "doc.md", original).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+
+        var checkboxes = pane.MarkdownPreviewHost.GetVisualDescendants().OfType<CheckBox>().ToList();
+        checkboxes.Should().HaveCount(2, "親・子それぞれチェックボックスが描画されるはず");
+        var childBox = checkboxes[1];
+        var point = childBox.TranslatePoint(new Point(childBox.Bounds.Width / 2, childBox.Bounds.Height / 2), window)!.Value;
+        window.MouseMove(point);
+        window.MouseDown(point, MouseButton.Left);
+        window.MouseUp(point, MouseButton.Left);
+        window.CaptureRenderedFrame();
+
+        tab.Session.Document.Text.Should().Be(
+            "- [ ] 親項目\n  - [x] 子項目 それでも残す末尾\n",
+            "子項目のインデント（2スペース）と末尾のテキストを保ったまま、その行のマークだけが変わるはず");
     }
 
     // ------------------------------------------------------------------
