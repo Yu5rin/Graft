@@ -131,9 +131,12 @@ public class CloseTabsToTheRightTests : IDisposable
         await shell.Editor.OpenFileAsync(pathB).ConfigureAwait(true);
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
-        var tabBorder = window.GetVisualDescendants().OfType<Border>()
-            .Single(b => ReferenceEquals(b.DataContext, tabA) && b.ContextMenu is not null);
-        var menuItem = tabBorder.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
+        // 機能改善（タブが増えたときに到達できない問題）: タブ見出しのDataTemplateルートは
+        // タブ幅の自動縮小（Title=*列で省略記号表示）のためBorderからGridへ変更した
+        // （EditorPane.axaml参照）。ContextMenuの取り付け先もそれに合わせてGridへ移った。
+        var tabGrid = window.GetVisualDescendants().OfType<Grid>()
+            .Single(g => ReferenceEquals(g.DataContext, tabA) && g.ContextMenu is not null);
+        var menuItem = tabGrid.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Single(m => Equals(m.Header?.ToString(), "右側のタブを閉じる"));
 
         menuItem.Command.Should().BeSameAs(shell.Editor.CloseTabsToTheRightCommand);

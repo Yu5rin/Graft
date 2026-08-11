@@ -82,6 +82,10 @@ public partial class EditorPane : UserControl
         TabStrip.PointerCaptureLost += (_, _) => ResetDragState();
         DiffHost.DoubleTapped += OnDiffDoubleTapped;
 
+        // 機能改善（タブが増えたときに到達できない問題）: スクロールボタン・タブ一覧
+        // ドロップダウン・ホイールスクロールの初期化（EditorPane.TabStrip.cs）。
+        InitializeTabStrip();
+
         DataContextChanged += OnDataContextChanged;
         Unloaded += OnUnloaded;
     }
@@ -127,6 +131,12 @@ public partial class EditorPane : UserControl
         if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
         _loadedTab = tab;
         if (tab is not null) tab.PropertyChanged += OnLoadedTabPropertyChanged;
+
+        // 機能改善: 選択中のタブが常に見えるようにする。Ctrl+Tab・クイックオープン・タブ一覧
+        // ドロップダウン・マウスクリックなど、ActiveTabが変わる経路はすべてここへ集約される
+        // （EditorPaneViewModel.ActiveTabのsetter→OnViewModelPropertyChanged→ApplyActiveTab）ため、
+        // ここ1箇所からの呼び出しで網羅できる（EditorPane.TabStrip.cs）。
+        ScheduleEnsureTabVisible(tab);
 
         if (tab is null) { ApplyEmptyTab(); return; }
         if (tab.Kind == EditorTabKind.Diff) { ApplyDiffTab(tab); return; }
@@ -573,6 +583,7 @@ public partial class EditorPane : UserControl
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
+        UninitializeTabStrip();
         Editor.TextArea.Caret.PositionChanged -= OnCaretPositionChanged;
         Editor.TextArea.SelectionChanged -= OnSelectionChanged;
         if (_viewModel is not null)
