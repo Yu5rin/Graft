@@ -98,6 +98,17 @@
         <Style Selector="^:disabled">
             <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
         </Style>
+        <!--
+            利用者からの指摘対応（無効なボタンの見た目）: ラベルの文字色（上のForeground）は
+            :disabledで変わるが、四角い箱自体（PART_Box）は枠線も背景も変わらないままだった。
+            チェックの済/未済にかかわらず、箱の枠線も灰色にして押せない（変更できない）ことを
+            示す。チェックマーク自体（PART_CheckMark、IconGlyph）はIcons.axaml側の
+            IconGlyph:disabledスタイルが祖先のIsEnabled伝播で自動的に効くため、ここで
+            個別に指定する必要はない。
+        -->
+        <Style Selector="^:disabled /template/ Border#PART_Box">
+            <Setter Property="BorderBrush" Value="{DynamicResource TextDisabled}" />
+        </Style>
     </ControlTheme>
 
     <!-- ========== ListBoxItem（ListBox本体の既定書式はControls.Base.axaml側） ========== -->
