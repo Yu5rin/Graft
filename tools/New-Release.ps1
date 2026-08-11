@@ -96,26 +96,6 @@ function Get-PaddedVersion([string]$RawVersion) {
     return ($parts -join '.')
 }
 
-# docs\変更履歴.mdから、指定バージョンの節（"## <バージョン>"見出しの直後から次の"## "見出し
-# または末尾まで）だけを抜き出す。見出しは$Versionと完全一致するものだけを対象にする
-# （表記は$resolvedVersionと変更履歴.mdの見出しを一致させる運用のため、桁の補正等はしない）。
-# 見つからない場合は$nullを返す（呼び出し側で警告のうえ空欄にする）。
-function Get-ChangelogSection([string]$ChangelogPath, [string]$Version) {
-    if (-not (Test-Path $ChangelogPath)) { return $null }
-    $text = Get-Content -Path $ChangelogPath -Raw -Encoding UTF8
-
-    $headingMatches = [regex]::Matches($text, '(?m)^##[ \t]+(.+?)[ \t]*$')
-    for ($i = 0; $i -lt $headingMatches.Count; $i++) {
-        $heading = $headingMatches[$i]
-        if ($heading.Groups[1].Value.Trim() -ne $Version) { continue }
-
-        $start = $heading.Index + $heading.Length
-        $end = if ($i + 1 -lt $headingMatches.Count) { $headingMatches[$i + 1].Index } else { $text.Length }
-        return $text.Substring($start, $end - $start).Trim()
-    }
-    return $null
-}
-
 # ============================================================================
 # 1. 前提の確認
 # ============================================================================
@@ -474,22 +454,16 @@ if ($linuxArchiveCreated) {
 Write-Host ''
 Write-Host '=== リリース本文の下書き ==='
 
-$changelogPath = Join-Path $repoRoot 'docs/変更履歴.md'
-$changesSection = Get-ChangelogSection -ChangelogPath $changelogPath -Version $resolvedVersion
-if ($null -eq $changesSection) {
-    Write-Warning "docs\変更履歴.mdにバージョン $resolvedVersion の節（## $resolvedVersion）が見つかりませんでした（$changelogPath）。リリース説明.mdの{CHANGES}は空欄のまま出力を続行します。"
-    $changesBlock = ''
-} else {
-    $changesBlock = $changesSection
-    Write-Host "変更履歴: docs\変更履歴.mdの `"## $resolvedVersion`" 節を差し込みます。"
-}
-
+# リリース本文は、GitHubのリリース作成画面の「Generate release notes」が出す
+# 「What's Changed」「Full Changelog」の前に置く固定の前文だけを用意する。
+# 変更点の一覧をこちらで組み立てないのは、GitHub側の自動生成と二重になり、
+# 書き漏れや食い違いが起きるため（リリース本文の形式はdocs\リリース手順.md参照）。
+# バージョン番号も本文に含めないため、差し替えは行わずそのまま書き出す。
 $templatePath = Join-Path $repoRoot 'docs/リリース説明_テンプレート.md'
 $releaseNotesPath = Join-Path $releaseRoot 'リリース説明.md'
 if (Test-Path $templatePath) {
     $templateText = Get-Content -Path $templatePath -Raw -Encoding UTF8
-    $releaseNotesText = $templateText.Replace('{VERSION}', $resolvedVersion).Replace('{CHANGES}', $changesBlock)
-    Write-Utf8NoBom -Path $releaseNotesPath -Text $releaseNotesText
+    Write-Utf8NoBom -Path $releaseNotesPath -Text $templateText
     Write-Host "書き出し: $releaseNotesPath"
 } else {
     Write-Warning "リリース本文の雛形が見つかりません: $templatePath（リリース説明.mdの生成をスキップしました）"
@@ -509,7 +483,8 @@ Write-Host ''
 Write-Host '2. GitHubでリリースを作成する（Targetは main を選ぶこと）:'
 Write-Host "     https://github.com/Yu5rin/Graft/releases/new?tag=$tag"
 Write-Host ''
-Write-Host '3. リリース本文には、下記の下書きの内容を貼り付ける:'
+Write-Host '3. リリース本文には、下記の内容を貼り付けてから'
+Write-Host '   「Generate release notes」を押して変更点の一覧を足す:'
 Write-Host "     $releaseNotesPath"
 Write-Host ''
 Write-Host '4. 添付する配布物:'
