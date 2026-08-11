@@ -189,11 +189,18 @@ public class ExplorerImportTests : IDisposable
         var sourceFile = external.WriteFile("a.txt", "新しい内容");
 
         var (explorer, dialogs) = await BuildExplorerWithProjectAsync().ConfigureAwait(true);
-        dialogs.NextThreeWayResult = true; // 「上書き」
+        // 不具合2点検（実機報告の横断チェック）: 「上書き」は元へ戻せない破壊的な操作のため
+        // ConfirmThreeWayAsyncのyesLabel（既定ボタン）からnoLabelへ移した
+        // （ExplorerViewModel.BuildImportPlanAsync参照）。falseが「上書き」になる。
+        dialogs.NextThreeWayResult = false; // 「上書き」
 
         await explorer.ImportPathsAsync(null, new[] { sourceFile }).ConfigureAwait(true);
 
         File.ReadAllText(Path.Combine(_root, "a.txt")).Should().Be("新しい内容");
+        // 実機不具合の回帰確認: 既定ボタン（yesLabel）は不可逆な「上書き」ではなく、
+        // 非破壊的な「別名で保存」でなければならない。
+        dialogs.LastThreeWayLabels.Should().Be(("別名で保存", "上書き"),
+            "既定ボタン（Enterで実行される）に破壊的な選択肢を渡してはいけない");
     }
 
     [AvaloniaFact(DisplayName = "同名衝突で「別名で保存」を選ぶと、入力した新しい名前で保存され元の項目は残る")]
@@ -205,7 +212,8 @@ public class ExplorerImportTests : IDisposable
         var sourceFile = external.WriteFile("a.txt", "新しい内容");
 
         var (explorer, dialogs) = await BuildExplorerWithProjectAsync().ConfigureAwait(true);
-        dialogs.NextThreeWayResult = false; // 「別名で保存」
+        // 「別名で保存」は非破壊的なのでyesLabel（既定ボタン）のまま。trueが「別名で保存」になる。
+        dialogs.NextThreeWayResult = true; // 「別名で保存」
         dialogs.NextPromptResult = "a-renamed.txt";
 
         await explorer.ImportPathsAsync(null, new[] { sourceFile }).ConfigureAwait(true);
@@ -251,7 +259,7 @@ public class ExplorerImportTests : IDisposable
         var conflictFile = external.WriteFile("conflict.txt", "新しい内容");
 
         var (explorer, dialogs) = await BuildExplorerWithProjectAsync().ConfigureAwait(true);
-        dialogs.NextThreeWayResult = true; // conflict.txtは上書きする。
+        dialogs.NextThreeWayResult = false; // conflict.txtは上書きする（falseが「上書き」。上のコメント参照）。
         dialogs.OnThreeWayRequested = () => File.Delete(missingSoonFile); // その直前にmissing.txtを消す。
 
         // missing.txtを先に、conflict.txtを後に渡す（BuildImportPlanAsyncは順番に処理するため、
@@ -374,10 +382,14 @@ public class ExplorerImportTests : IDisposable
         public Action? OnThreeWayRequested { get; set; }
         public List<(string Title, string Message)> ShownMessages { get; } = new();
 
+        /// <summary>直近のConfirmThreeWayAsync呼び出しのyesLabel/noLabel（不具合2の回帰確認用）。</summary>
+        public (string YesLabel, string NoLabel)? LastThreeWayLabels { get; private set; }
+
         public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(true);
 
         public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
         {
+            LastThreeWayLabels = (yesLabel, noLabel);
             OnThreeWayRequested?.Invoke();
             return Task.FromResult(NextThreeWayResult);
         }

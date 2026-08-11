@@ -53,7 +53,10 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
         var filePath = Path.Combine(projectDir, "important.txt");
         await File.WriteAllTextAsync(filePath, "消えたら困る内容");
 
-        var dialogs = new ScriptedDialogService { ThreeWayResult = false }; // 「履歴は残す」
+        // 不具合2点検（実機報告の横断チェック）: 「履歴も削除する」は不可逆な破壊的操作のため
+        // ConfirmThreeWayAsyncのyesLabel（既定ボタン）からnoLabelへ移した
+        // （ProjectPaneViewModel.DeleteSelectedProjectAsync参照）。trueが「履歴は残す」になる。
+        var dialogs = new ScriptedDialogService { ThreeWayResult = true }; // 「履歴は残す」
         var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(projectDir).ConfigureAwait(true);
         shell.Graft.ProjectPane.Items.Should().ContainSingle();
@@ -64,6 +67,11 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
         Directory.Exists(projectDir).Should().BeTrue("フォルダ自体は絶対に消してはいけない");
         File.Exists(filePath).Should().BeTrue("フォルダ内のファイルも消してはいけない");
         (await File.ReadAllTextAsync(filePath)).Should().Be("消えたら困る内容");
+
+        // 実機不具合の回帰確認: 既定ボタン（yesLabel）は不可逆な「履歴も削除する」ではなく、
+        // 非破壊的な「履歴は残す」でなければならない。
+        dialogs.LastThreeWayLabels.Should().Be(("履歴は残す", "履歴も削除する"),
+            "既定ボタン（Enterで実行される）に破壊的な選択肢を渡してはいけない");
 
         // 再起動を模して読み直しても消えたままであること（永続化の確認）。
         var reloadedStore = new ProjectStore(new AppPaths(_appDirectory));
@@ -77,7 +85,7 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
         var filePath = Path.Combine(projectDir, "important2.txt");
         await File.WriteAllTextAsync(filePath, "これも消えたら困る");
 
-        var dialogs = new ScriptedDialogService { ThreeWayResult = true }; // 「履歴も削除する」
+        var dialogs = new ScriptedDialogService { ThreeWayResult = false }; // 「履歴も削除する」（falseがnoLabel）
         var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(projectDir).ConfigureAwait(true);
 
@@ -108,7 +116,7 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
         var filePath = Path.Combine(projectDir, "open-me.txt");
         await File.WriteAllTextAsync(filePath, "開いてから消す");
 
-        var dialogs = new ScriptedDialogService { ThreeWayResult = false };
+        var dialogs = new ScriptedDialogService { ThreeWayResult = true }; // 「履歴は残す」（この項目自体は履歴の扱いを検証対象にしない）
         var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(projectDir).ConfigureAwait(true);
         await shell.Editor.OpenFileAsync(filePath).ConfigureAwait(true);
@@ -128,7 +136,7 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
         var projectA = CreateProjectDir("multi-a");
         var projectB = CreateProjectDir("multi-b");
 
-        var dialogs = new ScriptedDialogService { ThreeWayResult = false };
+        var dialogs = new ScriptedDialogService { ThreeWayResult = true }; // 「履歴は残す」（この項目自体は履歴の扱いを検証対象にしない）
         var (shell, _) = await OpenShellAsync(dialogs).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(projectA).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(projectB).ConfigureAwait(true);
@@ -498,10 +506,16 @@ public class ProjectPaneOperationsScenarioTests : IDisposable
         public string? PromptResult { get; set; } = "テスト";
         public string? PickFolderResult { get; set; }
 
+        /// <summary>直近のConfirmThreeWayAsync呼び出しのyesLabel/noLabel（不具合2の回帰確認用）。</summary>
+        public (string YesLabel, string NoLabel)? LastThreeWayLabels { get; private set; }
+
         public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(ConfirmResult);
 
         public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
-            => Task.FromResult(ThreeWayResult);
+        {
+            LastThreeWayLabels = (yesLabel, noLabel);
+            return Task.FromResult(ThreeWayResult);
+        }
 
         public Task<string?> PromptAsync(string title, string message, string? initial = null)
             => Task.FromResult(PromptResult);

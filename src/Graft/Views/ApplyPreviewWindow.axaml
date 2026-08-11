@@ -87,19 +87,23 @@
                 との一貫性のため明示する）。開いた直後の初期フォーカスは「適用」へ当てる
                 （AvaloniaDialogService.ConfirmAsyncが肯定的な既定ボタンへ焦点を当てるのと同じ方針。
                 入力欄が無いウィンドウのため。ApplyPreviewWindow.axaml.cs参照）。
+
+                不具合2点検（実機報告の横断チェック）: 以前は「キャンセル」「適用」の順（否定が左）
+                だったが、Windowsの作法（肯定的な選択肢が左。AvaloniaDialogServiceのクラスコメント
+                参照）に合わせ「適用」「キャンセル」の順へ直した。
             -->
-            <Button Content="キャンセル"
-                    Click="OnCancelClicked"
-                    IsCancel="True"
-                    Margin="0,0,8,0"
-                    views:HelpTip.Standard="適用を取りやめ、接ぎ木パネルに戻ります。まだ何も書き込まれていません（Esc）。"
-                    AutomationProperties.Name="適用をキャンセル" />
             <Button x:Name="ApplyConfirmButton"
                     Content="適用"
                     Click="OnApplyClicked"
                     IsDefault="True"
+                    Margin="0,0,8,0"
                     views:HelpTip.Standard="表示した内容で実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
                     AutomationProperties.Name="この内容で適用" />
+            <Button Content="キャンセル"
+                    Click="OnCancelClicked"
+                    IsCancel="True"
+                    views:HelpTip.Standard="適用を取りやめ、接ぎ木パネルに戻ります。まだ何も書き込まれていません（Esc）。"
+                    AutomationProperties.Name="適用をキャンセル" />
         </StackPanel>
     </Grid>
 </Window>

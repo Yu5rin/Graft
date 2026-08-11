@@ -69,6 +69,15 @@ public class DialogKeyboardCoverageTests : IDisposable
         apply.IsDefault.Should().BeTrue();
         cancel.IsCancel.Should().BeTrue();
         apply.IsFocused.Should().BeTrue();
+
+        // 実機不具合の回帰（不具合2の横断チェック）: 以前は「キャンセル」「適用」の順（否定が左）
+        // だった。同じStackPanel内でのボタンの並び順（Windowsの作法どおり肯定が左）を確認する。
+        var buttonRow = window.GetVisualDescendants().OfType<Button>()
+            .Where(b => Equals(b.Content, "適用") || Equals(b.Content, "キャンセル"))
+            .ToList();
+        buttonRow.Select(b => b.Content).Should().Equal(new object?[] { "適用", "キャンセル" },
+            "Windowsの作法どおり肯定的な選択肢（適用）が左に来る必要がある");
+
         AssertEscapeCloses(window);
     }
 

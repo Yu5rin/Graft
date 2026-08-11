@@ -114,6 +114,20 @@ public partial class ShellWindow
             return;
         }
 
+        // 不具合修正（実機報告）: Markdownプレビュー表示中はCtrl+Z/Ctrl+Yがどこにも
+        // 届かず、プレビューのチェックボックスON/OFFを取り消せなかった。真因・詳細は
+        // EditorPane.MarkdownPreview.cs の TryHandleMarkdownPreviewUndoRedo 参照。
+        // エクスプローラの削除の取り消し（Ctrl+Z、直下の分岐）・テキスト入力欄の取り消しは
+        // 対象外にする（そちらへフォーカスがあるときはこの分岐へ入らせない）。
+        if (e.KeyModifiers == KeyModifiers.Control && e.Key is Key.Z or Key.Y
+            && !IsTextInput(focused) && !IsDescendant(focused, ExplorerViewControl)
+            && EditorHost.Child is EditorPane markdownPane
+            && markdownPane.TryHandleMarkdownPreviewUndoRedo(redo: e.Key == Key.Y))
+        {
+            e.Handled = true;
+            return;
+        }
+
         if (inTextInput)
         {
             // Ctrl+F/H/G/W/Tab/Ctrl+//Ctrl+Space、Ctrl+Z/Y（アンドゥ/リドゥ）等は
