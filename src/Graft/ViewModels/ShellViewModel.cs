@@ -59,6 +59,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private bool _isGraftPanelOpen;
     private GraftPanelPlacementKind _graftPanelPlacement = GraftPanelPlacementKind.Bottom;
     private string? _currentProjectId;
+    // 取扱説明書機能: ツールバーの「?」ボタンをメニュー化した（ショートカット一覧・取扱説明書の
+    // 2項目）。開閉状態はPromptCopyViewModel.IsOpenと同じ考え方でTwoWayバインディングのPopupへ
+    // 直接持たせる（ShellWindow.axamlのHelpMenuPopup参照）。
+    private bool _isHelpMenuOpen;
 
     public ShellViewModel(
         Graft.Infra.AppPaths appPaths, MainViewModel graft, EditorPaneViewModel editor, IDialogService dialogs,
@@ -120,7 +124,21 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             block => block is not null && block.Plan.Operation != EntryOperation.Mkdir
                 && Graft.ProjectPane.SelectedItem is not null);
         ToggleQuickOpenCommand = new RelayCommand(() => _ = ToggleQuickOpenAsync());
-        OpenShortcutsCommand = new RelayCommand(() => RequestOpenShortcuts?.Invoke(this, EventArgs.Empty));
+        // 取扱説明書機能: メニュー内の項目を選んだら、次に開いたときに前回の選択が残らないよう
+        // メニュー自体も閉じる（PromptCopyViewModel.CopyCommandがコピー後にIsOpen=falseにするのと
+        // 同じ考え方）。F1・Ctrl+/の直接呼び出し（メニューを経由しない経路）でもfalseを立てるだけで
+        // 実害は無いため、分岐せず常に閉じる。
+        OpenShortcutsCommand = new RelayCommand(() =>
+        {
+            IsHelpMenuOpen = false;
+            RequestOpenShortcuts?.Invoke(this, EventArgs.Empty);
+        });
+        OpenManualCommand = new RelayCommand(() =>
+        {
+            IsHelpMenuOpen = false;
+            RequestOpenManual?.Invoke(this, EventArgs.Empty);
+        });
+        ToggleHelpMenuCommand = new RelayCommand(() => IsHelpMenuOpen = !IsHelpMenuOpen);
         AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
         InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
         InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
@@ -233,11 +251,33 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public ICommand ToggleQuickOpenCommand { get; }
 
     /// <summary>
-    /// Ctrl+/・ツールバーの「?」ボタン。キーボードショートカット一覧ウィンドウを開く。
-    /// テキスト入力欄・エディタにフォーカスがある間はCtrl+/がエディタの行コメント切り替えに
-    /// 使われるため（ShellWindow.Keyboard.cs）、そちらを優先しここは反応しない。
+    /// Ctrl+/・ツールバーの「?」メニュー「キーボードショートカット一覧」。
+    /// キーボードショートカット一覧ウィンドウを開く。テキスト入力欄・エディタにフォーカスがある間は
+    /// Ctrl+/がエディタの行コメント切り替えに使われるため（ShellWindow.Keyboard.cs）、
+    /// そちらを優先しここは反応しない。
     /// </summary>
     public ICommand OpenShortcutsCommand { get; }
+
+    /// <summary>
+    /// 取扱説明書機能: F1・ツールバーの「?」メニュー「取扱説明書」。利用者向け取扱説明書
+    /// ウィンドウを開く。F1はテキスト入力欄・エディタ内でも常に反応する（他の操作と衝突する
+    /// キーではないため、9.5のような「エディタの標準操作を優先する」制約が無い）。
+    /// </summary>
+    public ICommand OpenManualCommand { get; }
+
+    /// <summary>ツールバーの「?」ボタン。ショートカット一覧・取扱説明書の2項目を持つメニューの開閉。</summary>
+    public ICommand ToggleHelpMenuCommand { get; }
+
+    /// <summary>
+    /// ツールバーの「?」ボタンから開くメニュー（ショートカット一覧・取扱説明書）の開閉状態。
+    /// ShellWindow.axamlのPopup（HelpMenuPopup）へTwoWayでバインドする
+    /// （PromptCopyViewModel.IsOpenと同じ考え方）。
+    /// </summary>
+    public bool IsHelpMenuOpen
+    {
+        get => _isHelpMenuOpen;
+        set => SetProperty(ref _isHelpMenuOpen, value);
+    }
 
     /// <summary>
     /// 4.4: 検索ビューを表示したとき（サイドバーの虫眼鏡アイコン・Ctrl+Shift+Fのいずれも
@@ -248,6 +288,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>ショートカット一覧ウィンドウを開くタイミングの通知。View側（ShellWindow）が購読する。</summary>
     public event EventHandler? RequestOpenShortcuts;
+
+    /// <summary>取扱説明書ウィンドウを開くタイミングの通知。View側（ShellWindow）が購読する。</summary>
+    public event EventHandler? RequestOpenManual;
 
     /// <summary>
     /// 機能改善: エディタ本文・差分表示（通常＋履歴）のいずれかでCtrl+マウスホイールにより

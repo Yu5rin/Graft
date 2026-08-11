@@ -129,7 +129,7 @@ public class ShortcutsWindowTests : IDisposable
         closed.Should().BeTrue();
     }
 
-    [AvaloniaFact(DisplayName = "ツールバーの「?」ボタンでショートカット一覧が要求される")]
+    [AvaloniaFact(DisplayName = "ツールバーの「?」ボタン→ヘルプメニューの「キーボードショートカット一覧」でショートカット一覧が要求される")]
     public void ツールバーのボタンで一覧が要求される()
     {
         var (shell, window) = OpenShellAsync();
@@ -137,19 +137,57 @@ public class ShortcutsWindowTests : IDisposable
         var requested = false;
         shell.RequestOpenShortcuts += (_, _) => requested = true;
 
-        var button = window.GetVisualDescendants().OfType<Button>()
-            .Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "キーボードショートカット一覧を開く");
+        // 取扱説明書機能: 「?」ボタンは単機能のボタンから、ショートカット一覧・取扱説明書の
+        // 2項目を持つヘルプメニューを開くトグルボタンへ変わった（ShellWindow.axaml参照）。
+        // まずメニューを開き、その中の「キーボードショートカット一覧を開く」項目を選ぶ2段階になる。
+        var toggleButton = window.GetVisualDescendants().OfType<Button>()
+            .Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "ヘルプメニューを開く");
 
         // このボタンはClickイベントハンドラではなくCommandバインディングのため、
         // Button.ClickEventを直接RaiseEventしてもButton.OnClick（Command実行箇所）を
         // 経由しない。実際の操作と同じくフォーカス＋キーボード操作（Enter）で押させる。
-        button.Focus();
-        button.IsFocused.Should().BeTrue("フォーカスが当たっている前提の検証のため");
-        button.Command.Should().NotBeNull("Commandバインディングが外れていないことの前提確認");
+        toggleButton.Focus();
+        toggleButton.IsFocused.Should().BeTrue("フォーカスが当たっている前提の検証のため");
+        toggleButton.Command.Should().NotBeNull("Commandバインディングが外れていないことの前提確認");
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+
+        shell.IsHelpMenuOpen.Should().BeTrue("「?」ボタンを押すとヘルプメニューが開く必要がある");
+
+        var shortcutsMenuItem = window.GetVisualDescendants().OfType<Button>()
+            .Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "キーボードショートカット一覧を開く");
+        shortcutsMenuItem.Focus();
+        shortcutsMenuItem.Command.Should().NotBeNull();
         window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
 
         requested.Should().BeTrue();
+        shell.IsHelpMenuOpen.Should().BeFalse("項目を選んだらメニューは閉じる必要がある");
         CloseRealShortcutsDialogIfOpened(window);
+    }
+
+    [AvaloniaFact(DisplayName = "ツールバーの「?」ボタン→ヘルプメニューの「取扱説明書」で取扱説明書が要求される")]
+    public void ツールバーのボタンで取扱説明書が要求される()
+    {
+        var (shell, window) = OpenShellAsync();
+
+        var requested = false;
+        shell.RequestOpenManual += (_, _) => requested = true;
+
+        var toggleButton = window.GetVisualDescendants().OfType<Button>()
+            .Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "ヘルプメニューを開く");
+        toggleButton.Focus();
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+
+        shell.IsHelpMenuOpen.Should().BeTrue();
+
+        var manualMenuItem = window.GetVisualDescendants().OfType<Button>()
+            .Single(b => Avalonia.Automation.AutomationProperties.GetName(b) == "取扱説明書を開く");
+        manualMenuItem.Focus();
+        manualMenuItem.Command.Should().NotBeNull();
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+
+        requested.Should().BeTrue();
+        shell.IsHelpMenuOpen.Should().BeFalse("項目を選んだらメニューは閉じる必要がある");
+        CloseRealShortcutsDialogIfOpened(window); // 汎用実装（OwnedWindowsを辿って閉じる）のため取扱説明書ウィンドウにも使える。
     }
 
     [AvaloniaFact(DisplayName = "テキスト入力欄・エディタにフォーカスが無い間はCtrl+/で一覧が要求される")]

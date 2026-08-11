@@ -64,7 +64,7 @@ public class ShellWindowTests : IDisposable
     //
     // 以前はColumnDefinitions="Auto,*,Auto"で、プロジェクト選択ドロップダウン（列0）と
     // ボタン群（列2＝右端）の間に列1の余白（*）が挟まっていた。ボタン群をドロップダウンの
-    // すぐ右（列1）へ寄せ、余白は列2へ追い出し、「?」ショートカット一覧ボタンだけを
+    // すぐ右（列1）へ寄せ、余白は列2へ追い出し、「?」ヘルプメニューボタンだけを
     // 列3として右端に残す構成（ColumnDefinitions="Auto,Auto,*,Auto"）にした。
     // Grid.Column値はXAMLパース時に確定するため、レイアウト（Measure/Arrange）を経ずに
     // 検証できる。
@@ -83,13 +83,13 @@ public class ShellWindowTests : IDisposable
             .Single(c => Equals(AutomationProperties.GetName(c), "プロジェクトを選択"));
         var toolbarScroll = window.GetControl<ScrollViewer>("ToolbarButtonsScroll");
         var shortcutsButton = window.GetVisualDescendants().OfType<Button>()
-            .Single(b => Equals(AutomationProperties.GetName(b), "キーボードショートカット一覧を開く"));
+            .Single(b => Equals(AutomationProperties.GetName(b), "ヘルプメニューを開く"));
 
         Grid.GetColumn(projectCombo).Should().Be(0, "プロジェクト選択ドロップダウンは常に左端に見える位置を維持する");
         Grid.GetColumn(toolbarScroll).Should().Be(
             1, "操作ボタン群を包むScrollViewerはプロジェクト選択のすぐ右（左詰め）へ寄せる");
         Grid.GetColumn(shortcutsButton).Should().Be(
-            3, "ショートカット一覧はワークフローの操作ボタン群と性質が異なる補助機能のため、右端に独立させる");
+            3, "ヘルプメニューはワークフローの操作ボタン群と性質が異なる補助機能のため、右端に独立させる");
     }
 
     [AvaloniaFact(DisplayName = "課題3: 最小幅まで狭めてもコマンドバーのボタンが重ならない")]
@@ -109,7 +109,7 @@ public class ShellWindowTests : IDisposable
                 "プロジェクトのファイル一覧とコンテキスト収集を開く" or "クリップボードのパッチを解析" or
                 "現在の解析結果をパッチキューへ追加" or "パッチキューを開く" or "適用を実行" or
                 "プロンプトテンプレートを選んでコピー" or "履歴ビューを開く" or "設定を開く" or
-                "キーボードショートカット一覧を開く")
+                "ヘルプメニューを開く")
             .Select(b => (Name: AutomationProperties.GetName(b)!, Bounds: b.Bounds))
             .OrderBy(x => x.Bounds.Left)
             .ToList();
@@ -133,8 +133,8 @@ public class ShellWindowTests : IDisposable
                 $"「{buttons[i - 1].Name}」と「{buttons[i].Name}」が重なってはならない");
         }
 
-        // ショートカット一覧（「?」）は右端に寄せた列にあるため、最も右側に描画されるはず。
-        buttons[^1].Name.Should().Be("キーボードショートカット一覧を開く");
+        // ヘルプメニュー（「?」）は右端に寄せた列にあるため、最も右側に描画されるはず。
+        buttons[^1].Name.Should().Be("ヘルプメニューを開く");
     }
 
     /// <summary>

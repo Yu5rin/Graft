@@ -170,24 +170,55 @@
                 </StackPanel>
                 </ScrollViewer>
 
-                <!-- キーボードショートカット一覧。20個以上あるショートカットを利用者が
-                     発見する手段がボタン1つ分のツールチップしか無かったための追加。
-                     ワークフローの操作ボタン群（列1）とは性質が異なる補助機能のため、
-                     課題3の対応として列3（コマンドバー右端）に独立させて置く
-                     （このGrid冒頭のコメント参照）。開く手段はこのボタンとCtrl+/の2通り。
-                     x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を
-                     兼ねる。 -->
+                <!-- ヘルプメニュー（「取扱説明書」「キーボードショートカット一覧」の2項目）。
+                     元は「キーボードショートカット一覧を開く」単機能のボタンだったが、
+                     取扱説明書機能の追加に伴い2つの補助機能を1つのボタンから両方へ到達できる
+                     よう、PromptButton（プロンプトテンプレート選択）と同じ「ボタン＋Popup」の
+                     作法でメニュー化した。ワークフローの操作ボタン群（列1）とは性質が異なる
+                     補助機能のため、課題3の対応として列3（コマンドバー右端）に独立させて置く
+                     （このGrid冒頭のコメント参照）。
+                     x:Nameは不具合5対応のScrollViewer.MaxWidth計算（実測幅の参照元）を兼ねる。 -->
                 <Button x:Name="ShortcutsButton"
                         Grid.Column="3"
-                        Command="{Binding OpenShortcutsCommand}"
+                        Command="{Binding ToggleHelpMenuCommand}"
                         VerticalAlignment="Center"
                         Padding="6"
                         Background="Transparent" BorderThickness="0"
-                        views:HelpTip.Standard="キーボードショートカットの一覧を開きます（Ctrl+/）。"
-                        views:HelpTip.Detailed="Graftで使えるキーボードショートカットの一覧を開きます。マウス操作を減らして素早く作業したいときに確認してください。このボタンを押すか、キーボードでCtrl+/を押しても同じ一覧が開きます。"
-                        AutomationProperties.Name="キーボードショートカット一覧を開く">
+                        views:HelpTip.Standard="取扱説明書（F1）・キーボードショートカット一覧（Ctrl+/）を開くメニューを表示します。"
+                        views:HelpTip.Detailed="Graftの使い方をまとめた取扱説明書と、キーボードショートカットの一覧を開くためのメニューを表示します。取扱説明書はキーボードでF1を、ショートカット一覧はCtrl+/を押しても、このボタンを経由せず直接開けます。"
+                        AutomationProperties.Name="ヘルプメニューを開く">
                     <views:IconGlyph Width="16" Height="16" Data="{DynamicResource IconHelpCircleGeometry}" />
                 </Button>
+
+                <!-- ヘルプメニューの中身。PromptPopupと同じ配置作法（Placement="Bottom"・
+                     IsLightDismissEnabled・ViewModelのbool状態へTwoWayバインド）。 -->
+                <Popup x:Name="HelpMenuPopup"
+                       PlacementTarget="{Binding #ShortcutsButton}"
+                       Placement="Bottom"
+                       IsLightDismissEnabled="True"
+                       IsOpen="{Binding IsHelpMenuOpen, Mode=TwoWay}">
+                    <Border Background="{DynamicResource BgElevated}"
+                            BorderBrush="{DynamicResource BorderSubtle}"
+                            BorderThickness="1"
+                            Padding="4"
+                            MinWidth="220"
+                            AutomationProperties.Name="ヘルプメニュー">
+                        <StackPanel>
+                            <Button Content="取扱説明書"
+                                    Command="{Binding OpenManualCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Background="Transparent" BorderThickness="0"
+                                    views:HelpTip.Standard="Graftの使い方をまとめた取扱説明書を開きます（F1）。"
+                                    AutomationProperties.Name="取扱説明書を開く" />
+                            <Button Content="キーボードショートカット一覧"
+                                    Command="{Binding OpenShortcutsCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                    Background="Transparent" BorderThickness="0"
+                                    views:HelpTip.Standard="キーボードショートカットの一覧を開きます（Ctrl+/）。"
+                                    AutomationProperties.Name="キーボードショートカット一覧を開く" />
+                        </StackPanel>
+                    </Border>
+                </Popup>
 
                 <!-- 4.8.4: テンプレート選択ドロップダウン。名称の右に展開後の推定トークン数を表示する。 -->
                 <Popup x:Name="PromptPopup"

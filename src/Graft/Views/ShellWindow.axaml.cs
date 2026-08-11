@@ -113,6 +113,7 @@ public partial class ShellWindow : Window
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
         viewModel.RequestOpenShortcuts += OnRequestOpenShortcuts;
+        viewModel.RequestOpenManual += OnRequestOpenManual;
         viewModel.QuickOpen.Opened += OnQuickOpenOpened;
         viewModel.CommandPalette.Opened += OnCommandPaletteOpened;
     }
@@ -150,10 +151,20 @@ public partial class ShellWindow : Window
         _ = window.ShowDialog(this);
     }
 
-    /// <summary>Ctrl+/・ツールバーの「?」ボタン。キーボードショートカット一覧を開く（静的な内容のため専用ViewModelは持たない）。</summary>
+    /// <summary>Ctrl+/・ツールバーの「?」メニュー「キーボードショートカット一覧」。静的な内容のため専用ViewModelは持たない。</summary>
     private void OnRequestOpenShortcuts(object? sender, EventArgs e)
     {
         var window = new ShortcutsWindow();
+        _ = window.ShowDialog(this);
+    }
+
+    /// <summary>
+    /// 取扱説明書機能: F1・ツールバーの「?」メニュー「取扱説明書」。埋め込みリソースから
+    /// 読み込んだ本文を静的表示するだけのため、ShortcutsWindowと同じく専用ViewModelは持たない。
+    /// </summary>
+    private void OnRequestOpenManual(object? sender, EventArgs e)
+    {
+        var window = new ManualWindow();
         _ = window.ShowDialog(this);
     }
 

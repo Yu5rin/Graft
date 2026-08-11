@@ -104,4 +104,19 @@
     <EmbeddedResource Include="Assets\Angle-LICENSE.txt" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      取扱説明書機能: docs/取扱説明書.md を実行ファイル本体へ埋め込みリソースとして持つ。
+      理由は上のオープンソースライセンス表記と同じ（ライセンスのItemGroupのコメント参照）。
+      発行設定（PublishSingleFile=true・上のPropertyGroup参照）では発行フォルダに含める
+      ファイルを実行ファイル本体＋ネイティブDLL3つの計4ファイルへ絞り込んでおり、docsフォルダ
+      そのものは配布物に含まれない。外部ファイルとしてdocs\取扱説明書.mdをOSの既定アプリで
+      開く方式（IFileManagerLauncher再利用）だと、配布後の実機で「ファイルが見つからない」
+      事故になるため採らない。LinkでIDE上はAssets配下の他ファイルと並んで見えるようにしつつ、
+      実体はリポジトリ直下のdocs/（Views/ManualWindow.axaml.csからは
+      docs/取扱説明書.md単一の情報源として編集できる）に置いたままにする。
+    -->
+    <EmbeddedResource Include="..\..\docs\取扱説明書.md" Link="Assets\取扱説明書.md" LogicalName="Graft.Docs.取扱説明書.md" />
+  </ItemGroup>
+
 </Project>
