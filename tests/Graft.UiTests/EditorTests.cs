@@ -189,6 +189,99 @@ public class EditorTests : IDisposable
         folding.SetEnabled(true);
     }
 
+    /// <summary>
+    /// 不具合1の回帰テスト。Windows実機で
+    /// <c>System.ArgumentException: Invalid document at AvaloniaEdit.Folding.
+    /// FoldingElementGenerator.StartGeneration</c> が未処理のままアプリごと落ちた不具合の再現。
+    ///
+    /// EditorPane.axaml.cs ApplyDocumentTabと同じ順序（<c>Editor.Document</c>を先に差し替えてから
+    /// <see cref="FoldingSupport.Attach(TextDocument, string)"/>を呼ぶ）を再現し、その間に
+    /// 描画パスが割り込むケースを検証する。<see cref="FoldingSupport"/>のクラスコメント（不具合1）
+    /// のとおり修正前のコードでは実際にこのテストが
+    /// <c>System.ArgumentException: Invalid document</c>で失敗することを確認済み。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "不具合1回帰: 文書差し替えと折りたたみ再接続の間に描画が割り込んでも例外が出ない")]
+    public void 文書差し替え後の折りたたみ更新で例外が出ない()
+    {
+        var (window, editor) = CreateEditorWindow();
+        var docA = new TextDocument("if x:\n    a = 1\n    b = 2\nprint(a)\n");
+        editor.Document = docA;
+        window.Show();
+
+        using var folding = new FoldingSupport(editor);
+        folding.Attach(docA, "py");
+        using (window.CaptureRenderedFrame()) { }
+
+        var docB = new TextDocument("if y:\n    c = 3\n    d = 4\nprint(c)\n");
+        editor.Document = docB; // EditorPane.axaml.cs ApplyDocumentTabと同じ順序（先にDocumentを差し替え）
+
+        // folding.Attach(docB, ...)より前に描画パスが割り込んでも、古いFoldingManagerが
+        // 残っていてInvalid documentが飛んではならない。
+        var act = () => window.CaptureRenderedFrame()?.Dispose();
+        act.Should().NotThrow("文書差し替えと折りたたみ再接続の間で描画が走っても落ちてはならない");
+
+        folding.Attach(docB, "py");
+        act.Should().NotThrow();
+    }
+
+    /// <summary>
+    /// 不具合1の回帰テスト。再読込（<see cref="DocumentSession.ReloadAsync"/>）は同一の
+    /// <see cref="TextDocument"/>インスタンスの<c>Text</c>を書き換えるだけで<c>Editor.Document</c>
+    /// 自体は差し替わらないが、これによりデバウンスタイマー経由の再計算が走る。再計算が
+    /// 実際に発火（300msのデバウンス後）してから描画しても例外が出ないことを確認する。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "不具合1回帰: 再読込（同一文書のText差し替え）後の折りたたみ更新でも例外が出ない")]
+    public async Task 再読込後の折りたたみ更新で例外が出ない()
+    {
+        var (window, editor) = CreateEditorWindow();
+        var document = new TextDocument("if x:\n    a = 1\nprint(a)\n");
+        editor.Document = document;
+        window.Show();
+
+        using var folding = new FoldingSupport(editor);
+        folding.Attach(document, "py");
+        using (window.CaptureRenderedFrame()) { }
+
+        // DocumentSession.ReloadAsyncと同じく、同一インスタンスのTextを書き換える。
+        document.Text = "if y:\n    c = 3\n    d = 4\nprint(c)\n";
+
+        // デバウンス（300ms）が発火するまで待ってから描画する。
+        await Task.Delay(500);
+        var act = () => window.CaptureRenderedFrame()?.Dispose();
+        act.Should().NotThrow("再読込後のデバウンス経由の折りたたみ再計算で例外が出てはならない");
+    }
+
+    /// <summary>
+    /// 不具合1の回帰テスト。編集でデバウンスタイマーが動き出した直後にタブ切替（文書の差し替え）が
+    /// 起きても、古い文書向けに開始したタイマーが新しい文書のFoldingManagerへ誤って作用しないこと
+    /// （＝タイマーが確実に停止・再作成されること）を確認する。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "不具合1回帰: デバウンス待ち中に文書を差し替えても古い文書向けの再計算は走らない")]
+    public async Task デバウンス待ち中の文書差し替えで古い文書へ再計算しない()
+    {
+        var (window, editor) = CreateEditorWindow();
+        var docA = new TextDocument("if x:\n    a = 1\nprint(a)\n");
+        editor.Document = docA;
+        window.Show();
+
+        using var folding = new FoldingSupport(editor);
+        folding.Attach(docA, "py");
+        using (window.CaptureRenderedFrame()) { }
+
+        // docAを編集してデバウンスタイマーを開始させる。
+        docA.Insert(docA.TextLength, "\nprint(a)\n");
+
+        // デバウンスが完了する前に、タブ切替を模してdocBへ差し替える。
+        var docB = new TextDocument("if y:\n    c = 3\nprint(c)\n");
+        editor.Document = docB;
+        folding.Attach(docB, "py");
+
+        // 元のデバウンスタイマーが発火するはずだったタイミングまで待っても例外が出ないこと。
+        await Task.Delay(500);
+        var act = () => window.CaptureRenderedFrame()?.Dispose();
+        act.Should().NotThrow("古い文書向けに開始したデバウンスタイマーが新しい文書へ誤って作用してはならない");
+    }
+
     [AvaloniaFact(DisplayName = "単語ベース補完がプレフィックスに一致する候補を提示できる")]
     public void 単語ベース補完が例外なく動作する()
     {
