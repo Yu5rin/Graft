@@ -46,4 +46,14 @@
         <Setter Property="Margin" Value="0,0,0,10" />
     </Style>
 
+    <!--
+        課題2・3: 項目が選べない・使えない理由を添える補足文（例: トレイ非対応環境での説明）。
+        本文より小さく控えめな色にし、通常の項目説明と混同しないようにする。
+    -->
+    <Style Selector="TextBlock.fieldHint">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Margin" Value="0,-6,0,10" />
+    </Style>
+
 </Styles>

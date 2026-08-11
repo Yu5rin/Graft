@@ -13,6 +13,7 @@ public sealed class FileNodeViewModel : ObservableObject
     private FileTreeEntry _entry;
     private bool _isExpanded;
     private bool _isSelected;
+    private bool _isDropTarget;
 
     public FileNodeViewModel(FileTreeEntry entry, FileNodeViewModel? parent)
     {
@@ -76,6 +77,23 @@ public sealed class FileNodeViewModel : ObservableObject
     /// <summary>選択状態。エクスプローラの操作対象（右クリック・F2・Delete等）の基準になる。</summary>
     public bool IsSelected { get => _isSelected; set => SetProperty(ref _isSelected, value); }
 
+    /// <summary>
+    /// 外部からのドラッグ＆ドロップ取り込み中、このフォルダが現在の配置先であることを示す
+    /// （ExplorerView.axaml.csが更新する、表示専用の一時状態）。ドロップ先の視覚的フィードバック
+    /// （依頼の要件）に使う。ファイルには使わない想定だが、型としては制限しない。
+    /// </summary>
+    public bool IsDropTarget { get => _isDropTarget; set => SetProperty(ref _isDropTarget, value); }
+
+    /// <summary>
+    /// 細かいユーザビリティ改善4: このフォルダを最後に実列挙したときの、絞り込みに関わらない
+    /// 全子ノード（ディスク順）。<see cref="ExplorerViewModel"/>が
+    /// (1) 同一パスのノードインスタンスを使い回す（絞り込みで一時的にChildrenから除外されても
+    /// 展開状態等を失わないようにする）ため、および (2) ディスクを再走査せずに絞り込み条件だけを
+    /// 再適用する（<c>ApplyFilterToLevel</c>参照）ために保持する。まだ一度も実列挙していない
+    /// （プレースホルダのみの）フォルダはnull。
+    /// </summary>
+    internal List<FileNodeViewModel>? AllChildrenCache { get; set; }
+
     /// <summary>種別（フォルダ／ファイル）と除外状態を含む読み上げ用テキスト（仕様書9.4）。</summary>
     public string AutomationName
     {
@@ -103,6 +121,19 @@ public sealed class FileNodeViewModel : ObservableObject
     {
         Children.Clear();
         foreach (var child in children) Children.Add(child);
+    }
+
+    /// <summary>
+    /// 不具合2対応: 呼び出し元（<see cref="ExplorerViewModel"/>）が既に実列挙（子要素の反映）を
+    /// 済ませたうえで、この項目を展開済み表示にする。<see cref="IsExpanded"/>のsetterと異なり
+    /// <see cref="ExpandRequested"/>は発火させない（二重に列挙してしまうのを防ぐため）。
+    /// 折りたたまれたフォルダの直下に新規ファイル・フォルダを作成した直後、ツリー上に
+    /// 見えるようにする（自動展開）ために使う。
+    /// </summary>
+    public void MarkExpanded()
+    {
+        IsLoaded = true;
+        if (!_isExpanded) SetProperty(ref _isExpanded, true, nameof(IsExpanded));
     }
 
     /// <summary>次に展開されたとき改めて実列挙させる（監視イベント・更新ボタンで使う）。</summary>

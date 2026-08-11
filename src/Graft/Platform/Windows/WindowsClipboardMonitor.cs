@@ -9,8 +9,9 @@ namespace Graft.Platform.Windows;
 /// <summary>
 /// <see cref="IClipboardMonitor"/> のWindows実装。v2.0での実装元は <c>Features/ClipboardWatcher.cs</c>。
 /// <c>AddClipboardFormatListener</c> による変更検知のみを行い、ポーリングは一切行わない。
-/// 取得したテキストがブロックヘッダのパターンを含む場合のみ <see cref="PatchDetected"/> を
-/// 発火する。ロジックは移設元から変更していない。
+/// 取得したテキストがブロックヘッダのパターンを含む場合は<see cref="PatchDetected"/>を、
+/// パターンを含まないテキストだった場合は<see cref="NonPatchTextChanged"/>を発火する
+/// （11件目の不具合修正で追加。Linux実装と同じ判定・発火条件に揃えている）。
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsClipboardMonitor : IClipboardMonitor
@@ -29,6 +30,8 @@ public sealed class WindowsClipboardMonitor : IClipboardMonitor
     public bool IsEnabled { get; private set; }
 
     public event EventHandler<string>? PatchDetected;
+
+    public event EventHandler? NonPatchTextChanged;
 
     public void Attach(IntPtr hwnd)
     {
@@ -91,12 +94,18 @@ public sealed class WindowsClipboardMonitor : IClipboardMonitor
         var text = TryReadClipboardText();
         if (text is null)
         {
+            // 非テキスト（画像等）のコピーや読み取り失敗はLinux版と同じ理由で無視する
+            // （11件目の不具合修正: NonPatchTextChangedのコメント参照）。
             return;
         }
 
         if (PatchTextDetector.LooksLikePatch(text))
         {
             PatchDetected?.Invoke(this, text);
+        }
+        else
+        {
+            NonPatchTextChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 

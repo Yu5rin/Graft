@@ -1,10 +1,15 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.EditorSettingsView"
              AutomationProperties.Name="エディタ設定">
     <!--
         15章 editorセクション（12項目）・4章 コードエディタの設定タブ。
         書式は Themes/Settings.axaml のクラス。DataContextはSettingsViewModelを継承する。
+
+        即時反映方式（14章）の確定タイミングの理屈はGeneralSettingsView参照。TextBoxは
+        UpdateSourceTrigger=LostFocus＋views:TextBoxCommitBehavior.CommitOnEnterで
+        フォーカスを外した時／Enterキーでのみ確定する。
     -->
     <!--
         AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
@@ -16,40 +21,67 @@
             <TextBlock Text="表示" Classes="sectionHeading first" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="フォントサイズ" Classes="fieldLabel" />
-                <TextBox Text="{Binding EditorFontSizeText}" Width="80"
-                         AutomationProperties.Name="エディタのフォントサイズ" />
+                <TextBox Text="{Binding EditorFontSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="エディタのフォントサイズ"
+                         views:HelpTip.Standard="コード表示の文字の大きさです。既定は13です。エディタ上でCtrl+マウスホイールでも変更できます。"
+                         views:HelpTip.Detailed="中央のエディタ領域に表示するコードの文字サイズ（pt）です。既定は13です。エディタの上にカーソルを置いてCtrlキーを押しながらマウスホイールを回しても同じように変更でき、そちらで変えた値もここへ反映されます。表示だけの設定でファイルの内容には影響しません。" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="長い行を折り返す" IsChecked="{Binding EditorWordWrap}"
-                      AutomationProperties.Name="長い行を折り返す" />
+                      AutomationProperties.Name="長い行を折り返す"
+                      views:HelpTip.Standard="1行が画面幅を超えるとき、横スクロールの代わりに折り返して表示します。既定はオフです。"
+                      views:HelpTip.Detailed="オンにすると、長い1行がエディタの幅に収まらない場合に、横スクロールではなく次の行へ折り返して表示します。オフ（既定）だと折り返さず、はみ出した分は横スクロールで確認します。表示上の折り返しであり、ファイルへ改行が書き込まれるわけではありません。" />
             <CheckBox Classes="settingRow" Content="タブ・行末空白を可視化する" IsChecked="{Binding EditorShowWhitespace}"
-                      AutomationProperties.Name="タブ・行末空白を可視化する" />
+                      AutomationProperties.Name="タブ・行末空白を可視化する"
+                      views:HelpTip.Standard="タブ文字や行末の余分な空白を、点や矢印などの記号で見えるようにします。既定はオフです。"
+                      views:HelpTip.Detailed="オンにすると、タブ文字や行末に残った余分な空白が、小さな記号として画面上に表示されるようになり、意図しない空白の混入に気付きやすくなります。あくまで表示上の可視化であり、実際のファイルの内容（空白そのもの）は変わりません。" />
             <CheckBox Classes="settingRow" Content="行番号を表示する" IsChecked="{Binding EditorShowLineNumbers}"
-                      AutomationProperties.Name="行番号を表示する" />
+                      AutomationProperties.Name="行番号を表示する"
+                      views:HelpTip.Standard="エディタの左端に行番号を表示します。既定はオンです。"
+                      views:HelpTip.Detailed="エディタ左端のガター（余白）に行番号を表示するかどうかです。既定はオンです。オフにすると行番号が消え、コードの表示領域がその分だけ広くなります。" />
             <CheckBox Classes="settingRow" Content="現在行をハイライトする" IsChecked="{Binding EditorHighlightCurrentLine}"
-                      AutomationProperties.Name="現在行をハイライトする" />
+                      AutomationProperties.Name="現在行をハイライトする"
+                      views:HelpTip.Standard="カーソルがある行の背景をうっすら強調し、見失いにくくします。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、カーソルが今どの行にあるかを背景色でうっすら強調表示し、長いファイルでも今の位置を見失いにくくします。表示だけの設定です。" />
             <CheckBox Classes="settingRow" Content="行番号ガターにGitの変更状態を表示する" IsChecked="{Binding EditorGitGutter}"
-                      AutomationProperties.Name="行番号ガターにGitの変更状態を表示する" />
+                      AutomationProperties.Name="行番号ガターにGitの変更状態を表示する"
+                      views:HelpTip.Standard="行番号の左に、Gitと比較して追加・変更・削除された行を色付きの帯で示します。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、開いているファイルがGitで管理されている場合、直近のコミットと比較して追加・変更・削除された行を、行番号の左に色付きの帯で示します。プロジェクトがGitリポジトリでない場合は何も表示されません。" />
 
             <TextBlock Text="インデント" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="タブ幅（検出不能時の既定値）" Classes="fieldLabel" />
-                <TextBox Text="{Binding EditorTabSizeText}" Width="80" AutomationProperties.Name="タブ幅" />
+                <TextBox Text="{Binding EditorTabSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="タブ幅"
+                         views:HelpTip.Standard="タブ1つを何文字分の幅で表示するかです。既定は4です。ファイルから自動検出できた場合はそちらを優先します。"
+                         views:HelpTip.Detailed="タブ文字1つをエディタ上で何文字分の幅として表示するかです。既定は4です。「ファイルを開いた時点で優勢なインデントを自動検出する」がオンの場合、開いたファイルの実際のインデントから検出できればその値を優先し、検出できなかったときだけこの既定値を使います。表示上の幅の設定で、ファイルに書き込まれる文字自体は変わりません。" />
             </StackPanel>
             <CheckBox Classes="settingRow" Content="タブの代わりにスペースを挿入する（検出不能時の既定値）"
                       IsChecked="{Binding EditorInsertSpaces}"
-                      AutomationProperties.Name="タブの代わりにスペースを挿入する" />
+                      AutomationProperties.Name="タブの代わりにスペースを挿入する"
+                      views:HelpTip.Standard="Tabキーを押したときにタブ文字ではなくスペースを入力します。既定はオンです。自動検出できたファイルはそちらを優先します。"
+                      views:HelpTip.Detailed="エディタでTabキーを押したときに、タブ文字そのものではなく、上のタブ幅ぶんのスペースを挿入するかどうかです。既定はオンです。「ファイルを開いた時点で優勢なインデントを自動検出する」がオンなら、開いたファイルが実際にタブ／スペースのどちらを使っているかを優先して合わせ、検出できなかったときだけこの既定値を使います。" />
             <CheckBox Classes="settingRow" Content="ファイルを開いた時点で優勢なインデントを自動検出する"
                       IsChecked="{Binding EditorDetectIndent}"
-                      AutomationProperties.Name="ファイルのインデントを自動検出する" />
+                      AutomationProperties.Name="ファイルのインデントを自動検出する"
+                      views:HelpTip.Standard="ファイルを開いたとき、実際に使われているタブ幅・タブ/スペースを読み取って自動的に合わせます。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、ファイルを開いた瞬間に既存のコードのインデント（タブ幅・タブとスペースのどちらを使っているか）を読み取り、そのファイルを編集している間は自動的にそれへ合わせます。オフにすると、常に上の「タブ幅」「タブの代わりにスペースを挿入する」の既定値がそのまま使われます。他の人が書いたコードとインデントの流儀が揃わなくなるのを防ぐための設定です。" />
 
             <TextBlock Text="編集支援" Classes="sectionHeading" />
             <CheckBox Classes="settingRow" Content="括弧の自動閉じと対応括弧の強調を行う"
                       IsChecked="{Binding EditorAutoClosingBrackets}"
-                      AutomationProperties.Name="括弧の自動閉じと対応括弧の強調を行う" />
+                      AutomationProperties.Name="括弧の自動閉じと対応括弧の強調を行う"
+                      views:HelpTip.Standard="「(」「[」などを入力すると閉じ括弧を自動で補い、対応する括弧のペアを強調表示します。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、「(」「[」「{」などの開き括弧を入力した瞬間に対応する閉じ括弧が自動で補われ、カーソルが括弧の上にあるときは対応するペアの括弧がハイライトされます。括弧の閉じ忘れを防ぐための編集支援で、オフにすると自動補完・強調のどちらも行われなくなります。" />
             <CheckBox Classes="settingRow" Content="コードの折りたたみを有効にする" IsChecked="{Binding EditorFolding}"
-                      AutomationProperties.Name="コードの折りたたみを有効にする" />
+                      AutomationProperties.Name="コードの折りたたみを有効にする"
+                      views:HelpTip.Standard="関数やブロックの先頭にある「▽」をクリックして、中身を折りたたんで隠せるようにします。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、行番号の横に折りたたみ用の三角アイコンが表示され、クリックすると関数やブロックの中身を一時的に隠して見た目をコンパクトにできます。折りたたんでも中身のコードが消えるわけではなく、再度クリックすればいつでも展開できます。" />
             <CheckBox Classes="settingRow" Content="単語ベースの簡易補完を有効にする" IsChecked="{Binding EditorCompletion}"
-                      AutomationProperties.Name="単語ベースの簡易補完を有効にする" />
+                      AutomationProperties.Name="単語ベースの簡易補完を有効にする"
+                      views:HelpTip.Standard="入力中に、同じファイル内で既に使われている単語を候補として出します。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、文字を入力している途中で、同じファイル内に既に登場している単語（変数名や関数名など）を候補として一覧表示し、選ぶだけで残りを入力できます。言語の文法を理解した高度な補完ではなく、単純に「同じファイル内で使われた単語」を候補にする簡易的な仕組みです。" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>

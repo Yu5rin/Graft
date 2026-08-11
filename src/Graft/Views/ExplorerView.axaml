@@ -41,6 +41,17 @@
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
             <Setter Property="FontStyle" Value="Italic" />
         </Style>
+
+        <!-- 依頼「ドラッグ中に配置先が分かる視覚的フィードバック」。フォルダ1件を対象にした強調
+             （StackPanel.dropTarget、ExplorerView.axaml.csが更新するFileNodeViewModel.IsDropTarget）と、
+             どのノードにも当たらない余白（＝プロジェクトルート）へのドラッグ中を示す
+             FileTreeView.dragOverRoot（ProjectPane.axamlのListBox.dragOverと同じ作法）。 -->
+        <Style Selector="StackPanel.dropTarget">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="TreeView.dragOverRoot">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
     </UserControl.Styles>
 
     <UserControl.Resources>
@@ -51,6 +62,13 @@
             <Setter Property="Padding" Value="2,3" />
             <Setter Property="IsVisible">
                 <Setter.Value>
+                    <!--
+                        細かいユーザビリティ改善4（ファイル名絞り込み）は、ここへIsVisibleの
+                        3値目を足す方式ではなく、ExplorerViewModel側でツリーに載せるノード自体を
+                        絞り込む方式にしている（実機Xvfb環境で確認した描画上の問題を避けるため。
+                        経緯はConverters.ExcludedNodeVisibleのコメント参照）。そのためここは
+                        除外表示関連の2値のみで、絞り込み未使用時と同じ判定のままでよい。
+                    -->
                     <MultiBinding Converter="{x:Static local:Converters.ExcludedNodeVisible}">
                         <Binding Path="IsExcluded" />
                         <Binding Path="DataContext.ShowExcludedFiles" ElementName="Root" />
@@ -60,7 +78,7 @@
         </ControlTheme>
     </UserControl.Resources>
 
-    <Grid RowDefinitions="2,Auto,Auto,*">
+    <Grid RowDefinitions="2,Auto,Auto,Auto,Auto,Auto,*">
 
         <!-- 9.2: 読み込み中はアクセント色の細い不確定プログレスバーを上端に。 -->
         <ProgressBar Grid.Row="0" IsIndeterminate="True" Height="2" BorderThickness="0"
@@ -76,35 +94,119 @@
                        Foreground="{DynamicResource TextSecondary}" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button Command="{Binding NewFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
-                        ToolTip.Tip="新規ファイル" AutomationProperties.Name="新規ファイルを作成">
+                        local:HelpTip.Standard="新規ファイル"
+                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、空の新しいファイルを作成します（ファイルを選んでいる場合はその親フォルダの直下）。ファイル名を入力する欄が表示されるので、名前を付けて確定してください。拡張子（.mdなど）を付けるとその種類のファイルとして扱われますが、拡張子なしの名前（Dockerfileなど）でも作成できます。作成後は対象のフォルダが自動的に展開され、新しいファイルがツリー上で選択された状態でそのままエディタに開かれます。"
+                        AutomationProperties.Name="新規ファイルを作成">
                     <local:IconGlyph Data="{DynamicResource IconFileGeometry}" />
                 </Button>
                 <Button Command="{Binding NewFolderCommand}" Padding="4" Background="Transparent" BorderThickness="0"
-                        ToolTip.Tip="新規フォルダ" AutomationProperties.Name="新規フォルダを作成">
+                        local:HelpTip.Standard="新規フォルダ"
+                        local:HelpTip.Detailed="今選んでいるフォルダの直下に、新しい空のフォルダを作成します（ファイルを選んでいる場合はその親フォルダの直下）。フォルダ名を入力する欄が表示されるので、名前を付けて確定してください。作成後は対象のフォルダが自動的に展開され、新しいフォルダがツリー上で選択された状態になります。"
+                        AutomationProperties.Name="新規フォルダを作成">
                     <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
                 </Button>
+                <!-- 利用者の指摘「ファイルをボタンやドラッグ＆ドロップでエクスプローラーに追加できない」への対応。
+                     選んだ既存ファイルを、今選んでいるフォルダの直下へコピーで取り込む
+                     （ドラッグ＆ドロップは本Viewのコードビハインド側、ExplorerView.axaml.cs参照）。 -->
+                <Button Command="{Binding AddFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                        local:HelpTip.Standard="ファイルを追加"
+                        local:HelpTip.Detailed="外部のファイル選択ダイアログを開き、選んだ既存のファイルを今選んでいるフォルダの直下へコピーで取り込みます（ファイルを選んでいる場合はその親フォルダの直下）。元のファイルは消えず、そのまま残ります。エクスプローラのツリーへファイルやフォルダをドラッグ＆ドロップしても同じように取り込めます。取り込み先に同名の項目が既にある場合は、上書き・別名で保存・中止のいずれかを確認します。"
+                        AutomationProperties.Name="ファイルを追加">
+                    <local:IconGlyph Data="{DynamicResource IconPlusGeometry}" />
+                </Button>
                 <Button Command="{Binding RefreshCommand}" Padding="4" Background="Transparent" BorderThickness="0"
-                        ToolTip.Tip="更新" AutomationProperties.Name="ツリーを更新">
-                    <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
+                        local:HelpTip.Standard="更新"
+                        local:HelpTip.Detailed="このファイルツリーの表示を、ディスク上の最新の状態に読み込み直します。Graftの外（他のアプリやAIの適用結果）でファイルが追加・削除されたのに一覧へ反映されていないときに使います。"
+                        AutomationProperties.Name="ツリーを更新">
+                    <local:IconGlyph Data="{DynamicResource IconRefreshGeometry}" />
                 </Button>
             </StackPanel>
         </Grid>
 
-        <!-- 除外ファイルの表示トグル -->
-        <CheckBox Grid.Row="2" Content="除外ファイルを表示" Margin="12,0,8,6"
-                  IsChecked="{Binding ShowExcludedFiles, Mode=TwoWay}"
-                  AutomationProperties.Name="除外ファイルを表示する" />
+        <!-- 取り込み中（ボタン・右クリック・ドラッグ＆ドロップ共通）の進捗表示と中止ボタン。
+             大量・大きなファイルの取り込みでUIスレッドを塞がないこと自体はExplorerViewModel側
+             （FileImportService.ImportAsync、内部でTask.Run）で担保しているが、件数が多い場合に
+             利用者が状況を把握し、必要なら中止できるようにする。 -->
+        <Grid Grid.Row="2" Margin="12,0,8,6" ColumnDefinitions="*,Auto"
+              IsVisible="{Binding IsImporting}">
+            <TextBlock Grid.Column="0" Text="{Binding ImportProgressText}" VerticalAlignment="Center"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       AutomationProperties.Name="取り込みの進捗" />
+            <Button Grid.Column="1" Content="中止" Command="{Binding CancelImportCommand}"
+                    Padding="6,0" Margin="4,0,0,0" Background="Transparent" BorderThickness="0"
+                    local:HelpTip.Standard="取り込みを中止します。ここまでにコピー済みのファイルはそのまま残ります。"
+                    AutomationProperties.Name="取り込みを中止" />
+        </Grid>
 
-        <Grid Grid.Row="3">
+        <!-- 除外ファイルの表示トグル -->
+        <CheckBox Grid.Row="3" Content="除外ファイルを表示" Margin="12,0,8,6"
+                  IsChecked="{Binding ShowExcludedFiles, Mode=TwoWay}"
+                  AutomationProperties.Name="除外ファイルを表示する"
+                  local:HelpTip.Standard="node_modulesなど、通常は隠しているファイル・フォルダも一覧に表示します。既定はオフです。"
+                  local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイル」画面）には影響しません。既定はオフです。" />
+
+        <!--
+            細かいユーザビリティ改善4: ファイル名絞り込み。Ctrl+Pのクイックオープン（「開く」ため）
+            とは別物で、こちらはツリー上の表示そのものを絞り込む（ExplorerViewModel.FilterText参照）。
+            HistoryPane.axamlの全文検索ボックス（アイコン+TextBox）と同じ見た目に揃え、
+            入力があるときだけ「×」で解除できるボタンを添える。
+        -->
+        <Grid Grid.Row="4" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto">
+            <local:IconGlyph Grid.Column="0"
+                             Data="{DynamicResource IconSearchGeometry}"
+                             Width="14" Height="14"
+                             Margin="4,0,4,0"
+                             Stroke="{DynamicResource TextSecondary}" />
+            <TextBox x:Name="FilterBox"
+                     Grid.Column="1"
+                     Text="{Binding FilterText}"
+                     Watermark="ファイル名で絞り込み"
+                     AutomationProperties.Name="ファイル名でツリーを絞り込む"
+                     local:HelpTip.Standard="入力した文字を名前に含むファイルだけをツリーに表示します。一致したファイルの親フォルダは自動的に展開されます。"
+                     local:HelpTip.Detailed="ツリー上のファイルを、名前に入力した文字を含むものだけへ絞り込みます。Ctrl+Pのクイックオープンは「ファイルを開く」ための一覧ですが、こちらは「ツリーで眺める」ための絞り込みで、選んでも何も開きません。一致したファイルの親フォルダは自動的に展開され、絞り込みを空にすると元の展開状態へ戻ります。大きなプロジェクトでも入力のたびに固まらないよう、入力を少し待ってから検索します。" />
+            <Button Grid.Column="2"
+                    Content="×"
+                    Command="{Binding ClearFilterCommand}"
+                    Padding="6,0"
+                    Margin="4,0,0,0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsVisible="{Binding HasFilterText}"
+                    AutomationProperties.Name="絞り込みを解除"
+                    ToolTip.Tip="絞り込みを解除します" />
+        </Grid>
+
+        <!-- 一致0件・一部のみ表示（上限到達）の注記。 -->
+        <TextBlock Grid.Row="5" Margin="30,0,8,4"
+                   Text="一致するファイルがありません"
+                   FontSize="{DynamicResource CaptionFontSize}"
+                   Foreground="{DynamicResource TextSecondary}"
+                   IsVisible="{Binding FilterHasNoMatches}" />
+        <TextBlock Grid.Row="5" Margin="30,0,8,4"
+                   Text="一致件数が多いため一部のみ表示しています"
+                   FontSize="{DynamicResource CaptionFontSize}"
+                   Foreground="{DynamicResource TextSecondary}"
+                   IsVisible="{Binding FilterTruncated}" />
+
+        <Grid Grid.Row="6">
+            <!--
+                課題2: Focusable="True"を明示する（既定はItemsControl由来でFalse）。削除・削除の
+                取り消し直後はツリーの再構築（ExplorerViewModel.ReconcileDirectoryAsync/
+                RefreshAsync）で選択中の項目のコンテナが作り直されてフォーカスを失うため、
+                ExplorerView.axaml.cs（OnFocusRequested）がこのTreeView自体へフォーカスを戻す。
+                そのための受け皿としてTreeView自身がフォーカスを持てるようにしておく必要がある。
+            -->
             <TreeView x:Name="FileTreeView"
                       ItemsSource="{Binding RootNodes}"
                       SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
                       ItemContainerTheme="{StaticResource FileTreeItemTheme}"
                       Background="Transparent" BorderThickness="0"
+                      Focusable="True"
                       AutomationProperties.Name="ファイルツリー">
                 <TreeView.ContextMenu>
                     <ContextMenu>
-                        <MenuItem Header="開く"
+                        <MenuItem Header="開く (Enter)"
                                   Command="{Binding OpenCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="開く" />
@@ -117,6 +219,11 @@
                                   Command="{Binding NewFolderCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="新規フォルダを作成" />
+                        <MenuItem Header="ここにファイルを追加..."
+                                  Command="{Binding AddFileCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  local:HelpTip.Standard="ファイル選択ダイアログで選んだ既存のファイルを、ここ（フォルダを右クリックした場合はそのフォルダ、ファイルを右クリックした場合はその親フォルダ）へコピーで取り込みます。"
+                                  AutomationProperties.Name="ここにファイルを追加" />
                         <Separator />
                         <MenuItem Header="名前の変更 (F2)"
                                   Command="{Binding RenameCommand}"
@@ -126,6 +233,18 @@
                                   Command="{Binding DeleteCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="ごみ箱へ削除" />
+                        <MenuItem Header="削除を元に戻す (Ctrl+Z)"
+                                  Command="{Binding UndoDeleteCommand}"
+                                  local:HelpTip.Standard="直前にこのエクスプローラから削除した項目を元の場所へ戻します"
+                                  local:HelpTip.Detailed="直前にこのエクスプローラから削除したファイルまたはフォルダを、Graftが退避しておいた内容から元の場所へ書き戻します。Ctrl+Z（エクスプローラにフォーカスがあるとき）でも同じ操作ができます。連続で削除した場合は、新しい方から順に1件ずつ戻ります。復元先に同名の項目が既にある場合は上書きせず、失敗として通知します。"
+                                  AutomationProperties.Name="削除を元に戻す" />
+                        <Separator />
+                        <MenuItem Header="このファイルの変更履歴"
+                                  Command="{Binding ShowFileHistoryCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  local:HelpTip.Standard="このファイルに関わるリビジョンだけに絞り込んで、履歴ビューに一覧表示します。"
+                                  local:HelpTip.Detailed="サイドバーの履歴ビューを開き、このファイルの変更を含むリビジョンだけに絞り込んで一覧表示します。一覧から1件選ぶと、通常の履歴と同じくそのリビジョンでのこのファイルの差分をタブで確認できます。フォルダには使えません。絞り込みは履歴ビュー上部のバナーの「×」でいつでも解除できます。"
+                                  AutomationProperties.Name="このファイルの変更履歴を表示" />
                         <Separator />
                         <MenuItem Header="パスをコピー"
                                   Command="{Binding CopyPathCommand}"
@@ -139,7 +258,11 @@
                 </TreeView.ContextMenu>
                 <TreeView.ItemTemplate>
                     <TreeDataTemplate DataType="vm:FileNodeViewModel" ItemsSource="{Binding Children}">
-                        <StackPanel Orientation="Horizontal" Margin="2,2">
+                        <!-- 依頼「ドラッグ中に配置先が分かる視覚的フィードバック」。ExplorerView.axaml.csが
+                             ドラッグ中のポインタ位置から配置先フォルダを判定し、そのノードの
+                             IsDropTargetだけをtrueにする。 -->
+                        <StackPanel Orientation="Horizontal" Margin="2,2"
+                                    Classes.dropTarget="{Binding IsDropTarget}">
                             <local:IconGlyph Data="{DynamicResource IconFolderGeometry}"
                                              Classes="treeIcon" Classes.excluded="{Binding IsExcluded}"
                                              IsVisible="{Binding ShowFolderIcon}" />
@@ -159,6 +282,14 @@
                 <TreeView.KeyBindings>
                     <KeyBinding Gesture="F2" Command="{Binding RenameCommand}" CommandParameter="{Binding SelectedNode}" />
                     <KeyBinding Gesture="Delete" Command="{Binding DeleteCommand}" CommandParameter="{Binding SelectedNode}" />
+                    <!--
+                        課題2: 削除の取り消し。F2/Deleteと同じ仕組み（バブリング段階のKeyBindings）で、
+                        ツリー（またはその子孫）にフォーカスがあるときだけ発火する。ShellWindow.Keyboard.cs
+                        （トンネリング段階）側は、フォーカスがエクスプローラのペイン内にあるプレーンな
+                        Ctrl+Zをここまで素通りさせるよう明示的に除外している（エディタのCtrl+Z＝
+                        テキスト取り消しとは別経路のため衝突しない）。
+                    -->
+                    <KeyBinding Gesture="Ctrl+Z" Command="{Binding UndoDeleteCommand}" />
                     <KeyBinding Gesture="Enter" Command="{Binding OpenCommand}" CommandParameter="{Binding SelectedNode}" />
                 </TreeView.KeyBindings>
             </TreeView>

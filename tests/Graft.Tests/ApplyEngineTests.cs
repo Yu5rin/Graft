@@ -364,4 +364,104 @@ public class ApplyEngineTests
         keepContent.Should().Be("original\n",
             "失敗時は同一適用内で先に成功していたkeep.txtへの変更もロールバックされているはず（仕様書6.1・6.3）");
     }
+
+    // ------------------------------------------------------------------
+    // 不具合1: 適用の成功後に7.4の世代管理が実際に呼ばれること
+    // （RevisionStore.EnforceRetentionAsync自体は既存テストで直接検証済みのため、
+    // ここではApplyEngine.ApplyAsyncを経由した「呼び出し元の配線」自体を検証する）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "不具合1: ApplyAsyncは適用成功後に世代管理を実行し、maxRevisionsを超えた古いリビジョンを削除する")]
+    public async Task 適用成功後に世代管理が自動で実行される()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        harness.WriteProjectText("value.txt", "value1\n");
+        var settings = new Graft.Infra.Settings
+        {
+            Backup = new Graft.Infra.BackupSettings { MaxRevisions = 2, MaxTotalMB = 0, UseRecycleBin = false },
+        };
+
+        var values = new[] { ("value1", "value2"), ("value2", "value3"), ("value3", "value4") };
+        var revision = 1;
+        foreach (var (from, to) in values)
+        {
+            var ctx = harness.MakeContext(revision, settings);
+            var dryRun = await harness.DryRunAsync(BuildSrPatch("value.txt", from, to), ctx);
+            var apply = await harness.ApplyAsync(dryRun, ctx);
+            apply.IsSuccess.Should().BeTrue(string.Join(",", apply.Issues.Select(i => i.ToDisplayText())));
+            revision++;
+        }
+
+        var projectBackupDir = harness.Paths.GetProjectBackupDirectory(harness.ProjectId);
+        Directory.EnumerateDirectories(projectBackupDir).Should().HaveCount(2,
+            "maxRevisions=2で3回適用したので、世代管理が呼ばれていれば実体フォルダは2件だけ残るはず" +
+            "（不具合修正前はEnforceRetentionAsyncの呼び出し元が存在せず、3件とも残ってしまっていた）");
+
+        var remaining = await harness.Revisions.ListAsync(harness.ProjectId);
+        remaining.Value.Where(r => r.IsRestorable).Select(r => r.Manifest.Revision)
+            .Should().BeEquivalentTo(new[] { 2, 3 }, "削除されるのは最も古いr1で、新しい2件が残るはず");
+    }
+
+    // ------------------------------------------------------------------
+    // 課題1: マッチング設定の実行中反映（UpdateMatchOptions）
+    // ApplyEngine内部のMatchEngineはコンストラクタで固定される不変オブジェクトのため、
+    // ApplyContext.Settings.Matchingを差し替えるだけでは実際の挙動は変わらない
+    // （呼び出し元・MainViewModelはこのUpdateMatchOptionsを設定変更のたびに呼んでいる。
+    // MainViewModel.ApplySettingsNow参照）。ここではApplyEngine単体でその配線を検証する。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "課題1: UpdateMatchOptionsを呼ぶと、次のドライランから新しいマッチング設定が使われる")]
+    public async Task UpdateMatchOptionsは次のドライランに反映される()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        harness.WriteProjectText("order.py",
+            "def validate_order(order):\n" +
+            "    if order is None:\n" +
+            "        return False\n" +
+            "    if not order.items:\n" +
+            "        return False\n" +
+            "    if order.total <= 0:\n" +
+            "        return False\n" +
+            "    return True\n");
+
+        // SEARCHは実ファイルの内容とわずかに異なる（"< 0" vs "<= 0"、末尾行が違う）ため、
+        // 段階1〜4（完全一致・空白無視・インデント無視）では一致せず、段階5（類似度）だけが
+        // 一致しうる入力にする（tests/Graft.Tests/MatchEngineTestsの類似度テストと同じ形）。
+        var patchText = BuildSrPatch("order.py",
+            "    if order is None:\n" +
+            "        return False\n" +
+            "    if not order.items:\n" +
+            "        return False\n" +
+            "    if order.total < 0:\n" +
+            "        return False\n" +
+            "    return True",
+            "    if order is None:\n        raise ValueError(\"invalid order\")");
+
+        // 既定相当（AllowSimilarityMatch=true）では段階5でマッチし、要確認扱いで適用可能。
+        var settings1 = new Graft.Infra.Settings
+        {
+            Matching = new Graft.Infra.MatchingSettings { SimilarityThreshold = 0.85, AllowSimilarityMatch = true },
+        };
+        var ctx1 = harness.MakeContext(1, settings1);
+        var dryRun1 = await harness.DryRunAsync(patchText, ctx1);
+        var plan1 = dryRun1.Plans.Single(p => p.Path == "order.py");
+        plan1.CanApply.Should().BeTrue("あいまい一致ONでは段階5マッチが成立し適用可能なはず");
+        plan1.NeedsConfirmation.Should().BeTrue("段階5マッチは要確認扱いになるはず");
+
+        // 課題1本体: MatchEngineが構築時に固定するため、ctx.Settings.Matchingを変えただけでは
+        // 効かない。UpdateMatchOptionsを呼んで初めて反映される。
+        harness.Engine.UpdateMatchOptions(new MatchOptions { SimilarityThreshold = 0.85, AllowSimilarityMatch = false });
+
+        var settings2 = new Graft.Infra.Settings
+        {
+            Matching = new Graft.Infra.MatchingSettings { SimilarityThreshold = 0.85, AllowSimilarityMatch = false },
+        };
+        var ctx2 = harness.MakeContext(1, settings2);
+        var dryRun2 = await harness.DryRunAsync(patchText, ctx2);
+        var plan2 = dryRun2.Plans.Single(p => p.Path == "order.py");
+        plan2.CanApply.Should().BeFalse("UpdateMatchOptionsであいまい一致をOFFにした後は段階5を試さずE101になるはず");
+        plan2.Issues.Should().Contain(i => i.Code == ErrorCode.E101);
+    }
 }

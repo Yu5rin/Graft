@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Windows.Input;
 using Graft.Core;
 using Graft.Infra;
 using Graft.Platform;
@@ -11,7 +10,9 @@ namespace Graft.ViewModels;
 /// 1回の <see cref="Load"/> はブロック1件分の差分を表示する。他担当（ブロック一覧側）は
 /// このクラスの <see cref="Load"/> / <see cref="Clear"/> / <see cref="IsIncluded"/> を通じて連携する。
 /// 4.8のdiffジャンプ（<see cref="JumpRequested"/> / <see cref="RequestJump"/>）は
-/// 1ファイル400行上限のため <c>DiffViewModel.Jump.cs</c> に分割する。
+/// 1ファイル400行上限のため <c>DiffViewModel.Jump.cs</c> に分割する。並列／統合表示の
+/// 切り替え（<see cref="IsSideBySide"/>）と行組み立ては同じ理由で <c>DiffViewModel.SideBySide.cs</c>
+/// に分割する。
 /// </summary>
 public sealed partial class DiffViewModel : ObservableObject
 {
@@ -20,7 +21,10 @@ public sealed partial class DiffViewModel : ObservableObject
     private const double MinCodeFontSize = 8;
     private const double MaxCodeFontSize = 32;
 
-    private readonly Settings _settings;
+    // 課題1: 構築時に固定するとMainViewModelのDiff構築（設定読み込み前）で渡した既定値の
+    // ままになってしまうため（従来はWordWrap/ShowWhitespaceだけ個別に上書きしていた）、
+    // readonlyにせずUpdateSettings経由で差し替え可能にしておく。
+    private Settings _settings;
     private readonly IUiServices _ui;
 
     private BlockPlan? _plan;
@@ -44,19 +48,53 @@ public sealed partial class DiffViewModel : ObservableObject
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _wordWrap = settings.Diff.WordWrap;
         _showWhitespace = settings.Diff.ShowWhitespace;
+        // 機能改善（差分の左右並列表示）: 初期値はSettings.Diff.SideBySideから読む。
+        // ここではまだLines等が空のためRebuildRows・SideBySideChangeCommittedは不要（コンストラクタで
+        // フィールドへ直接設定するだけに留め、IsSideBySideのsetterは通さない。setterを通すと
+        // 構築時にもSideBySideChangeCommittedが飛んでしまい、設定の読み込みを「ユーザー操作」と
+        // 誤認して保存経路に載せてしまう）。
+        _isSideBySide = settings.Diff.SideBySide;
+        // 機能改善: エディタ本文と差分表示は同じSettings.Editor.FontSizeを共有する
+        // （UpdateSettingsのコメント参照）。
+        _codeFontSize = Math.Clamp(settings.Editor.FontSize, MinCodeFontSize, MaxCodeFontSize);
+        InitializeContextMenuCommands(); // C: 右クリックメニュー用コマンド（DiffViewModel.ContextMenu.cs）。
     }
 
     /// <summary>要確認ブロックの適用可否（8.7）。ブロック一覧側が読み書きして反映する。</summary>
     public bool IsIncluded { get => _isIncluded; set => SetProperty(ref _isIncluded, value); }
 
-    /// <summary>並列表示（既定）か統合表示か。</summary>
-    public bool IsSideBySide { get => _isSideBySide; set { if (SetProperty(ref _isSideBySide, value)) RebuildRows(); } }
+    // IsSideBySide・SideBySideChangeCommitted・並列／統合表示の行組み立ては
+    // 1ファイル400行上限のため DiffViewModel.SideBySide.cs に分割する。
 
     /// <summary>長い行を折り返すかどうか（8.13）。</summary>
     public bool WordWrap { get => _wordWrap; set => SetProperty(ref _wordWrap, value); }
 
     /// <summary>空白文字（タブ・行末空白）を可視化するかどうか（8.13）。</summary>
     public bool ShowWhitespace { get => _showWhitespace; set => SetProperty(ref _showWhitespace, value); }
+
+    /// <summary>
+    /// 課題1: 設定画面での変更（MainViewModel.UpdateSettings経由）・起動時の初回読み込みの
+    /// 両方から呼ぶ。折り返し・空白表示・行番号表示は、いま画面に表示中のdiffの見た目
+    /// そのものなので、再読み込みなしにその場で反映する（要件: 既に開いている画面への反映）。
+    /// シンタックスハイライトの有効可否（PrepareSyntaxが使う）・マッチング設定
+    /// （BuildInlineEditsが使う）は、いま表示中の内容を裏で作り直すことはせず、次に
+    /// <see cref="Load"/>されるブロックから新しい値が効く（どちらも1ブロックぶんの表示を
+    /// 組み立てる際に一度だけ参照する値のため、都度作り直すコストを払ってまで
+    /// 表示中のものを即座に再構築する必要は無い）。
+    ///
+    /// 機能改善: <see cref="CodeFontSize"/>もエディタ本文と共有するSettings.Editor.FontSizeから
+    /// その場で反映する。<see cref="FontSizeChangeCommitted"/>は発火しない（EditorPaneViewModel.
+    /// UpdateSettingsと同じ理由。ここでの反映は既に確定済みの値を映すだけのため）。
+    /// </summary>
+    public void UpdateSettings(Settings settings)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        WordWrap = settings.Diff.WordWrap;
+        ShowWhitespace = settings.Diff.ShowWhitespace;
+        ApplySideBySideFromSettings(settings.Diff.SideBySide);
+        CodeFontSize = settings.Editor.FontSize;
+        OnPropertyChanged(nameof(ShowLineNumbers));
+    }
 
     /// <summary>すべての省略範囲を展開するトグル（8.13）。</summary>
     public bool IsFullyExpanded { get => _isFullyExpanded; set { if (SetProperty(ref _isFullyExpanded, value)) RebuildRows(); } }
@@ -76,6 +114,24 @@ public sealed partial class DiffViewModel : ObservableObject
         get => _codeFontSize;
         set => SetProperty(ref _codeFontSize, Math.Clamp(value, MinCodeFontSize, MaxCodeFontSize));
     }
+
+    /// <summary>
+    /// 機能改善: DiffView.axaml.csがCtrl+マウスホイールを検知したときに呼ぶ。
+    /// EditorPaneViewModel.AdjustFontSizeと同じ考え方（値の即時反映＋確定通知の発火を分離）。
+    /// </summary>
+    public void AdjustCodeFontSize(double delta)
+    {
+        CodeFontSize += delta;
+        FontSizeChangeCommitted?.Invoke(this, CodeFontSize);
+    }
+
+    /// <summary>
+    /// 機能改善: 差分表示側でのCtrl+マウスホイールでの変更の確定通知。エディタ本文と設定を
+    /// 共有するため、ShellViewModel経由でEditorPaneViewModel.FontSizeと同期させ、
+    /// 設定への永続化（SettingsViewModelのデバウンス保存）へ乗せる
+    /// （EditorPaneViewModel.FontSizeChangeCommittedのコメント参照）。
+    /// </summary>
+    public event EventHandler<double>? FontSizeChangeCommitted;
 
     /// <summary>段階5（類似度）でマッチした要確認ブロックかどうか（8.7）。</summary>
     public bool NeedsConfirmation => _plan?.NeedsConfirmation ?? false;
@@ -315,86 +371,4 @@ public sealed partial class DiffViewModel : ObservableObject
         }
     }
 
-    // ------------------------------------------------------------------
-    // 8.7 並列／統合表示
-    // ------------------------------------------------------------------
-
-    private void RebuildRows()
-    {
-        Lines.Clear();
-        var entries = IsFullyExpanded
-            ? EnsureFullFlat().Select(l => new FlatEntry(l, -1)).ToList()
-            : ApplyExpansions();
-
-        var rows = IsSideBySide ? BuildSideBySideRows(entries) : BuildUnifiedRows(entries);
-        foreach (var row in rows) Lines.Add(row);
-    }
-
-    private List<DiffLineViewModel> BuildUnifiedRows(List<FlatEntry> entries)
-    {
-        var rows = new List<DiffLineViewModel>(entries.Count);
-        foreach (var entry in entries)
-        {
-            var command = entry.OmittedKey >= 0 ? MakeExpandCommand(entry.OmittedKey) : null;
-            rows.Add(new DiffLineViewModel(MakeCell(entry.Line), right: null, command));
-        }
-        return rows;
-    }
-
-    // 連続する削除行の並びと、それに続く連続する追加行の並びを同数ぶんだけ突き合わせて
-    // ペア行を作る（DiffBuilder.ApplyInlineSpansと同じ考え方）。変更なし・省略行は単独行として扱う。
-    private List<DiffLineViewModel> BuildSideBySideRows(List<FlatEntry> entries)
-    {
-        var rows = new List<DiffLineViewModel>();
-        var i = 0;
-        while (i < entries.Count)
-        {
-            var kind = entries[i].Line.Kind;
-            if (kind != DiffLineKind.Removed && kind != DiffLineKind.Added)
-            {
-                AddPairedRow(rows, entries[i], entries[i]);
-                i++;
-                continue;
-            }
-
-            i = AppendChangeBlock(rows, entries, i);
-        }
-        return rows;
-    }
-
-    private int AppendChangeBlock(List<DiffLineViewModel> rows, List<FlatEntry> entries, int start)
-    {
-        var i = start;
-        var removedStart = i;
-        while (i < entries.Count && entries[i].Line.Kind == DiffLineKind.Removed) i++;
-        var removedCount = i - removedStart;
-
-        var addedStart = i;
-        while (i < entries.Count && entries[i].Line.Kind == DiffLineKind.Added) i++;
-        var addedCount = i - addedStart;
-
-        var max = Math.Max(removedCount, addedCount);
-        for (var k = 0; k < max; k++)
-        {
-            FlatEntry? left = k < removedCount ? entries[removedStart + k] : null;
-            FlatEntry? right = k < addedCount ? entries[addedStart + k] : null;
-            AddPairedRow(rows, left, right);
-        }
-        return i;
-    }
-
-    private void AddPairedRow(List<DiffLineViewModel> rows, FlatEntry? left, FlatEntry? right)
-    {
-        var leftCell = left is { } l ? MakeCell(l.Line) : null;
-        var rightCell = right is { } r ? MakeCell(r.Line) : null;
-        if (leftCell is null && rightCell is null) return;
-
-        var omittedKey = left is { OmittedKey: >= 0 } lo ? lo.OmittedKey
-            : right is { OmittedKey: >= 0 } ro ? ro.OmittedKey : -1;
-        var command = omittedKey >= 0 ? MakeExpandCommand(omittedKey) : null;
-
-        rows.Add(new DiffLineViewModel(leftCell ?? DiffCellViewModel.Blank, rightCell ?? DiffCellViewModel.Blank, command));
-    }
-
-    private ICommand MakeExpandCommand(int omittedIndex) => new RelayCommand(() => ExpandOmitted(omittedIndex));
 }

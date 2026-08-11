@@ -1,0 +1,75 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Graft.Views"
+        x:Class="Graft.Views.ManualWindow"
+        Title="取扱説明書"
+        Width="820" Height="680"
+        MinWidth="480" MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        Foreground="{DynamicResource TextPrimary}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        AutomationProperties.Name="取扱説明書">
+    <!--
+        取扱説明書機能: F1・ツールバーの「?」メニュー「取扱説明書」から開く専用ウィンドウ。
+        ShortcutsWindow・LogViewerWindow・OpenSourceLicensesWindowと同じく、静的な内容の
+        表示が主体のためViewModelは持たず、本文はコードビハインド（ManualWindow.axaml.cs）が
+        埋め込みリソースから読み込む。
+
+        利用者からの指摘対応: 本文はMarkdown（docs/取扱説明書.md）そのままのプレーンテキスト
+        表示だったが、装飾して見出し・箇条書き・表などが視覚的に分かるようにしてほしいという
+        指摘を受けた。専用のMarkdownレンダリングライブラリは追加せず（依存を最小限に保つ方針。
+        Graft.csproj参照）、実際にdocs/取扱説明書.mdで使われている記法だけを対象にした自前の
+        簡易パーサ（ManualMarkdownRenderer）でAvalonia標準コントロールへ組み立てる
+        （詳細はManualMarkdownRenderer.csのクラスコメント参照）。
+
+        本文は選択してコピーできる必要がある（説明書の一部を引用したい場面があるため）ため、
+        各段落・見出し・リスト項目・表のセルはいずれもSelectableTextBlockで構築する
+        （マウスでの範囲選択・部分コピーが効く）。「コピー」ボタンは従来どおり生のMarkdown
+        全文をクリップボードへコピーする（表示上の装飾を含まないプレーンテキストの方が
+        テキストエディタなどへの貼り付けや引用に扱いやすいため）。
+    -->
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Margin="16,16,16,8">
+            <TextBlock Text="取扱説明書"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}" />
+            <TextBlock Text="Graftの使い方をまとめた説明書です。この内容はアプリ本体に同梱されているため、インターネット接続の無い環境でも読めます。"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       TextWrapping="Wrap"
+                       Margin="0,4,0,0" />
+        </StackPanel>
+
+        <Border Grid.Row="1" Margin="16,0,16,8"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1">
+            <ScrollViewer x:Name="ManualContentScroll"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <!-- 見出し・段落・リスト・コードブロック・表などの各ブロックは、
+                     コードビハインドがManualMarkdownRendererで組み立ててここへ追加する
+                     （ShortcutsWindow.axamlのShortcutListPanelと同じ構成）。 -->
+                <StackPanel x:Name="ManualContentPanel" Margin="16,12" />
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">
+            <Button Content="コピー" Click="OnCopyClicked" Margin="0,0,8,0"
+                    AutomationProperties.Name="取扱説明書の内容をコピー"
+                    local:HelpTip.Standard="表示している取扱説明書の全文をクリップボードへコピーします。"
+                    local:HelpTip.Detailed="上に表示されている取扱説明書の全文をクリップボードへコピーします。テキストエディタなどへ貼り付けて手元に保存したいときや、一部を引用したいときに使ってください。本文中でマウスで範囲選択して部分的にコピーすることもできます。" />
+            <!--
+                細かいユーザビリティ改善5（ダイアログのキー操作総点検）と同じ作法: 唯一の操作
+                「閉じる」をEnterでも実行できる既定ボタンにし、開いた直後の初期フォーカスもここへ
+                当てる（上の本文は読み取り専用の閲覧用でありユーザーが入力する欄ではないため）。
+            -->
+            <Button x:Name="CloseButton" Content="閉じる" Click="OnCloseClicked" IsDefault="True"
+                    AutomationProperties.Name="閉じる"
+                    local:HelpTip.Standard="このウィンドウを閉じます。"
+                    local:HelpTip.Detailed="取扱説明書のウィンドウを閉じます。Escapeキーでも閉じられます。" />
+        </StackPanel>
+    </Grid>
+</Window>

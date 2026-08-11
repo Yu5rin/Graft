@@ -59,6 +59,50 @@ public static class Converters
     public static readonly IValueConverter IndentToMargin =
         new FuncValueConverter<int, Thickness>(level => new Thickness(level * 16.0, 2, 0, 2));
 
+    /// <summary>
+    /// 不具合5対応（ShellWindow.axamlのコマンドバー）: ウィンドウ幅からプロジェクト選択
+    /// ComboBox・設定ボタン・ショートカット一覧ボタン（「?」）の実測幅（Bounds.Width）を
+    /// 差し引き、操作ボタン列を包むScrollViewerのMaxWidthに使う。
+    /// <para>
+    /// GridのAuto/*列やDockPanelのLastChildFillにScrollViewerを置いて「残り幅」を
+    /// 自動計算させる方法は、実機検証でウィンドウが最小幅まで縮んだ場合に正しく機能しない
+    /// （ScrollViewerが実際の残り幅を受け取れず、内容が画面外へあふれたままクリップされない）
+    /// ことを確認したため、ウィンドウ幅からの直接計算に切り替えた。
+    /// </para>
+    /// <para>
+    /// 当初はComboBoxの実測幅を使わず「360px想定の最大幅＋左右マージン24px＋予備36px＝420px」
+    /// という固定の見込み値で差し引く簡易な近似だった。その後コマンドバーの列構成が
+    /// Auto,*,AutoからAuto,Auto,*,Auto（ショートカット一覧ボタン用の列が独立）へ変わり、
+    /// 固定値420pxがショートカットボタン分の幅を含んでいないため成り立たなくなった。
+    /// 列が増えるたびに固定値を数え直すのは保守性が低いため、ComboBoxとショートカット
+    /// ボタンそれぞれのBounds.Width（実測値）をMultiBindingで受け取り、そこから動的に
+    /// 差し引く方式へ変更した。
+    /// </para>
+    /// <para>
+    /// 「設定は右端に」という利用者からの指摘で設定ボタンをワークフロー側（列1）から
+    /// 右端グループ（列3、ショートカット一覧ボタンと同じ列）へ移した際、右端グループの
+    /// 実測幅が設定ボタンの分だけ増えたため、差し引く対象も1つ増やした（comboWidthと
+    /// shortcutsWidthの間にsettingsWidthを追加）。差し引けないのはGridの左右マージン
+    /// （12px×2）とボタン列の左マージン（12px）だけで、これはレイアウト上の固定余白であり
+    /// 内容量に応じて変動しないため、定数として残しても近似誤差にはならない。
+    /// </para>
+    /// </summary>
+    public static readonly IMultiValueConverter ToolbarButtonsMaxWidth =
+        new FuncMultiValueConverter<double, double>(values =>
+        {
+            var list = values.ToList();
+            var windowWidth = list.Count > 0 ? list[0] : 0;
+            var comboWidth = list.Count > 1 ? list[1] : 0;
+            var settingsWidth = list.Count > 2 ? list[2] : 0;
+            var shortcutsWidth = list.Count > 3 ? list[3] : 0;
+
+            // Gridの左右マージン12px×2＋ボタン列の左マージン12px＝36px。
+            // 実測できないレイアウト上の固定余白のみ定数として残す。
+            const double fixedMargins = 36;
+
+            return Math.Max(0, windowWidth - comboWidth - settingsWidth - shortcutsWidth - fixedMargins);
+        });
+
     /// <summary>trueなら残り幅いっぱい（1*）、falseなら0。差分ビューの片側折りたたみ用。</summary>
     public static readonly IValueConverter BoolToStarGridLength =
         new FuncValueConverter<bool, GridLength>(
@@ -102,6 +146,17 @@ public static class Converters
             _ => EmptyStateMode.None,
         });
 
+    /// <summary><see cref="HistoryDatePreset"/>を日本語ラベルへ変換する（履歴の期間プリセット表示用）。</summary>
+    public static readonly IValueConverter HistoryDatePresetToLabel =
+        new FuncValueConverter<HistoryDatePreset, string>(preset => preset switch
+        {
+            HistoryDatePreset.All => "全期間",
+            HistoryDatePreset.Today => "今日",
+            HistoryDatePreset.Last7Days => "過去7日",
+            HistoryDatePreset.Last30Days => "過去30日",
+            _ => "指定期間",
+        });
+
     /// <summary>エクスプローラにノードがあれば通常表示、無ければ空状態にする。</summary>
     public static readonly IValueConverter HasNodesToEmptyState =
         new FuncValueConverter<bool, EmptyStateMode>(
@@ -132,8 +187,19 @@ public static class Converters
         });
 
     /// <summary>
-    /// ノードの除外状態と「除外ファイルを表示」トグルから表示可否を決める
-    /// （4.2「除外中のノードはグレー表示」「除外ファイルを表示トグル」）。
+    /// ノードの除外状態・「除外ファイルを表示」トグルから表示可否を決める（4.2「除外中のノードは
+    /// グレー表示」「除外ファイルを表示トグル」）。
+    /// <para>
+    /// 細かいユーザビリティ改善4（ファイル名絞り込み）は、当初ここに3つ目の値
+    /// （FileNodeViewModel.IsFilterVisible）を足して同じ仕組みで非表示にする設計だったが、
+    /// 実機Xvfb環境で「展開済みフォルダの子の一部だけをIsVisible=falseにしても描画が
+    /// 更新されずに残る」不具合が確認された（VirtualizingStackPanel配下で、既に実体化済みの
+    /// 兄弟項目のうち一部だけをIsVisible=falseへ切り替えるケースに特有の描画上の問題と見られる。
+    /// ヘッドレスの自動テストではウィンドウを描画しないため再現しなかった）。そのため絞り込みは
+    /// このIsVisible経由の見た目だけの非表示ではなく、ExplorerViewModel側でツリーに載せる
+    /// ノード自体を絞り込む方式（一致しない項目はChildren/RootNodesに最初から加えない）へ
+    /// 変更した。詳しくはExplorerViewModel.ApplyFilterToLevelのコメント参照。
+    /// </para>
     /// </summary>
     public static readonly IMultiValueConverter ExcludedNodeVisible =
         new FuncMultiValueConverter<bool, bool>(values =>
@@ -143,6 +209,15 @@ public static class Converters
             var showExcluded = list.Count > 1 && list[1];
             return !isExcluded || showExcluded;
         });
+
+    /// <summary>
+    /// プロジェクトペイン改善（要望3）: 右クリックメニュー「ピン留めする／解除する」の文言を、
+    /// 選択中プロジェクトの現在のピン留め状態から切り替える。<see cref="ProjectListItemViewModel"/>
+    /// を受け取り（未選択時はnull）、その<see cref="ProjectListItemViewModel.IsPinned"/>を見る。
+    /// </summary>
+    public static readonly IValueConverter PinMenuLabel =
+        new FuncValueConverter<ProjectListItemViewModel?, string>(
+            item => item is { IsPinned: true } ? "ピン留めを解除する" : "ピン留めする");
 }
 
 /// <summary>

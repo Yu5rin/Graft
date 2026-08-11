@@ -74,6 +74,23 @@ public sealed class PathGuard
     /// </summary>
     public GraftResult<string> ResolveDirectory(string relativePath) => Resolve(relativePath, checkExtension: false);
 
+    /// <summary>
+    /// エクスプローラへの既存ファイル・フォルダの取り込み（ドラッグ＆ドロップ・「ファイルを追加」）用に
+    /// 相対パスを検証し、ルート内の絶対パスへ解決する。<see cref="ResolveDirectory"/>と同じく
+    /// 拡張子ホワイトリストは適用しない。
+    /// <para>
+    /// 拡張子ホワイトリスト（<see cref="PathGuardOptions.AllowedExtensions"/>）は、AIやGraft自身が
+    /// テキストとして新規に書き込む内容（<see cref="Resolve(string)"/>を使うパッチ適用・新規ファイル
+    /// 作成）に対する安全策であり、.exe/.batのような実行可能ファイルをAIが誤って（あるいは
+    /// 悪意を持って）書き込むことを防ぐ趣旨である。取り込みは利用者が明示的にファイル選択
+    /// ダイアログやドラッグ＆ドロップで選んだ「既存の」ファイルをそのままコピーするだけの操作で、
+    /// 画像・PDF等の非テキスト資産を持ち込みたいという要望（「素材の画像を放り込む」）が
+    /// 主な動機のため、ホワイトリストの趣旨に合わない。ルート外への書き込み・シンボリックリンク
+    /// 経由の脱出防止（本メソッドが検証する内容）は取り込みでも従来どおり必須のため適用する。
+    /// </para>
+    /// </summary>
+    public GraftResult<string> ResolveImportTarget(string relativePath) => Resolve(relativePath, checkExtension: false);
+
     private GraftResult<string> Resolve(string relativePath, bool checkExtension)
     {
         if (string.IsNullOrWhiteSpace(relativePath))
@@ -116,7 +133,12 @@ public sealed class PathGuard
         if (checkExtension)
         {
             var extension = Path.GetExtension(combined);
-            if (!_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
+            // 不具合2対応: 拡張子ホワイトリストは「.exe/.bat等の危険な拡張子を遮断する」ことが
+            // 目的であり、"Dockerfile"やLICENSEのような拡張子そのものが無いファイル名は
+            // 遮断対象の想定外だった（エクスプローラで拡張子なしのファイルを新規作成できない
+            // 不具合の原因）。拡張子が付いている場合のみホワイトリストで判定する。
+            if (extension.Length > 0 &&
+                !_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
             {
                 return GraftResult<string>.Fail(ErrorCode.E202, $"拡張子 '{extension}' は許可されていません", path: relativePath);
             }

@@ -19,6 +19,20 @@ namespace Graft.Editor;
 /// スレッドプール上へ移るため、続けて<see cref="TextDocument"/>を生成・変更する箇所だけは
 /// <see cref="Dispatcher.UIThread"/>へ明示的に切り替えて実行する
 /// （<see cref="OpenAsync"/>・<see cref="SaveAsync"/>・<see cref="ReloadAsync"/>参照）。
+///
+/// 【なぜUIスレッドへ戻す直前に<c>Dispatcher.UIThread</c>を毎回読み直さないか】
+/// <c>Dispatcher.UIThread</c>は遅延生成のうえスレッド非安全な静的プロパティで、
+/// まだ誰も読んでいない状態で最初に読んだスレッドの<c>IDispatcherImpl</c>を
+/// キャッシュしてしまう。headlessテストではテストごとに1回、セッションのディスパッチャ
+/// スレッドが<c>Dispatcher.ResetForUnitTests()</c>でこのキャッシュを空にしてから
+/// headless用の実装を登録し直しており、この一瞬の窓の間に別スレッド（ここでは
+/// <c>ConfigureAwait(false)</c>で移ったスレッドプール上のスレッド）が<c>Dispatcher.UIThread</c>を
+/// 読むと、<c>IControlledDispatcherImpl</c>を実装しない壊れたインスタンスがキャッシュされ、
+/// 以降そのテストプロセス全体で<c>PlatformNotSupportedException</c>が出るようになる
+/// （実際にCIで間欠的に観測した）。そのため<see cref="OpenAsync"/>・<see cref="SaveAsync"/>・
+/// <see cref="ReloadAsync"/>はいずれも、まだ呼び出し元のスレッド（UIスレッド）にいる
+/// メソッド冒頭で<c>Dispatcher.UIThread</c>を一度だけローカル変数へ捕捉し、
+/// <c>ConfigureAwait(false)</c>後はその捕捉済みインスタンスだけを使う。
 /// </summary>
 public sealed class DocumentSession : IDisposable
 {
@@ -31,16 +45,50 @@ public sealed class DocumentSession : IDisposable
     // 見つかった時点でバイナリ確定として扱う（テキストファイルに出現することはまず無いため）。
     private const double BinaryControlRatioThreshold = 0.3;
 
+    /// <summary>
+    /// 課題3（再設計）: 1行がこの文字数を超えたら「極端に長い行」とみなす
+    /// （<see cref="HasExtremelyLongLine"/>）。
+    ///
+    /// 旧仕様では、この判定が立つと構文強調・括弧の対応付け・折りたたみ・折り返しを
+    /// ファイル全体で一括無効化していた。しかし「1行でも極端に長い行があると、残り99%の
+    /// 通常行まで色が消える」のは利用者から見て過剰であり、エディタとして致命的という
+    /// 指摘を受けた。実測の結果（詳細は各機能の実装箇所のコメント参照）、無効化が必要
+    /// だったのは実質「その極端に長い行1行だけを対象にした処理」であり、ファイル全体を
+    /// 巻き込む必要は無かった。
+    /// - 構文強調（<see cref="SyntaxHighlightBridge.ColorizeLine"/>）: 元々1行ずつ処理して
+    ///   おり、可視行だけが対象。このフィールドを超える行だけ強調を打ち切る（VS Codeの
+    ///   既定のトークナイズ上限=20,000文字にならい、同じ値をしきい値とする）。
+    /// - 括弧の対応付け・自動閉じ（<see cref="BracketSupport.IsInsideStringOrComment"/>）:
+    ///   このフィールドを超える行では言語認識（文字列/コメント内判定）を打ち切ってO(1)化する。
+    ///   実測: 旧方式のまま1行10万文字に適用すると最悪ケースで数十秒〜（n=8,000で513ms、
+    ///   O(n^2)で外挿すると n=100,000 で概算80秒）かかるのに対し、この打ち切りを入れると
+    ///   4.3ms程度で完了する。
+    /// - 折りたたみ（<see cref="FoldingSupport"/>）: 実測したところ全体再計算は1行10万文字の
+    ///   ファイルで1ms未満、3万行＋1行10万文字の混在ファイルでも最大19ms程度であり、300msの
+    ///   デバウンス予算に対して十分小さいため、無効化は不要と判断した（打ち切りなしで常に
+    ///   利用者の設定に従う）。
+    /// - 折り返し: 既定値の変更に伴い、強制無効化ではなく利用者の設定にそのまま従う。
+    ///   ただし1行10万文字＋折り返し有効では書式計算が数百ms→1.5秒前後に悪化する実測が
+    ///   あるため、通知バーからこのファイルに限って折り返しを切れる逃げ道を用意する
+    ///   （<see cref="Graft.ViewModels.EditorTabViewModel.WordWrapDisabledForTab"/>）。
+    /// </summary>
+    public const int LongLineThreshold = 20_000;
+
     private bool _wasModified;
     private bool _disposed;
 
-    private DocumentSession(string fullPath, string relativePath, TextDocument document, TextShape shape)
+    private DocumentSession(
+        string fullPath, string relativePath, TextDocument document, TextShape shape, bool hasExtremelyLongLine,
+        int initialTextLength, int initialLineCount)
     {
         FullPath = fullPath;
         RelativePath = relativePath;
         FileName = Path.GetFileName(fullPath);
         Document = document;
         Shape = shape;
+        HasExtremelyLongLine = hasExtremelyLongLine;
+        InitialTextLength = initialTextLength;
+        InitialLineCount = initialLineCount;
         Document.UndoStack.PropertyChanged += OnUndoStackPropertyChanged;
     }
 
@@ -60,6 +108,33 @@ public sealed class DocumentSession : IDisposable
     public TextShape Shape { get; private set; }
 
     /// <summary>
+    /// 課題3: <see cref="LongLineThreshold"/>を超える行を含むかどうか。<see cref="OpenAsync"/>時に
+    /// 一度だけ判定する。trueの場合、エディタ側（EditorPane）はその極端に長い行に限って
+    /// 構文強調・括弧の言語認識を打ち切り（ファイル全体は対象外）、ステータスバーで
+    /// その旨を通知する（<see cref="LongLineThreshold"/>のコメント参照）。
+    /// </summary>
+    public bool HasExtremelyLongLine { get; }
+
+    /// <summary>
+    /// Markdownプレビュー機能: 読み込み時点の文字数。<see cref="EditorTabViewModel"/>の
+    /// コンストラクタがプレビュー可否（<see cref="Graft.Core.MarkdownPreviewSizeGuard"/>）を
+    /// 判定するために使う。
+    ///
+    /// 【なぜDocument.TextLengthを直接使わないか】AvaloniaEditの<see cref="TextDocument"/>は
+    /// 生成したスレッド以外からのアクセスで例外を送出する（クラス冒頭のコメント参照）。
+    /// <see cref="EditorTabManager.OpenAsync"/>は<c>ConfigureAwait(false)</c>で継続するため、
+    /// <see cref="EditorTabViewModel"/>のコンストラクタがUIスレッド以外で実行される可能性があり、
+    /// そこで<c>Document.TextLength</c>へ触れると<see cref="InvalidOperationException"/>になる
+    /// （実際にヘッドレステストで再現した）。<see cref="OpenAsync"/>内、まだ<see cref="TextDocument"/>を
+    /// 構築する前のプレーンな文字列（スレッド非依存）から計算した値をここに保持しておくことで、
+    /// この問題を避ける。
+    /// </summary>
+    public int InitialTextLength { get; }
+
+    /// <summary>Markdownプレビュー機能: 読み込み時点の行数。<see cref="InitialTextLength"/>と同じ理由でここに保持する。</summary>
+    public int InitialLineCount { get; }
+
+    /// <summary>
     /// 未保存の変更があるかどうか。AvaloniaEditのアンドゥスタックが持つ
     /// 「元ファイルの状態まで戻ったか」を表す<see cref="UndoStack.IsOriginalFile"/>の否定で
     /// 判定するため、アンドゥで編集前に戻せば自動的に未保存扱いが解除される。
@@ -76,6 +151,10 @@ public sealed class DocumentSession : IDisposable
     public static async Task<GraftResult<DocumentSession>> OpenAsync(
         string fullPath, string projectRoot, CancellationToken ct = default)
     {
+        // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく
+        // （このあとConfigureAwait(false)でスレッドプールへ移るため）。
+        var ui = Dispatcher.UIThread;
+
         if (!File.Exists(LongPath.Extended(fullPath)))
         {
             return GraftResult<DocumentSession>.Fail(ErrorCode.E204, "ファイルが見つかりません", path: fullPath);
@@ -95,10 +174,21 @@ public sealed class DocumentSession : IDisposable
         var (text, shape) = read.Value;
         var relativePath = ComputeRelativePath(fullPath, projectRoot);
 
+        // 課題3: 読み込んだ全文はここで既にメモリ上にあるため、追加のI/Oなしで判定できる。
+        // ワーカースレッド上（ConfigureAwait(false)のまま）で行い、UIスレッドの待ち時間を増やさない。
+        var hasExtremelyLongLine = TextNormalizer.HasLineLongerThan(text, LongLineThreshold);
+
+        // Markdownプレビュー機能: InitialTextLength/InitialLineCountの由来（プレーンな文字列の
+        // うちに計算する理由）はプロパティのコメント参照。
+        var initialTextLength = text.Length;
+        var initialLineCount = TextNormalizer.SplitLines(text).Count;
+
         // TextDocumentの生成はUIスレッドへ切り替えてから行う（クラス冒頭のコメント参照）。
         // DispatcherOperationはConfigureAwaitを持たないため素直にawaitする。
-        var session = await Dispatcher.UIThread.InvokeAsync(
-            () => new DocumentSession(fullPath, relativePath, new TextDocument(text), shape));
+        var session = await ui.InvokeAsync(
+            () => new DocumentSession(
+                fullPath, relativePath, new TextDocument(text), shape, hasExtremelyLongLine,
+                initialTextLength, initialLineCount));
         return GraftResult<DocumentSession>.Ok(session, read.Issues);
     }
 
@@ -109,6 +199,9 @@ public sealed class DocumentSession : IDisposable
     /// </summary>
     public async Task<GraftResult<bool>> SaveAsync(CancellationToken ct = default)
     {
+        // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく。
+        var ui = Dispatcher.UIThread;
+
         var result = await FileTextIO.WriteAsync(FullPath, Document.Text, Shape, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
@@ -121,7 +214,7 @@ public sealed class DocumentSession : IDisposable
 
         // UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う必要がある
         // （クラス冒頭のコメント参照）。
-        await Dispatcher.UIThread.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
+        await ui.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
         return result;
     }
 
@@ -137,6 +230,9 @@ public sealed class DocumentSession : IDisposable
     /// </summary>
     public async Task<GraftResult<bool>> ReloadAsync(CancellationToken ct = default)
     {
+        // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく。
+        var ui = Dispatcher.UIThread;
+
         var read = await FileTextIO.ReadAsync(FullPath, ct).ConfigureAwait(false);
         if (!read.IsSuccess)
         {
@@ -147,7 +243,7 @@ public sealed class DocumentSession : IDisposable
 
         // Document/UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う
         // 必要がある（クラス冒頭のコメント参照）。Document.Textの読み取りも同様。
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        await ui.InvokeAsync(() =>
         {
             if (Shape == shape && string.Equals(Document.Text, text, StringComparison.Ordinal))
             {

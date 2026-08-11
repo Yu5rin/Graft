@@ -1,9 +1,8 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
 using Graft.Core;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.Features;
 
@@ -39,6 +38,21 @@ public sealed record FileTreeEntry
 /// </summary>
 public sealed class FileTreeService
 {
+    private readonly ITrashService? _trash;
+
+    /// <param name="trash">
+    /// ごみ箱への削除（<see cref="DeleteAsync"/>）。省略時（テスト等）はごみ箱を使わず常に
+    /// 通常削除する（10件目の不具合修正。従来はWindows専用の<c>Core.RecycleBin</c>を
+    /// <c>OperatingSystem.IsWindows()</c>で直呼びしており、Linuxでは<c>LinuxTrashService</c>が
+    /// 一度も呼ばれず「ごみ箱への削除」が常に完全削除にフォールバックしていた。呼び出し元
+    /// （ExplorerViewModel）は実行中のOSに応じた実装を <c>PlatformServices.Current.Trash</c>
+    /// から渡す）。
+    /// </param>
+    public FileTreeService(ITrashService? trash = null)
+    {
+        _trash = trash;
+    }
+
     /// <summary>コンテキスト収集と共通の除外規則からフィルタを構築する（仕様書4.2・10.2）。</summary>
     public static async Task<GitignoreFilter> BuildFilterAsync(Project project, CancellationToken ct = default)
     {
@@ -80,7 +94,7 @@ public sealed class FileTreeService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return Task.FromResult(GraftResult<IReadOnlyList<FileTreeEntry>>.Fail(
-                ErrorCode.E204, ex.Message, path: relativeDir));
+                ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativeDir));
         }
     }
 
@@ -151,7 +165,7 @@ public sealed class FileTreeService
         }, oldRelativePath));
     }
 
-    /// <summary>ファイルまたはフォルダを削除する。常にごみ箱経由（非Windowsは通常削除、仕様書14章）。</summary>
+    /// <summary>ファイルまたはフォルダを削除する。常にごみ箱経由（未対応環境は通常削除、仕様書14章）。</summary>
     public Task<GraftResult<bool>> DeleteAsync(
         Project project, string relativePath, bool isDirectory, PathGuardOptions guardOptions)
     {
@@ -165,7 +179,10 @@ public sealed class FileTreeService
 
         try
         {
-            if (!OperatingSystem.IsWindows() || !RecycleBin.Send(fullPath))
+            // 10件目の不具合修正: 従来はWindows専用のRecycleBinを直呼びしており、Linuxでは
+            // 常に通常削除（完全削除）にフォールバックしていた。ITrashService経由に揃え、
+            // ごみ箱へ送れない・未対応（_trashがnullまたはSendが失敗）の場合のみ通常削除する。
+            if (_trash is null || !_trash.Send(fullPath))
             {
                 if (isDirectory) Directory.Delete(LongPath.Extended(fullPath), recursive: true);
                 else File.Delete(LongPath.Extended(fullPath));
@@ -174,7 +191,7 @@ public sealed class FileTreeService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E204, ex.Message, path: relativePath));
+            return Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativePath));
         }
     }
 
@@ -191,20 +208,6 @@ public sealed class FileTreeService
         };
     }
 
-    /// <summary>Windowsのエクスプローラで対象を選択表示する。Windows以外では何もしない（仕様書4.2）。</summary>
-    public static void RevealInFileExplorer(string fullPath)
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        try
-        {
-            Process.Start("explorer.exe", $"/select,\"{fullPath}\"");
-        }
-        catch (Exception ex) when (ex is Win32Exception or IOException)
-        {
-            // エクスプローラの起動失敗は致命的ではないため無視する。
-        }
-    }
-
     private static GraftResult<string> TryRun(Func<string> action, string errorPath)
     {
         try
@@ -213,7 +216,7 @@ public sealed class FileTreeService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<string>.Fail(ErrorCode.E204, ex.Message, path: errorPath);
+            return GraftResult<string>.Fail(ErrorCode.E204, ExceptionMessages.Describe(ex), path: errorPath);
         }
     }
 

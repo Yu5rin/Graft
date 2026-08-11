@@ -7,6 +7,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <RootNamespace>Graft.UiTests</RootNamespace>
+    <!-- 課題3: 応答者のいないモーダルダイアログでヘッドレステストが無音のままハングし続ける事故の
+         再発防止（詳細はtest.runsettings/LiveSettingsPropagationTests.cs参照）。dotnet testは
+         このプロパティを自動で読み、settingsオプションを明示指定しなくてもセッション全体の
+         タイムアウトが有効になる。 -->
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)test.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>

@@ -28,8 +28,23 @@ public sealed class ProjectPaneLayout
     /// <summary>サイドビュー（エクスプローラ・プロジェクト・履歴・検索）の幅。</summary>
     public double SideViewWidth { get; set; } = 260;
 
-    /// <summary>下部の接ぎ木パネルの高さ。</summary>
+    /// <summary>下部の接ぎ木パネルの高さ（下配置のとき）。</summary>
     public double GraftPanelHeight { get; set; } = 260;
+
+    /// <summary>
+    /// 接ぎ木パネルの配置。"bottom"（既定・コードの下）または "right"（コードの右、3列）。
+    /// 後方互換: このキーの無い既存のlayout.json（このフィールドが追加される前に保存されたもの）を
+    /// 読んでもJSONの欠落フィールドは既定値へ倒れるため、自然に下配置として復元される
+    /// （ShellViewModel.ParseGraftPanelPlacementも未知の値を下配置として扱う二重の備え）。
+    /// </summary>
+    public string GraftPanelPlacement { get; set; } = "bottom";
+
+    /// <summary>
+    /// 右配置のときの接ぎ木パネルの幅。既定の460pxは実機検証（Xvfb）で「適用」ボタンまで
+    /// 含めたヘッダーの全ボタンが収まることを確認した最小幅（ShellWindow.GraftPanelMinWidth、
+    /// 420px）に余白分を足した値（ShellWindow.axaml.cs参照）。
+    /// </summary>
+    public double GraftPanelWidth { get; set; } = 460;
 
     /// <summary>コード表示のフォントサイズ（v2.0 仕様書3.2・4.4）。</summary>
     public double CodeFontSize { get; set; } = 13;
@@ -83,8 +98,10 @@ public sealed class WindowLayoutState
 
 /// <summary>
 /// ウィンドウ・ペインレイアウトの永続化（仕様書8.11）。
-/// 保存先は <c>AppPaths.BaseDirectory</c> 配下の <c>layout.json</c>
-/// （<see cref="AppPaths"/> 自体には layout.json 用のプロパティが無いため、ここで組み立てる）。
+/// 保存先は <see cref="AppPaths.WindowLayoutFilePath"/>（<c>AppPaths.BaseDirectory</c> 配下の
+/// <c>layout.json</c>）。不具合2の修正で <see cref="AppPaths"/> 側にプロパティとして持たせた
+/// （<see cref="Infra.DataDirectoryMigrator"/> のコピー対象一覧と同じファイル名を単一の情報源から
+/// 参照するようにするため。詳細はそちらのコメント参照）。
 /// </summary>
 public sealed class WindowLayoutStore
 {
@@ -94,7 +111,7 @@ public sealed class WindowLayoutStore
     public WindowLayoutStore(AppPaths paths)
     {
         ArgumentNullException.ThrowIfNull(paths);
-        _filePath = Path.Combine(paths.BaseDirectory, "layout.json");
+        _filePath = paths.WindowLayoutFilePath;
     }
 
     /// <summary>layout.json を読み込む。存在しない・破損している場合は既定値から再生成する。</summary>

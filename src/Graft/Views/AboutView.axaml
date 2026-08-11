@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Graft.Views"
              x:Class="Graft.Views.AboutView"
              AutomationProperties.Name="バージョン情報">
     <!--
@@ -20,65 +21,48 @@
                     <TextBlock x:Name="VersionText" Foreground="{DynamicResource TextSecondary}" />
                     <TextBlock x:Name="BuildDateText" Foreground="{DynamicResource TextSecondary}"
                                FontSize="{DynamicResource CaptionFontSize}" />
+                    <TextBlock x:Name="AuthorText" Foreground="{DynamicResource TextSecondary}"
+                               AutomationProperties.Name="製作者" />
+                    <TextBlock x:Name="CopyrightText" Foreground="{DynamicResource TextSecondary}"
+                               FontSize="{DynamicResource CaptionFontSize}"
+                               AutomationProperties.Name="著作権表示" />
                 </StackPanel>
             </StackPanel>
 
+            <!--
+                機能2（ログの参照手段）: 不具合報告のやり取りを楽にするための2つの導線。
+                「ログフォルダを開く」はIFileManagerLauncherを再利用してlogs/フォルダを開くだけ、
+                「最新のログを表示」は直近のログファイルの末尾をLogViewerWindowで表示する。
+                実処理はSettingsViewModel.DataDirectory.cs（DataContextはTabItem経由で継承する
+                SettingsViewModel）にまとめている。
+            -->
+            <TextBlock Text="ログ" FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}" Margin="0,0,0,8" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                <Button Content="ログフォルダを開く" Command="{Binding OpenLogsFolderCommand}" Margin="0,0,8,0"
+                        AutomationProperties.Name="ログフォルダを開く"
+                        local:HelpTip.Standard="ログファイル（logs/）が入っているフォルダをファイルマネージャで開きます。"
+                        local:HelpTip.Detailed="Graftのログファイル一式が保存されているフォルダ（logs/）を、エクスプローラ（Windows）やファイルマネージャ（Linux）で開きます。不具合を報告する際に、該当日のログファイルを添付したいときに使ってください。" />
+                <Button Content="最新のログを表示" Command="{Binding ShowLatestLogCommand}"
+                        AutomationProperties.Name="最新のログを表示"
+                        local:HelpTip.Standard="直近のログファイルの末尾を、この場で確認できる画面を開きます。全文コピーもできます。"
+                        local:HelpTip.Detailed="最も新しいログファイルの末尾（直近200行程度）を専用の画面で表示します。ログは1行ごとに1件のJSON形式のままで、見やすく整形はしません。表示した内容は画面内の「コピー」ボタンでクリップボードへコピーでき、そのまま不具合報告に貼り付けられます。" />
+            </StackPanel>
+
+            <!--
+                機能1（オープンソースライセンス表記）: Avalonia・AvaloniaEdit・DiffPlex等の依存関係は
+                MIT/Apache-2.0/BSD等の条件でライセンス文の同梱・表示を義務付けている。項目数が多く
+                このタブへ全文をすべて並べると長くなりすぎるため、一覧＋全文は専用ウィンドウ
+                （OpenSourceLicensesWindow）へ切り出し、ここには導線のボタンのみを置く
+                （調査方法・確認できたことの詳細はOpenSourceLicensesWindow.axaml.csのコメント参照）。
+            -->
             <TextBlock Text="使用ライブラリのライセンス表記" FontSize="{DynamicResource PaneHeadingFontSize}"
                        FontWeight="{DynamicResource PaneHeadingFontWeight}" Margin="0,0,0,8" />
-
-            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12" Margin="0,0,0,8">
-                <StackPanel>
-                    <TextBlock Text="DiffPlex" FontWeight="SemiBold" />
-                    <TextBlock Text="ライセンス: Apache License 2.0" Foreground="{DynamicResource TextSecondary}"
-                               Margin="0,2,0,0" />
-                    <TextBlock Text="パッチ適用の内部で使用する差分計算ライブラリ。"
-                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,8" />
-                    <Expander x:Name="DiffPlexLicenseExpander" Header="ライセンス全文を表示"
-                              AutomationProperties.Name="DiffPlexのライセンス全文を表示">
-                        <Border Background="{DynamicResource BgSurface}" BorderBrush="{DynamicResource BorderSubtle}"
-                                BorderThickness="1" Margin="0,8,0,0" MaxHeight="260">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <TextBlock x:Name="LicenseText" Margin="8" TextWrapping="Wrap"
-                                           FontFamily="{DynamicResource CodeFontFamily}"
-                                           FontSize="{DynamicResource CodeFontSize}"
-                                           AutomationProperties.Name="DiffPlexのライセンス全文" />
-                            </ScrollViewer>
-                        </Border>
-                    </Expander>
-                </StackPanel>
-            </Border>
-
-            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12" Margin="0,0,0,8">
-                <StackPanel>
-                    <TextBlock Text="System.Text.Encoding.CodePages" FontWeight="SemiBold" />
-                    <TextBlock Text="発行元: Microsoft　ライセンス: MIT License"
-                               Foreground="{DynamicResource TextSecondary}" Margin="0,2,0,0" />
-                    <TextBlock Text="Shift_JIS等、.NET既定に含まれないコードページのエンコーディング判定に使用する。"
-                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,0" />
-                </StackPanel>
-            </Border>
-
-            <Border BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" Padding="12">
-                <StackPanel>
-                    <TextBlock Text="AvaloniaEdit" FontWeight="SemiBold" />
-                    <TextBlock Text="ライセンス: MIT License" Foreground="{DynamicResource TextSecondary}"
-                               Margin="0,2,0,0" />
-                    <TextBlock Text="コードエディタ本体（4章）に使用するテキスト編集コンポーネント。"
-                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap" Margin="0,2,0,8" />
-                    <Expander x:Name="AvalonEditLicenseExpander" Header="ライセンス全文を表示"
-                              AutomationProperties.Name="AvaloniaEditのライセンス全文を表示">
-                        <Border Background="{DynamicResource BgSurface}" BorderBrush="{DynamicResource BorderSubtle}"
-                                BorderThickness="1" Margin="0,8,0,0" MaxHeight="260">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <TextBlock x:Name="AvalonEditLicenseText" Margin="8" TextWrapping="Wrap"
-                                           FontFamily="{DynamicResource CodeFontFamily}"
-                                           FontSize="{DynamicResource CodeFontSize}"
-                                           AutomationProperties.Name="AvaloniaEditのライセンス全文" />
-                            </ScrollViewer>
-                        </Border>
-                    </Expander>
-                </StackPanel>
-            </Border>
+            <Button Content="オープンソースライセンスを表示" Click="OnShowLicensesClicked"
+                    HorizontalAlignment="Left"
+                    AutomationProperties.Name="オープンソースライセンスを表示"
+                    local:HelpTip.Standard="Graftが使用しているオープンソースライブラリの一覧と、各ライセンス全文を表示します。"
+                    local:HelpTip.Detailed="Avalonia・AvaloniaEdit・DiffPlexなど、Graftが実行時に使用しているオープンソースの依存ライブラリを一覧表示し、それぞれのライセンス全文をこの場で確認できます。ビルド時のみ使用され配布物に含まれないツールは一覧に含みません。" />
 
         </StackPanel>
     </ScrollViewer>

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -27,12 +28,30 @@ public partial class EditorPane : UserControl
     private readonly FoldingSupport _folding;
     private readonly CompletionProvider _completion;
     private readonly GitGutterProvider _gitGutter;
+    // Markdownプレビュー機能（案B）: 編集モードでのMarkdown控えめ装飾。詳細はMarkdownInlineColorizer参照。
+    private readonly MarkdownInlineColorizer _markdownColorizer = new();
     private readonly AvaloniaDialogService _dialogs = new();
     private EditorPaneViewModel? _viewModel;
 
     // 現在Editorに読み込まれている（＝Documentを共有している）タブ。切替前にこのタブへ
     // スクロール位置等を退避してから、次のタブへ切り替える。
     private EditorTabViewModel? _loadedTab;
+
+    // Markdownプレビュー機能: 現在プレビューが監視しているDocument（.mdタブが読み込まれている
+    // 間のみ非null）。パッチ適用後の再読込等、編集操作を経ずにDocumentの内容が変わった場合でも
+    // プレビュー表示を追従させるために購読する（利用者指示の追加要件「パッチ適用後のタブ再読込
+    // でもプレビューのままであること」）。タブ切替のたびにApplyActiveTabで張り直す。
+    private TextDocument? _markdownWatchedDocument;
+
+    // 機能改善（タブのドラッグ並べ替え）: ドラッグ中の状態。ポインタが押された時点では
+    // まだドラッグと確定させず（単なるクリック＝タブ切替を邪魔しないため）、しきい値
+    // （DragThresholdPixels）を超えて動いて初めてドラッグ表示に切り替える。
+    private const double DragThresholdPixels = 4;
+    private EditorTabViewModel? _dragTab;
+    private Point _dragStartPoint;
+    private bool _isDragging;
+    private int _dragTargetIndex = -1;
+    private ListBoxItem? _dragIndicatorItem;
 
     public EditorPane()
     {
@@ -43,10 +62,18 @@ public partial class EditorPane : UserControl
         Editor.TextArea.IndentationStrategy = new DefaultIndentationStrategy();
         Editor.Options.EnableRectangularSelection = true; // 4.4: 矩形選択（Alt+ドラッグ）
         Editor.TextArea.Caret.PositionChanged += OnCaretPositionChanged;
+        // 細かいユーザビリティ改善1: 選択文字数のステータスバー表示用。TextArea.SelectionChangedは
+        // ドラッグ選択中も連続発火するが、Editor.SelectionLengthはAvalonEdit内部で維持済みの
+        // O(1)プロパティを読むだけ（文書を走査しない）なので、既存のCaret.PositionChanged
+        // （同様に非デバウンスで購読済み）と同じ考え方でそのまま購読してよいと判断した。
+        Editor.TextArea.SelectionChanged += OnSelectionChanged;
 
         _bridge = new SyntaxHighlightBridge(Editor);
         Editor.TextArea.TextView.LineTransformers.Add(_bridge);
         _bridge.Attach(Editor.Document, string.Empty, syntaxEnabled: false);
+        // Markdownプレビュー機能（案B）。_bridgeの後ろに積む＝色付けの後から書体・背景を
+        // 上書きする順で適用される（見出しの太字等がシンタックスハイライトの色を消さない）。
+        Editor.TextArea.TextView.LineTransformers.Add(_markdownColorizer);
 
         _brackets = new BracketSupport(Editor);
         _folding = new FoldingSupport(Editor);
@@ -60,7 +87,22 @@ public partial class EditorPane : UserControl
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
         Editor.AddHandler(PointerWheelChangedEvent, OnEditorPointerWheelChanged, RoutingStrategies.Tunnel);
         TabStrip.AddHandler(PointerPressedEvent, OnTabStripPointerPressed, RoutingStrategies.Tunnel);
+        // 機能改善（タブのドラッグ並べ替え）: 押下後の移動・離しをトンネル段階で拾う
+        // （OnEditorPointerWheelChanged等、既存のCtrl+マウスホイールと同じ理由）。
+        TabStrip.AddHandler(PointerMovedEvent, OnTabStripPointerMoved, RoutingStrategies.Tunnel);
+        TabStrip.AddHandler(PointerReleasedEvent, OnTabStripPointerReleased, RoutingStrategies.Tunnel);
+        TabStrip.PointerCaptureLost += (_, _) => ResetDragState();
         DiffHost.DoubleTapped += OnDiffDoubleTapped;
+        // Markdownプレビュー機能: プレビュー本文のダブルクリックで編集モードへ切り替え、
+        // ダブルクリックした段落に対応する行へカーソルを置く（利用者指示の追加要件3）。
+        MarkdownPreviewHost.BlockDoubleClicked += OnMarkdownBlockDoubleClicked;
+        // Markdownプレビュー機能: テーマ切替時の再描画（実機検証で発覚した不具合の対応。
+        // OnThemeChangedForMarkdownPreviewのコメント参照）。
+        Graft.Themes.ThemeManager.ThemeChanged += OnThemeChangedForMarkdownPreview;
+
+        // 機能改善（タブが増えたときに到達できない問題）: スクロールボタン・タブ一覧
+        // ドロップダウン・ホイールスクロールの初期化（EditorPane.TabStrip.cs）。
+        InitializeTabStrip();
 
         DataContextChanged += OnDataContextChanged;
         Unloaded += OnUnloaded;
@@ -93,6 +135,10 @@ public partial class EditorPane : UserControl
         {
             ApplyWhitespaceOption();
         }
+        else if (e.PropertyName == nameof(EditorPaneViewModel.WordWrap))
+        {
+            ApplyWordWrapOption();
+        }
     }
 
     /// <summary>アクティブタブの切替。Documentの差し替え・言語別ハイライトの再接続・
@@ -100,37 +146,65 @@ public partial class EditorPane : UserControl
     private void ApplyActiveTab(EditorTabViewModel? tab)
     {
         SaveViewStateInto(_loadedTab);
+        if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
+        DetachMarkdownDocumentWatch();
         _loadedTab = tab;
+        if (tab is not null) tab.PropertyChanged += OnLoadedTabPropertyChanged;
+
+        // 機能改善: 選択中のタブが常に見えるようにする。Ctrl+Tab・クイックオープン・タブ一覧
+        // ドロップダウン・マウスクリックなど、ActiveTabが変わる経路はすべてここへ集約される
+        // （EditorPaneViewModel.ActiveTabのsetter→OnViewModelPropertyChanged→ApplyActiveTab）ため、
+        // ここ1箇所からの呼び出しで網羅できる（EditorPane.TabStrip.cs）。
+        ScheduleEnsureTabVisible(tab);
 
         if (tab is null) { ApplyEmptyTab(); return; }
         if (tab.Kind == EditorTabKind.Diff) { ApplyDiffTab(tab); return; }
+        if (tab.Kind == EditorTabKind.HistoryDiff) { ApplyHistoryDiffTab(tab); return; }
         ApplyDocumentTab(tab);
     }
 
-    // ApplyEmptyTab/ApplyDiffTabは EditorPane.Diff.axaml.cs（1ファイル400行上限のため分割）。
+    // ApplyEmptyTab/ApplyDiffTab/ApplyHistoryDiffTabは EditorPane.Diff.axaml.cs（1ファイル400行上限のため分割）。
 
     private void ApplyDocumentTab(EditorTabViewModel tab)
     {
         Editor.IsVisible = true;
         DiffHost.IsVisible = false;
         DiffHost.DataContext = null;
+        HistoryDiffHost.IsVisible = false;
+        HistoryDiffHost.DataContext = null;
 
         Editor.IsEnabled = true;
         Editor.Document = tab.Session.Document;
         ApplyWhitespaceOption();
+        ApplyWordWrapOption();
         ApplyIndentOptions(tab);
 
+        // 課題3（再設計）: 極端に長い行（1行20,000文字超）を含んでいても、無効化するのは
+        // その行だけに留める（ファイル全体は対象外）。構文強調は行単位のキャップ
+        // （SyntaxHighlightBridge.ColorizeLine）、括弧の対応付けは言語認識の行単位キャップ
+        // （BracketSupport.IsInsideStringOrComment）がそれぞれ内部で処理するため、ここでは
+        // 常に利用者の設定どおりに有効化する。折りたたみは実測でコストが無視できるほど
+        // 小さいため、そもそも長い行による特別扱いをしない（FoldingSupportのコメント参照）。
+        // ステータスバーへの通知（何が制限され何が有効かという正確な文言）は
+        // StatusBarView.axaml・EditorPaneViewModel.ActiveTabHasLongLineWarning側で行う。
         var extension = Path.GetExtension(tab.Session.FileName);
         _bridge.Attach(tab.Session.Document, extension, _viewModel?.SyntaxEnabled ?? true);
         _brackets.Attach(tab.Session.Document, extension);
         _brackets.SetAutoCloseEnabled(_viewModel?.AutoClosingBrackets ?? true);
         _folding.Attach(tab.Session.Document, extension);
         _folding.SetEnabled(_viewModel?.Folding ?? true);
+        _markdownColorizer.SetEnabled(tab.IsMarkdownFile);
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
         ApplyGitGutter(tab);
 
+        if (tab.IsMarkdownFile)
+        {
+            _markdownWatchedDocument = tab.Session.Document;
+            _markdownWatchedDocument.Changed += OnDocumentChangedForMarkdownPreview;
+        }
+
         RestoreViewStateFrom(tab);
-        Editor.Focus();
+        ApplyMarkdownPreviewMode();
     }
 
     /// <summary>4.7: 表示中のファイルをGitガターの対象に設定し、差分を取り直す。</summary>
@@ -164,10 +238,52 @@ public partial class EditorPane : UserControl
     /// <summary>
     /// タブ表示時にカーソル・選択範囲・スクロール位置を復元する。<see cref="MoveCaretTo"/>による
     /// おおまかな可視化（<c>ScrollToLine</c>）はカーソル位置を確実に画面内へ入れるために常に行う。
-    /// 一方、正確なスクロールオフセットの復元は<see cref="EditorTabViewModel.HasViewState"/>が
-    /// trueの場合（＝一度でもこのタブを離れ、退避済みの位置がある場合）のみ行う。
-    /// Document切替直後はレイアウトが未確定のため、正確なオフセット設定はレイアウト確定後まで
-    /// 遅延させる（AvaloniaのDispatcherPriority.Backgroundはレイアウトより後に走る）。
+    ///
+    /// 【不具合修正1: ファイルを開いた直後に1行目が半行分切れる（Windows実機報告）】
+    /// 「コードを開いた時に1行目が表示しきれていない（カーソルは1:1なのに、表示だけ半行ぶん
+    /// 下へスクロールした状態になる）」という報告があった。ヘッドレステスト（Xvfb不要、
+    /// Avalonia.Headless+Skiaで実フォント計測込みで再現できた。EditorOpenScrollPositionTests
+    /// 参照）で調査したところ、原因は本メソッド側のロジックではなく、AvaloniaのScrollViewer/
+    /// ScrollContentPresenter側にある一過性の競合だと判明した:
+    ///
+    ///   1. 本メソッドの<c>MoveCaretTo</c>（同期呼び出し）は<c>Editor.ScrollToLine(1)</c>で
+    ///      正しくVerticalOffset=0を設定する（この時点では問題ない）。
+    ///   2. しかしこのEditorPane方式は「単一のEditor/ScrollViewerを全タブで使い回し、
+    ///      Documentだけ差し替える」（クラス冒頭のコメント参照）ため、直後に走る
+    ///      レイアウトパス（<c>TextView.MeasureOverride</c>）が新しい文書の実際の行数から
+    ///      Extent（コンテンツ全体の高さ）を再計算する。ExtentがOffsetより先に
+    ///      ScrollContentPresenter→ScrollViewerへ伝播する実装（Avalonia側
+    ///      <c>ScrollContentPresenter.OnPropertyChanged</c>のExtent分岐）になっており、
+    ///      その伝播の最中に走る<c>CoerceValue(OffsetProperty)</c>が「まだ0へ更新される前の
+    ///      （直前のタブの）Offsetの生値」を新しいExtentに対して再クランプしてしまう。
+    ///      結果としてOffset.Yが行の高さの半分程度（実測: 既定フォントで8.775px、
+    ///      行高17.55pxのちょうど半分）だけ動いてしまい、1行目の上半分が画面外へ出る。
+    ///   3. これはAvalonia本体のScrollViewer実装の内部的な伝播順序に起因する一過性の
+    ///      ズレであり、レイアウトが完全に落ち着いた後（<c>DispatcherPriority.Background</c>、
+    ///      レイアウト/描画より後に走る）に同じ位置へ改めてスクロールし直せば消える
+    ///      （実測で確認済み）。
+    ///
+    /// このため、スクロール位置の再適用は<see cref="EditorTabViewModel.HasViewState"/>の
+    /// 真偽に関わらず必ずレイアウト確定後まで遅延させて行う。<c>HasViewState</c>がtrue
+    /// （＝一度でもこのタブを離れ、退避済みの位置がある場合）なら退避した正確なオフセットへ、
+    /// falseの場合（新規に開いたタブ）は<c>MoveCaretTo</c>をもう一度呼んでキャレット行へ
+    /// 改めてスクロールし直すことで、上記のズレを打ち消す。
+    ///
+    /// 【不具合修正2（副次的に見つかった既存不具合）: タブを離れて戻ったときの正確なスクロール
+    /// 位置復元が、実は無条件に無効だった】
+    /// 上記調査の過程で、<c>AvaloniaEdit.TextEditor.ScrollToVerticalOffset</c>/
+    /// <c>ScrollToHorizontalOffset</c>（本プロジェクトが参照するAvaloniaEdit 11.1.0）が
+    /// <c>ApplyTemplate()</c>を呼ぶだけで実際には何もしない未実装のメソッドであることが
+    /// 判明した（ILSpyでの逆コンパイル・ヘッドレステストでの実測の両方で確認済み）。
+    /// つまり本メソッドが以前これらを呼んでいた「HasViewStateがtrueのときの正確な位置復元」は、
+    /// タブ切替直後にたまたま<c>MoveCaretTo</c>のキャレット行スクロールで近い位置に来ていた
+    /// 場合を除き、実質的に機能していなかった（回帰テストが存在しなかったため気付かれずに
+    /// 残っていたと見られる）。
+    /// 代わりに、AvaloniaEdit内部の<c>TextView</c>が実装する<c>Avalonia.Controls.Primitives.
+    /// IScrollable</c>（<c>TextEditor.ScrollTo</c>が最終的に<c>ScrollViewer.Offset</c>へ代入する
+    /// 経路と同じ実体へ到達する）を、公開されている<c>Editor.TextArea</c>経由で直接操作することで
+    /// 実際にオフセットを反映させる（ヘッドレステストで、この経路のみが確実に効くことを
+    /// 実測確認済み）。
     /// </summary>
     private void RestoreViewStateFrom(EditorTabViewModel tab)
     {
@@ -180,15 +296,55 @@ public partial class EditorPane : UserControl
             if (length > 0) Editor.Select(start, length);
         }
 
-        if (!tab.HasViewState) return;
-
+        var hasViewState = tab.HasViewState;
         var x = tab.ScrollOffsetX;
         var y = tab.ScrollOffsetY;
+        // Markdownプレビュー機能との競合対策（防御的措置）: この時点でのプレビュー/編集モードを
+        // 覚えておく。タブ切替直後（本メソッドの呼び出し元はApplyDocumentTab）はまだ「タブを
+        // 離れる前のモード」のままだが、この遅延補正が発火するまでの間に、利用者がプレビュー
+        // 本文のダブルクリック・切替ボタン・Escでプレビュー⇔編集を切り替える可能性がある
+        // （EditorPane.MarkdownPreview.csのApplyMarkdownPreviewMode参照）。その切替は
+        // MoveCaretToで正しい新しいスクロール位置へ同期的に合わせ直すが、その直後にこの遅延
+        // 補正がhasViewStateの古いx/y（タブを離れる前・別モードだった時点のオフセット）で
+        // 上書きしてしまうと、切替直後に合わせたはずの位置が古い位置へ巻き戻ってしまう可能性が
+        // ある。モードが変わっていたら「タブは変わっていないが状況が変わった」とみなし、
+        // ApplyMarkdownPreviewMode側が既に合わせた位置を信頼してこの遅延補正は何もしない。
+        // 【検証メモ】ヘッドレステストでこの順序（プレビュー→編集切替の直後に遅延補正が発火）を
+        // 意図的に再現しようとしたところ、切替のヒットテストに必要なレイアウト確定
+        // （CaptureRenderedFrame）自体がBackground優先度のジョブも合わせて処理してしまうため、
+        // 「エディタが見えている状態で古い位置に上書きされる」順序をテスト内では作れなかった
+        // （EditorOpenScrollPositionTests.タブ再訪後のダブルクリックで正しい行の編集モードへ
+        // 切り替わる のコメント参照）。実機の連続レンダリングでも同様の理由でこの順序にはならない
+        // と考えられるが、コードを読んだだけでは競合し得る形になっていたため、安全側として
+        // このガードは残す。
+        var showMarkdownPreviewAtSchedule = tab.ShowMarkdownPreview;
         Dispatcher.UIThread.Post(() =>
         {
             if (!ReferenceEquals(_loadedTab, tab)) return; // 遅延実行中に別タブへ切り替わっていたら何もしない
-            Editor.ScrollToVerticalOffset(y);
-            Editor.ScrollToHorizontalOffset(x);
+            if (tab.ShowMarkdownPreview != showMarkdownPreviewAtSchedule) return; // 同上: プレビュー⇔編集切替と競合させない
+            if (hasViewState)
+            {
+                // 不具合修正2: Editor.ScrollToVerticalOffset/ScrollToHorizontalOffsetは
+                // AvaloniaEdit 11.1.0では何もしないため使わず、IScrollable.Offsetを
+                // TextArea経由で直接設定する。
+                var scrollable = (IScrollable)Editor.TextArea;
+                scrollable.Offset = new Vector(x, y);
+            }
+            else
+            {
+                // 新規に開いたタブ: レイアウト確定に伴うAvalonia側のExtent再計算とOffset
+                // クランプの競合（不具合修正1）でずれたスクロール位置を、改めてスクロールし
+                // 直すことで打ち消す。ここで打ち消したいのはスクロール位置だけであり、
+                // キャレット位置・選択範囲は絶対に触れてはならない。この遅延コールバックは
+                // Background優先度のため、発火するまでの間に利用者（またはテストコード）が
+                // 既に選択操作等を行っている可能性があり、MoveCaretTo（Caret.Line/Columnを
+                // 直接代入する＝選択範囲を消してしまう）をここで呼ぶと、開いた直後に素早く
+                // 選択して右クリックメニューを使うような操作の選択範囲を消してしまう回帰と
+                // なる（EditorSelectionPromptTestsで実際に検出した）。そのためCaretには触れず、
+                // その時点のキャレット行（Editor.TextArea.Caret.Line。利用者が既に動かして
+                // いればその行）へ表示だけを合わせ直すScrollToLineに留める。
+                Editor.ScrollToLine(Editor.TextArea.Caret.Line);
+            }
         }, DispatcherPriority.Background);
     }
 
@@ -198,6 +354,43 @@ public partial class EditorPane : UserControl
         Editor.Options.ShowSpaces = show;
         Editor.Options.ShowTabs = show;
         Editor.Options.HighlightCurrentLine = _viewModel?.HighlightCurrentLine ?? true;
+    }
+
+    /// <summary>
+    /// 課題3（再設計）: 折り返し表示の反映。以前は極端に長い行を含むファイルでは利用者の
+    /// 設定に関わらず折り返しを強制無効化していたが、「エディタとして致命的」という
+    /// 指摘（利用者の設定を勝手に無視すること自体が問題）を受けて廃止した。
+    ///
+    /// 経緯: 実測（1行10万文字のファイル）では、折り返し有効時にAvaloniaEdit側の
+    /// 書式計算コストが無効時の10倍以上（数百ms→1.5秒前後）に悪化することを確認して
+    /// いる。これは実在するコストであり無視はできないが、「遅くなる可能性があるコストを
+    /// 利用者に無断で払わせない／勝手に機能を奪わない」のバランスを取り、既定は利用者の
+    /// 設定にそのまま従わせたうえで、重くなりうることが分かっているこのファイルに限り
+    /// 「このファイルでは折り返しを無効にする」ボタン（通知バー、EditorPane.axaml）で
+    /// 利用者自身がコストを選べる逃げ道を用意する方針にした
+    /// （<see cref="EditorTabViewModel.WordWrapDisabledForTab"/>・
+    /// <see cref="EditorTabViewModel.DisableWordWrapForTabCommand"/>・
+    /// <see cref="OnLoadedTabPropertyChanged"/>）。
+    /// XAML側ではバインドせずここで一括管理する（ShowWhitespace等と同じ方針）。
+    /// </summary>
+    private void ApplyWordWrapOption()
+    {
+        var disabledForTab = _loadedTab is { Kind: EditorTabKind.Document } t && t.WordWrapDisabledForTab;
+        Editor.WordWrap = !disabledForTab && (_viewModel?.WordWrap ?? false);
+    }
+
+    /// <summary>
+    /// 課題3（再設計）: 現在読み込み中のタブ（<see cref="_loadedTab"/>）のプロパティ変更を監視し、
+    /// <see cref="EditorTabViewModel.WordWrapDisabledForTab"/>が変わったら折り返し表示へ
+    /// 即座に反映する。通知バー（EditorPane.axaml）の「このファイルでは折り返しを無効にする」
+    /// ボタンは<see cref="EditorTabViewModel.DisableWordWrapForTabCommand"/>へCommandバインド
+    /// しているだけ（MVVM、コードビハインドのクリックハンドラは持たない）なので、実際に
+    /// AvaloniaEditのWordWrapへ反映する経路をここに一本化する。
+    /// </summary>
+    private void OnLoadedTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(EditorTabViewModel.WordWrapDisabledForTab)) ApplyWordWrapOption();
+        else if (e.PropertyName == nameof(EditorTabViewModel.ShowMarkdownPreview)) ApplyMarkdownPreviewMode();
     }
 
     private void ApplyIndentOptions(EditorTabViewModel tab)
@@ -228,11 +421,19 @@ public partial class EditorPane : UserControl
         tab.CaretColumn = Editor.TextArea.Caret.Column;
     }
 
+    /// <summary>細かいユーザビリティ改善1: 選択範囲が変わるたびにステータスバー表示用の文字数を更新する。</summary>
+    private void OnSelectionChanged(object? sender, EventArgs e)
+    {
+        if (_viewModel?.ActiveTab is not { } tab) return;
+        tab.SelectionStart = Editor.SelectionStart;
+        tab.SelectionLength = Editor.SelectionLength;
+    }
+
     /// <summary>4.4: Ctrl+マウスホイールでフォントサイズを変更する。</summary>
     private void OnEditorPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
         if (e.KeyModifiers != KeyModifiers.Control || _viewModel is null) return;
-        _viewModel.FontSize += e.Delta.Y > 0 ? 1 : -1;
+        _viewModel.AdjustFontSize(e.Delta.Y > 0 ? 1 : -1);
         e.Handled = true;
     }
 
@@ -243,6 +444,7 @@ public partial class EditorPane : UserControl
         var mods = e.KeyModifiers;
 
         if (TryHandleTabNavigation(e, mods)) return;
+        if (TryHandleMarkdownPreviewEscape(e, mods)) return;
         if (TryHandleSearchShortcuts(e, mods)) return;
         if (TryHandleLineEditShortcuts(e, mods)) return;
 
@@ -329,7 +531,25 @@ public partial class EditorPane : UserControl
 
     // OnDiffDoubleTapped/FindDiffRowは EditorPane.Diff.axaml.cs（1ファイル400行上限のため分割）。
 
-    /// <summary>4.3: 中クリックでタブを閉じ、タブ見出しのダブルクリックでプレビューを固定タブへ昇格する。</summary>
+    /// <summary>
+    /// 不具合3対応: 差分タブに常時表示する「閉じる」ボタン（DiffCloseButton）。
+    /// Ctrl+Wと同じCloseTabAsync経由で閉じる（差分タブは保存確認が無いため即座に閉じる）。
+    /// </summary>
+    private async void OnDiffCloseClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel?.ActiveTab is { Kind: EditorTabKind.Diff or EditorTabKind.HistoryDiff } tab)
+        {
+            await SafeHandler.RunAsync("差分表示を閉じる", () => _viewModel.CloseTabAsync(tab)).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// 4.3: 中クリックでタブを閉じ、タブ見出しのダブルクリックでプレビューを固定タブへ昇格する。
+    /// 機能改善（タブのドラッグ並べ替え）: 左ボタン単発の押下はまだ並べ替えと確定させず、
+    /// ドラッグ候補として開始位置だけ記録する（実際にドラッグと認めるのは
+    /// <see cref="OnTabStripPointerMoved"/>がしきい値超えの移動を検知してから。閉じるボタン上の
+    /// 押下は対象外とし、ボタン自体のクリックを妨げない）。
+    /// </summary>
     private async void OnTabStripPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (_viewModel is null) return;
@@ -345,6 +565,120 @@ public partial class EditorPane : UserControl
         {
             tab.IsPreview = false;
         }
+        else if (point.Properties.IsLeftButtonPressed && e.ClickCount == 1
+                 && tab.Kind == EditorTabKind.Document
+                 && FindAncestor<Button>(e.Source as Visual) is null)
+        {
+            _dragTab = tab;
+            _dragStartPoint = e.GetCurrentPoint(TabStrip).Position;
+            _isDragging = false;
+        }
+    }
+
+    /// <summary>
+    /// 機能改善（タブのドラッグ並べ替え）: しきい値を超えて動いた時点でドラッグへ移行し、
+    /// 挿入位置のインジケータ（ドロップ先タブの左端／末尾なら最後のタブの右端の縦線）を更新する。
+    /// ドラッグ中はListBoxの通常のポインタ処理（選択の再評価等）と衝突しないようe.Handledを立てる。
+    /// </summary>
+    private void OnTabStripPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_dragTab is null || _viewModel is null) return;
+
+        var point = e.GetCurrentPoint(TabStrip);
+        if (!point.Properties.IsLeftButtonPressed)
+        {
+            ResetDragState();
+            return;
+        }
+
+        if (!_isDragging)
+        {
+            var dx = point.Position.X - _dragStartPoint.X;
+            var dy = point.Position.Y - _dragStartPoint.Y;
+            if (dx * dx + dy * dy < DragThresholdPixels * DragThresholdPixels) return;
+            _isDragging = true;
+        }
+
+        e.Handled = true;
+        UpdateDragIndicator(point.Position.X);
+    }
+
+    /// <summary>ドラッグ中に離されたら、記録済みの挿入先へ実際に並べ替える。</summary>
+    private void OnTabStripPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_dragTab is null) return;
+
+        if (_isDragging && _viewModel is not null && _dragTargetIndex >= 0)
+        {
+            _viewModel.ReorderTab(_dragTab, _dragTargetIndex);
+            e.Handled = true;
+        }
+
+        ResetDragState();
+    }
+
+    /// <summary>
+    /// ポインタのX座標（TabStrip基準）から挿入先インデックス（ドキュメントタブのみを数えた
+    /// 0起点、ドラッグ開始前の並び順での位置）を決め、対応するタブ項目へ視覚的な
+    /// インジケータ（Classes.dragInsertBefore/After、Editor.axamlのStyle参照）を付ける。
+    /// </summary>
+    private void UpdateDragIndicator(double pointerX)
+    {
+        var containers = TabStrip.GetVisualDescendants().OfType<ListBoxItem>()
+            .Where(c => c.DataContext is EditorTabViewModel { Kind: EditorTabKind.Document })
+            .OrderBy(c => c.TranslatePoint(new Point(0, 0), TabStrip)?.X ?? 0)
+            .ToList();
+
+        ClearDragIndicator();
+        if (containers.Count == 0) { _dragTargetIndex = -1; return; }
+
+        var centers = containers
+            .Select(c => (c.TranslatePoint(new Point(0, 0), TabStrip)?.X ?? 0) + c.Bounds.Width / 2)
+            .ToList();
+        var index = ResolveDropIndex(centers, pointerX);
+        _dragTargetIndex = index;
+
+        if (index < containers.Count)
+        {
+            containers[index].Classes.Add("dragInsertBefore");
+            _dragIndicatorItem = containers[index];
+        }
+        else
+        {
+            containers[^1].Classes.Add("dragInsertAfter");
+            _dragIndicatorItem = containers[^1];
+        }
+    }
+
+    /// <summary>
+    /// 各タブ中心のX座標一覧とポインタのX座標から、挿入先インデックスを求める
+    /// （一般的なタブUIの規則: 中心より左側にかかったらそのタブの前へ挿入）。
+    /// 実ドラッグ座標に依存する部分をここへ切り出し、UITestsから直接検証できるようにする
+    /// （ProjectPane.ResolveDropTargetと同じ考え方）。
+    /// </summary>
+    public static int ResolveDropIndex(IReadOnlyList<double> centersX, double pointerX)
+    {
+        for (var i = 0; i < centersX.Count; i++)
+        {
+            if (pointerX < centersX[i]) return i;
+        }
+        return centersX.Count;
+    }
+
+    private void ClearDragIndicator()
+    {
+        if (_dragIndicatorItem is null) return;
+        _dragIndicatorItem.Classes.Remove("dragInsertBefore");
+        _dragIndicatorItem.Classes.Remove("dragInsertAfter");
+        _dragIndicatorItem = null;
+    }
+
+    private void ResetDragState()
+    {
+        ClearDragIndicator();
+        _dragTab = null;
+        _isDragging = false;
+        _dragTargetIndex = -1;
     }
 
     private static T? FindAncestor<T>(Visual? node) where T : Visual
@@ -359,12 +693,18 @@ public partial class EditorPane : UserControl
 
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
+        UninitializeTabStrip();
         Editor.TextArea.Caret.PositionChanged -= OnCaretPositionChanged;
+        Editor.TextArea.SelectionChanged -= OnSelectionChanged;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.TabSaved -= OnTabSaved;
         }
+        if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
+        DetachMarkdownDocumentWatch();
+        MarkdownPreviewHost.BlockDoubleClicked -= OnMarkdownBlockDoubleClicked;
+        Graft.Themes.ThemeManager.ThemeChanged -= OnThemeChangedForMarkdownPreview;
         _gitGutter.Dispose();
         _bridge.Dispose();
         _brackets.Dispose();

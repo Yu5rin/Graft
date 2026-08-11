@@ -46,6 +46,8 @@ public sealed class LinuxClipboardMonitor : IClipboardMonitor
 
     public event EventHandler<string>? PatchDetected;
 
+    public event EventHandler? NonPatchTextChanged;
+
     /// <summary>X11の選択所有権は使わないため、ウィンドウハンドルは不要（何もしない）。</summary>
     public void Attach(IntPtr hwnd)
     {
@@ -105,9 +107,20 @@ public sealed class LinuxClipboardMonitor : IClipboardMonitor
             if (hash == _lastHash) return;
             _lastHash = hash;
 
-            if (text is not null && PatchTextDetector.LooksLikePatch(text))
+            // textがnullなのは読み取り失敗（他アプリがクリップボードを保持中等）か、
+            // テキスト以外（画像等）がコピーされた場合。どちらも「非パッチのテキストへ
+            // 変化した」と断定できないため、ここでは何もしない（11件目の不具合修正:
+            // NonPatchTextChangedを誤って発火させ、まだ表示中の通知を意図せず消してしまう
+            // ことを避けるための保守的な判断）。
+            if (text is null) return;
+
+            if (PatchTextDetector.LooksLikePatch(text))
             {
                 PatchDetected?.Invoke(this, text);
+            }
+            else
+            {
+                NonPatchTextChanged?.Invoke(this, EventArgs.Empty);
             }
         }
         finally

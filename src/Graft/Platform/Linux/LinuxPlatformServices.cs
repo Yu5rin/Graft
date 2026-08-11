@@ -20,8 +20,10 @@ public sealed class LinuxPlatformServices : IPlatformServices
         Clipboard = new LinuxClipboardMonitor(clipboard);
         Trash = new LinuxTrashService();
         FileManager = new LinuxFileManagerLauncher();
+        ExternalLinks = new LinuxExternalLinkLauncher();
         Theme = new LinuxSystemThemeWatcher();
         SingleInstance = new LinuxSingleInstanceGuard();
+        AutoStart = new LinuxAutoStartService();
     }
 
     public ITrayIcon Tray { get; }
@@ -34,9 +36,13 @@ public sealed class LinuxPlatformServices : IPlatformServices
 
     public IFileManagerLauncher FileManager { get; }
 
+    public IExternalLinkLauncher ExternalLinks { get; }
+
     public ISystemThemeWatcher Theme { get; }
 
     public ISingleInstanceGuard SingleInstance { get; }
+
+    public IAutoStartService AutoStart { get; }
 
     /// <summary>16章: OS種別・バージョン・各サービスの利用可否を1行の日本語で記録する。</summary>
     public string DescribeEnvironment()
@@ -47,12 +53,17 @@ public sealed class LinuxPlatformServices : IPlatformServices
         var session = Environment.GetEnvironmentVariable("XDG_SESSION_TYPE");
         if (!string.IsNullOrEmpty(session)) builder.Append("（セッション: ").Append(session).Append('）');
 
-        builder.Append("（トレイ: 対応, ホットキー: ").Append(Describe(Hotkeys));
+        // 課題2向けの修正: 以前は「トレイ: 対応」を無条件の固定文字列にしていた
+        // （AvaloniaTrayIcon.IsSupportedが常にtrueだった名残）。実際の判定結果を反映する。
+        builder.Append("（トレイ: ").Append(Describe(Tray));
+        builder.Append(", ホットキー: ").Append(Describe(Hotkeys));
         builder.Append(", クリップボード監視: ").Append(Describe(Clipboard));
         builder.Append(", ごみ箱: ").Append(Describe(Trash));
         builder.Append(", ファイルマネージャ連携: ").Append(Describe(FileManager));
+        builder.Append(", 外部リンクを開く: ").Append(Describe(ExternalLinks));
         builder.Append(", テーマ自動追従: ").Append(Describe(Theme));
-        builder.Append(", 多重起動防止: ").Append(Describe(SingleInstance)).Append('）');
+        builder.Append(", 多重起動防止: ").Append(Describe(SingleInstance));
+        builder.Append(", 自動起動: ").Append(Describe(AutoStart)).Append('）');
         return builder.ToString();
     }
 

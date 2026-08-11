@@ -44,6 +44,57 @@ public interface IDialogService
     /// </summary>
     Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null);
 
+    /// <summary>
+    /// エクスプローラへの取り込み（「ファイルを追加」）用に、複数ファイルを選べるファイル選択
+    /// ダイアログを表示する。キャンセル時、または1件も選ばれなかった場合はnullを返す。
+    /// <see cref="PickFileAsync"/>と同じ意味の<paramref name="extensions"/>を受け取る。
+    /// <para>
+    /// 既定実装は<see cref="PickFileAsync"/>を1回呼ぶだけのフォールバック（単一選択）で、
+    /// Avalonia標準の<see cref="Avalonia.Platform.Storage.IStorageProvider"/>を使わない
+    /// テスト用フェイク・<see cref="Null.NullDialogService"/>はこのままで問題ない
+    /// （<see cref="ShowActionMessageAsync"/>と同じ設計方針）。複数選択に対応する実装
+    /// （<see cref="AvaloniaDialogService"/>）だけが明示的にオーバーライドする。
+    /// </para>
+    /// </summary>
+    async Task<IReadOnlyList<string>?> PickFilesAsync(string title, IReadOnlyList<string>? extensions = null)
+    {
+        var single = await PickFileAsync(title, extensions).ConfigureAwait(true);
+        return single is null ? null : new[] { single };
+    }
+
+    /// <summary>
+    /// 「名前を付けて保存」ダイアログを表示する。キャンセル時はnullを返す。
+    /// <paramref name="suggestedFileName"/>は既定のファイル名（拡張子込み）。
+    /// <paramref name="extensions"/>は<see cref="PickFileAsync"/>と同じ意味（先頭ドット付き
+    /// 拡張子でフィルタを提示。未指定または空ならフィルタ無し）。<see cref="PickFolderAsync"/>と
+    /// 同じ理由で非同期シグネチャにしている。コンテキスト収集（10章）の「ファイルへ保存」で使う。
+    /// </summary>
+    Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null);
+
     /// <summary>OKボタンのみの通知ダイアログを表示する。</summary>
     Task ShowMessageAsync(string title, string message);
+
+    /// <summary>
+    /// 不具合3: 単一のボタンだけを持つ通知ダイアログを表示する。<see cref="ShowMessageAsync"/>との
+    /// 違いはボタンのラベルを差し替えられる点で、通知そのものがアクションのトリガーを兼ねる場面
+    /// （例: データ保存先の移行完了後の「再起動」）で使う。
+    /// </summary>
+    /// <returns>
+    /// 表示したボタンが押されたら true。タイトルバーの×等、ボタン以外の方法で閉じられた場合は
+    /// false（ボタンに紐づくアクションを実行してはならないことを示す）。
+    /// </returns>
+    /// <remarks>
+    /// 既定実装は後方互換のためのフォールバックで、<see cref="ShowMessageAsync"/>と同じ見た目
+    /// （ボタンラベルは差し替わらない）で表示し、常にtrueを返す（<see cref="Null.NullDialogService"/>を
+    /// 除くテスト用フェイク実装の大半はこの既定実装のままで問題ない想定）。ボタンラベルを
+    /// 実際に差し替える必要がある実装（<see cref="AvaloniaDialogService"/>）は明示的にオーバーライドする。
+    /// headless・未対応環境向けの<see cref="Null.NullDialogService"/>は、利用者不在のまま
+    /// アクション（プロセス再起動等）を実行してしまわないよう、安全側（false）で明示的に
+    /// オーバーライドする。
+    /// </remarks>
+    async Task<bool> ShowActionMessageAsync(string title, string message, string actionLabel)
+    {
+        await ShowMessageAsync(title, message).ConfigureAwait(true);
+        return true;
+    }
 }
