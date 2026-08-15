@@ -109,6 +109,14 @@
       Avalonia依存）はtests/Graft.UiTests側で検証する。
     -->
     <Compile Include="..\..\src\Graft\Editor\ColorLiteralParser.cs" LinkBase="Linked\Editor" />
+    <!--
+      Pane移植第3波「Markdownの編集支援」。リスト/引用のEnter継続・脱出判定
+      （MarkdownBlockContinuation）、表のセル移動・整形（MarkdownTableCalculator）も同じ理由で
+      純粋ロジックとして取り込む。実際のキー入力統合（MarkdownEditingSupport、Avalonia依存）は
+      tests/Graft.UiTests側で検証する。
+    -->
+    <Compile Include="..\..\src\Graft\Editor\MarkdownBlockContinuation.cs" LinkBase="Linked\Editor" />
+    <Compile Include="..\..\src\Graft\Editor\MarkdownTableCalculator.cs" LinkBase="Linked\Editor" />
   </ItemGroup>
 
   <ItemGroup>
