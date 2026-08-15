@@ -7,12 +7,17 @@ namespace Graft.Infra;
 /// </summary>
 public sealed record Settings
 {
-    /// <summary>テーマ。"dark" / "light" / "system" のいずれか。</summary>
+    /// <summary>
+    /// テーマ。"dark" / "light" / "system" に加え、テーマプリセット7種
+    /// （"sepia" / "github" / "solarized-light" / "solarized-dark" / "nord" / "dracula" /
+    /// "night"）のいずれか。<see cref="Graft.Themes.ThemeManager.ParseTheme"/>参照。
+    /// </summary>
     public string Theme { get; init; } = "system";
 
     /// <summary>
-    /// 「操作の説明」（ツールチップ）の表示レベル。"off"（表示しない） / "standard"（標準の説明、
-    /// 既定） / "detailed"（くわしい説明）のいずれか。<see cref="Graft.Views.HelpTip"/>参照。
+    /// 「操作の説明」（ツールチップ）の表示レベル。"off"（表示しない） / "minimal"（最低限、
+    /// 現在の値だけ） / "standard"（標準の説明、既定） / "detailed"（くわしい説明）のいずれか。
+    /// <see cref="Graft.Views.HelpTip"/>参照。
     /// </summary>
     public string TooltipDetail { get; init; } = "standard";
 
