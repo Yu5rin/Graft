@@ -118,12 +118,14 @@ public partial class EditorPane : UserControl
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.TabSaved -= OnTabSaved;
+            _viewModel.FoldCommandRequested -= OnFoldCommandRequested;
         }
         _viewModel = DataContext as EditorPaneViewModel;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
             _viewModel.TabSaved += OnTabSaved;
+            _viewModel.FoldCommandRequested += OnFoldCommandRequested;
         }
 
         ApplyActiveTab(_viewModel?.ActiveTab);
@@ -467,6 +469,7 @@ public partial class EditorPane : UserControl
         if (TryHandleMarkdownPreviewEscape(e, mods)) return;
         if (TryHandleSearchShortcuts(e, mods)) return;
         if (TryHandleLineEditShortcuts(e, mods)) return;
+        if (TryHandleFoldShortcuts(e, mods)) return;
 
         await SafeHandler.RunAsync("エディタのキー操作", () => HandleAsyncShortcutsAsync(e, mods))
             .ConfigureAwait(true);
@@ -527,6 +530,52 @@ public partial class EditorPane : UserControl
             return e.Handled = true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// 検討書「折りたたみの機能追加」(b) 折りたたみコマンドのショートカット。
+    /// Ctrl+Shift+1〜5（レベル1〜5）・Ctrl+Shift+/（すべてのコメントブロック）・
+    /// Ctrl+Shift+[（再帰的）。既存のCtrl+Shift+K（現在行削除、上のTryHandleLineEditShortcuts）
+    /// とは異なるキーのため衝突しない。実行は<see cref="EditorPaneViewModel"/>側のICommand
+    /// （コマンドパレットと共通の経路。EditorPaneViewModel.Folding.cs参照）へそのまま委譲する。
+    /// </summary>
+    private bool TryHandleFoldShortcuts(KeyEventArgs e, KeyModifiers mods)
+    {
+        if (_viewModel?.ActiveTab is not { Kind: EditorTabKind.Document }) return false;
+        if (mods != (KeyModifiers.Control | KeyModifiers.Shift)) return false;
+
+        switch (e.Key)
+        {
+            case Key.D1: _viewModel.FoldLevel1Command.Execute(null); return e.Handled = true;
+            case Key.D2: _viewModel.FoldLevel2Command.Execute(null); return e.Handled = true;
+            case Key.D3: _viewModel.FoldLevel3Command.Execute(null); return e.Handled = true;
+            case Key.D4: _viewModel.FoldLevel4Command.Execute(null); return e.Handled = true;
+            case Key.D5: _viewModel.FoldLevel5Command.Execute(null); return e.Handled = true;
+            case Key.OemQuestion or Key.Divide: _viewModel.FoldAllCommentsCommand.Execute(null); return e.Handled = true;
+            case Key.OemOpenBrackets: _viewModel.FoldRecursiveCommand.Execute(null); return e.Handled = true;
+            default: return false;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="EditorPaneViewModel.FoldCommandRequested"/>の受け手。コマンドパレット・
+    /// 上のショートカットのどちらから来ても、ここから<see cref="FoldingSupport"/>を1回だけ呼ぶ
+    /// （EditorPaneViewModel.Folding.csのクラスコメント参照）。
+    /// </summary>
+    private void OnFoldCommandRequested(object? sender, FoldCommandKind kind)
+    {
+        if (_viewModel?.ActiveTab is not { Kind: EditorTabKind.Document }) return;
+
+        switch (kind)
+        {
+            case FoldCommandKind.Level1: _folding.FoldToLevel(1); break;
+            case FoldCommandKind.Level2: _folding.FoldToLevel(2); break;
+            case FoldCommandKind.Level3: _folding.FoldToLevel(3); break;
+            case FoldCommandKind.Level4: _folding.FoldToLevel(4); break;
+            case FoldCommandKind.Level5: _folding.FoldToLevel(5); break;
+            case FoldCommandKind.AllComments: _folding.FoldAllComments(); break;
+            case FoldCommandKind.Recursive: _folding.FoldRecursiveAt(Editor.CaretOffset); break;
+        }
     }
 
     /// <summary>Ctrl+W（タブを閉じる、保存確認あり）とCtrl+G（指定行へ移動）。</summary>
@@ -720,6 +769,7 @@ public partial class EditorPane : UserControl
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.TabSaved -= OnTabSaved;
+            _viewModel.FoldCommandRequested -= OnFoldCommandRequested;
         }
         if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
         DetachMarkdownDocumentWatch();

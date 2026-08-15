@@ -65,6 +65,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         InitializeTabActionCommands(); // タブ見出し右クリックメニュー（TabActions.cs）。
         ReopenLastClosedTabCommand = new AsyncRelayCommand(
             () => ReopenLastClosedTabAsync(), context: "閉じたタブを再度開く"); // Ctrl+Shift+T（RecentlyClosed.cs）。
+        InitializeFoldCommands(); // 折りたたみコマンド（EditorPaneViewModel.Folding.cs）。
     }
 
     /// <summary>開いているタブの一覧（ドキュメント＋差分タブ、9.2）。</summary>
