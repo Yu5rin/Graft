@@ -533,6 +533,131 @@ public class MarkdownPreviewTests : IDisposable
     }
 
     // ------------------------------------------------------------------
+    // 10. 横スクロールバーの重なり対策（実機報告の回帰）
+    //
+    // 利用者からの実機報告（Windows）: コードブロック・表の横スクロールバーが末尾行に
+    // 重なって読めなくなっていた。ManualMarkdownRenderer.ReserveSpaceForHorizontalScrollBar
+    // が、横スクロールバーが実際に必要なとき（Extent.Width > Viewport.Width）だけ中身の下に
+    // 余白（Margin.Bottom）を確保する。不要なときに余白が増えてはいけないこと、および
+    // 幅の変化で「収まる⇔収まらない」が切り替わったときに追従することを検証する。
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "横に収まらないコードブロックは末尾行がスクロールバーに隠れないよう下に余白ができる")]
+    public async Task 横に収まらないコードブロックは下に余白ができる()
+    {
+        var longLine = "def " + new string('a', 300) + "():";
+        var md = $"```python\n{longLine}\n    return 1\n```\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        await OpenFileAsync(vm, "doc.md", md).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+        Dispatcher.UIThread.RunJobs();
+
+        var (scroll, content) = FindCodeBlockScroll(pane);
+
+        scroll.Extent.Width.Should().BeGreaterThan(
+            scroll.Viewport.Width, "前提: 長い行を含むので横スクロールが必要なはず");
+        content.Margin.Bottom.Should().BeGreaterThan(
+            0, "横スクロールバーが表示されるときは、末尾行に重ならないよう下に余白を確保するはず");
+    }
+
+    [AvaloniaFact(DisplayName = "横に収まるコードブロックには余白が付かない")]
+    public async Task 横に収まるコードブロックには余白が付かない()
+    {
+        var md = "```python\ndef add(a, b):\n    return a + b\n```\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        await OpenFileAsync(vm, "doc.md", md).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+        Dispatcher.UIThread.RunJobs();
+
+        var (scroll, content) = FindCodeBlockScroll(pane);
+
+        scroll.Extent.Width.Should().BeLessThanOrEqualTo(
+            scroll.Viewport.Width + 0.5, "前提: 短い行なので横スクロールは不要のはず");
+        content.Margin.Should().Be(default(Thickness), "横スクロールが不要なときに余白が増えてはならない");
+    }
+
+    [AvaloniaFact(DisplayName = "コードブロック: 横に収まる⇔収まらないの切り替わりに余白が追従する")]
+    public async Task コードブロックの横スクロール切り替わりに余白が追従する()
+    {
+        var md = "```python\ndef add(a, b):\n    return a + b\n```\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        await OpenFileAsync(vm, "doc.md", md).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+        Dispatcher.UIThread.RunJobs();
+
+        var (scroll, content) = FindCodeBlockScroll(pane);
+
+        scroll.Extent.Width.Should().BeLessThanOrEqualTo(
+            scroll.Viewport.Width + 0.5, "前提: 最初は横スクロール不要のはず");
+        content.Margin.Should().Be(default(Thickness), "前提: 余白は付いていないはず");
+
+        // MaxWidthを極端に狭めて「収まらない」状態を強制する
+        // （ShellWindowTests.ボタン列が収まりきらない場合は右端までスクロールすれば履歴ボタンに到達できると同じ手法）。
+        scroll.MaxWidth = 50;
+        Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs(); // 余白の付与自体がもう1回レイアウトを要求するため。
+
+        scroll.Extent.Width.Should().BeGreaterThan(
+            scroll.Viewport.Width, "MaxWidthを狭めたので横スクロールが必要になるはず");
+        content.Margin.Bottom.Should().BeGreaterThan(
+            0, "収まらなくなったら末尾行を隠さないよう余白が付くはず");
+
+        // 元の幅に戻すと「収まる」状態に戻る。
+        scroll.MaxWidth = double.PositiveInfinity;
+        Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs();
+
+        scroll.Extent.Width.Should().BeLessThanOrEqualTo(
+            scroll.Viewport.Width + 0.5, "MaxWidthを戻したので再び収まるはず");
+        content.Margin.Should().Be(default(Thickness), "収まるようになったら余白は消えるはず");
+    }
+
+    // 表の外枠Border（BuildTable）はスクロールバー対策とは無関係に、次のブロックとの間隔
+    // としてMargin(0,0,0,8)を常に持つ（ManualMarkdownRenderer.BuildTable参照）。
+    // ReserveSpaceForHorizontalScrollBarはこの既存の余白を消してしまわないよう、
+    // Bottomへ加算する実装にしている（同メソッドのコメント参照）。テストもそれに合わせ、
+    // 「収まるときはこの8pxのまま」「収まらないときは8pxより大きくなる」で検証する
+    // （単純に0/0超かで見ると、この8px自体で常に真になってしまい検証にならないため）。
+    private static readonly Thickness TableBaseMargin = new(0, 0, 0, 8);
+
+    [AvaloniaFact(DisplayName = "横に収まらない表は末尾行がスクロールバーに隠れないよう下に余白ができる")]
+    public async Task 横に収まらない表は下に余白ができる()
+    {
+        var longCell = new string('あ', 200);
+        var md = $"| 列1 | 列2 |\n|---|---|\n| {longCell} | データ |\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        await OpenFileAsync(vm, "doc.md", md).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+        Dispatcher.UIThread.RunJobs();
+
+        var (scroll, content) = FindTableScroll(pane);
+
+        scroll.Extent.Width.Should().BeGreaterThan(
+            scroll.Viewport.Width, "前提: 長いセルを含むので横スクロールが必要なはず");
+        content.Margin.Bottom.Should().BeGreaterThan(
+            TableBaseMargin.Bottom,
+            "横スクロールバーが表示されるときは、元からあるブロック間隔(8px)に加えて、" +
+            "末尾行に重ならないよう追加の余白を確保するはず");
+    }
+
+    [AvaloniaFact(DisplayName = "横に収まる表には元のブロック間隔以上の余白が付かない")]
+    public async Task 横に収まる表には余白が付かない()
+    {
+        var md = "| A | B |\n|---|---|\n| 1 | 2 |\n";
+        var (window, pane, vm) = await OpenPaneAsync().ConfigureAwait(true);
+        await OpenFileAsync(vm, "doc.md", md).ConfigureAwait(true);
+        window.CaptureRenderedFrame();
+        Dispatcher.UIThread.RunJobs();
+
+        var (scroll, content) = FindTableScroll(pane);
+
+        scroll.Extent.Width.Should().BeLessThanOrEqualTo(
+            scroll.Viewport.Width + 0.5, "前提: 短い表なので横スクロールは不要のはず");
+        content.Margin.Should().Be(
+            TableBaseMargin, "横スクロールが不要なときに、元からあるブロック間隔(8px)を超えて余白が増えてはならない");
+    }
+
+    // ------------------------------------------------------------------
     // ヘルパ
     // ------------------------------------------------------------------
 
@@ -562,6 +687,30 @@ public class MarkdownPreviewTests : IDisposable
     private static IEnumerable<string> FindTextBlocks(EditorPane pane)
         => pane.MarkdownPreviewHost.GetVisualDescendants().OfType<SelectableTextBlock>()
             .Select(b => b.Text ?? b.Inlines?.Text ?? string.Empty);
+
+    /// <summary>
+    /// コードブロックのScrollViewerと、その中身（本文の<see cref="SelectableTextBlock"/>）を探す。
+    /// ManualMarkdownRenderer.BuildCodeBlockはContentへ直接SelectableTextBlockを入れるため、
+    /// 表のScrollViewer（Content=Border）と区別できる。
+    /// </summary>
+    private static (ScrollViewer Scroll, SelectableTextBlock Content) FindCodeBlockScroll(EditorPane pane)
+    {
+        var scroll = pane.MarkdownPreviewHost.GetVisualDescendants().OfType<ScrollViewer>()
+            .Single(s => s.Content is SelectableTextBlock);
+        return (scroll, (SelectableTextBlock)scroll.Content!);
+    }
+
+    /// <summary>
+    /// 表のScrollViewerと、その中身（外枠の<see cref="Border"/>）を探す。
+    /// ManualMarkdownRenderer.BuildTableはContentへBorder（Gridを包む）を入れるため、
+    /// コードブロックのScrollViewer（Content=SelectableTextBlock）と区別できる。
+    /// </summary>
+    private static (ScrollViewer Scroll, Border Content) FindTableScroll(EditorPane pane)
+    {
+        var scroll = pane.MarkdownPreviewHost.GetVisualDescendants().OfType<ScrollViewer>()
+            .Single(s => s.Content is Border);
+        return (scroll, (Border)scroll.Content!);
+    }
 
     /// <summary>
     /// ディスパッチャのジョブを出し切りながら、条件が満たされるかタイムアウトまで待つ。
