@@ -90,6 +90,17 @@
       tests/Graft.UiTests側で検証する。
     -->
     <Compile Include="..\..\src\Graft\Editor\MonospaceHeuristic.cs" LinkBase="Linked\Editor" />
+    <!--
+      検討書「インデントガイド（縦線）」・「折りたたみの機能追加」（Pane移植第2波）。
+      位置計算・階層算出・コメント区間探索はいずれもAvaloniaEdit（TextDocument/TextView等）に
+      一切依存しない純粋関数のみで構成されるため、上と同じ理由で取り込む。実際の描画
+      （IndentGuideRenderer、Avalonia依存）・FoldingManager連携（FoldingSupport）は
+      tests/Graft.UiTests側で検証する。
+    -->
+    <Compile Include="..\..\src\Graft\Editor\IndentGuideMode.cs" LinkBase="Linked\Editor" />
+    <Compile Include="..\..\src\Graft\Editor\IndentGuideCalculator.cs" LinkBase="Linked\Editor" />
+    <Compile Include="..\..\src\Graft\Editor\FoldingLevelCalculator.cs" LinkBase="Linked\Editor" />
+    <Compile Include="..\..\src\Graft\Editor\CommentBlockCalculator.cs" LinkBase="Linked\Editor" />
   </ItemGroup>
 
   <ItemGroup>

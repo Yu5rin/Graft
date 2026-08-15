@@ -156,6 +156,14 @@ public sealed record EditorSettings
 
     /// <summary>行番号ガターにGitの変更状態を表示するかどうか。</summary>
     public bool GitGutter { get; init; } = true;
+
+    /// <summary>
+    /// 検討書「インデントガイド（縦線）」。インデントの深さを示す縦線の表示モード。
+    /// "none"（表示しない） / "foldable"（折りたたみできる範囲のみ、既定） / "all"（すべての
+    /// インデント）のいずれか。<see cref="Graft.Editor.IndentGuideModeParser"/>参照。
+    /// 未知の値・このキー自体が無い古いsettings.jsonは既定の"foldable"として扱う。
+    /// </summary>
+    public string IndentGuideMode { get; init; } = "foldable";
 }
 
 /// <summary>クリップボード監視設定（9章）。</summary>

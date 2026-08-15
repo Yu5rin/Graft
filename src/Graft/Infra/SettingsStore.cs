@@ -49,6 +49,10 @@ public sealed class SettingsStore
     private static readonly HashSet<string> ValidCloseBehaviors =
         new(StringComparer.OrdinalIgnoreCase) { "exit", "tray" };
 
+    // 検討書「インデントガイド（縦線）」の3モード。既定は"foldable"。
+    private static readonly HashSet<string> ValidIndentGuideModes =
+        new(StringComparer.OrdinalIgnoreCase) { "none", "foldable", "all" };
+
     private readonly AppPaths _paths;
     private readonly JsonFileStore _store;
 
@@ -231,6 +235,8 @@ public sealed class SettingsStore
         {
             FontSize = NormalizeRange(s.FontSize, 6.0, 72.0, 13.0, "editor.fontSize", issues, context),
             TabSize = NormalizeMin(s.TabSize, 1, 4, "editor.tabSize", issues, context),
+            IndentGuideMode = NormalizeChoice(
+                s.IndentGuideMode, ValidIndentGuideModes, "foldable", "editor.indentGuideMode", issues, context),
         };
 
     private static ClipboardWatchSettings ValidateClipboardWatch(

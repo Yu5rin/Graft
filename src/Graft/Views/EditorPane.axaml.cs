@@ -26,6 +26,9 @@ public partial class EditorPane : UserControl
     private readonly SyntaxHighlightBridge _bridge;
     private readonly BracketSupport _brackets;
     private readonly FoldingSupport _folding;
+    // 検討書「インデントガイド（縦線）」。_foldingが持つFoldingManagerを読み取り専用で参照する
+    // （FoldingSupportクラスコメント参照）ため、_foldingより後に構築する。
+    private readonly IndentGuideRenderer _indentGuide;
     private readonly CompletionProvider _completion;
     private readonly GitGutterProvider _gitGutter;
     // Markdownプレビュー機能（案B）: 編集モードでのMarkdown控えめ装飾。詳細はMarkdownInlineColorizer参照。
@@ -77,6 +80,7 @@ public partial class EditorPane : UserControl
 
         _brackets = new BracketSupport(Editor);
         _folding = new FoldingSupport(Editor);
+        _indentGuide = new IndentGuideRenderer(Editor, _folding);
         _completion = new CompletionProvider(Editor);
 
         // 4.7 Gitガター。行番号の左隣に置き、HEADとの差分を色帯で示す。
@@ -114,12 +118,14 @@ public partial class EditorPane : UserControl
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.TabSaved -= OnTabSaved;
+            _viewModel.FoldCommandRequested -= OnFoldCommandRequested;
         }
         _viewModel = DataContext as EditorPaneViewModel;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
             _viewModel.TabSaved += OnTabSaved;
+            _viewModel.FoldCommandRequested += OnFoldCommandRequested;
         }
 
         ApplyActiveTab(_viewModel?.ActiveTab);
@@ -138,6 +144,12 @@ public partial class EditorPane : UserControl
         else if (e.PropertyName == nameof(EditorPaneViewModel.WordWrap))
         {
             ApplyWordWrapOption();
+        }
+        else if (e.PropertyName == nameof(EditorPaneViewModel.IndentGuideMode))
+        {
+            // 検討書の必須要件: 3モードの切り替えはタブを切り替えなくても即時反映する
+            // （EditorPaneViewModel.IndentGuideModeのXMLコメント参照）。
+            ApplyIndentGuideModeOption();
         }
     }
 
@@ -177,6 +189,7 @@ public partial class EditorPane : UserControl
         Editor.Document = tab.Session.Document;
         ApplyWhitespaceOption();
         ApplyWordWrapOption();
+        ApplyIndentGuideModeOption();
         ApplyIndentOptions(tab);
 
         // 課題3（再設計）: 極端に長い行（1行20,000文字超）を含んでいても、無効化するのは
@@ -357,6 +370,15 @@ public partial class EditorPane : UserControl
     }
 
     /// <summary>
+    /// 検討書「インデントガイド（縦線）」。設定画面での変更は
+    /// <see cref="EditorPaneViewModel.IndentGuideMode"/>のPropertyChanged経由で即座にここへ
+    /// 届く（ShowWhitespace等と同じ方針だが、こちらはタブ切替を待たず反映する必要があるため
+    /// 専用の通知を使う。OnViewModelPropertyChanged参照）。
+    /// </summary>
+    private void ApplyIndentGuideModeOption()
+        => _indentGuide.SetMode(IndentGuideModeParser.Parse(_viewModel?.IndentGuideMode));
+
+    /// <summary>
     /// 課題3（再設計）: 折り返し表示の反映。以前は極端に長い行を含むファイルでは利用者の
     /// 設定に関わらず折り返しを強制無効化していたが、「エディタとして致命的」という
     /// 指摘（利用者の設定を勝手に無視すること自体が問題）を受けて廃止した。
@@ -447,6 +469,7 @@ public partial class EditorPane : UserControl
         if (TryHandleMarkdownPreviewEscape(e, mods)) return;
         if (TryHandleSearchShortcuts(e, mods)) return;
         if (TryHandleLineEditShortcuts(e, mods)) return;
+        if (TryHandleFoldShortcuts(e, mods)) return;
 
         await SafeHandler.RunAsync("エディタのキー操作", () => HandleAsyncShortcutsAsync(e, mods))
             .ConfigureAwait(true);
@@ -507,6 +530,52 @@ public partial class EditorPane : UserControl
             return e.Handled = true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// 検討書「折りたたみの機能追加」(b) 折りたたみコマンドのショートカット。
+    /// Ctrl+Shift+1〜5（レベル1〜5）・Ctrl+Shift+/（すべてのコメントブロック）・
+    /// Ctrl+Shift+[（再帰的）。既存のCtrl+Shift+K（現在行削除、上のTryHandleLineEditShortcuts）
+    /// とは異なるキーのため衝突しない。実行は<see cref="EditorPaneViewModel"/>側のICommand
+    /// （コマンドパレットと共通の経路。EditorPaneViewModel.Folding.cs参照）へそのまま委譲する。
+    /// </summary>
+    private bool TryHandleFoldShortcuts(KeyEventArgs e, KeyModifiers mods)
+    {
+        if (_viewModel?.ActiveTab is not { Kind: EditorTabKind.Document }) return false;
+        if (mods != (KeyModifiers.Control | KeyModifiers.Shift)) return false;
+
+        switch (e.Key)
+        {
+            case Key.D1: _viewModel.FoldLevel1Command.Execute(null); return e.Handled = true;
+            case Key.D2: _viewModel.FoldLevel2Command.Execute(null); return e.Handled = true;
+            case Key.D3: _viewModel.FoldLevel3Command.Execute(null); return e.Handled = true;
+            case Key.D4: _viewModel.FoldLevel4Command.Execute(null); return e.Handled = true;
+            case Key.D5: _viewModel.FoldLevel5Command.Execute(null); return e.Handled = true;
+            case Key.OemQuestion or Key.Divide: _viewModel.FoldAllCommentsCommand.Execute(null); return e.Handled = true;
+            case Key.OemOpenBrackets: _viewModel.FoldRecursiveCommand.Execute(null); return e.Handled = true;
+            default: return false;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="EditorPaneViewModel.FoldCommandRequested"/>の受け手。コマンドパレット・
+    /// 上のショートカットのどちらから来ても、ここから<see cref="FoldingSupport"/>を1回だけ呼ぶ
+    /// （EditorPaneViewModel.Folding.csのクラスコメント参照）。
+    /// </summary>
+    private void OnFoldCommandRequested(object? sender, FoldCommandKind kind)
+    {
+        if (_viewModel?.ActiveTab is not { Kind: EditorTabKind.Document }) return;
+
+        switch (kind)
+        {
+            case FoldCommandKind.Level1: _folding.FoldToLevel(1); break;
+            case FoldCommandKind.Level2: _folding.FoldToLevel(2); break;
+            case FoldCommandKind.Level3: _folding.FoldToLevel(3); break;
+            case FoldCommandKind.Level4: _folding.FoldToLevel(4); break;
+            case FoldCommandKind.Level5: _folding.FoldToLevel(5); break;
+            case FoldCommandKind.AllComments: _folding.FoldAllComments(); break;
+            case FoldCommandKind.Recursive: _folding.FoldRecursiveAt(Editor.CaretOffset); break;
+        }
     }
 
     /// <summary>Ctrl+W（タブを閉じる、保存確認あり）とCtrl+G（指定行へ移動）。</summary>
@@ -700,6 +769,7 @@ public partial class EditorPane : UserControl
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.TabSaved -= OnTabSaved;
+            _viewModel.FoldCommandRequested -= OnFoldCommandRequested;
         }
         if (_loadedTab is not null) _loadedTab.PropertyChanged -= OnLoadedTabPropertyChanged;
         DetachMarkdownDocumentWatch();
@@ -708,6 +778,9 @@ public partial class EditorPane : UserControl
         _gitGutter.Dispose();
         _bridge.Dispose();
         _brackets.Dispose();
+        // 検討書「インデントガイド（縦線）」: _foldingのFoldingManager/HoveredFoldingChangedを
+        // 参照しているため、_folding.Dispose()より前に外す。
+        _indentGuide.Dispose();
         _folding.Dispose();
     }
 }

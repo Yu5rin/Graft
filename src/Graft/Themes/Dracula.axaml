@@ -151,4 +151,16 @@
     <Color x:Key="EditorSelectionColor">#3B3D52</Color>
     <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
 
+    <!-- ========== インデントガイド（縦線、検討書「インデントガイド（縦線）」・第2波） ========== -->
+    <!-- 地色はBorderSubtle（=Paneのrule変数）をそのまま流用する。ホバー強調色は
+         Pane（src/themes.css draculaブロック）のfold-guide-hover変数をそのまま移植した
+         （このテーマのSyntaxFunctionColorと同値。Pane側の根拠: 「アクセント色(#BD93F9、
+         Purple)は数値・定数の色（code-num変数）と同色で紛れる懸念がある。Dracula公式
+         SpecificationのGreen(#50FA7B)を転用すると、Dracula配色の中で最も彩度・輝度が高く、
+         9テーマ中最大のコントラスト比が出る（本文に対し10.38、通常線rule変数に対しても
+         6.67）」）。 -->
+    <SolidColorBrush x:Key="IndentGuide" Color="{StaticResource BorderSubtleColor}" />
+    <Color x:Key="IndentGuideHoverColor">#50FA7B</Color>
+    <SolidColorBrush x:Key="IndentGuideHover" Color="{StaticResource IndentGuideHoverColor}" />
+
 </ResourceDictionary>
