@@ -199,18 +199,32 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     public AsyncRelayCommand ResetToDefaultsCommand { get; }
 
+    /// <summary>
+    /// テーマプリセット9種＋システム追従（検討書「テーマプリセット9種」）。移植元は
+    /// Pane（github.com/Yu5rin/pane）の9プリセット。既定ライト/既定ダークは既存の
+    /// Dark/Light（v2.0のWPF版由来の配色）をそのまま指し、残り7つが今回追加した
+    /// プリセット。idの綴りは<see cref="Graft.Themes.ThemeManager.ParseTheme"/>と
+    /// 揃える（対応表を二重に持たない）。既存の"dark"/"light"/"system"という値の意味は
+    /// 変えていないため、古いsettings.jsonを持つ利用者もそのまま動く。
+    /// </summary>
     public IReadOnlyList<ChoiceOption> ThemeOptions { get; } = new[]
     {
-        new ChoiceOption("ダーク", "dark"), new ChoiceOption("ライト", "light"), new ChoiceOption("システム追従", "system"),
+        new ChoiceOption("既定ライト", "light"), new ChoiceOption("既定ダーク", "dark"),
+        new ChoiceOption("セピア", "sepia"), new ChoiceOption("GitHub風", "github"),
+        new ChoiceOption("Solarized Light", "solarized-light"), new ChoiceOption("Solarized Dark", "solarized-dark"),
+        new ChoiceOption("Nord", "nord"), new ChoiceOption("Dracula", "dracula"), new ChoiceOption("Night", "night"),
+        new ChoiceOption("システム追従", "system"),
     };
 
     /// <summary>
     /// 「操作の説明」（ツールチップ）の表示レベル選択肢。テーマのすぐ下に置く（利用者からの
-    /// 要望）。「表示しない」「標準の説明（既定）」「くわしい説明」の3段階（<see cref="HelpTip"/>）。
+    /// 要望）。「表示しない」「最低限（現在の値だけ）」「標準の説明（既定）」「くわしい説明」の
+    /// 4段階（<see cref="HelpTip"/>）。「最低限」は検討書「ツールチップの4段階化」で追加した。
     /// </summary>
     public IReadOnlyList<ChoiceOption> TooltipDetailOptions { get; } = new[]
     {
-        new ChoiceOption("表示しない", "off"), new ChoiceOption("標準の説明", "standard"), new ChoiceOption("くわしい説明", "detailed"),
+        new ChoiceOption("表示しない", "off"), new ChoiceOption("最低限", "minimal"),
+        new ChoiceOption("標準の説明", "standard"), new ChoiceOption("くわしい説明", "detailed"),
     };
 
     public IReadOnlyList<ChoiceOption> ApplyModeOptions { get; } = new[]

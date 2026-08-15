@@ -64,6 +64,7 @@
                 <TextBox Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}" Width="220"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="グローバルホットキー"
+                         views:HelpTip.Minimal="{Binding Hotkey, StringFormat='グローバルホットキー: {0}'}"
                          views:HelpTip.Standard="Graftがバックグラウンドにあっても、クリップボードの内容を貼り付けて解析するショートカットキーです。既定はCtrl+Alt+Vです。"
                          views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでクリップボードの内容をGraftへ渡して解析できるショートカットキーです（コマンドバーの「解析」ボタンと同じ動作）。既定は「Ctrl+Alt+V」です。「Ctrl+Shift+K」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。他のアプリと衝突する組み合わせを入力すると、Graft側では反応しないことがあります。" />
             </StackPanel>
@@ -72,6 +73,7 @@
                 <ComboBox ItemsSource="{Binding LogLevelOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedLogLevel}"
                           AutomationProperties.Name="ログレベル"
+                          views:HelpTip.Minimal="{Binding SelectedLogLevel, StringFormat='ログレベル: {0}'}"
                           views:HelpTip.Standard="ログファイルへ書き出す情報の詳しさを選びます。普段は既定の「info」のままで構いません。"
                           views:HelpTip.Detailed="Graftの動作記録（ログファイル）にどこまで細かい情報を残すかを選びます。「trace」「debug」が最も詳しく、「error」が最も少なくなります（trace &gt; debug &gt; info &gt; warn &gt; error の順に少なくなります）。既定は「info」です。不具合の調査を頼まれたときなど、詳しいログが必要と言われた場合だけ「debug」以上へ変更してください。詳しくするほどログファイルの容量が増えます。" />
             </StackPanel>
@@ -85,6 +87,7 @@
                 <ComboBox ItemsSource="{Binding CloseBehaviorOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding CloseBehavior}"
                           AutomationProperties.Name="ウィンドウを閉じたときの動作"
+                          views:HelpTip.Minimal="{Binding CloseBehavior, StringFormat='ウィンドウを閉じたときの動作: {0}'}"
                           views:HelpTip.Standard="×ボタンでウィンドウを閉じたときの動作を選びます。「終了する」ならアプリごと終了し、「タスクトレイに常駐する」ならウィンドウを隠すだけで動作を続けます。"
                           views:HelpTip.Detailed="ウィンドウ右上の×ボタンを押したときの挙動を選びます。「終了する」（既定）を選ぶと、×を押した時点でGraftのプロセスごと終了します。「タスクトレイに常駐する」を選ぶと、×を押してもプロセスは終了せずウィンドウが隠れるだけになり、タスクトレイのアイコンの「開く」で再表示、「終了」で完全に終了できます。クリップボード監視やホットキー貼り付けをすぐ使えるよう、常に起動しておきたいときに使います。お使いの環境がタスクトレイに対応していない場合は、この選択肢自体が表示されません（×で閉じると常に終了します）。" />
             </StackPanel>
@@ -141,6 +144,7 @@
                 <TextBox Text="{Binding MaxRevisionsText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="最大保持リビジョン数"
+                         views:HelpTip.Minimal="{Binding MaxRevisionsText, StringFormat='最大保持リビジョン数: {0}'}"
                          views:HelpTip.Standard="履歴（バックアップ）を何件まで残すかです。既定は100件で、超えると古いものから自動で消えます。"
                          views:HelpTip.Detailed="サイドバーの「履歴」に残しておくバックアップの最大件数です。既定は100件で、これを超えると一番古いリビジョンから自動的に整理されます（「世代整理でごみ箱を使用する」がオンなら、消える前にごみ箱へ移動します）。0にすると件数の上限を無くせますが、プロジェクトが大きい・変更頻度が高いとディスクを圧迫し続けるおそれがあるため、通常は既定のままにしておくことをおすすめします。" />
             </StackPanel>
@@ -149,6 +153,7 @@
                 <TextBox Text="{Binding MaxTotalMBText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="バックアップ合計上限"
+                         views:HelpTip.Minimal="{Binding MaxTotalMBText, StringFormat='バックアップ合計上限（MB）: {0}'}"
                          views:HelpTip.Standard="バックアップ全体で使ってよいディスク容量の上限（MB）です。既定は500MBです。"
                          views:HelpTip.Detailed="このプロジェクトのバックアップが合計でどれだけディスク容量を使ってよいかの上限です。既定は500MBで、超えそうになると古いリビジョンから自動的に整理されます（件数の上限と同時に働きます）。0にすると容量の上限を無くせますが、その場合は上のリビジョン数の上限だけが歯止めになります。両方0にすると、ディスクが尽きるまで際限なくバックアップが増え続けるため注意してください。" />
             </StackPanel>
@@ -167,6 +172,7 @@
                 <TextBox Text="{Binding HooksTimeoutSecText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="フックのタイムアウト秒数"
+                         views:HelpTip.Minimal="{Binding HooksTimeoutSecText, StringFormat='フックのタイムアウト（秒）: {0}'}"
                          views:HelpTip.Standard="「適用後フック」タブで登録したコマンドを、何秒待っても終わらなければ打ち切るかです。既定は120秒です。"
                          views:HelpTip.Detailed="適用が成功したあとに「適用後フック」タブで登録したコマンド（例: リンターやフォーマッタの実行）を走らせる際、応答が返ってこない場合に待つ最大秒数です。既定は120秒で、これを超えるとコマンドは強制的に打ち切られ、失敗として扱われます（打ち切られてもファイルへの適用結果そのものは取り消されません）。時間のかかるコマンドを登録している場合は、この値を伸ばしてください。" />
             </StackPanel>
