@@ -151,4 +151,15 @@
     <Color x:Key="EditorSelectionColor">#3B4A52</Color>
     <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
 
+    <!-- ========== インデントガイド（縦線、検討書「インデントガイド（縦線）」・第2波） ========== -->
+    <!-- 地色はBorderSubtle（=Paneのrule変数）をそのまま流用する。ホバー強調色は
+         Pane（src/themes.css nordブロック）のfold-guide-hover変数をそのまま移植した
+         （Pane側の根拠: 「アクセント色(#88C0D0、nord8のfrost cyan)は関数名の色（code-fn変数）と
+         同色で紛れる懸念がある。Nord公式パレットのnord13(aurora yellow、#EBCB8B)を転用すると
+         寒色系でまとめられたnordの中で唯一の暖色差し色となり視認性が高い。本文に対し
+         コントラスト比8.00、通常線rule変数に対しても5.52とはっきり異なる」）。 -->
+    <SolidColorBrush x:Key="IndentGuide" Color="{StaticResource BorderSubtleColor}" />
+    <Color x:Key="IndentGuideHoverColor">#EBCB8B</Color>
+    <SolidColorBrush x:Key="IndentGuideHover" Color="{StaticResource IndentGuideHoverColor}" />
+
 </ResourceDictionary>

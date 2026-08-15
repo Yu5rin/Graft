@@ -80,6 +80,17 @@
                       AutomationProperties.Name="コードの折りたたみを有効にする"
                       views:HelpTip.Standard="関数やブロックの先頭にある「▽」をクリックして、中身を折りたたんで隠せるようにします。既定はオンです。"
                       views:HelpTip.Detailed="オンにすると（既定）、行番号の横に折りたたみ用の三角アイコンが表示され、クリックすると関数やブロックの中身を一時的に隠して見た目をコンパクトにできます。折りたたんでも中身のコードが消えるわけではなく、再度クリックすればいつでも展開できます。" />
+            <!-- 検討書「インデントガイド（縦線）」。折りたたみのすぐ下に置く（折りたたみ範囲を
+                 元データにするモードがあり、関連が深いため）。 -->
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="インデントガイド（縦線）" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding IndentGuideModeOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedIndentGuideMode}"
+                          AutomationProperties.Name="インデントガイド（縦線）"
+                          views:HelpTip.Minimal="{Binding SelectedIndentGuideMode, StringFormat='インデントガイド: {0}'}"
+                          views:HelpTip.Standard="インデントの深さを示す縦線をどこまで表示するかです。既定は「折りたたみできる範囲のみ」です。"
+                          views:HelpTip.Detailed="コードの行頭に、インデントの深さを示す薄い縦線を表示するかどうかと、その範囲を選びます。「表示しない」は一切表示しません。「折りたたみできる範囲のみ」（既定）は、関数やブロックなど折りたためる範囲にだけ縦線を引きます。「すべてのインデント」は、折りたためるかどうかに関わらずインデントのある行すべてに縦線を引きます。選んだ瞬間にその場で切り替わります（アプリの再起動は不要）。" />
+            </StackPanel>
             <CheckBox Classes="settingRow" Content="単語ベースの簡易補完を有効にする" IsChecked="{Binding EditorCompletion}"
                       AutomationProperties.Name="単語ベースの簡易補完を有効にする"
                       views:HelpTip.Standard="入力中に、同じファイル内で既に使われている単語を候補として出します。既定はオンです。"

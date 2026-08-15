@@ -151,4 +151,16 @@
     <Color x:Key="EditorSelectionColor">#EDE0C0</Color>
     <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
 
+    <!-- ========== インデントガイド（縦線、検討書「インデントガイド（縦線）」・第2波） ========== -->
+    <!-- 地色はBorderSubtle（=Paneのrule変数）をそのまま流用する。ホバー強調色は
+         Pane（src/themes.css sepiaブロック）のfold-guide-hover変数をそのまま移植した
+         （このテーマのSyntaxKeywordColorと同値。Pane側の根拠: 「アクセント色(#A9762C)を
+         そのまま使うとリンク色・メニューのアクセントと同じで紛れる（実測コントラスト比も
+         9テーマ中最低の3.36）。深いテラコッタ(#8B3A2B、キーワード色)を転用すると、紙色に対し
+         コントラスト比6.51、通常線rule変数に対しても5.29とはっきり異なる」）。冒頭コメントの
+         「将来その表示を作る際に追加できる」を実行したもの。 -->
+    <SolidColorBrush x:Key="IndentGuide" Color="{StaticResource BorderSubtleColor}" />
+    <Color x:Key="IndentGuideHoverColor">#8B3A2B</Color>
+    <SolidColorBrush x:Key="IndentGuideHover" Color="{StaticResource IndentGuideHoverColor}" />
+
 </ResourceDictionary>

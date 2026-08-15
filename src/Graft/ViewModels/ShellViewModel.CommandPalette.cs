@@ -82,6 +82,17 @@ public sealed partial class ShellViewModel
             new("エクスプローラビューに切り替え", SelectSideViewCommand, SideViewKind.Explorer, Gesture("SelectExplorer")),
             new("検索ビューに切り替え", SelectSideViewCommand, SideViewKind.Search, Gesture("SelectSearch")),
             new("直前に閉じたタブを開き直す", Editor.ReopenLastClosedTabCommand, null, Gesture("ReopenLastClosedTab")),
+            // 検討書「折りたたみの機能追加」(b) 折りたたみコマンド。ShortcutCatalogは
+            // レベル1〜5をまとめて1行（"Ctrl+Shift+1〜5"）にしか持たないため、レベル2〜5は
+            // Gesture("FoldLevel1")を流用せずリテラル表記を直接渡す（実際のキー割り当ては
+            // EditorPane.axaml.csのTryHandleFoldShortcutsと一致させている）。
+            new("折りたたみ: レベル1で畳む", Editor.FoldLevel1Command, null, Gesture("FoldLevel1")),
+            new("折りたたみ: レベル2で畳む", Editor.FoldLevel2Command, null, "Ctrl+Shift+2"),
+            new("折りたたみ: レベル3で畳む", Editor.FoldLevel3Command, null, "Ctrl+Shift+3"),
+            new("折りたたみ: レベル4で畳む", Editor.FoldLevel4Command, null, "Ctrl+Shift+4"),
+            new("折りたたみ: レベル5で畳む", Editor.FoldLevel5Command, null, "Ctrl+Shift+5"),
+            new("折りたたみ: すべてのコメントブロックを畳む", Editor.FoldAllCommentsCommand, null, Gesture("FoldAllComments")),
+            new("折りたたみ: カーソル位置を再帰的に畳む", Editor.FoldRecursiveCommand, null, Gesture("FoldRecursive")),
         };
     }
 }

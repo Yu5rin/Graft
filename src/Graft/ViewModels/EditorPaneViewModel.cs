@@ -65,6 +65,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         InitializeTabActionCommands(); // タブ見出し右クリックメニュー（TabActions.cs）。
         ReopenLastClosedTabCommand = new AsyncRelayCommand(
             () => ReopenLastClosedTabAsync(), context: "閉じたタブを再度開く"); // Ctrl+Shift+T（RecentlyClosed.cs）。
+        InitializeFoldCommands(); // 折りたたみコマンド（EditorPaneViewModel.Folding.cs）。
     }
 
     /// <summary>開いているタブの一覧（ドキュメント＋差分タブ、9.2）。</summary>
@@ -139,6 +140,16 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     /// <summary>行番号ガターにGitの変更状態を表示するか（4.7章）。</summary>
     public bool GitGutterEnabled => _settings.Editor.GitGutter;
 
+    /// <summary>
+    /// 検討書「インデントガイド（縦線）」の表示モード（"none"/"foldable"/"all"）。
+    /// <see cref="UpdateSettings"/>が明示的に<see cref="ObservableObject.OnPropertyChanged(string)"/>を
+    /// 呼ぶため、設定画面での変更が開いているタブを切り替えなくても即時反映される
+    /// （<see cref="Views.EditorPane"/>側のOnViewModelPropertyChanged参照。他のeditor.*設定
+    /// （Folding等）はタブ切替時にしか反映されないが、この設定は検討書の要求により
+    /// 即時反映を保証する必要があるため、専用の通知を追加した）。
+    /// </summary>
+    public string IndentGuideMode => _settings.Editor.IndentGuideMode;
+
     /// <summary>UIフレームワーク固有の機能。検索オーバーレイなどViewから参照する。</summary>
     public Graft.Platform.IUiServices Ui { get; }
 
@@ -175,8 +186,16 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     /// </summary>
     public void UpdateSettings(Settings settings)
     {
+        var previousIndentGuideMode = _settings.Editor.IndentGuideMode;
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         FontSize = _settings.Editor.FontSize;
+
+        // 検討書「インデントガイド（縦線）」: 3モードの切り替えは即時反映が必須要件のため、
+        // FontSizeと同じく明示的に通知する（IndentGuideModeのXMLコメント参照）。
+        if (!string.Equals(previousIndentGuideMode, _settings.Editor.IndentGuideMode, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(IndentGuideMode));
+        }
     }
 
     /// <summary>プロジェクト切替。開いていたタブは呼び出し側が閉じてから設定する。</summary>

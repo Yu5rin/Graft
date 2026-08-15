@@ -105,4 +105,10 @@
     <Color x:Key="EditorSelectionColor">#E4EDFB</Color>
     <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
 
+    <!-- ========== インデントガイド（縦線、検討書「インデントガイド（縦線）」） ========== -->
+    <!-- Dark.axamlと同じ方針（地色はBorderSubtle流用、ホバー強調は既定なのでAccentのまま）。
+         詳細な根拠はDark.axaml側のコメント参照。 -->
+    <SolidColorBrush x:Key="IndentGuide" Color="{StaticResource BorderSubtleColor}" />
+    <SolidColorBrush x:Key="IndentGuideHover" Color="{StaticResource AccentColor}" />
+
 </ResourceDictionary>

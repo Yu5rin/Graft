@@ -107,6 +107,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _editorAutoClosingBrackets = true;
     private bool _editorFolding = true;
     private bool _editorCompletion = true; private bool _editorGitGutter = true;
+    private string _selectedIndentGuideMode = "foldable";
 
     // 検討書「フォント設定」。""は「未指定＝アプリ既定のフォントを使う」を表す
     // （settings.jsonのnullと相互変換する。PopulateEditorFields/BuildSettingsFromFields参照）。
@@ -244,6 +245,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         new ChoiceOption("表示しない", "off"), new ChoiceOption("最低限", "minimal"),
         new ChoiceOption("標準の説明", "standard"), new ChoiceOption("くわしい説明", "detailed"),
+    };
+
+    /// <summary>
+    /// 検討書「インデントガイド（縦線）」の3モード。既定は「折りたたみできる範囲のみ」。
+    /// 値のidは<see cref="Graft.Editor.IndentGuideModeParser"/>と揃える（対応表を二重に持たない）。
+    /// </summary>
+    public IReadOnlyList<ChoiceOption> IndentGuideModeOptions { get; } = new[]
+    {
+        new ChoiceOption("表示しない", "none"),
+        new ChoiceOption("折りたたみできる範囲のみ", "foldable"),
+        new ChoiceOption("すべてのインデント", "all"),
     };
 
     public IReadOnlyList<ChoiceOption> ApplyModeOptions { get; } = new[]
@@ -388,6 +400,21 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool EditorFolding { get => _editorFolding; set => SetEditableProperty(ref _editorFolding, value); }
     public bool EditorCompletion { get => _editorCompletion; set => SetEditableProperty(ref _editorCompletion, value); }
     public bool EditorGitGutter { get => _editorGitGutter; set => SetEditableProperty(ref _editorGitGutter, value); }
+
+    /// <summary>
+    /// 検討書「インデントガイド（縦線）」。ComboBoxのため、選択が変わった瞬間にsetterへ届く
+    /// （<see cref="SetEditableProperty{T}"/>）。実際にエディタへ即時反映するのは
+    /// <c>EditorPaneViewModel.IndentGuideMode</c>を経由した<c>Editor.UpdateSettings</c>の
+    /// 呼び出し（StartupCoordinator側の保存完了コールバック）で、<see cref="SelectedTheme"/>と
+    /// 違って本クラス自身が直接エディタへ触れることはしない（エディタの実体はView層
+    /// （EditorPane）にあり、SettingsViewModelから直接参照できないため。他のeditor.*設定と
+    /// 同じ経路）。
+    /// </summary>
+    public string SelectedIndentGuideMode
+    {
+        get => _selectedIndentGuideMode;
+        set => SetEditableProperty(ref _selectedIndentGuideMode, value);
+    }
 
     /// <summary>
     /// 検討書「フォント設定」。本文フォント。ComboBoxの選択が変わった瞬間にsetterへ届き、
@@ -824,6 +851,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         EditorInsertSpaces = e.InsertSpaces; EditorDetectIndent = e.DetectIndent;
         EditorAutoClosingBrackets = e.AutoClosingBrackets; EditorFolding = e.Folding;
         EditorCompletion = e.Completion; EditorGitGutter = e.GitGutter;
+        SelectedIndentGuideMode = e.IndentGuideMode;
         SelectedFontFamily = e.FontFamily ?? string.Empty;
         SelectedMonospaceFontFamily = e.MonospaceFontFamily ?? string.Empty;
     }
@@ -877,6 +905,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             InsertSpaces = _editorInsertSpaces, DetectIndent = _editorDetectIndent,
             AutoClosingBrackets = _editorAutoClosingBrackets, Folding = _editorFolding,
             Completion = _editorCompletion, GitGutter = _editorGitGutter,
+            IndentGuideMode = _selectedIndentGuideMode,
             FontFamily = string.IsNullOrWhiteSpace(_selectedFontFamily) ? null : _selectedFontFamily,
             MonospaceFontFamily = string.IsNullOrWhiteSpace(_selectedMonospaceFontFamily) ? null : _selectedMonospaceFontFamily,
         },
