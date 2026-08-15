@@ -30,24 +30,84 @@
                 <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTheme}"
                           AutomationProperties.Name="テーマ"
+                          views:HelpTip.Minimal="{Binding SelectedTheme, StringFormat='テーマ: {0}'}"
                           views:HelpTip.Standard="画面全体の配色を選びます。既定は「システム追従」です。"
-                          views:HelpTip.Detailed="Graftの画面全体の配色を選びます。「ダーク」「ライト」を選ぶとその配色に固定され、「システム追従」（既定）を選ぶとOSの設定（Windowsの「色」設定など）に応じて自動的に切り替わります。見た目だけの設定で、ファイルの内容には一切影響しません。選んだ瞬間にその場で切り替わります。" />
+                          views:HelpTip.Detailed="Graftの画面全体の配色を選びます。既定ライト・既定ダークに加え、セピア・GitHub風・Solarized Light/Dark・Nord・Dracula・Nightの計9種のプリセットから選べます。プリセットを選ぶとその配色に固定され、「システム追従」（既定）を選ぶとOSの設定（Windowsの「色」設定など）に応じて既定ライト/既定ダークが自動的に切り替わります（9つのプリセットへは追従しません）。見た目だけの設定で、ファイルの内容には一切影響しません。選んだ瞬間にその場で切り替わります。" />
             </StackPanel>
-            <!-- 利用者からの要望: ツールチップの詳しさを3段階で選べるようにする。テーマの
+            <!-- 利用者からの要望: ツールチップの詳しさを4段階で選べるようにする。テーマの
                  すぐ下に置く。選択の反映は views:HelpTip（添付プロパティ方式）が担う。 -->
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="操作の説明" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding TooltipDetailOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTooltipDetail}"
                           AutomationProperties.Name="操作の説明"
+                          views:HelpTip.Minimal="{Binding SelectedTooltipDetail, StringFormat='操作の説明: {0}'}"
                           views:HelpTip.Standard="ボタンなどにカーソルを合わせたときに出る説明の詳しさを選びます。既定は「標準の説明」です。"
-                          views:HelpTip.Detailed="画面上のボタンやチェックボックスにマウスを乗せたときに出る、この吹き出し説明の詳しさを選びます。「表示しない」は吹き出しを一切出さず、「標準の説明」（既定）は1文の短い説明、「くわしい説明」は初めて使う人向けに噛み砕いた長い説明を出します。ここで選んだ瞬間、開いている画面全体の説明がその場で切り替わります（アプリの再起動は不要）。" />
+                          views:HelpTip.Detailed="画面上のボタンやチェックボックスにマウスを乗せたときに出る、この吹き出し説明の詳しさを選びます。「表示しない」は吹き出しを一切出さず、「最低限」は今その項目に入っている値だけを一言で示し、「標準の説明」（既定）は1文の短い説明、「くわしい説明」は初めて使う人向けに噛み砕いた長い説明を出します。ここで選んだ瞬間、開いている画面全体の説明がその場で切り替わります（アプリの再起動は不要）。" />
             </StackPanel>
+
+            <!--
+                検討書「フォント設定」。本文フォント／等幅（コード）フォントを別々に選べるように
+                する。OSにインストール済みのフォントから選ぶ形にし、手入力させない
+                （FontFamilyOptions/MonospaceFontFamilyOptions。SettingsViewModel参照）。
+                列挙に失敗した環境（HasFontFamilyOptions/HasMonospaceFontFamilyOptionsがfalse）
+                だけ、ComboBoxの代わりにテキスト入力へフォールバックする（検討書の要件）。
+                各ComboBoxの項目はFontChoiceItemTemplate（Controls.Input.axaml）でそのフォント
+                自体を使って描画され、選ぶ前に見た目が分かる。プレビュー行はPaneのsettings.js
+                （renderFontField）に倣い「あア亜 Aa Bb Cc 0123」で和文・欧文・数字を一度に
+                確認できるようにした。選んだ瞬間にComboBox自体のプレビュー・下のプレビュー行・
+                画面全体の表示（AppFontManager経由）がその場で切り替わる。
+            -->
+            <TextBlock Text="フォント" Classes="sectionHeading" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="本文フォント" Classes="fieldLabel" />
+                <ComboBox IsVisible="{Binding HasFontFamilyOptions}"
+                          ItemsSource="{Binding FontFamilyOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource FontChoiceItemTemplate}"
+                          SelectedValue="{Binding SelectedFontFamily}"
+                          AutomationProperties.Name="本文フォント"
+                          views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='本文フォント: {0}'}"
+                          views:HelpTip.Standard="Markdownプレビューや画面全体の文字に使うフォントを選びます。既定は「(既定)」（アプリの既定フォント）です。"
+                          views:HelpTip.Detailed="Markdownプレビューの本文や、画面全体のUIの文字（ボタン・メニュー等）に使うフォントを、OSにインストール済みのフォントから選びます。「(既定)」を選ぶとアプリの既定フォント（プラットフォームごとのフォールバック列）に戻ります。選んだ瞬間にその場で画面へ反映されます。コード表示に使うフォントは別枠の「等幅フォント」で選びます。" />
+                <TextBox IsVisible="{Binding !HasFontFamilyOptions}"
+                         Text="{Binding SelectedFontFamily, UpdateSourceTrigger=LostFocus}" Width="240"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="本文フォント（手入力）"
+                         views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='本文フォント: {0}'}"
+                         views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
+                         views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
+            </StackPanel>
+            <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="15"
+                       FontFamily="{Binding SelectedFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                       AutomationProperties.Name="本文フォントのプレビュー" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="等幅フォント（コード用）" Classes="fieldLabel" />
+                <ComboBox IsVisible="{Binding HasMonospaceFontFamilyOptions}"
+                          ItemsSource="{Binding MonospaceFontFamilyOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource FontChoiceItemTemplate}"
+                          SelectedValue="{Binding SelectedMonospaceFontFamily}"
+                          AutomationProperties.Name="等幅フォント"
+                          views:HelpTip.Minimal="{Binding SelectedMonospaceFontFamily, StringFormat='等幅フォント: {0}'}"
+                          views:HelpTip.Standard="コードエディタやコードブロックの表示に使う等幅フォントを選びます。既定は「(既定)」（アプリの既定フォント）です。"
+                          views:HelpTip.Detailed="コードエディタ（中央のエディタ領域）や、Markdownプレビュー・diff表示・JSON編集タブなど「コード扱い」の文字に使うフォントを、OSにインストール済みの等幅フォントから選びます。等幅かどうかはフォント自身が持つメタデータ、またはそれが無い場合は「i」と「W」の描画幅の比較で判定しています。「(既定)」を選ぶとアプリの既定の等幅フォントに戻ります。選んだ瞬間にエディタ側の表示もその場で切り替わります。上の「本文フォント」とは別枠の設定です。" />
+                <TextBox IsVisible="{Binding !HasMonospaceFontFamilyOptions}"
+                         Text="{Binding SelectedMonospaceFontFamily, UpdateSourceTrigger=LostFocus}" Width="240"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="等幅フォント（手入力）"
+                         views:HelpTip.Minimal="{Binding SelectedMonospaceFontFamily, StringFormat='等幅フォント: {0}'}"
+                         views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
+                         views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
+            </StackPanel>
+            <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,8" FontSize="15"
+                       FontFamily="{Binding SelectedMonospaceFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                       AutomationProperties.Name="等幅フォントのプレビュー" />
+
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="適用モード" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding ApplyModeOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedApplyMode}"
                           AutomationProperties.Name="適用モード"
+                          views:HelpTip.Minimal="{Binding SelectedApplyMode, StringFormat='適用モード: {0}'}"
                           views:HelpTip.Standard="パッチの一部が当てはまらなかったときの扱いを選びます。既定の「全件適用」は1件でも失敗すると何も書き換えません。"
                           views:HelpTip.Detailed="AIの回答に含まれる変更のうち一部だけが実際のコードに当てはまらなかった場合の挙動を選びます。「全件適用（All or Nothing）」（既定）は、1件でも当てはまらない変更があれば、その回答に含まれる変更を1つも書き込まずに中止します（中途半端な状態になるのを防ぎます）。「部分適用可」は、当てはまった変更だけを書き込み、当てはまらなかった変更は失敗として一覧に残します。迷ったら既定のままで問題ありません。" />
             </StackPanel>

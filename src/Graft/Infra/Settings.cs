@@ -98,6 +98,23 @@ public sealed record EditorSettings
     public double FontSize { get; init; } = 13;
 
     /// <summary>
+    /// 本文フォント（検討書「フォント設定」）。既定null（未指定＝アプリ既定のフォント
+    /// フォールバック列 <see cref="Graft.Themes.Tokens"/> の UiFontFamily をそのまま使う）。
+    /// Markdownプレビューの本文や画面全体のUI文字に効く（<see cref="Graft.Themes.AppFontManager"/>
+    /// 参照）。<see cref="FontSize"/>とは独立した項目で、フォントの種類だけを選ぶ
+    /// （文字サイズは変更しない）。
+    /// </summary>
+    public string? FontFamily { get; init; }
+
+    /// <summary>
+    /// 等幅（コード用）フォント（検討書「フォント設定」）。既定null（未指定＝アプリ既定の
+    /// CodeFontFamilyをそのまま使う）。コードエディタ（AvaloniaEdit）とMarkdownプレビューの
+    /// コードブロック、diff表示等の「コード扱いの文字」に効く（<see cref="FontFamily"/>とは
+    /// 別枠。<see cref="Graft.Themes.AppFontManager"/>参照）。
+    /// </summary>
+    public string? MonospaceFontFamily { get; init; }
+
+    /// <summary>
     /// 長い行を折り返すかどうか。既定はオン（課題3の再設計で false→true へ変更）。
     /// 以前は「極端に長い行（20,000文字超）を含むファイルでは、この設定に関わらず
     /// 強制的にオフにする」という例外があったが、利用者の設定を無断で上書きすること

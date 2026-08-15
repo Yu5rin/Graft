@@ -32,6 +32,29 @@ public static class Converters
     public static readonly IValueConverter NotEmptyString =
         new FuncValueConverter<string?, bool>(value => !string.IsNullOrEmpty(value));
 
+    /// <summary>
+    /// 検討書「フォント設定」。フォント名の文字列を<see cref="FontFamily"/>へ変換する
+    /// （設定画面のフォント選択ComboBoxの各項目を、そのフォント自体で描画するための
+    /// プレビュー用。Controls.Input.axamlのFontChoiceItemTemplate参照）。空文字（＝「(既定)」
+    /// 項目）はnullを返し、DynamicResourceで継承した既定のFontFamilyのまま描画させる。
+    /// フォント名の生成に例外が起きても（理論上は起きないはずだが、壊れた名前の書体が
+    /// 一覧に混ざっていた場合の保険として）nullへフォールバックし、プレビューだけが
+    /// 描画できずに終わる程度に留め、設定画面自体を落とさない。
+    /// </summary>
+    public static readonly IValueConverter FontFamilyOrDefault =
+        new FuncValueConverter<string?, FontFamily?>(value =>
+        {
+            if (string.IsNullOrWhiteSpace(value)) return null;
+            try
+            {
+                return new FontFamily(value);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        });
+
     /// <summary>コレクションに1件以上あれば true。</summary>
     public static readonly IValueConverter HasItems =
         new FuncValueConverter<ICollection?, bool>(value => value is { Count: > 0 });
