@@ -1,0 +1,154 @@
+<!--
+  solarized-lightテーマの色トークン（設定「テーマプリセット」）。
+  移植元: Pane（github.com/Yu5rin/pane）の /workspace/pane/src/themes.css
+  （html[data-theme="light"][data-light-theme="solarized-light"] ブロック）。
+  検討書いわく「全テーマでコントラスト比を実測済み（文字と背景が4.5:1以上）」とのことなので、
+  Pane側に値がある項目（背景・文字・アクセント・境界線・シンタックス配色）は値をそのまま使う。
+
+  Dark.axaml/Light.axaml と全く同じキー名を過不足なく持つこと（ThemeManagerが
+  Application.Resources.MergedDictionaries内でこのファイルと差し替えるため。
+  キーが1つでも欠けると、そのリソースを参照する画面だけ実行時に色が出ない）。
+
+  【Graftのトークンへの対応付け（Dark.axaml/Light.axamlの構成・ShellWindow.axaml等の
+  実際の使われ方を読んで判断した）】
+  Graftは背景を3階層（BgBase/BgSurface/BgElevated）持つが、実際の使われ方は
+  「BgBase＝ウィンドウ全体の下地（タイトルバー連動にも使われる。Platform/TitleBarThemeSync.cs
+  参照）」「BgSurface＝コマンドバー・サイドバー・エディタ領域など、常時見えている面」
+  「BgElevated＝クイックオープン・コマンドパレット・各種ダイアログなど、上に重なる面」
+  という3段。Paneの側は「本文・サイドバーより、メニューバー・タイトルバーを濃い色にする」
+  という原則でchrome-bg/titlebar-bg（メニュー・タイトルバー用、最も濃い）
+  ・paper（本文用）・surface（ドロップダウン等フローティングUI用）を持つ。
+  タイトルバー連動の対象が一致することから、BgBase→chrome-bg（titlebar-bgと同値）、
+  BgSurface→paper（本文・常時見えている面）、BgElevated→surface（フローティングUI）
+  と対応付けた。BgSelectedは同じく「浮いた強調面」の役割が近いaccent-softを、
+  EditorSelectionColorも同じ値を（既存Dark/Light同様、BgSelectedColorと同値にする規則を踏襲）。
+
+  BgHoverはPane側に対応する値が無い（Paneはホバーもaccent-softで塗るが、Graftは
+  ホバー＝無彩色・選択＝アクセント色で意図的に描き分けている。Controls.Input.axaml等の
+  既存の使われ方を参照）。そこでBgSurfaceColor（paper）を文字色（ink）へ8%だけ
+  混ぜた色を採用した（既存Dark/Light（BgHover膨らませ幅がBgSurface→BgElevatedの1段分と
+  ほぼ一致する）を参考に検証した近似式。詳細はPR説明・実装コメント参照）。
+
+  TextDisabledは、Paneのink-subとink-mute（Graftで言うTextSecondary/TextDisabled相当）が
+  同値のテーマ（sepia/github/solarized-light）に限り、そのままだとTextSecondaryと見分けが
+  付かなくなるため、ink-muteをさらに背景（paper）へ45%寄せてTextSecondaryより薄くした
+  （他のテーマはink-subとink-muteが元々別値のため、ink-muteをそのまま使う）。
+
+  Diff/Gutter/State（DiffAddBg/Bar・DiffDelBg/Bar・StateWarn/Error/Ok・Gutter*）はPane側に
+  該当する概念が無い（Paneはdiff・Git連携機能を持たない）。バー色（DiffAddBar/DiffDelBar）は
+  各テーマの配色の中から「緑」「赤」に該当する既存の値（コメント参照）を転用し、背景色
+  （DiffAddBg/DiffDelBg）はバー色を本文色へ14%だけ混ぜた薄い色として算出した
+  （既存Dark/Lightの正確な算出式が非公開のため、Diff表示で一般的な「バー色を薄めた背景」を
+  独自に採用）。StateError=DiffDelBar、StateOk=DiffAddBar、GutterAdd=DiffAddBar、
+  GutterMod=Accent、GutterDel=DiffDelBarは、既存Dark/Lightと同じ「同値で定義する」規則を踏襲。
+  StateWarnはPaneに該当色が無いため、次の値を独自に選定した: Solarized公式パレットのyellow（solarized-dark側のcode-typeと同値）をそのまま転用。
+
+  折りたたみマーカーのホバー強調色（Paneのfold-guide-hover）は、Graft側に対応する機能・
+  リソースキーが無いため移植していない（AvaloniaEditの折りたたみマージンは現状Graft独自の
+  ホバー強調表示を持たず、対応するトークンが存在しない。9テーマぶんだけ新しいキーを
+  追加すると既存のDark.axaml/Light.axamlとキー集合が食い違うため見送った。将来その表示を
+  作る際に、この移植元データ（PR説明参照）から追加できる）。
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ========== 背景（面の明度差3階層＋ホバー・選択） ========== -->
+    <Color x:Key="BgBaseColor">#D1CCBB</Color>
+    <SolidColorBrush x:Key="BgBase" Color="{StaticResource BgBaseColor}" />
+
+    <Color x:Key="BgSurfaceColor">#FDF6E3</Color>
+    <SolidColorBrush x:Key="BgSurface" Color="{StaticResource BgSurfaceColor}" />
+
+    <Color x:Key="BgElevatedColor">#EEE8D5</Color>
+    <SolidColorBrush x:Key="BgElevated" Color="{StaticResource BgElevatedColor}" />
+
+    <Color x:Key="BgHoverColor">#E9E7D6</Color>
+    <SolidColorBrush x:Key="BgHover" Color="{StaticResource BgHoverColor}" />
+
+    <Color x:Key="BgSelectedColor">#E3EFFA</Color>
+    <SolidColorBrush x:Key="BgSelected" Color="{StaticResource BgSelectedColor}" />
+
+    <!-- ========== 文字 ========== -->
+    <Color x:Key="TextPrimaryColor">#073642</Color>
+    <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}" />
+
+    <Color x:Key="TextSecondaryColor">#657B83</Color>
+    <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
+
+    <Color x:Key="TextDisabledColor">#A9B2AE</Color>
+    <SolidColorBrush x:Key="TextDisabled" Color="{StaticResource TextDisabledColor}" />
+
+    <!-- ========== アクセント（1色のみ） ========== -->
+    <Color x:Key="AccentColor">#268BD2</Color>
+    <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
+
+    <!-- ========== 境界線（必要最小限） ========== -->
+    <Color x:Key="BorderSubtleColor">#D3CBB7</Color>
+    <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
+
+    <!-- ========== diff（Pane非対応のため独自算出。ファイル冒頭コメント参照） ========== -->
+    <Color x:Key="DiffAddBgColor">#E8E4C3</Color>
+    <SolidColorBrush x:Key="DiffAddBg" Color="{StaticResource DiffAddBgColor}" />
+
+    <Color x:Key="DiffAddBarColor">#647300</Color>
+    <SolidColorBrush x:Key="DiffAddBar" Color="{StaticResource DiffAddBarColor}" />
+
+    <Color x:Key="DiffDelBgColor">#F1D9C8</Color>
+    <SolidColorBrush x:Key="DiffDelBg" Color="{StaticResource DiffDelBgColor}" />
+
+    <Color x:Key="DiffDelBarColor">#A52623</Color>
+    <SolidColorBrush x:Key="DiffDelBar" Color="{StaticResource DiffDelBarColor}" />
+
+    <!-- ========== 状態 ========== -->
+    <Color x:Key="StateWarnColor">#B58900</Color>
+    <SolidColorBrush x:Key="StateWarn" Color="{StaticResource StateWarnColor}" />
+
+    <Color x:Key="StateErrorColor">#A52623</Color>
+    <SolidColorBrush x:Key="StateError" Color="{StaticResource StateErrorColor}" />
+
+    <!-- diff.add.barと同値で定義する（v2.0のWPF版由来の既存Dark/Lightの規則を踏襲）。 -->
+    <Color x:Key="StateOkColor">#647300</Color>
+    <SolidColorBrush x:Key="StateOk" Color="{StaticResource StateOkColor}" />
+
+    <!-- ========== シンタックスハイライト配色（Paneのcode-*をそのまま採用） ========== -->
+    <Color x:Key="SyntaxKeywordColor">#647300</Color>
+    <SolidColorBrush x:Key="SyntaxKeyword" Color="{StaticResource SyntaxKeywordColor}" />
+
+    <Color x:Key="SyntaxStringColor">#207972</Color>
+    <SolidColorBrush x:Key="SyntaxString" Color="{StaticResource SyntaxStringColor}" />
+
+    <Color x:Key="SyntaxNumberColor">#207972</Color>
+    <SolidColorBrush x:Key="SyntaxNumber" Color="{StaticResource SyntaxNumberColor}" />
+
+    <Color x:Key="SyntaxCommentColor">#657B83</Color>
+    <SolidColorBrush x:Key="SyntaxComment" Color="{StaticResource SyntaxCommentColor}" />
+
+    <Color x:Key="SyntaxFunctionColor">#515593</Color>
+    <SolidColorBrush x:Key="SyntaxFunction" Color="{StaticResource SyntaxFunctionColor}" />
+
+    <Color x:Key="SyntaxTypeColor">#886700</Color>
+    <SolidColorBrush x:Key="SyntaxType" Color="{StaticResource SyntaxTypeColor}" />
+
+    <Color x:Key="SyntaxOperatorColor">#073642</Color>
+    <SolidColorBrush x:Key="SyntaxOperator" Color="{StaticResource SyntaxOperatorColor}" />
+
+    <!-- plainはtext.primaryと同値（既存Dark/Lightの規則を踏襲）。 -->
+    <SolidColorBrush x:Key="SyntaxPlain" Color="{StaticResource TextPrimaryColor}" />
+
+    <!-- ========== Gitガター・エディタ ========== -->
+    <Color x:Key="GutterAddColor">#647300</Color>
+    <SolidColorBrush x:Key="GutterAdd" Color="{StaticResource GutterAddColor}" />
+
+    <Color x:Key="GutterModColor">#268BD2</Color>
+    <SolidColorBrush x:Key="GutterMod" Color="{StaticResource GutterModColor}" />
+
+    <Color x:Key="GutterDelColor">#A52623</Color>
+    <SolidColorBrush x:Key="GutterDel" Color="{StaticResource GutterDelColor}" />
+
+    <Color x:Key="EditorCurrentLineColor">#FDF6E3</Color>
+    <SolidColorBrush x:Key="EditorCurrentLine" Color="{StaticResource EditorCurrentLineColor}" />
+
+    <Color x:Key="EditorSelectionColor">#E3EFFA</Color>
+    <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
+
+</ResourceDictionary>
