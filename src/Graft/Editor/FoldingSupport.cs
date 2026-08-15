@@ -70,9 +70,9 @@ namespace Graft.Editor;
 /// <see cref="SafeHandler.OnUnexpected"/>へ記録したうえで折りたたみ1回分の更新を諦めるに
 /// 留める（アプリ本体は継続させる。附録A.4・設計目標5）。
 ///
-/// 【検討書「インデントガイド（縦線）」（Pane移植第2波）】
+/// 【検討書「折りたたみの機能追加」・「インデントガイド（縦線）」（Pane移植第2波）】
 /// 上記の食い違い対策（Install/Uninstallのタイミング管理）には一切手を入れず、その外側に
-/// 2つを追加した。
+/// 3つを追加した。
 /// (1) <see cref="Manager"/>/<see cref="Document"/>: 現在有効な<see cref="FoldingManager"/>と
 ///     対象文書を読み取り専用で公開する。<see cref="Editor.IndentGuideRenderer"/>が縦線の
 ///     元データ（折りたたみ範囲）を取得するために使う。Draw()のたびに
@@ -84,9 +84,12 @@ namespace Graft.Editor;
 ///     <c>PointerMoved</c>/<c>PointerExited</c>を購読して検知する（<see cref="FoldingMargin"/>
 ///     自体はInstall/Uninstallのたびに作り直されるインスタンスのため、フック・アンフックを
 ///     Attach/DetachDocumentの対になる箇所へ追加した。Install/Uninstallの呼び出し順序・
-///     タイミング自体は変更していない）。縦線側の色を切り替えるために公開したが、
-///     マーカー自体のホバー表現・折りたたみコマンドの追加は次のコミット（検討書「折りたたみの
-///     機能追加」）で行う。
+///     タイミング自体は変更していない）。
+/// (3) <see cref="FoldToLevel"/>/<see cref="FoldAllComments"/>/<see cref="FoldRecursiveAt"/>:
+///     折りたたみコマンド3種。AvaloniaEditの<see cref="FoldingManager"/>にはレベル指定・
+///     コメント一括・再帰的の折りたたみに相当する組み込みコマンドが無いため、公開API
+///     （<see cref="FoldingManager.AllFoldings"/>・<see cref="FoldingManager.
+///     GetFoldingsContaining"/>・<see cref="FoldingSection.IsFolded"/>）だけで自前実装した。
 /// </summary>
 public sealed class FoldingSupport : IDisposable
 {
@@ -105,6 +108,7 @@ public sealed class FoldingSupport : IDisposable
     private bool _enabled = true;
     private bool _useBraceStrategy;
     private TextDocument? _document;
+    private string? _extension;
     private bool _disposed;
 
     // 検討書「マーカーのホバー強調」: 現在フックしているFoldingMargin（Install/Uninstallの
@@ -159,6 +163,8 @@ public sealed class FoldingSupport : IDisposable
     /// <summary>対象ドキュメントと言語（拡張子）を切り替える（タブ切替のたび呼ぶ）。</summary>
     public void Attach(TextDocument document, string extension)
     {
+        // 「すべてのコメントブロックを折りたたむ」（FoldAllComments）が対象言語の判定に使う。
+        _extension = extension;
         var rule = SyntaxLexer.RuleForExtension(extension);
         Attach(document, rule is not null && BraceBasedLanguageNames.Contains(rule.Name));
     }
@@ -323,6 +329,143 @@ public sealed class FoldingSupport : IDisposable
         {
             SafeHandler.OnUnexpected?.Invoke("折りたたみの再計算", ex);
         }
+    }
+
+    // ========================================================================
+    // 検討書「折りたたみの機能追加」(b) 折りたたみコマンドの追加。
+    // AvaloniaEditのFoldingManagerには相当する組み込みコマンドが無いため、公開API
+    // （AllFoldings・GetFoldingsContaining・FoldingSection.IsFolded）だけで自前実装する。
+    // ========================================================================
+
+    /// <summary>
+    /// レベル<paramref name="level"/>（1〜5、最も外側が1）の範囲だけを折りたたみ、
+    /// それ以外はすべて展開する（VS Codeの「フォールドレベルN」と同じ挙動）。
+    /// 深さの算出は<see cref="FoldingLevelCalculator"/>（純粋ロジック、tests/Graft.Tests参照）に
+    /// 委譲する。
+    /// </summary>
+    public void FoldToLevel(int level)
+    {
+        if (_manager is null) return;
+
+        try
+        {
+            // AllFoldingsはStartOffset昇順で返る（FoldingManagerのドキュメントコメントどおり）
+            // ため、そのままFoldingLevelCalculatorの前提（開始オフセット昇順）を満たす。
+            var all = _manager.AllFoldings.ToList();
+            var ranges = all.Select(fs => (fs.StartOffset, fs.EndOffset)).ToList();
+            var levels = FoldingLevelCalculator.ComputeLevels(ranges);
+            for (var i = 0; i < all.Count; i++)
+            {
+                all[i].IsFolded = levels[i] == level;
+            }
+        }
+        catch (Exception ex)
+        {
+            SafeHandler.OnUnexpected?.Invoke("折りたたみレベルの変更", ex);
+        }
+    }
+
+    /// <summary>
+    /// カーソル位置<paramref name="offset"/>を含む折りたたみ範囲のうち最も内側（カーソルに
+    /// 最も近い）のものを起点に、それ自身とその内側にあるすべての範囲を折りたたむ
+    /// （VS Codeの「折りたたみ（再帰的）」相当）。該当する範囲が無ければ何もしない。
+    /// </summary>
+    public void FoldRecursiveAt(int offset)
+    {
+        if (_manager is null) return;
+
+        try
+        {
+            var containing = _manager.GetFoldingsContaining(offset);
+            if (containing.Count == 0) return;
+
+            var target = containing[0];
+            foreach (var fs in containing)
+            {
+                if (fs.StartOffset > target.StartOffset) target = fs; // より内側（開始が後ろ）を採用。
+            }
+
+            foreach (var fs in _manager.AllFoldings)
+            {
+                if (fs.StartOffset >= target.StartOffset && fs.EndOffset <= target.EndOffset)
+                {
+                    fs.IsFolded = true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            SafeHandler.OnUnexpected?.Invoke("再帰的な折りたたみ", ex);
+        }
+    }
+
+    /// <summary>
+    /// ドキュメント内の「コメント専用行」が2行以上連続する区間（複数行コメント・連続する
+    /// 単一行コメントのどちらも該当）をすべて折りたたむ。区間の探索は
+    /// <see cref="CommentBlockCalculator"/>（純粋ロジック）に委譲し、ここでは対象言語の判定
+    /// （<see cref="SyntaxLexer"/>でのトークン化）と実際のFoldingSection作成のみを行う。
+    ///
+    /// BraceFoldingStrategy/IndentFoldingStrategyが生成する通常の折りたたみ範囲とは独立した
+    /// 一時的な範囲として作成するため、次の編集後の再計算（<see cref="RecalculateNow"/>→
+    /// <c>UpdateFoldings</c>）でBrace/IndentFoldingStrategyの出力に無ければ消える
+    /// （「今すぐ全部畳む」という1回限りのコマンドとして割り切り、常時追跡はしない）。
+    /// </summary>
+    public void FoldAllComments()
+    {
+        if (_manager is null || _document is null || _extension is null) return;
+
+        var rule = SyntaxLexer.RuleForExtension(_extension);
+        if (rule is null) return; // 対応言語が無ければコメントかどうかの判定自体ができない。
+
+        try
+        {
+            var lines = TextNormalizer.SplitLines(_document.Text);
+            var lexer = new SyntaxLexer(rule);
+            if (!lexer.Scan(lines)) return; // 性能上限超過等でスキャンできなければ諦める。
+
+            var isCommentOnly = new bool[lines.Count];
+            for (var i = 0; i < lines.Count; i++)
+            {
+                isCommentOnly[i] = IsCommentOnlyLine(lines[i], lexer.TokenizeLine(i, lines[i]));
+            }
+
+            foreach (var (startLine, endLine) in CommentBlockCalculator.FindCommentBlocks(isCommentOnly))
+            {
+                var start = _document.GetLineByNumber(startLine);
+                var end = _document.GetLineByNumber(endLine);
+                var startOffset = start.Offset;
+                var endOffset = end.Offset + end.Length;
+                if (startOffset >= endOffset) continue;
+
+                // 同じコマンドを繰り返し実行しても、同一範囲を重複して作らない。
+                if (_manager.GetFoldingsAt(startOffset).Any(fs => fs.EndOffset == endOffset)) continue;
+
+                _manager.CreateFolding(startOffset, endOffset).IsFolded = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            SafeHandler.OnUnexpected?.Invoke("コメントブロックの折りたたみ", ex);
+        }
+    }
+
+    /// <summary>
+    /// 行のトークン列が「コメントだけ（空白を除く）」かどうかを判定する。コメント以外の
+    /// 実トークン（キーワード・文字列・識別子等）が1つでもあれば対象外。Plainトークンは
+    /// 空白のみであれば許容する（例: "    // foo"の行頭空白）。
+    /// </summary>
+    private static bool IsCommentOnlyLine(string lineText, IReadOnlyList<SyntaxToken> tokens)
+    {
+        var hasComment = false;
+        foreach (var token in tokens)
+        {
+            if (token.Kind == TokenKind.Comment) { hasComment = true; continue; }
+            if (token.Kind != TokenKind.Plain) return false;
+
+            var end = Math.Min(token.Start + token.Length, lineText.Length);
+            if (end > token.Start && !lineText.AsSpan(token.Start, end - token.Start).IsWhiteSpace()) return false;
+        }
+        return hasComment;
     }
 }
 

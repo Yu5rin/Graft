@@ -74,6 +74,16 @@ public static class ShortcutCatalog
             "単語補完の候補を表示します。"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+マウスホイール",
             "エディタ本文・差分表示の文字サイズを変えます（8〜32、設定にも記憶されます）。"),
+        // 検討書「折りたたみの機能追加」(b) 折りたたみコマンド。既存のCtrl+Shift+K（現在行削除）
+        // とは異なるキーのため衝突しない（ShortcutCatalog.cs・EditorPane.axaml.csの
+        // TryHandleFoldShortcuts参照）。
+        new ShortcutEntry("ファイル・エディタ", "Ctrl+Shift+1〜5",
+            "カーソル位置に関わらず、レベル1〜5の折りたたみ範囲だけを畳みます（それ以外は展開）。",
+            "FoldLevel1"),
+        new ShortcutEntry("ファイル・エディタ", "Ctrl+Shift+/",
+            "すべてのコメントブロック（2行以上連続するコメント行）を畳みます。", "FoldAllComments"),
+        new ShortcutEntry("ファイル・エディタ", "Ctrl+Shift+[",
+            "カーソル位置の折りたたみ範囲を、内側も含めて再帰的に畳みます。", "FoldRecursive"),
 
         // ============== 検索 ==============
         new ShortcutEntry("検索", "Ctrl+F",
