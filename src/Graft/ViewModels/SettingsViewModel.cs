@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Graft.Core;
+using Graft.Editor;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
@@ -49,6 +50,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private readonly SettingsStore _settingsStore; private readonly IDialogService _dialogService;
     private readonly AppPaths _appPaths;
+    private readonly IFontCatalog _fontCatalog;
     private Settings _settings = new();
 
     // デバウンス中の保存予約。ウィンドウを閉じる直前にFlushPendingSaveAsyncで
@@ -105,6 +107,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _editorAutoClosingBrackets = true;
     private bool _editorFolding = true;
     private bool _editorCompletion = true; private bool _editorGitGutter = true;
+
+    // 検討書「フォント設定」。""は「未指定＝アプリ既定のフォントを使う」を表す
+    // （settings.jsonのnullと相互変換する。PopulateEditorFields/BuildSettingsFromFields参照）。
+    private string _selectedFontFamily = string.Empty;
+    private string _selectedMonospaceFontFamily = string.Empty;
     private bool _exportSettingsOnly = true;
     private string _jsonText = string.Empty;
     private string? _jsonParseError;
@@ -137,9 +144,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// 呼び出しをすべて書き換えずに済ませるためで、それらのテストがこの既定値を実際に
     /// 参照することは無い（データ保存先の移行操作を行わない限り読まれない）。
     /// </param>
+    /// <param name="fontCatalog">
+    /// 検討書「フォント設定」。OSインストール済みフォントの列挙元。省略時は
+    /// <see cref="SystemFontCatalog"/>（実際のAvalonia FontManager経由の列挙）を使う。
+    /// テストからフェイクへ差し替えられるようにするための引数
+    /// （<see cref="IFontCatalog"/>のクラスドキュメント参照）。
+    /// </param>
     public SettingsViewModel(
         AppPaths appPaths, IDialogService dialogService, IUiServices ui,
-        Action<Settings>? onLiveSettingsChanged = null, string? exeDirectory = null)
+        Action<Settings>? onLiveSettingsChanged = null, string? exeDirectory = null,
+        IFontCatalog? fontCatalog = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         ArgumentNullException.ThrowIfNull(ui);
@@ -147,6 +161,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         _appPaths = appPaths;
         _exeDirectory = exeDirectory ?? AppContext.BaseDirectory;
         _onLiveSettingsChanged = onLiveSettingsChanged;
+        // 実際の列挙・等幅判定（FontManager経由のグリフ計測）はIFontCatalog側でLazy化されており、
+        // ここで生成してもコンストラクタの時点では実行されない。設定画面のフォント欄が実際に
+        // 開かれてItemsSourceが評価されるまで計算が走らないため、アプリ起動時間には影響しない
+        // （FontFamilyOptions/MonospaceFontFamilyOptionsのコメント参照）。
+        _fontCatalog = fontCatalog ?? new SystemFontCatalog();
         _settingsStore = new SettingsStore(appPaths);
         var projectStore = new ProjectStore(appPaths);
 
@@ -369,6 +388,62 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool EditorFolding { get => _editorFolding; set => SetEditableProperty(ref _editorFolding, value); }
     public bool EditorCompletion { get => _editorCompletion; set => SetEditableProperty(ref _editorCompletion, value); }
     public bool EditorGitGutter { get => _editorGitGutter; set => SetEditableProperty(ref _editorGitGutter, value); }
+
+    /// <summary>
+    /// 検討書「フォント設定」。本文フォント。ComboBoxの選択が変わった瞬間にsetterへ届き、
+    /// <see cref="AppFontManager"/>経由で即時プレビュー反映しつつ、他の項目と同じ経路で
+    /// 保存もスケジュールする（<see cref="SelectedTheme"/>と同じ作法）。""は
+    /// 「未指定＝アプリ既定のフォントを使う」（<see cref="FontFamilyOptions"/>の
+    /// 先頭「(既定)」に対応）。
+    /// </summary>
+    public string SelectedFontFamily
+    {
+        get => _selectedFontFamily;
+        set
+        {
+            if (!SetEditableProperty(ref _selectedFontFamily, value)) return;
+            AppFontManager.SetBodyFontFamily(value);
+        }
+    }
+
+    /// <summary>検討書「フォント設定」。等幅（コード用）フォント。<see cref="SelectedFontFamily"/>と同じ作法。</summary>
+    public string SelectedMonospaceFontFamily
+    {
+        get => _selectedMonospaceFontFamily;
+        set
+        {
+            if (!SetEditableProperty(ref _selectedMonospaceFontFamily, value)) return;
+            AppFontManager.SetCodeFontFamily(value);
+        }
+    }
+
+    /// <summary>
+    /// 本文フォントの選択肢（先頭に「未指定＝既定を使う」を表す空文字の項目を1つ持つ）。
+    /// <see cref="IFontCatalog.AllFamilyNames"/>への実際のアクセスはここで初めて発生する
+    /// （Lazy化されているため、設定画面のフォント欄を開くまでフォント列挙・等幅判定の
+    /// コストがかからない。コンストラクタのコメント参照）。
+    /// </summary>
+    public IReadOnlyList<ChoiceOption> FontFamilyOptions => BuildFontOptions(_fontCatalog.AllFamilyNames);
+
+    /// <summary>等幅フォントの選択肢。<see cref="FontFamilyOptions"/>と同じ形。</summary>
+    public IReadOnlyList<ChoiceOption> MonospaceFontFamilyOptions => BuildFontOptions(_fontCatalog.MonospaceFamilyNames);
+
+    /// <summary>
+    /// 検討書「フォントの列挙に失敗してもアプリが落ちないこと。失敗時は…設定欄はテキスト入力へ
+    /// フォールバックする」。列挙が空（未対応環境・列挙失敗のいずれか）ならfalseになり、
+    /// 画面側はComboBoxの代わりにテキスト入力を表示する（GeneralSettingsView.axaml参照）。
+    /// </summary>
+    public bool HasFontFamilyOptions => _fontCatalog.AllFamilyNames.Count > 0;
+
+    /// <summary><see cref="HasFontFamilyOptions"/>と同じ理由。等幅フォント側。</summary>
+    public bool HasMonospaceFontFamilyOptions => _fontCatalog.MonospaceFamilyNames.Count > 0;
+
+    private static IReadOnlyList<ChoiceOption> BuildFontOptions(IReadOnlyList<string> familyNames)
+    {
+        var options = new List<ChoiceOption>(familyNames.Count + 1) { new("(既定)", string.Empty) };
+        options.AddRange(familyNames.Select(name => new ChoiceOption(name, name)));
+        return options;
+    }
 
     /// <summary>
     /// エクスポート／インポートの範囲。trueなら設定のみ（プロジェクト定義を除外）。
@@ -749,6 +824,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         EditorInsertSpaces = e.InsertSpaces; EditorDetectIndent = e.DetectIndent;
         EditorAutoClosingBrackets = e.AutoClosingBrackets; EditorFolding = e.Folding;
         EditorCompletion = e.Completion; EditorGitGutter = e.GitGutter;
+        SelectedFontFamily = e.FontFamily ?? string.Empty;
+        SelectedMonospaceFontFamily = e.MonospaceFontFamily ?? string.Empty;
     }
 
     private Settings BuildSettingsFromFields() => new()
@@ -800,6 +877,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             InsertSpaces = _editorInsertSpaces, DetectIndent = _editorDetectIndent,
             AutoClosingBrackets = _editorAutoClosingBrackets, Folding = _editorFolding,
             Completion = _editorCompletion, GitGutter = _editorGitGutter,
+            FontFamily = string.IsNullOrWhiteSpace(_selectedFontFamily) ? null : _selectedFontFamily,
+            MonospaceFontFamily = string.IsNullOrWhiteSpace(_selectedMonospaceFontFamily) ? null : _selectedMonospaceFontFamily,
         },
     };
 

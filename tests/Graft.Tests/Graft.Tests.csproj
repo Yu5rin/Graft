@@ -83,6 +83,13 @@
       不具合が出たため、単体テストで押さえる。
     -->
     <Compile Include="..\..\src\Graft\ViewModels\WindowLayoutStore.cs" LinkBase="Linked\ViewModels" />
+    <!--
+      検討書「フォント設定」。等幅判定の幅比較ロジック（MonospaceHeuristic）はAvalonia型に
+      一切依存しない純粋な数値計算のみで構成されるため、上と同じ理由で取り込む。
+      実際のフォント列挙・グリフ計測（SystemFontCatalog、Avalonia.Media依存）は
+      tests/Graft.UiTests側で検証する。
+    -->
+    <Compile Include="..\..\src\Graft\Editor\MonospaceHeuristic.cs" LinkBase="Linked\Editor" />
   </ItemGroup>
 
   <ItemGroup>

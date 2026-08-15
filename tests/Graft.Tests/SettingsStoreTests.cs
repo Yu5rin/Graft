@@ -94,6 +94,9 @@ public class SettingsStoreTests
         s.Folding.Should().BeTrue();
         s.Completion.Should().BeTrue();
         s.GitGutter.Should().BeTrue();
+        // 検討書「フォント設定」。既定はnull（未指定＝アプリ既定のフォントを使う）。
+        s.FontFamily.Should().BeNull();
+        s.MonospaceFontFamily.Should().BeNull();
     }
 
     // ------------------------------------------------------------------
@@ -160,6 +163,94 @@ public class SettingsStoreTests
 
         result.Value.Theme.Should().Be("system");
         result.Issues.Should().Contain(i => i.Code == ErrorCode.E404);
+    }
+
+    [Theory(DisplayName = "既存のsettings.json（theme=dark/light/system）はそのまま読み込める（テーマプリセット9種の追加後も互換）")]
+    [InlineData("dark")]
+    [InlineData("light")]
+    [InlineData("system")]
+    public async Task 旧バージョンのthemeの値はそのまま読み込める(string theme)
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, $$"""{ "theme": "{{theme}}" }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Theme.Should().Be(theme);
+        result.Issues.Should().BeEmpty("既存の値は今回のプリセット追加で壊れてはならない");
+    }
+
+    [Theory(DisplayName = "テーマプリセット7種のidはそのまま読み込める")]
+    [InlineData("sepia")]
+    [InlineData("github")]
+    [InlineData("solarized-light")]
+    [InlineData("solarized-dark")]
+    [InlineData("nord")]
+    [InlineData("dracula")]
+    [InlineData("night")]
+    public async Task テーマプリセットのidはそのまま読み込める(string theme)
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, $$"""{ "theme": "{{theme}}" }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Theme.Should().Be(theme);
+        result.Issues.Should().BeEmpty();
+    }
+
+    [Theory(DisplayName = "既存のsettings.json（tooltipDetail=off/standard/detailed）はそのまま読み込める（4段階化後も互換）")]
+    [InlineData("off")]
+    [InlineData("standard")]
+    [InlineData("detailed")]
+    public async Task 旧バージョンのtooltipDetailの値はそのまま読み込める(string level)
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, $$"""{ "tooltipDetail": "{{level}}" }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.TooltipDetail.Should().Be(level);
+        result.Issues.Should().BeEmpty("既存の値は今回の4段階化で壊れてはならない");
+    }
+
+    [Fact(DisplayName = "tooltipDetailに\"minimal\"を指定すればそのまま読み込める")]
+    public async Task tooltipDetailにminimalを指定すればそのまま読み込める()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "tooltipDetail": "minimal" }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.TooltipDetail.Should().Be("minimal");
+        result.Issues.Should().BeEmpty();
+    }
+
+    [Fact(DisplayName = "検討書「フォント設定」: フォント名に'や\\を含んでいてもsettings.jsonの読み書きが壊れない")]
+    public async Task フォント名に引用符やバックスラッシュを含んでいても壊れない()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        var store = new SettingsStore(paths);
+        const string tricky = @"O'Reilly's ""Font"" \Mono\";
+
+        var loaded = (await store.LoadAsync()).Value;
+        var updated = loaded with { Editor = loaded.Editor with { FontFamily = tricky, MonospaceFontFamily = tricky } };
+        await store.SaveAsync(updated);
+
+        var reloaded = await store.LoadAsync();
+
+        reloaded.Value.Editor.FontFamily.Should().Be(tricky);
+        reloaded.Value.Editor.MonospaceFontFamily.Should().Be(tricky);
+        reloaded.Issues.Should().BeEmpty();
     }
 
     [Fact(DisplayName = "課題2: 不正なcloseBehaviorの値は既定値exitへフォールバックする")]
