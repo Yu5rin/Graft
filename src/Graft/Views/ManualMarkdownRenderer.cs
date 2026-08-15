@@ -845,6 +845,7 @@ internal static class ManualMarkdownRenderer
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
+        ReserveSpaceForHorizontalScrollBar(scroll, textBlock);
 
         var border = new Border
         {
@@ -991,13 +992,15 @@ internal static class ManualMarkdownRenderer
         };
         BindBorderBrush(border, "BorderSubtle");
 
-        return new ScrollViewer
+        var tableScroll = new ScrollViewer
         {
             Content = border,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Margin = new Thickness(0, 0, 0, 8),
         };
+        ReserveSpaceForHorizontalScrollBar(tableScroll, border);
+        return tableScroll;
     }
 
     private static List<string> SplitTableRow(string line)
@@ -1690,6 +1693,99 @@ internal static class ManualMarkdownRenderer
             else if (ch == '-' || ch == '_' || char.IsLetterOrDigit(ch)) sb.Append(ch);
         }
         return sb.ToString();
+    }
+
+    // ------------------------------------------------------------------
+    // 横スクロールバーの重なり対策（コードブロック・表）
+    //
+    // 【不具合】利用者からの実機報告（Windows）: コードブロックの横スクロールバーが
+    // コード末尾の行に重なって読めなくなる。原因はAvaloniaのScrollViewer既定テンプレート
+    // （Fluentテーマ、ScrollViewer.axaml。ilspycmdで逆コンパイルして確認）にある。
+    // <see cref="ScrollViewer.AllowAutoHide"/>（既定true）のとき、コンテンツ描画部分
+    // （PART_ContentPresenter）はGrid.RowSpan/ColumnSpanでスクロールバー用の行・列にも
+    // 重ねて配置される（ホバー時だけ太くなる「浮いた」スクロールバーに見せるための仕組み）。
+    // そのため、水平スクロールバーが実際に表示される場面ではコンテンツの最終行に重なる。
+    //
+    // AllowAutoHideをfalseにすればレイアウト上は重ならなくなる（コンテンツ側の行・列が
+    // スクロールバー側に食い込まなくなる）が、副作用としてスクロールバー自体の見た目も
+    // 変わってしまう（ScrollBar.axaml参照。falseだと常時「展開」状態＝ホバーしていなくても
+    // 太いバーと矢印ボタンが出っぱなしになり、他のScrollViewer（既定のまま使っている）と
+    // 見た目が揃わなくなる）。今回は見た目を変えず、横スクロールバーが実際に必要なとき
+    // だけコンテンツの下に余白を確保する方式にした。
+    //
+    // 【余白は ScrollViewer.Padding ではなく中身側の Margin に付ける】 最初はScrollViewer.
+    // Paddingを試したが、実機描画で確認したところ2行目（コードの末尾行）がまるごと
+    // 消える不具合を新たに作ってしまった。VerticalScrollBarVisibility=Disabled（縦方向は
+    // スクロール不可）のScrollViewerは、縦方向をStackPanelなど親から与えられた高さで
+    // クリップする挙動になっており、Paddingを増やしても外側のサイズ（延いては親の
+    // StackPanelが確保する高さ）までは連動して増えない（横方向はスクロール対象なので
+    // 増えなくて当然だが、縦方向も同じ土俵で計算されてしまう）。一方、中身（コード本文の
+    // <see cref="SelectableTextBlock"/>・表の<see cref="Border"/>）自身のMarginは測定
+    // （Measure）の時点で中身のDesiredSizeへ直接組み込まれるため、ScrollViewer越しに
+    // 親のStackPanelまで正しく高さが伝播し、末尾行を欠けさせずに下へ余白を確保できる
+    // （Xvfb実機での見た目確認込み。検証方法は本ファイルのテスト・PR説明を参照）。
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 横スクロールバーが実際に必要なときだけ、<paramref name="content"/>（ScrollViewerの
+    /// 中身。コードブロックなら本文の<see cref="SelectableTextBlock"/>、表なら外枠の
+    /// <see cref="Border"/>）の下にスクロールバーの高さぶんの<see cref="Layoutable.Margin"/>を
+    /// 確保する（ScrollViewer.Paddingを使わない理由は上のコメント参照）。呼び出し時点で
+    /// 既に付いていた余白（表のブロック間隔など）はBottomへ加算するだけで消さない。不要なとき
+    /// （横に収まっているとき）は元の余白まで戻す（増やしたぶんだけを外す）ので、必要かどうかは
+    /// 一度きりでなく<paramref name="scroll"/>の<see cref="ScrollViewer.Extent"/>と
+    /// <see cref="ScrollViewer.Viewport"/>の比較で都度判定し直す。
+    /// <see cref="ScrollViewer.ScrollChanged"/>はExtent/Viewport/Offsetのいずれかが
+    /// 変わるたびに発火するため、ウィンドウ幅の変更やフォントサイズ変更で
+    /// 「収まる⇔収まらない」が切り替わっても追従する。
+    /// </summary>
+    private static void ReserveSpaceForHorizontalScrollBar(ScrollViewer scroll, Control content)
+    {
+        // フォールバック既定値。Avalonia.Themes.Fluent 11.2.3の既定リソース"ScrollBarSize"
+        // （ScrollBar.axamlがScrollBarのMinWidth/MinHeightに束ねている値）をilspycmdで
+        // 逆コンパイルして確認した既定値（16px）。実測・リソースいずれも取得できない
+        // 場合のみ使う、固定値に頼らないための最後の保険。
+        var scrollBarHeight = 16.0;
+
+        // 呼び出し元が元々設定していた余白（例: BuildTableの外枠Borderは表ブロック同士の
+        // 間隔としてMargin(0,0,0,8)を既に持っている）を上書きしないよう保持しておく。
+        // 下でThickness全体を書き換えるのではなくBottomにだけ加算する。
+        var baseMargin = content.Margin;
+
+        void UpdateSpacing()
+        {
+            var needsHorizontalScroll = scroll.Extent.Width > scroll.Viewport.Width + 0.5;
+            content.Margin = needsHorizontalScroll
+                ? new Thickness(baseMargin.Left, baseMargin.Top, baseMargin.Right, baseMargin.Bottom + scrollBarHeight)
+                : baseMargin;
+        }
+
+        // テンプレート適用（visualツリーへ接続された後）で初めてPART_HorizontalScrollBarと
+        // テーマリソースの両方に到達できる。それより前（構築直後）にリソースを引こうとしても
+        // 論理ツリーにまだ繋がっておらず解決できない。
+        scroll.TemplateApplied += (_, e) =>
+        {
+            if (e.NameScope.Find<ScrollBar>("PART_HorizontalScrollBar") is { } bar)
+            {
+                // テンプレート適用直後はまだ計測前で高さ0のことが多いので、まずテーマの
+                // "ScrollBarSize"リソースを反映しておく。
+                if (scroll.TryFindResource("ScrollBarSize", out var resourceValue) && resourceValue is double size && size > 0)
+                    scrollBarHeight = size;
+
+                // 実際にレイアウトされた高さが判明し次第、そちらを優先する
+                // （テーマ・OSの違いでリソース値と実測値がずれても実測を信用する）。
+                bar.SizeChanged += (_, sizeArgs) =>
+                {
+                    if (sizeArgs.NewSize.Height > 0)
+                    {
+                        scrollBarHeight = sizeArgs.NewSize.Height;
+                        UpdateSpacing();
+                    }
+                };
+            }
+            UpdateSpacing();
+        };
+        scroll.ScrollChanged += (_, _) => UpdateSpacing();
     }
 
     // ------------------------------------------------------------------
