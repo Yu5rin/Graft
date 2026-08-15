@@ -20,11 +20,22 @@ public enum SettingsExportScope
 /// </summary>
 public sealed class SettingsStore
 {
+    // テーマプリセット9種＋システム追従（検討書「テーマプリセット9種」）。既存の
+    // "dark"/"light"/"system"はそのまま残し、7つのプリセットidを追加しただけなので、
+    // 古いsettings.jsonの値はここでも引き続き妥当な値として扱われる。idの綴りは
+    // Graft.Themes.ThemeManager.ParseTheme と揃える（対応表を二重に持たない）。
     private static readonly HashSet<string> ValidThemes =
-        new(StringComparer.OrdinalIgnoreCase) { "dark", "light", "system" };
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "dark", "light", "system",
+            "sepia", "github", "solarized-light", "solarized-dark", "nord", "dracula", "night",
+        };
 
+    // ツールチップ4段階（検討書「ツールチップの4段階化」）。既存の"off"/"standard"/"detailed"は
+    // そのまま残し、"minimal"（最低限）を追加しただけなので、古いsettings.jsonの値は
+    // 引き続き妥当な値として扱われる。
     private static readonly HashSet<string> ValidTooltipDetails =
-        new(StringComparer.OrdinalIgnoreCase) { "off", "standard", "detailed" };
+        new(StringComparer.OrdinalIgnoreCase) { "off", "minimal", "standard", "detailed" };
 
     private static readonly HashSet<string> ValidApplyModes =
         new(StringComparer.OrdinalIgnoreCase) { "allOrNothing", "partial" };

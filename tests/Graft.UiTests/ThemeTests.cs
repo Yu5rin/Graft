@@ -8,6 +8,7 @@ using FluentAssertions;
 using Graft.Themes;
 using Graft.UiTests.TestSupport;
 using Graft.Views;
+using Xunit;
 
 namespace Graft.UiTests;
 
@@ -75,6 +76,70 @@ public class ThemeTests : IDisposable
     {
         ThemeManager.SetTheme(AppTheme.Light);
         AssertAllColorTokensResolve();
+    }
+
+    // 検討書「テーマプリセット9種」。既定ライト/既定ダーク（Dark/Light）以外の7プリセット。
+    // Dark.axaml/Light.axamlと全く同じキー名を過不足なく持つことを、1つでも欠けたら
+    // 失敗する形で機械的に検証する（ThemeTestsクラスドキュメント参照）。
+    public static readonly TheoryData<AppTheme> PresetThemes = new()
+    {
+        AppTheme.Sepia, AppTheme.Github, AppTheme.SolarizedLight, AppTheme.SolarizedDark,
+        AppTheme.Nord, AppTheme.Dracula, AppTheme.Night,
+    };
+
+    [AvaloniaTheory(DisplayName = "テーマプリセット7種それぞれで、全カラートークンが過不足なく解決できる")]
+    [MemberData(nameof(PresetThemes))]
+    public void プリセットの全カラートークンが解決できる(AppTheme theme)
+    {
+        ThemeManager.SetTheme(theme);
+        AssertAllColorTokensResolve();
+    }
+
+    // 検討書「各テーマが『暗いか明るいか』の判定…も、9テーマに合わせて正しく返す必要がある」。
+    // sepia/github/solarized-lightは明るいテーマ、nord/dracula/solarized-dark/nightは
+    // 暗いテーマとして扱う（Pane（github.com/Yu5rin/pane）のsrc/themes.cssのdata-theme
+    // 属性と一致させてある）。
+    public static readonly TheoryData<AppTheme, bool> ThemeDarkness = new()
+    {
+        { AppTheme.Dark, true }, { AppTheme.Light, false },
+        { AppTheme.Sepia, false }, { AppTheme.Github, false }, { AppTheme.SolarizedLight, false },
+        { AppTheme.SolarizedDark, true }, { AppTheme.Nord, true }, { AppTheme.Dracula, true },
+        { AppTheme.Night, true },
+    };
+
+    [AvaloniaTheory(DisplayName = "各テーマの明暗判定（IsDarkResolved）が正しい")]
+    [MemberData(nameof(ThemeDarkness))]
+    public void テーマごとの明暗判定が正しい(AppTheme theme, bool expectedIsDark)
+    {
+        ThemeManager.SetTheme(theme);
+        ThemeManager.IsDarkResolved.Should().Be(expectedIsDark, $"{theme}の明暗判定");
+    }
+
+    [AvaloniaFact(DisplayName = "9プリセットそれぞれのシェルウィンドウのスクリーンショットを保存できる（sepia）")]
+    public void セピアテーマのスクリーンショットを保存できる() => CaptureThemeScreenshot(AppTheme.Sepia, "shell-sepia.png");
+
+    [AvaloniaFact(DisplayName = "9プリセットそれぞれのシェルウィンドウのスクリーンショットを保存できる（github）")]
+    public void GitHub風テーマのスクリーンショットを保存できる() => CaptureThemeScreenshot(AppTheme.Github, "shell-github.png");
+
+    [AvaloniaFact(DisplayName = "9プリセットそれぞれのシェルウィンドウのスクリーンショットを保存できる（solarized-light）")]
+    public void SolarizedLightテーマのスクリーンショットを保存できる() => CaptureThemeScreenshot(AppTheme.SolarizedLight, "shell-solarized-light.png");
+
+    [AvaloniaFact(DisplayName = "9プリセットそれぞれのシェルウィンドウのスクリーンショットを保存できる（solarized-dark）")]
+    public void SolarizedDarkテーマのスクリーンショットを保存できる() => CaptureThemeScreenshot(AppTheme.SolarizedDark, "shell-solarized-dark.png");
+
+    [AvaloniaFact(DisplayName = "9プリセットそれぞれのシェルウィンドウのスクリーンショットを保存できる（nord）")]
+    public void Nordテーマのスクリーンショットを保存できる() => CaptureThemeScreenshot(AppTheme.Nord, "shell-nord.png");
+
+    [AvaloniaFact(DisplayName = "9プリセットそれぞれのシェルウィンドウのスクリーンショットを保存できる（dracula）")]
+    public void Draculaテーマのスクリーンショットを保存できる() => CaptureThemeScreenshot(AppTheme.Dracula, "shell-dracula.png");
+
+    [AvaloniaFact(DisplayName = "9プリセットそれぞれのシェルウィンドウのスクリーンショットを保存できる（night）")]
+    public void Nightテーマのスクリーンショットを保存できる() => CaptureThemeScreenshot(AppTheme.Night, "shell-night.png");
+
+    private void CaptureThemeScreenshot(AppTheme theme, string fileName)
+    {
+        ThemeManager.SetTheme(theme);
+        CaptureShellScreenshot(fileName);
     }
 
     private static void AssertAllColorTokensResolve()
@@ -197,10 +262,37 @@ public class ThemeTests : IDisposable
         ThemeManager.ParseTheme(null).Should().Be(AppTheme.System, "未知の値は追従として扱う");
         ThemeManager.ParseTheme("なにか").Should().Be(AppTheme.System);
 
+        // 検討書「テーマプリセット9種」。7プリセットのidも同じ読み替え規則で対応する。
+        ThemeManager.ParseTheme("sepia").Should().Be(AppTheme.Sepia);
+        ThemeManager.ParseTheme("github").Should().Be(AppTheme.Github);
+        ThemeManager.ParseTheme("solarized-light").Should().Be(AppTheme.SolarizedLight);
+        ThemeManager.ParseTheme("solarized-dark").Should().Be(AppTheme.SolarizedDark);
+        ThemeManager.ParseTheme("nord").Should().Be(AppTheme.Nord);
+        ThemeManager.ParseTheme("dracula").Should().Be(AppTheme.Dracula);
+        ThemeManager.ParseTheme("night").Should().Be(AppTheme.Night);
+
         // 読み替えた結果を当てると、実際に選択中のテーマが変わること。
         ThemeManager.SetTheme(ThemeManager.ParseTheme("light"));
         ThemeManager.SelectedTheme.Should().Be(AppTheme.Light);
         ThemeManager.SetTheme(ThemeManager.ParseTheme("dark"));
         ThemeManager.SelectedTheme.Should().Be(AppTheme.Dark);
+        ThemeManager.SetTheme(ThemeManager.ParseTheme("nord"));
+        ThemeManager.SelectedTheme.Should().Be(AppTheme.Nord);
+    }
+
+    [AvaloniaFact(DisplayName = "システム追従は9プリセットへは倒れず、既定ライト/既定ダークのどちらかへ解決される")]
+    public void システム追従はプリセットへ倒れない()
+    {
+        // 検討書「既存のsystem（OS追従）は残す。9テーマ＋システム追従、という形になるはず」。
+        // System選択時は常にDark.axaml/Light.axamlのどちらかへ解決され、7プリセットの
+        // 明るさに関わらずプリセット側の辞書は使わない（ThemeManager.ResolveThemeFile参照）。
+        ThemeManager.SetTheme(AppTheme.System);
+        var isDark = ThemeManager.IsDarkResolved;
+        Application.Current!.TryFindResource("BgBaseColor", null, out var systemValue);
+
+        ThemeManager.SetTheme(isDark ? AppTheme.Dark : AppTheme.Light);
+        Application.Current!.TryFindResource("BgBaseColor", null, out var explicitValue);
+
+        systemValue.Should().Be(explicitValue, "システム追従は既定ライト/既定ダークと完全に同じ辞書へ解決される必要がある");
     }
 }

@@ -10,13 +10,28 @@ namespace Graft.Themes;
 
 /// <summary>
 /// テーマ選択（9.3）。システム追従はライト/ダークどちらかへ解決される。
-/// v2.0のWPF版の<c>Themes/ThemeManager.cs</c> の <c>AppTheme</c> と同一の選択肢を持つ。
+/// v2.0のWPF版の<c>Themes/ThemeManager.cs</c> の <c>AppTheme</c> と同一の選択肢を持つ
+/// （Dark/Light/System の3値はそのまま維持し、既存のsettings.json・呼び出し側との
+/// 互換を保つ）。
+///
+/// 【9テーマプリセットの追加（検討書「テーマプリセット9種」）】
+/// Pane（github.com/Yu5rin/pane）の9プリセット（既定ライト＝Light、既定ダーク＝Dark、
+/// sepia/github/solarized-light/solarized-dark/nord/dracula/night）のうち、既定の2つは
+/// 既存のDark/Lightをそのまま流用し、残り7つを新しい選択肢として追加した。列挙の並びは
+/// 設定画面のThemeOptions（SettingsViewModel）の表示順と揃えている。
 /// </summary>
 public enum AppTheme
 {
     Dark,
     Light,
     System,
+    Sepia,
+    Github,
+    SolarizedLight,
+    SolarizedDark,
+    Nord,
+    Dracula,
+    Night,
 }
 
 /// <summary>
@@ -139,16 +154,47 @@ public static class ThemeManager
     }
 
     /// <summary>
-    /// settings.json の <c>theme</c>（"dark" / "light" / "system"）を選択肢へ読み替える。
-    /// 起動時の反映と設定画面の双方から使い、対応表が二重に存在しないようにする。
-    /// 未知の値はシステム追従として扱う。
+    /// settings.json の <c>theme</c>（"dark" / "light" / "system" および9プリセットのid）を
+    /// 選択肢へ読み替える。起動時の反映と設定画面の双方から使い、対応表が二重に存在しない
+    /// ようにする。未知の値（旧バージョンには無かった値・破損した値）はシステム追従として扱う
+    /// （既存の"dark"/"light"/"system"はそのままの意味を保つため、古いsettings.jsonを
+    /// 持つ利用者もそのまま動く）。
     /// </summary>
     public static AppTheme ParseTheme(string? value) => value switch
     {
         "dark" => AppTheme.Dark,
         "light" => AppTheme.Light,
+        "sepia" => AppTheme.Sepia,
+        "github" => AppTheme.Github,
+        "solarized-light" => AppTheme.SolarizedLight,
+        "solarized-dark" => AppTheme.SolarizedDark,
+        "nord" => AppTheme.Nord,
+        "dracula" => AppTheme.Dracula,
+        "night" => AppTheme.Night,
         _ => AppTheme.System,
     };
+
+    /// <summary>
+    /// 9プリセット＋既定2種の色トークン辞書ファイル名と、明暗判定（タイトルバー連動・
+    /// <see cref="IsDarkResolved"/>用）の対応表。検討書のとおりsepia/github/solarized-lightは
+    /// 明るいテーマ、nord/dracula/solarized-dark/nightは暗いテーマとして扱う（各テーマの
+    /// 元データはPane（github.com/Yu5rin/pane）のsrc/themes.cssにおけるdata-theme属性
+    /// （light/dark）と一致する）。<see cref="AppTheme.System"/>はここに含まれない
+    /// （<see cref="ResolveThemeFile"/>で個別に処理する）。
+    /// </summary>
+    private static readonly IReadOnlyDictionary<AppTheme, (string FileName, bool IsDark)> ThemeFiles =
+        new Dictionary<AppTheme, (string FileName, bool IsDark)>
+        {
+            [AppTheme.Dark] = ("Dark.axaml", true),
+            [AppTheme.Light] = ("Light.axaml", false),
+            [AppTheme.Sepia] = ("Sepia.axaml", false),
+            [AppTheme.Github] = ("Github.axaml", false),
+            [AppTheme.SolarizedLight] = ("SolarizedLight.axaml", false),
+            [AppTheme.SolarizedDark] = ("SolarizedDark.axaml", true),
+            [AppTheme.Nord] = ("Nord.axaml", true),
+            [AppTheme.Dracula] = ("Dracula.axaml", true),
+            [AppTheme.Night] = ("Night.axaml", true),
+        };
 
     private static void OnSystemThemeChanged(object? sender, EventArgs e)
     {
@@ -188,9 +234,8 @@ public static class ThemeManager
             _lastAppliedApp = app;
         }
 
-        var isDark = ResolveIsDark(_selectedTheme);
+        var (fileName, isDark) = ResolveThemeFile(_selectedTheme);
         IsDarkResolved = isDark;
-        var fileName = isDark ? "Dark.axaml" : "Light.axaml";
         var uri = new Uri($"avares://Graft/Themes/{fileName}");
         var newDictionary = new ResourceInclude(uri) { Source = uri };
 
@@ -218,14 +263,25 @@ public static class ThemeManager
     }
 
     /// <summary>
-    /// <see cref="AppTheme.System"/> の解決。<see cref="ISystemThemeWatcher"/> が利用不可、
-    /// または判定できない場合はダークへフォールバックする（仕様書2.3・
-    /// <see cref="ISystemThemeWatcher.TryReadIsLightTheme"/> の既定方針）。
+    /// 選択中のテーマから、実際に読み込む色トークン辞書ファイルと明暗判定を1回で求める。
+    /// <see cref="AppTheme.System"/>は<see cref="ISystemThemeWatcher"/>が利用不可、または
+    /// 判定できない場合はダークへフォールバックする（仕様書2.3・
+    /// <see cref="ISystemThemeWatcher.TryReadIsLightTheme"/> の既定方針）点は既存のまま変えて
+    /// いない。9プリセットへは追従しない（<see cref="ThemeFiles"/>のコメント参照）ため、
+    /// システム追従は常にDark.axaml/Light.axamlのどちらかへ解決される。
+    /// 9プリセットの明暗（<see cref="ThemeFiles"/>）はPane（github.com/Yu5rin/pane）の
+    /// data-theme属性（各テーマがlight/darkのどちらの土台に属するか）と一致させてある。
     /// </summary>
-    private static bool ResolveIsDark(AppTheme requested) => requested switch
+    private static (string FileName, bool IsDark) ResolveThemeFile(AppTheme requested)
     {
-        AppTheme.Dark => true,
-        AppTheme.Light => false,
-        _ => _themeWatcher.TryReadIsLightTheme() != true,
-    };
+        if (requested == AppTheme.System)
+        {
+            var isDark = _themeWatcher.TryReadIsLightTheme() != true;
+            return isDark ? ThemeFiles[AppTheme.Dark] : ThemeFiles[AppTheme.Light];
+        }
+
+        // 未知の値が来ることは無い想定（ParseTheme経由なら必ずThemeFilesのキーに収まる）だが、
+        // 万一に備えてダークへフォールバックする（仕様書2.3の既定方針と揃える）。
+        return ThemeFiles.TryGetValue(requested, out var entry) ? entry : ThemeFiles[AppTheme.Dark];
+    }
 }
