@@ -46,6 +46,21 @@
     <DataTemplate x:Key="DisplayTextItemTemplate">
         <TextBlock Text="{Binding DisplayText}" VerticalAlignment="Center" />
     </DataTemplate>
+    <!--
+        検討書「フォント設定」: 設定画面のフォント選択ComboBox専用。各項目（ChoiceOption、
+        Label=Value=フォント名。先頭の「(既定)」だけLabel≠Value="")を、そのフォント自体で
+        描画する（選ぶ前に見た目が分かる、という要件）。FontFamilyはConverters.
+        FontFamilyOrDefaultでLabelの文字列からFontFamilyへ変換する（空文字＝「(既定)」は
+        nullを返し、継承した既定のFontFamilyのまま描画される）。TextTrimming＋MaxWidthは
+        NameItemTemplateと同じ理由（極端に長いフォント名で一覧が崩れないため）。
+    -->
+    <DataTemplate x:Key="FontChoiceItemTemplate">
+        <TextBlock Text="{Binding Label}"
+                   FontFamily="{Binding Label, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                   VerticalAlignment="Center"
+                   MaxWidth="320"
+                   TextTrimming="CharacterEllipsis" />
+    </DataTemplate>
 
     <!-- ========== CheckBox ========== -->
     <ControlTheme x:Key="{x:Type CheckBox}" TargetType="CheckBox">

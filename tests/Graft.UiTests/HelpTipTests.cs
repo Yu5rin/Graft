@@ -43,6 +43,47 @@ public class HelpTipTests : IDisposable
         tip.Should().BeOfType<TextBlock>().Which.Text.Should().Be("標準の説明");
     }
 
+    [AvaloniaFact(DisplayName = "検討書「ツールチップの4段階化」: 最低限を選ぶと最低限の文言（現在の値）だけがツールチップになる")]
+    public void 最低限を選ぶと最低限の文言になる()
+    {
+        HelpTip.SetLevel(TooltipDetailLevel.Minimal);
+        var control = new Button();
+        HelpTip.SetStandard(control, "標準の説明");
+        HelpTip.SetDetailed(control, "くわしい説明");
+        HelpTip.SetMinimal(control, "インデント幅: 4");
+
+        var tip = ToolTip.GetTip(control);
+        tip.Should().BeOfType<TextBlock>().Which.Text.Should().Be("インデント幅: 4");
+    }
+
+    [AvaloniaFact(DisplayName = "最低限が未設定のコントロール（値を持たないボタン等）では、最低限を選んでも標準の説明にフォールバックする")]
+    public void 最低限未設定なら標準へフォールバックする()
+    {
+        HelpTip.SetLevel(TooltipDetailLevel.Minimal);
+        var button = new Button();
+        HelpTip.SetStandard(button, "標準のみ");
+
+        var tip = ToolTip.GetTip(button);
+        tip.Should().BeOfType<TextBlock>().Which.Text.Should().Be("標準のみ", "値を持たないボタンでは最低限＝標準と同じでよい（検討書の設計判断）");
+    }
+
+    [AvaloniaFact(DisplayName = "最低限のツールチップはバインディングされた値の変化に追従する（値を打ち替えるたびに更新される）")]
+    public void 最低限のツールチップは値の変化に追従する()
+    {
+        HelpTip.SetLevel(TooltipDetailLevel.Minimal);
+        var control = new Button();
+        HelpTip.SetStandard(control, "標準");
+
+        HelpTip.SetMinimal(control, "タブ幅: 4");
+        ToolTip.GetTip(control).Should().BeOfType<TextBlock>().Which.Text.Should().Be("タブ幅: 4");
+
+        // 添付プロパティの値そのものが打ち替わった場合（実際の画面ではBindingの再評価に相当）も、
+        // ツールチップ側が即座に追従する必要がある（MinimalPropertyもStandard/Detailedと同様に
+        // Changedハンドラで再適用しているため。HelpTip.csのコメント参照）。
+        HelpTip.SetMinimal(control, "タブ幅: 8");
+        ToolTip.GetTip(control).Should().BeOfType<TextBlock>().Which.Text.Should().Be("タブ幅: 8");
+    }
+
     [AvaloniaFact(DisplayName = "くわしい説明を選ぶとくわしい文言がツールチップになる")]
     public void くわしい説明を選ぶとくわしい文言になる()
     {
@@ -120,16 +161,18 @@ public class HelpTipTests : IDisposable
             "最大幅が指定されていないと画面外へはみ出しうる");
     }
 
-    [AvaloniaFact(DisplayName = "settings.jsonのtooltipDetailは3値へ読み替えられ、逆変換もできる")]
+    [AvaloniaFact(DisplayName = "settings.jsonのtooltipDetailは4値へ読み替えられ、逆変換もできる（旧3値との互換を含む）")]
     public void 設定値の読み替えと逆変換ができる()
     {
         HelpTip.ParseLevel("off").Should().Be(TooltipDetailLevel.Off);
+        HelpTip.ParseLevel("minimal").Should().Be(TooltipDetailLevel.Minimal);
         HelpTip.ParseLevel("standard").Should().Be(TooltipDetailLevel.Standard);
         HelpTip.ParseLevel("detailed").Should().Be(TooltipDetailLevel.Detailed);
         HelpTip.ParseLevel(null).Should().Be(TooltipDetailLevel.Standard, "未知の値は標準として扱う");
         HelpTip.ParseLevel("なにか").Should().Be(TooltipDetailLevel.Standard);
 
         HelpTip.ToSettingsValue(TooltipDetailLevel.Off).Should().Be("off");
+        HelpTip.ToSettingsValue(TooltipDetailLevel.Minimal).Should().Be("minimal");
         HelpTip.ToSettingsValue(TooltipDetailLevel.Standard).Should().Be("standard");
         HelpTip.ToSettingsValue(TooltipDetailLevel.Detailed).Should().Be("detailed");
     }
@@ -212,6 +255,49 @@ public class HelpTipTests : IDisposable
         HelpTip.SetLevel(TooltipDetailLevel.Off);
         ToolTip.GetTip(closeBehaviorCombo).Should().BeNull();
         ToolTip.GetTip(launchAtStartupCheck).Should().BeNull();
+
+        try
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+        catch (IOException)
+        {
+            // 後始末の失敗は検証結果に影響しない。
+        }
+    }
+
+    [AvaloniaFact(DisplayName = "検討書「ツールチップの4段階化」: 設定画面「最低限」を選ぶと、値を持つ設定項目のツールチップが現在の値を示す")]
+    public async Task 最低限を選ぶと現在の値がツールチップになる()
+    {
+        HelpTip.SetLevel(TooltipDetailLevel.Standard);
+
+        var root = Path.Combine(Path.GetTempPath(), "graft-helptip-minimal", Guid.NewGuid().ToString("N"));
+        var appPaths = new AppPaths(root);
+        appPaths.EnsureCoreDirectoriesExist();
+        var vm = new SettingsViewModel(appPaths, new NullDialogService(), new AvaloniaUiServices());
+        await vm.InitializeAsync();
+
+        var view = new EditorSettingsView { DataContext = vm };
+        var window = _windows.Track(new Window { Content = view });
+        window.Show();
+
+        var fontSizeBox = view.GetVisualDescendants().OfType<TextBox>()
+            .Single(t => Equals(AutomationProperties.GetName(t), "エディタのフォントサイズ"));
+
+        // 標準の説明のときは固定文言（既存の3段階と同じ挙動）。
+        ToolTip.GetTip(fontSizeBox).Should().BeOfType<TextBlock>()
+            .Which.Text.Should().Contain("コード表示の文字の大きさ");
+
+        // 「最低限」に切り替えると、固定文言ではなく「現在の値」を示す文言へ切り替わる
+        // （検討書の要件: 「最低限…は現在設定されている値だけを示す（例:「インデント幅: 4」）」）。
+        HelpTip.SetLevel(TooltipDetailLevel.Minimal);
+        ToolTip.GetTip(fontSizeBox).Should().BeOfType<TextBlock>()
+            .Which.Text.Should().Be("フォントサイズ: 13");
+
+        // 値を打ち替えると、開いたまま（設定を再読み込みせず）ツールチップの内容も追従する。
+        vm.EditorFontSizeText = "18";
+        ToolTip.GetTip(fontSizeBox).Should().BeOfType<TextBlock>()
+            .Which.Text.Should().Be("フォントサイズ: 18");
 
         try
         {

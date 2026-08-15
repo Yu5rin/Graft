@@ -24,6 +24,7 @@
                 <TextBox Text="{Binding EditorFontSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="エディタのフォントサイズ"
+                         views:HelpTip.Minimal="{Binding EditorFontSizeText, StringFormat='フォントサイズ: {0}'}"
                          views:HelpTip.Standard="コード表示の文字の大きさです。既定は13です。エディタ上でCtrl+マウスホイールでも変更できます。"
                          views:HelpTip.Detailed="中央のエディタ領域に表示するコードの文字サイズ（pt）です。既定は13です。エディタの上にカーソルを置いてCtrlキーを押しながらマウスホイールを回しても同じように変更でき、そちらで変えた値もここへ反映されます。表示だけの設定でファイルの内容には影響しません。" />
             </StackPanel>
@@ -54,6 +55,7 @@
                 <TextBox Text="{Binding EditorTabSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="タブ幅"
+                         views:HelpTip.Minimal="{Binding EditorTabSizeText, StringFormat='タブ幅: {0}'}"
                          views:HelpTip.Standard="タブ1つを何文字分の幅で表示するかです。既定は4です。ファイルから自動検出できた場合はそちらを優先します。"
                          views:HelpTip.Detailed="タブ文字1つをエディタ上で何文字分の幅として表示するかです。既定は4です。「ファイルを開いた時点で優勢なインデントを自動検出する」がオンの場合、開いたファイルの実際のインデントから検出できればその値を優先し、検出できなかったときだけこの既定値を使います。表示上の幅の設定で、ファイルに書き込まれる文字自体は変わりません。" />
             </StackPanel>
