@@ -117,4 +117,12 @@
     <Color x:Key="EditorSelectionColor">#2E3A4D</Color>
     <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
 
+    <!-- ========== インデントガイド（縦線、検討書「インデントガイド（縦線）」） ========== -->
+    <!-- 地色はBorderSubtle（境界線色）をそのまま流用する。移植元Pane（src/style.css）の
+         fold-guide-hover相当のホバー強調色は、既定ライト/ダークに限りアクセント色（accent変数）
+         のまま（Paneのstyle.css :rootコメント「既定ライト/ダークではアクセント色への追従のまま」を
+         踏襲）。7プリセットはそれぞれ個別に選定した色を使う（各ファイル参照）。 -->
+    <SolidColorBrush x:Key="IndentGuide" Color="{StaticResource BorderSubtleColor}" />
+    <SolidColorBrush x:Key="IndentGuideHover" Color="{StaticResource AccentColor}" />
+
 </ResourceDictionary>

@@ -1,3 +1,4 @@
+using Avalonia.Input;
 using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
@@ -68,6 +69,24 @@ namespace Graft.Editor;
 /// AvaloniaEdit側の内部状態と食い違っても例外を外へ漏らさないよう<c>try/catch</c>で囲み、
 /// <see cref="SafeHandler.OnUnexpected"/>へ記録したうえで折りたたみ1回分の更新を諦めるに
 /// 留める（アプリ本体は継続させる。附録A.4・設計目標5）。
+///
+/// 【検討書「インデントガイド（縦線）」（Pane移植第2波）】
+/// 上記の食い違い対策（Install/Uninstallのタイミング管理）には一切手を入れず、その外側に
+/// 2つを追加した。
+/// (1) <see cref="Manager"/>/<see cref="Document"/>: 現在有効な<see cref="FoldingManager"/>と
+///     対象文書を読み取り専用で公開する。<see cref="Editor.IndentGuideRenderer"/>が縦線の
+///     元データ（折りたたみ範囲）を取得するために使う。Draw()のたびに
+///     <c>textView.Document</c>との一致を呼び出し側で確認させる設計とし（読み取り専用の
+///     プロパティを都度読むだけ）、本クラスのInstall/Uninstallのタイミングそのものには
+///     一切関与させない。
+/// (2) <see cref="HoveredFoldingChanged"/>: 折りたたみマーカーへのマウス乗り入れを、
+///     <see cref="FoldingManager.Install"/>が生成する<see cref="FoldingMargin"/>の
+///     <c>PointerMoved</c>/<c>PointerExited</c>を購読して検知する（<see cref="FoldingMargin"/>
+///     自体はInstall/Uninstallのたびに作り直されるインスタンスのため、フック・アンフックを
+///     Attach/DetachDocumentの対になる箇所へ追加した。Install/Uninstallの呼び出し順序・
+///     タイミング自体は変更していない）。縦線側の色を切り替えるために公開したが、
+///     マーカー自体のホバー表現・折りたたみコマンドの追加は次のコミット（検討書「折りたたみの
+///     機能追加」）で行う。
 /// </summary>
 public sealed class FoldingSupport : IDisposable
 {
@@ -88,6 +107,11 @@ public sealed class FoldingSupport : IDisposable
     private TextDocument? _document;
     private bool _disposed;
 
+    // 検討書「マーカーのホバー強調」: 現在フックしているFoldingMargin（Install/Uninstallの
+    // たびに作り直される）と、現在ホバー中の折りたたみ範囲。
+    private FoldingMargin? _hookedMargin;
+    private FoldingSection? _hoveredFolding;
+
     public FoldingSupport(TextEditor editor)
     {
         _editor = editor ?? throw new ArgumentNullException(nameof(editor));
@@ -98,6 +122,19 @@ public sealed class FoldingSupport : IDisposable
         // uninstallする（クラスコメントの「対処」参照）。
         _editor.DocumentChanged += OnEditorDocumentChanged;
     }
+
+    /// <summary>現在有効な<see cref="FoldingManager"/>（未取り付け・無効化中はnull）。
+    /// <see cref="Editor.IndentGuideRenderer"/>が読み取り専用で参照する。</summary>
+    public FoldingManager? Manager => _manager;
+
+    /// <summary>現在取り付け対象の文書（取り付け前はnull）。</summary>
+    public TextDocument? Document => _document;
+
+    /// <summary>
+    /// マウスが乗っている折りたたみマーカーに対応する範囲が変わるたびに発火する
+    /// （検討書「マーカーのホバー強調」）。マーカーの外へ出た・畳まれている範囲の場合はnull。
+    /// </summary>
+    public event EventHandler<FoldingSection?>? HoveredFoldingChanged;
 
     /// <summary>
     /// 不具合1: <see cref="TextEditor.Document"/>が変わった瞬間に同期的に発火する。
@@ -161,8 +198,64 @@ public sealed class FoldingSupport : IDisposable
             return;
         }
 
+        HookFoldingMargin();
         document.Changed += OnDocumentChanged;
         RecalculateNow();
+    }
+
+    /// <summary>
+    /// 検討書「マーカーのホバー強調」: <see cref="FoldingManager.Install"/>が
+    /// <c>TextArea.LeftMargins</c>へ追加した<see cref="FoldingMargin"/>（Install呼び出しのたびに
+    /// 新しいインスタンスが作られる）を見つけ、ポインタの出入りを購読する。見つからない場合
+    /// （AvaloniaEdit側の内部実装が変わった等）は静かに諦める（ホバー強調が効かないだけで、
+    /// 折りたたみ自体の動作には影響させない）。
+    /// </summary>
+    private void HookFoldingMargin()
+    {
+        var margin = _editor.TextArea.LeftMargins.OfType<FoldingMargin>().FirstOrDefault();
+        if (margin is null) return;
+
+        _hookedMargin = margin;
+        margin.PointerMoved += OnFoldingMarginPointerMoved;
+        margin.PointerExited += OnFoldingMarginPointerExited;
+    }
+
+    private void UnhookFoldingMargin()
+    {
+        if (_hookedMargin is null) return;
+        _hookedMargin.PointerMoved -= OnFoldingMarginPointerMoved;
+        _hookedMargin.PointerExited -= OnFoldingMarginPointerExited;
+        _hookedMargin = null;
+        SetHoveredFolding(null);
+    }
+
+    /// <summary>
+    /// マージン上のポインタ位置から、その行のマーカーが開く折りたたみ範囲を求める。
+    /// <see cref="AvaloniaEdit.Folding.FoldingMargin.OnTextViewVisualLinesChanged"/>が
+    /// マーカーの表示要否を判定するのと同じ条件（<c>GetNextFolding</c> + 行内に収まっているか）
+    /// を使うため、実際にマーカーが描かれている行でだけ強調が発生する。
+    /// </summary>
+    private void OnFoldingMarginPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_manager is null || _hookedMargin is null) { SetHoveredFolding(null); return; }
+
+        var textView = _editor.TextArea.TextView;
+        var position = e.GetPosition(_hookedMargin);
+        var docLine = textView.GetDocumentLineByVisualTop(position.Y + textView.VerticalOffset);
+        if (docLine is null) { SetHoveredFolding(null); return; }
+
+        var fs = _manager.GetNextFolding(docLine.Offset);
+        var onThisLine = fs is not null && fs.StartOffset <= docLine.Offset + docLine.Length && !fs.IsFolded;
+        SetHoveredFolding(onThisLine ? fs : null);
+    }
+
+    private void OnFoldingMarginPointerExited(object? sender, PointerEventArgs e) => SetHoveredFolding(null);
+
+    private void SetHoveredFolding(FoldingSection? folding)
+    {
+        if (ReferenceEquals(_hoveredFolding, folding)) return;
+        _hoveredFolding = folding;
+        HoveredFoldingChanged?.Invoke(this, folding);
     }
 
     public void Dispose()
@@ -184,6 +277,7 @@ public sealed class FoldingSupport : IDisposable
 
     private void Uninstall()
     {
+        UnhookFoldingMargin(); // Uninstallでこのマージン自体がLeftMarginsから取り除かれるため先に外す。
         if (_manager is null) return;
         var manager = _manager;
         _manager = null;

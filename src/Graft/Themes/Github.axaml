@@ -151,4 +151,14 @@
     <Color x:Key="EditorSelectionColor">#DDF4FF</Color>
     <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
 
+    <!-- ========== インデントガイド（縦線、検討書「インデントガイド（縦線）」・第2波） ========== -->
+    <!-- 地色はBorderSubtle（=Paneのrule変数）をそのまま流用する。ホバー強調色は
+         Pane（src/themes.css githubブロック）のfold-guide-hover変数をそのまま移植した
+         （Pane側の根拠: 「アクセント色(#0969DA)はGitHub本体のリンク色そのもので、本文中の
+         リンクと紛らわしい。GitHub Primerの『マージ済みPR』等に使う紫(#6639BA)を転用すると、
+         白地に対しコントラスト比7.34、通常線rule変数に対しても5.06とはっきり異なる」）。 -->
+    <SolidColorBrush x:Key="IndentGuide" Color="{StaticResource BorderSubtleColor}" />
+    <Color x:Key="IndentGuideHoverColor">#6639BA</Color>
+    <SolidColorBrush x:Key="IndentGuideHover" Color="{StaticResource IndentGuideHoverColor}" />
+
 </ResourceDictionary>
