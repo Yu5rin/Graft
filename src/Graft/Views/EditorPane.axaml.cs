@@ -33,6 +33,8 @@ public partial class EditorPane : UserControl
     private readonly GitGutterProvider _gitGutter;
     // Markdownプレビュー機能（案B）: 編集モードでのMarkdown控えめ装飾。詳細はMarkdownInlineColorizer参照。
     private readonly MarkdownInlineColorizer _markdownColorizer = new();
+    // 検討書「コード中のカラープレビュー」。統合はEditorPane.ColorPreview.cs参照。
+    private readonly ColorPreviewElementGenerator _colorPreview = new();
     private readonly AvaloniaDialogService _dialogs = new();
     private EditorPaneViewModel? _viewModel;
 
@@ -77,6 +79,11 @@ public partial class EditorPane : UserControl
         // Markdownプレビュー機能（案B）。_bridgeの後ろに積む＝色付けの後から書体・背景を
         // 上書きする順で適用される（見出しの太字等がシンタックスハイライトの色を消さない）。
         Editor.TextArea.TextView.LineTransformers.Add(_markdownColorizer);
+
+        // 検討書「コード中のカラープレビュー」。VisualLineElementGeneratorとして登録する理由は
+        // ColorPreviewElementGeneratorのクラスコメント参照。
+        Editor.TextArea.TextView.ElementGenerators.Add(_colorPreview);
+        _colorPreview.SwatchClicked += OnColorSwatchClicked;
 
         _brackets = new BracketSupport(Editor);
         _folding = new FoldingSupport(Editor);
@@ -207,6 +214,7 @@ public partial class EditorPane : UserControl
         _folding.Attach(tab.Session.Document, extension);
         _folding.SetEnabled(_viewModel?.Folding ?? true);
         _markdownColorizer.SetEnabled(tab.IsMarkdownFile);
+        ApplyColorPreviewOption();
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
         ApplyGitGutter(tab);
 

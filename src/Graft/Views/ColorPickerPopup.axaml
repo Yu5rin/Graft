@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:colorPicker="using:Avalonia.Controls"
+        x:Class="Graft.Views.ColorPickerPopup"
+        Title="色を変更"
+        SystemDecorations="None"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="Manual"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        AutomationProperties.Name="色を変更">
+    <!--
+        カラープレビュー機能（検討書「コード中のカラープレビュー」）のカラーピッカー。
+        Pane実機で得られた知見（利用者指示のとおりそのまま踏襲）:
+          - ドラッグで移動できる必要がある（色を選んでいる間、下のコードが見えないと困る）。
+            → 装飾なしウィンドウ（SystemDecorations="None"）にし、上部のDragHandle自前で
+              ドラッグを実装する（ColorPickerPopup.axaml.cs のOnDragHandlePointerPressed等）。
+          - アンドゥとキャンセルを用意する。
+            → 本パネルは色を選んでいる間はドキュメントに一切書き込まない（Paneのような
+              リアルタイム反映はしない。詳細はColorPickerPopup.axaml.csクラスコメント参照）。
+              「適用」で初めて1回だけ書き込むため、キャンセルは「何もしない」だけで安全に実現でき、
+              適用後のアンドゥも通常のCtrl+Zで1回分の変更として戻る。
+          - RGBの入力欄は幅を確保する（3桁が入りきらないと使えない）。
+            → ColorView自体に十分な幅（MinWidth）を与える。ColorView組み込みのHex入力欄も
+              あわせて表示し、3桁のRGB欄が仮に窮屈でも16進で確実に編集できる逃げ道を用意する。
+        ColorPicker（Avalonia.Controls.ColorPicker、Avalonia本体と同じMITライセンス）のColorViewを
+        そのまま使う。自前のHSVピッカーを実装しない判断の理由はColorPickerPopup.axaml.csクラス
+        コメント参照。
+    -->
+    <Border Background="{DynamicResource BgSurface}"
+            BorderBrush="{DynamicResource BorderSubtle}"
+            BorderThickness="1"
+            CornerRadius="6"
+            BoxShadow="0 4 16 0 #40000000">
+        <StackPanel>
+            <Border x:Name="DragHandle"
+                    Background="{DynamicResource BgElevated}"
+                    CornerRadius="6,6,0,0"
+                    Height="30"
+                    Cursor="SizeAll"
+                    PointerPressed="OnDragHandlePointerPressed">
+                <TextBlock Text="色を変更"
+                           Margin="10,0"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextPrimary}"
+                           FontSize="{DynamicResource CaptionFontSize}" />
+            </Border>
+            <StackPanel Margin="14" Spacing="10">
+                <colorPicker:ColorView x:Name="Picker"
+                                        MinWidth="300"
+                                        IsColorPaletteVisible="False"
+                                        IsAccentColorsVisible="False"
+                                        IsColorSpectrumVisible="True"
+                                        IsColorComponentsVisible="True"
+                                        IsHexInputVisible="True"
+                                        IsColorPreviewVisible="True" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <Button x:Name="ApplyButton"
+                            Content="適用"
+                            IsDefault="True"
+                            Click="OnApplyClicked"
+                            AutomationProperties.Name="この色を適用" />
+                    <Button x:Name="CancelButton"
+                            Content="キャンセル"
+                            IsCancel="True"
+                            Click="OnCancelClicked"
+                            AutomationProperties.Name="色の変更をキャンセル" />
+                </StackPanel>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

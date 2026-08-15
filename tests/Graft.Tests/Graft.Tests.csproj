@@ -101,6 +101,14 @@
     <Compile Include="..\..\src\Graft\Editor\IndentGuideCalculator.cs" LinkBase="Linked\Editor" />
     <Compile Include="..\..\src\Graft\Editor\FoldingLevelCalculator.cs" LinkBase="Linked\Editor" />
     <Compile Include="..\..\src\Graft\Editor\CommentBlockCalculator.cs" LinkBase="Linked\Editor" />
+    <!--
+      Pane移植第3波「コード中のカラープレビュー」。色記法（#RRGGBB・rgb()・hsl()）の検出・
+      表記保持整形（ColorLiteralParser）はAvalonia/AvaloniaEditに一切依存しない純粋ロジックのみで
+      構成されるため、上と同じ理由で取り込む（Avalonia.Media.Colorの代わりに自前のRgbaColor
+      構造体を使う。クラスコメント参照）。実際の描画・クリック統合（ColorPreviewElementGenerator、
+      Avalonia依存）はtests/Graft.UiTests側で検証する。
+    -->
+    <Compile Include="..\..\src\Graft\Editor\ColorLiteralParser.cs" LinkBase="Linked\Editor" />
   </ItemGroup>
 
   <ItemGroup>

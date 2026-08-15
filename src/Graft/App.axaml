@@ -17,6 +17,10 @@
              行番号マージン・スクロールビューア）はここが提供する。色や書体は
              Themes/Editor.axamlのControlThemeで9.3のトークンへ上書きする。 -->
         <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml" />
+        <!-- 検討書「コード中のカラープレビュー」のカラーピッカー（ColorView）が使う既定テンプレート。
+             これが無いとColorViewが空欄のまま描画される（実機のXvfb起動で発覚。ColorPickerPopup
+             クラスコメント参照）。 -->
+        <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
         <StyleInclude Source="avares://Graft/Themes/Icons.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Controls.Base.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Settings.axaml" />

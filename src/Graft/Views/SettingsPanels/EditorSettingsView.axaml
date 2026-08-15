@@ -95,6 +95,10 @@
                       AutomationProperties.Name="単語ベースの簡易補完を有効にする"
                       views:HelpTip.Standard="入力中に、同じファイル内で既に使われている単語を候補として出します。既定はオンです。"
                       views:HelpTip.Detailed="オンにすると（既定）、文字を入力している途中で、同じファイル内に既に登場している単語（変数名や関数名など）を候補として一覧表示し、選ぶだけで残りを入力できます。言語の文法を理解した高度な補完ではなく、単純に「同じファイル内で使われた単語」を候補にする簡易的な仕組みです。" />
+            <CheckBox Classes="settingRow" Content="コード中の色をスウォッチでプレビューする" IsChecked="{Binding EditorColorPreviewInCode}"
+                      AutomationProperties.Name="コード中の色をスウォッチでプレビューする"
+                      views:HelpTip.Standard="#RRGGBB・rgb()・hsl()の直前に色見本を表示し、クリックでカラーピッカーを開けます。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、コード中に現れる#RRGGBB形式の16進カラーコード・rgb()/rgba()・hsl()/hsla()の直前に小さな色見本（スウォッチ）を表示します。スウォッチをクリックするとカラーピッカーが開き、選び直した色は元の記法（16進かrgbかhslか、桁数や区切り方）を保ったまま書き戻されます。" />
         </StackPanel>
     </ScrollViewer>
 </UserControl>
