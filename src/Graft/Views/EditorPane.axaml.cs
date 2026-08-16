@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
@@ -7,6 +8,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaEdit.Document;
+using AvaloniaEdit.Editing;
 using AvaloniaEdit.Indentation;
 using Graft.Core;
 using Graft.Editor;
@@ -90,9 +92,22 @@ public partial class EditorPane : UserControl
         _indentGuide = new IndentGuideRenderer(Editor, _folding);
         _completion = new CompletionProvider(Editor);
 
-        // 4.7 Gitガター。行番号の左隣に置き、HEADとの差分を色帯で示す。
+        // 4.7 Gitガター。行番号の左隣に置き、HEADとの差分を色帯で示す。GitGutterProviderの
+        // カーソル（矢印固定）はコンストラクタ内で設定済み（実機での指摘2、クラスコメント参照）。
         _gitGutter = new GitGutterProvider(Editor, new Graft.Features.GitIntegration());
         Editor.TextArea.LeftMargins.Insert(0, _gitGutter);
+
+        // 実機での指摘2（Windows）: 折りたたみマージン・Gitガターと同じ理由で、AvaloniaEdit標準の
+        // LineNumberMarginもTextAreaからIビームを継承したままになる（MarkerOnlyFoldingMarginの
+        // クラスコメント参照）。GitGutterProviderと違い、LineNumberMarginは
+        // ShowLineNumbers="{Binding ShowLineNumbers}"（利用者が設定でいつでも切り替えられる）が
+        // 変化するたびAvaloniaEdit内部（TextEditor.OnShowLineNumbersChanged、非公開・非virtual）が
+        // 新しいインスタンスを作り直すため、生成直後を名指しで一度だけ直すことができない。
+        // LeftMargins自体はCollectionChangedを発行する（AbstractMargin.RemoveFromTextView/
+        // AddToTextViewの配線に使われているのと同じ仕組み）ので、ここへ実際に追加された
+        // LineNumberMarginを見つけるたび矢印を設定する形で、再生成にも追従できるようにする。
+        Editor.TextArea.LeftMargins.CollectionChanged += OnLeftMarginsChanged;
+        ApplyLineNumberMarginCursor(); // 既にShowLineNumbers=trueで挿入済みの場合の初回分。
 
         // AvaloniaにPreviewKeyDown/PreviewMouseWheelは無いため、トンネリング段階で購読する。
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
@@ -797,8 +812,35 @@ public partial class EditorPane : UserControl
         return node as T;
     }
 
+    /// <summary>
+    /// 実機での指摘2（Windows）: <c>TextArea.LeftMargins</c>へ新しく追加された
+    /// <see cref="LineNumberMargin"/>を見つけて矢印カーソルを設定する。<c>ShowLineNumbers</c>の
+    /// 切り替えでAvaloniaEdit内部（非公開の<c>TextEditor.OnShowLineNumbersChanged</c>）が
+    /// <see cref="LineNumberMargin"/>を作り直すたびに、この購読（コンストラクタ参照）経由で
+    /// 呼ばれる。理由の詳細は<see cref="Graft.Editor.MarkerOnlyFoldingMargin"/>のクラスコメント参照。
+    /// </summary>
+    private void OnLeftMarginsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is null) return;
+        foreach (var item in e.NewItems)
+        {
+            if (item is LineNumberMargin margin) margin.Cursor = new Cursor(StandardCursorType.Arrow);
+        }
+    }
+
+    /// <summary>コンストラクタ時点で既に<c>ShowLineNumbers=true</c>で挿入済みの分の初回反映。
+    /// 以降の作り直しは<see cref="OnLeftMarginsChanged"/>が拾う。</summary>
+    private void ApplyLineNumberMarginCursor()
+    {
+        foreach (var margin in Editor.TextArea.LeftMargins.OfType<LineNumberMargin>())
+        {
+            margin.Cursor = new Cursor(StandardCursorType.Arrow);
+        }
+    }
+
     private void OnUnloaded(object? sender, RoutedEventArgs e)
     {
+        Editor.TextArea.LeftMargins.CollectionChanged -= OnLeftMarginsChanged;
         UninitializeTabStrip();
         Editor.TextArea.Caret.PositionChanged -= OnCaretPositionChanged;
         Editor.TextArea.SelectionChanged -= OnSelectionChanged;

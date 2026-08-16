@@ -1,3 +1,4 @@
+using Avalonia.Input;
 using Avalonia.Media;
 using AvaloniaEdit.Folding;
 
@@ -30,9 +31,40 @@ namespace Graft.Editor;
 /// 一切発生しなくなる一方、子コントロールであるマーカーの描画・レイアウト
 /// （<c>MeasureOverride</c>/<c>ArrangeOverride</c>/<c>OnTextViewVisualLinesChanged</c>）は
 /// 一切変更していないため、＋/－マーカーはそのまま表示され続ける。
+///
+/// 【実機での指摘2: マーカーにマウスを合わせてもIビームのまま】
+/// <see cref="Avalonia.Input.InputElement.CursorProperty"/>は<c>inherits: true</c>で登録された
+/// 継承プロパティである。AvaloniaEditの<c>SelectionMouseHandler</c>はエディタ本文を1回でも
+/// クリックすると<c>TextArea.Cursor = Cursor.Parse("IBeam")</c>を<c>TextArea</c>自身への
+/// ローカル値として設定する。<c>TextArea</c>はこの折りたたみマージンの祖先であり、以後は
+/// マージンも（ローカル値を持たない限り）このIビームを継承してしまう。
+/// <c>FoldingMarginMarker.OnPointerMoved</c>自体は自分の<c>Cursor</c>をその場で
+/// <c>Cursor.Default</c>（矢印）へ戻すコードを持つが、これは実測（tests/Graft.UiTests/
+/// FoldingMarginTests.cs参照）で不十分だと分かった: <c>FoldingMargin.OnTextViewVisualLinesChanged</c>は
+/// 可視行が変わるたび（折りたたみの開閉・スクロール・編集など）に<c>FoldingMarginMarker</c>を
+/// 全部作り直す。マウスを動かさずに（例えばクリックの結果としてだけ）可視行が変わると、
+/// 画面上の同じ位置に「Cursorのローカル値をまだ一度も設定していない新しいマーカー」が
+/// 入れ替わり、次にマウスが実際に動くまでIビームのまま取り残される。
+///
+/// 【なぜマージン側で明示設定するのが確実か】
+/// マージン自身（本クラスのインスタンス）は使い回されるため、コンストラクタで一度
+/// <c>Cursor</c>をローカル値として矢印に設定しておけば、継承によって
+/// 「その時点でまだCursorのローカル値を持たない子（作り直された直後のマーカーを含む）」
+/// すべてに矢印が伝播する。マーカー側の<c>OnPointerMoved</c>頼みだとマウスの実際の移動
+/// イベントを待つ必要があるが、マージン側の継承元を直しておけば、マーカーが作り直された
+/// 瞬間から（マウスが動かなくても）矢印になる。ブラシと違いCursorはFoldingMargin側の
+/// 添付プロパティではなく通常の継承プロパティなので、ここで設定してもマーカーの見た目
+/// （枠線・背景）には一切影響しない。
 /// </summary>
 internal sealed class MarkerOnlyFoldingMargin : FoldingMargin
 {
+    public MarkerOnlyFoldingMargin()
+    {
+        // クラスコメント「実機での指摘2」参照。TextAreaから継承したIビームを、この
+        // マージン（と、その子である＋/－マーカー）にだけ矢印へ上書きする。
+        Cursor = new Cursor(StandardCursorType.Arrow);
+    }
+
     /// <summary>
     /// 基底クラスの実装を意図的に呼ばない（呼ぶとL字線が復活する）。何もしないことで
     /// マージン自身が描く線を消す。＋/－マーカーは子コントロールとして別途描画されるため、

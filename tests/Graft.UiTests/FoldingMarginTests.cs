@@ -1,12 +1,18 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
+using AvaloniaEdit.Editing;
 using AvaloniaEdit.Folding;
 using FluentAssertions;
 using Graft.Editor;
 using Graft.Features;
 using Graft.UiTests.TestSupport;
+using Graft.Views;
 using Xunit;
 
 namespace Graft.UiTests;
@@ -23,6 +29,24 @@ namespace Graft.UiTests;
 /// 他のマージンと並べたうえで検証し、実際のEditorPaneの構成（EditorPane.axaml.cs参照:
 /// ShowLineNumbers=true → FoldingSupport.Attach → GitGutterProviderをindex 0へInsert）を
 /// なるべく再現する。
+///
+/// 実機での指摘2（Windows）: ＋/－マーカーにマウスを合わせてもIビームのままという指摘の
+/// 回帰防止テストも本ファイルに含む。調査（下記コメント）の結果、マーカー自体のヒットテスト
+/// ・クリックでの折りたたみ操作は正常に機能しており、原因はカーソルの継承
+/// （<see cref="MarkerOnlyFoldingMargin"/>のクラスコメント参照）だった。
+///
+/// 【調査方法と実測結果】 window.GetVisualAt(...)で折りたたみマーカーの中心座標に対する
+/// ヒットテストを行うと、AvaloniaEdit内部の<c>FoldingMarginMarker</c>自身が返り
+/// （マーカーは実際にポインタイベントを受け取れている）、続けてheadlessのMouseDown/MouseUpで
+/// 同じ座標をクリックすると<c>FoldingSection.IsFolded</c>がfalse→trueへ実際に反転した
+/// （＋/－マーカーをクリックして折りたたむ操作自体は壊れていない）。一方、エディタ本文を
+/// クリックしたあとは折りたたみマージン・Gitガター・行番号マージンのいずれも
+/// <c>Cursor</c>の実効値が"Ibeam"になっており、これが実機の症状と一致した。さらに、
+/// <c>FoldingMargin.OnTextViewVisualLinesChanged</c>は可視行が変わるたび（今回のクリックに
+/// よる折りたたみも含む）<c>FoldingMarginMarker</c>を全部作り直すため、マウスを動かさずに
+/// 可視行だけが変わると「Cursorのローカル値をまだ持たない新しいマーカー」に入れ替わり、
+/// 次にマウスが実際に動くまでIビームのまま取り残されることも確認した
+/// （このマーカーのインスタンス作り直し自体はテスト対象外の既存挙動）。
 /// </summary>
 public class FoldingMarginTests : IDisposable
 {
@@ -163,5 +187,167 @@ public class FoldingMarginTests : IDisposable
             margins.Should().HaveCount(1, $"{i}回目の再有効化後も折りたたみマージンはちょうど1つのはず（増殖しない）");
             margins[0].Should().BeOfType<MarkerOnlyFoldingMargin>();
         }
+    }
+
+    /// <summary>折りたたみ可能な範囲を持つ文書を組み立て、ウィンドウを表示してから
+    /// 折りたたみマーカー（内部クラス<c>FoldingMarginMarker</c>）を1つ見つけて返す。
+    /// クラスコメントの「調査方法」節と同じ手順（GetVisualChildren→型名で絞り込み）。</summary>
+    private (Window Window, TextEditor Editor, FoldingSupport Folding, FoldingMargin Margin, Control Marker)
+        CreateEditorWithVisibleMarker()
+    {
+        var (window, editor, _) = CreateEditorWithMargins();
+        var document = new TextDocument("void Foo()\n{\n    Bar();\n}\n");
+        editor.Document = document;
+
+        var folding = new FoldingSupport(editor);
+        folding.Attach(document, ".cs"); // 括弧ベース戦略。2行目の"{"から折りたたみ範囲が1つできる。
+
+        window.Show();
+        window.CaptureRenderedFrame().Should().NotBeNull(); // レイアウト確定（マーカー生成に必要）。
+
+        var margin = editor.TextArea.LeftMargins.OfType<FoldingMargin>().Single();
+        var marker = margin.GetVisualChildren().FirstOrDefault(v => v.GetType().Name == "FoldingMarginMarker") as Control;
+        marker.Should().NotBeNull("折りたたみ範囲が1つあるので、マーカーが最低1つ生成されているはず");
+
+        return (window, editor, folding, margin, marker!);
+    }
+
+    [AvaloniaFact(DisplayName = "折りたたみマーカーは実際にポインタイベントを受け取れる（ヒットテストで自分自身が返る）")]
+    public void マーカーはヒットテストで自分自身が返る()
+    {
+        var (window, _, folding, _, marker) = CreateEditorWithVisibleMarker();
+        using var _1 = folding;
+
+        // クラスコメント「まず確かめてほしいこと」への回答: マーカー自身の中心座標をウィンドウ
+        // 座標へ変換し、window.GetVisualAt(...)（実際の入力パイプラインと同じヒットテスト）で
+        // 何が返るかを確認する。座標はスクリーンショットからの目測ではなく、実際のBoundsから
+        // 計算する。
+        var centerInMarker = new Point(marker.Bounds.Width / 2, marker.Bounds.Height / 2);
+        var pointInWindow = ((Visual)marker).TranslatePoint(centerInMarker, window);
+        pointInWindow.Should().NotBeNull("マーカーがウィンドウ内に配置されていること（レイアウト確定後）");
+
+        var hit = window.GetVisualAt(pointInWindow!.Value);
+        hit.Should().BeSameAs(marker,
+            "マーカーの中心座標でのヒットテストは、他の何か（親のマージン等）ではなくマーカー自身を返すはず。" +
+            "これが崩れる＝マーカーがポインタイベントを受け取れなくなる（クリックでの折りたたみも壊れる）");
+    }
+
+    [AvaloniaFact(DisplayName = "折りたたみマーカーをクリックすると実際に折りたたまれる（IsFolded反転）")]
+    public void マーカーをクリックすると折りたたまれる()
+    {
+        var (window, _, folding, _, marker) = CreateEditorWithVisibleMarker();
+        using var _1 = folding;
+
+        var centerInMarker = new Point(marker.Bounds.Width / 2, marker.Bounds.Height / 2);
+        var pointInWindow = ((Visual)marker).TranslatePoint(centerInMarker, window)!.Value;
+
+        var section = folding.Manager!.AllFoldings.First();
+        section.IsFolded.Should().BeFalse("前提: 初期状態では展開されている");
+
+        // 実際のマウス操作（Move→Down→Up）でクリックを模擬する。AvaloniaEdit内部の
+        // FoldingMarginMarker.OnPointerPressedがIsExpandedを反転させ、それがFoldingSection.
+        // IsFoldedへ反映される経路をAPI越しではなく実際の入力で確認する。
+        window.MouseMove(pointInWindow);
+        window.MouseDown(pointInWindow, MouseButton.Left);
+        window.MouseUp(pointInWindow, MouseButton.Left);
+
+        section.IsFolded.Should().BeTrue(
+            "＋/－マーカーをクリックして折りたたむ操作自体は壊れていないはず（クラスコメントの実測結果参照）");
+    }
+
+    [AvaloniaFact(DisplayName = "実機での指摘2: 本文クリックでIビームになった後でも折りたたみマージンは矢印カーソルのまま")]
+    public void 本文クリック後も折りたたみマージンは矢印カーソル()
+    {
+        var (window, editor, folding, margin, marker) = CreateEditorWithVisibleMarker();
+        using var _1 = folding;
+
+        ClickInsideTextView(window, editor);
+
+        // 注意: 「x?.ToString().Should().Be(...)」という書き方はxがnullだとShould()以降ごと
+        // 短絡されアサーション自体が実行されない（黙って成功扱いになる）ため、必ず文字列化した
+        // 値を一度ローカル変数へ入れてからShould()を呼ぶ（この節すべてで同じ配慮をしている）。
+        var textAreaCursor = editor.TextArea.Cursor?.ToString() ?? "null";
+        textAreaCursor.Should().Be("Ibeam",
+            "前提: AvaloniaEditのSelectionMouseHandlerが本文クリックでTextArea.CursorへIビームを" +
+            "ローカル値として設定するはず（この前提が崩れたら以下の検証自体が無意味になる）");
+
+        var marginCursor = margin.Cursor?.ToString() ?? "null";
+        marginCursor.Should().Be("Arrow",
+            "MarkerOnlyFoldingMarginのコンストラクタで矢印をローカル値に設定しているため、" +
+            "TextAreaからIビームを継承してはいけない");
+        // マーカー自身はCursorのローカル値を明示的に設定していない（ホバーで初めて自分の値を
+        // 持つ）ため、.Cursorの実効値はここでもマージン側のローカル値を継承しているはず。
+        var markerCursor = marker.Cursor?.ToString() ?? "null";
+        markerCursor.Should().Be("Arrow",
+            "マーカーは自分のCursorローカル値を持たない限り、親であるマージンから矢印を継承するはず" +
+            "（マージン側で直しておくことで、作り直された直後のマーカーでもマウスを動かさず矢印になる）");
+    }
+
+    [AvaloniaFact(DisplayName = "実機での指摘2: 本文クリックでIビームになった後でもGitガターは矢印カーソルのまま")]
+    public void 本文クリック後もGitガターは矢印カーソル()
+    {
+        var (window, editor, gitGutter) = CreateEditorWithMargins();
+        editor.Document = new TextDocument("a\nb\nc\n");
+        window.Show();
+        window.CaptureRenderedFrame().Should().NotBeNull();
+
+        ClickInsideTextView(window, editor);
+
+        var textAreaCursor = editor.TextArea.Cursor?.ToString() ?? "null";
+        textAreaCursor.Should().Be("Ibeam", "前提: 本文クリックでIビームになっているはず");
+        var gitGutterCursor = gitGutter.Cursor?.ToString() ?? "null";
+        gitGutterCursor.Should().Be("Arrow",
+            "GitGutterProviderのコンストラクタで矢印をローカル値に設定しているため、" +
+            "TextAreaからIビームを継承してはいけない");
+    }
+
+    [AvaloniaFact(DisplayName = "実機での指摘2: 本文クリックでIビームになった後でも行番号マージンは矢印カーソルのまま")]
+    public void 本文クリック後も行番号マージンは矢印カーソル()
+    {
+        // LineNumberMarginはFoldingMargin/GitGutterProviderと違い、AvaloniaEdit内部
+        // （非公開のTextEditor.OnShowLineNumbersChanged）がShowLineNumbers切り替えのたび
+        // 作り直す。その作り直しに追従する購読（EditorPane.axaml.csのOnLeftMarginsChanged）は
+        // EditorPane側にしか無いため、単体のTextEditorではなく実物のEditorPaneを使って検証する
+        // （EditorPane.axaml.csのShowLineNumbers="{Binding ShowLineNumbers}"はDataContext未設定の
+        // ここでは解決されないため、実アプリの設定バインディングと同じ入り口である
+        // Editor.ShowLineNumbersへ直接trueを立てて、AvaloniaEdit側の生成契機を再現する）。
+        var pane = new EditorPane();
+        var window = _windows.Track(new Window { Width = 800, Height = 600, Content = pane });
+        window.Show();
+
+        pane.Editor.Document = new TextDocument("a\nb\nc\n");
+        pane.Editor.ShowLineNumbers = true;
+        // EditorPaneのコンストラクタはEditor.IsEnabled=falseで始まり、実際のタブ読み込み
+        // （ApplyDocumentTab）がtrueへ戻す。ここではタブ読み込みの全経路を再現しないため、
+        // 無効のままだとポインタ入力を一切受け付けずクリックが素通りしてしまう。
+        pane.Editor.IsEnabled = true;
+        window.CaptureRenderedFrame().Should().NotBeNull();
+
+        var lineNumberMargin = pane.Editor.TextArea.LeftMargins.OfType<LineNumberMargin>().Single();
+
+        ClickInsideTextView(window, pane.Editor);
+
+        var cursorStr = pane.Editor.TextArea.Cursor?.ToString() ?? "null";
+        var marginCursorStr = lineNumberMargin.Cursor?.ToString() ?? "null";
+
+        cursorStr.Should().Be("Ibeam", "前提: 本文クリックでIビームになっているはず");
+        marginCursorStr.Should().Be("Arrow",
+            "EditorPane.OnLeftMarginsChangedが矢印をローカル値に設定しているため、" +
+            "TextAreaからIビームを継承してはいけない（この購読が無いと行番号マージンだけIビームのまま残る）");
+    }
+
+    /// <summary>エディタ本文（<c>TextArea.TextView</c>、マージンより右側）をクリックし、
+    /// AvaloniaEditのSelectionMouseHandlerに<c>TextArea.Cursor = Cursor.Parse("IBeam")</c>を
+    /// 発火させる。座標を決め打ちせず<c>TextView.Bounds</c>の中心（マージンを含まない本文だけの
+    /// 座標系）から計算することで、EditorPaneの実レイアウト（タブバー・ステータスバー等の
+    /// 有無で本文の位置・大きさが変わる）に依存せず確実に本文へ当てる。</summary>
+    private static void ClickInsideTextView(Window window, TextEditor editor)
+    {
+        var textView = editor.TextArea.TextView;
+        var centerInTextView = new Point(textView.Bounds.Width / 2, textView.Bounds.Height / 2);
+        var textPoint = ((Visual)textView).TranslatePoint(centerInTextView, window)!.Value;
+        window.MouseMove(textPoint);
+        window.MouseDown(textPoint, MouseButton.Left);
+        window.MouseUp(textPoint, MouseButton.Left);
     }
 }
