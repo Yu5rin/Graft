@@ -73,8 +73,21 @@ public partial class ShellWindow : Window
     /// 成否を記録するためのロガー。StartupCoordinator.StartAsyncが生成後に設定する
     /// （コンストラクタの時点ではまだLoggerが存在しないため）。未設定（null）でも
     /// 終了処理自体は通常どおり行う。
+    /// 負荷下フレーク調査（案件A）: IndentGuideRenderer.Draw の防御的catchもこのロガーへ
+    /// 記録できるよう、設定と同時にEditorHost内の<see cref="EditorPane"/>（XAMLで静的に
+    /// 1つだけ配置。クラスコメント参照）へも橋渡しする。
     /// </summary>
-    public Logger? Logger { get; set; }
+    public Logger? Logger
+    {
+        get => _logger;
+        set
+        {
+            _logger = value;
+            if (EditorHost.Child is EditorPane pane) pane.Logger = value;
+        }
+    }
+
+    private Logger? _logger;
 
     /// <summary>
     /// 終了処理（レイアウト保存を含む）を開始した時刻。トレイへ隠しただけ（実際には
