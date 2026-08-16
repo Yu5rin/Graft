@@ -322,8 +322,36 @@ public class LongLineTests : IDisposable
     /// 基準1回・対象1回を1組として、この組数だけ交互に計測し、組ごとの倍率の中央値を採用する
     /// （tests/Graft.Tests/CrossFileSearchPerformanceTestsで確立した手法に合わせる。
     /// 詳細な設計の経緯・理由はそちらのクラスドキュメントコメントを参照。ここで再発明はしない）。
+    ///
+    /// 【CI不定期失敗を受けた頑健化（本コミット）】
+    /// このテストの基準1回あたりの所要時間は約10〜15ms程度と非常に短く、CIのようにCPUの
+    /// 取り合いが激しい環境ではGCの一時停止やスレッドスケジューリングの揺れによる数十ms単位の
+    /// 外乱が、そのまま基準値を数倍に押し上げてしまう（実測でCIから報告された基準値
+    /// [12.291, 12.216, 40.584, 12.982, 10.743, 30.494, 11.615]msのうち40.584msと30.494msが
+    /// それに当たる）。対象（1行10万文字の展開コスト、約35〜55ms）はこの手の外乱の影響を
+    /// 相対的に受けにくいため、外乱は「組ごとの倍率」を対称ではなく主に上下どちらかへ振れさせる
+    /// （基準側が異常に大きくなると倍率は異常に小さく、対象側が異常に大きくなると倍率は異常に
+    /// 大きくなる）。7組では、この手の外れ値が1〜2組混ざるだけで中央値（4番目の値）が
+    /// 直接それに引きずられてしまう。
+    ///
+    /// 対策として、閾値（<see cref="RatioThreshold"/>）はそのままに、測り方だけを頑健にした:
+    ///   1. 組数を7→<see cref="MeasurementRuns"/>（15）へ増やし、中央値1点が少数の外れ値だけで
+    ///      決まりにくくする。
+    ///   2. ウォームアップを1回→2回（基準・対象それぞれ別ファイルで）にし、JIT・ページキャッシュの
+    ///      ゆらぎをさらに削る。
+    ///   3. 中央値そのものではなく、上下<see cref="TrimEachSide"/>組ずつを除いた
+    ///      トリム済み中央値（<see cref="TrimmedMedian"/>）を採用する。外れ値に強い統計量
+    ///      （トリム平均・トリム中央値は外れ値検定の定番）を使うことで、上振れ・下振れ双方の
+    ///      外れ値がまとめて数組混ざっても最終判定への影響を抑える。
     /// </summary>
-    private const int MeasurementRuns = 7;
+    private const int MeasurementRuns = 15;
+
+    /// <summary>
+    /// <see cref="TrimmedMedian"/>で上下それぞれ除外する組数。<see cref="MeasurementRuns"/>との
+    /// 組み合わせ（15組中上下2組ずつ除外→中央値は残り11組から取る）は、外れ値が
+    /// 1〜2組程度混ざっても中央値の算出対象からそもそも除外されるようにするための値。
+    /// </summary>
+    private const int TrimEachSide = 2;
 
     /// <summary>
     /// 課題3（再設計）: このガードは「その行だけキャップする」経路（構文強調・括弧の対応付け）が
@@ -365,13 +393,18 @@ public class LongLineTests : IDisposable
         // ウォームアップだと非対称が生じるため（CrossFileSearchPerformanceTests参照）、
         // 基準・対象の両方をウォームアップする。基準測定と同じファイルを開くと「既に開いている
         // タブへの切替」という別経路になり測定にならないため、ここでも専用の別ファイルを使う。
-        var warmupNormalPath = Path.Combine(_baseDirectory, "WarmupNormal.cs");
-        await File.WriteAllTextAsync(warmupNormalPath, normalShapedContent);
-        await MeasureOpenAsync(shell, window, warmupNormalPath);
+        // 頑健化（クラスコメント参照）: 1回→2回にし、JIT・ページキャッシュの初回ゆらぎを
+        // さらに削る（2回目のウォームアップも新規ファイルにする必要があるため、それぞれ別名を使う）。
+        for (var w = 0; w < 2; w++)
+        {
+            var warmupNormalPath = Path.Combine(_baseDirectory, $"WarmupNormal{w}.cs");
+            await File.WriteAllTextAsync(warmupNormalPath, normalShapedContent);
+            await MeasureOpenAsync(shell, window, warmupNormalPath);
 
-        var warmupLongPath = Path.Combine(_baseDirectory, "WarmupLong.cs");
-        await File.WriteAllTextAsync(warmupLongPath, longLineContent);
-        await MeasureOpenAsync(shell, window, warmupLongPath);
+            var warmupLongPath = Path.Combine(_baseDirectory, $"WarmupLong{w}.cs");
+            await File.WriteAllTextAsync(warmupLongPath, longLineContent);
+            await MeasureOpenAsync(shell, window, warmupLongPath);
+        }
 
         // 基準1回・対象1回を1組として、直前直後に交互に計測する（同じ組の基準・対象は負荷側の
         // 状態がほぼ同じ条件を共有するため「片方だけ運良く空いた瞬間に当たる」非対称が起きにくい。
@@ -396,9 +429,10 @@ public class LongLineTests : IDisposable
             ratios.Add(targetMs / Math.Max(0.01, baselineMs));
         }
 
-        // 組ごとの倍率の中央値を採用する。理由はCrossFileSearchPerformanceTestsのクラス
-        // ドキュメントコメントを参照（1〜2組が外れ値になっても最終判定が引きずられにくい）。
-        var ratio = Median(ratios);
+        // 頑健化（クラスコメント参照）: 単純な中央値ではなく、上下TrimEachSide組ずつを
+        // 除いたトリム済み中央値を採用する。外れ値に強い統計量を使うことで、GCの一時停止等に
+        // よる上振れ・下振れ双方の外れ値が数組混ざっても最終判定への影響を抑える。
+        var ratio = TrimmedMedian(ratios, TrimEachSide);
 
         var baselineRawText = string.Join(", ", baselineTimes.Select(t => t.ToString("F3")));
         var targetRawText = string.Join(", ", targetTimes.Select(t => t.ToString("F3")));
@@ -406,7 +440,7 @@ public class LongLineTests : IDisposable
 
         _output.WriteLine($"基準（総文字数同等・通常の行長、{MeasurementRuns}組、折り返しオフ）: [{baselineRawText}] ms");
         _output.WriteLine($"対象（1行10万文字、{MeasurementRuns}組、折り返しオフ）: [{targetRawText}] ms");
-        _output.WriteLine($"組ごとの倍率: [{ratiosRawText}] → 中央値 {ratio:F2}倍");
+        _output.WriteLine($"組ごとの倍率: [{ratiosRawText}] → 上下{TrimEachSide}組ずつ除いたトリム済み中央値 {ratio:F2}倍");
 
         // 絶対時間ではなく総データ量が同等な基準との倍率で判定するため、CI環境そのものの
         // 速さのばらつきには左右されない（性能が桁で悪化したときだけ気付ければよい、
@@ -414,7 +448,7 @@ public class LongLineTests : IDisposable
         // 組ごとの倍率をメッセージへ含める（次にCIで落ちたとき、たまたま1組だけ遅い値を
         // 引いたノイズなのか、全体的に遅い本物の劣化なのかを判断できるようにするため）。
         ratio.Should().BeLessThan(RatioThreshold,
-            $"総データ量が同等の通常ファイルに比べ組ごとの倍率の中央値で{ratio:F2}倍かかっている"
+            $"総データ量が同等の通常ファイルに比べ組ごとの倍率のトリム済み中央値で{ratio:F2}倍かかっている"
             + $"（基準: 全{MeasurementRuns}組[{baselineRawText}]ms → 対象: 全{MeasurementRuns}組[{targetRawText}]ms → "
             + $"組ごとの倍率[{ratiosRawText}]）。"
             + "構文強調・括弧対応付けの行単位キャップが効いていない可能性がある");
@@ -497,6 +531,21 @@ public class LongLineTests : IDisposable
         return sorted.Count % 2 == 1
             ? sorted[mid]
             : (sorted[mid - 1] + sorted[mid]) / 2.0;
+    }
+
+    /// <summary>
+    /// トリム済み中央値: 昇順に並べたうえで上下<paramref name="trimEachSide"/>件ずつを除いてから
+    /// 中央値を取る（頑健化の理由はクラスコメント参照）。トリム後の件数が1件以下になる場合は
+    /// トリムせずそのまま中央値を返す（呼び出し側の値がおかしい場合の防御。本テストの実値では
+    /// 起こらない）。
+    /// </summary>
+    private static double TrimmedMedian(List<double> values, int trimEachSide)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
+        if (sorted.Count - trimEachSide * 2 < 1) return Median(sorted);
+
+        var trimmed = sorted.Skip(trimEachSide).Take(sorted.Count - trimEachSide * 2).ToList();
+        return Median(trimmed);
     }
 
     /// <summary>1行10万文字のファイルと総文字数を揃えた、通常の行長（1行80文字）のファイル内容を生成する。</summary>

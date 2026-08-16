@@ -30,6 +30,10 @@ public sealed class CompletionProvider
         _editor = editor ?? throw new ArgumentNullException(nameof(editor));
     }
 
+    /// <summary>補完候補ウィンドウが開いているかどうか。Markdown編集支援（表のTab移動・リスト継続）が
+    /// 補完中のTab/Enterを奪わないようにするためのガードに使う（<see cref="MarkdownEditingSupport"/>）。</summary>
+    public bool IsOpen => _window is not null;
+
     /// <summary>Ctrl+Spaceで呼び出す。候補が1件も無ければ何もしない。</summary>
     public void RequestCompletion()
     {

@@ -33,6 +33,8 @@ public partial class EditorPane : UserControl
     private readonly GitGutterProvider _gitGutter;
     // Markdownプレビュー機能（案B）: 編集モードでのMarkdown控えめ装飾。詳細はMarkdownInlineColorizer参照。
     private readonly MarkdownInlineColorizer _markdownColorizer = new();
+    // 検討書「コード中のカラープレビュー」。統合はEditorPane.ColorPreview.cs参照。
+    private readonly ColorPreviewElementGenerator _colorPreview = new();
     private readonly AvaloniaDialogService _dialogs = new();
     private EditorPaneViewModel? _viewModel;
 
@@ -77,6 +79,11 @@ public partial class EditorPane : UserControl
         // Markdownプレビュー機能（案B）。_bridgeの後ろに積む＝色付けの後から書体・背景を
         // 上書きする順で適用される（見出しの太字等がシンタックスハイライトの色を消さない）。
         Editor.TextArea.TextView.LineTransformers.Add(_markdownColorizer);
+
+        // 検討書「コード中のカラープレビュー」。VisualLineElementGeneratorとして登録する理由は
+        // ColorPreviewElementGeneratorのクラスコメント参照。
+        Editor.TextArea.TextView.ElementGenerators.Add(_colorPreview);
+        _colorPreview.SwatchClicked += OnColorSwatchClicked;
 
         _brackets = new BracketSupport(Editor);
         _folding = new FoldingSupport(Editor);
@@ -207,6 +214,7 @@ public partial class EditorPane : UserControl
         _folding.Attach(tab.Session.Document, extension);
         _folding.SetEnabled(_viewModel?.Folding ?? true);
         _markdownColorizer.SetEnabled(tab.IsMarkdownFile);
+        ApplyColorPreviewOption();
         if (_viewModel is not null) Search.Attach(Editor, _viewModel.Ui);
         ApplyGitGutter(tab);
 
@@ -467,6 +475,7 @@ public partial class EditorPane : UserControl
 
         if (TryHandleTabNavigation(e, mods)) return;
         if (TryHandleMarkdownPreviewEscape(e, mods)) return;
+        if (TryHandleMarkdownEditing(e, mods)) return;
         if (TryHandleSearchShortcuts(e, mods)) return;
         if (TryHandleLineEditShortcuts(e, mods)) return;
         if (TryHandleFoldShortcuts(e, mods)) return;
@@ -481,6 +490,34 @@ public partial class EditorPane : UserControl
         if (mods != KeyModifiers.Control || e.Key != Key.Tab) return false;
         if (_viewModel!.PeekMruNeighbor() is { } next) _viewModel.ActiveTab = next;
         return e.Handled = true;
+    }
+
+    /// <summary>
+    /// 検討書「Markdownの編集支援」: リスト/引用のEnter継続・脱出、表のTab/Shift+Tab移動。
+    /// <c>.md</c>タブの**編集モード**（Markdownプレビュー表示中でない）のときだけ働く
+    /// （<see cref="MarkdownEditingSupport"/>クラスコメント参照）。プレビュー表示中は
+    /// <c>Editor.IsVisible = false</c>でキー入力がそもそも届かないが、ここでも明示的に
+    /// ガードして二重に保証する。<c>.md</c>以外のファイルではTab/Enterの意味を一切変えない
+    /// （<see cref="EditorTabViewModel.IsMarkdownFile"/>がfalseの時点で即falseを返す）。
+    /// </summary>
+    private bool TryHandleMarkdownEditing(KeyEventArgs e, KeyModifiers mods)
+    {
+        if (_viewModel?.ActiveTab is not { Kind: EditorTabKind.Document, IsMarkdownFile: true, ShowMarkdownPreview: false }) return false;
+        if (_completion.IsOpen) return false; // 補完候補選択中のTab/Enterを奪わない。
+
+        if (mods == KeyModifiers.None && e.Key == Key.Enter)
+        {
+            return e.Handled = MarkdownEditingSupport.HandleEnter(Editor);
+        }
+        if (mods == KeyModifiers.None && e.Key == Key.Tab)
+        {
+            return e.Handled = MarkdownEditingSupport.HandleTab(Editor, shift: false);
+        }
+        if (mods == KeyModifiers.Shift && e.Key == Key.Tab)
+        {
+            return e.Handled = MarkdownEditingSupport.HandleTab(Editor, shift: true);
+        }
+        return false;
     }
 
     /// <summary>Ctrl+F/Ctrl+H: 検索・置換オーバーレイを開く。差分タブ表示中は対象外。</summary>

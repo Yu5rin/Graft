@@ -140,6 +140,9 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     /// <summary>行番号ガターにGitの変更状態を表示するか（4.7章）。</summary>
     public bool GitGutterEnabled => _settings.Editor.GitGutter;
 
+    /// <summary>検討書「コード中のカラープレビュー」。既定true。</summary>
+    public bool ColorPreviewInCode => _settings.Editor.ColorPreviewInCode;
+
     /// <summary>
     /// 検討書「インデントガイド（縦線）」の表示モード（"none"/"foldable"/"all"）。
     /// <see cref="UpdateSettings"/>が明示的に<see cref="ObservableObject.OnPropertyChanged(string)"/>を

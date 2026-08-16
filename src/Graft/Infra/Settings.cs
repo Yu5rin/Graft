@@ -158,6 +158,14 @@ public sealed record EditorSettings
     public bool GitGutter { get; init; } = true;
 
     /// <summary>
+    /// 検討書「コード中のカラープレビュー」。コード中の<c>#RRGGBB</c>・<c>rgb()</c>・<c>hsl()</c>の
+    /// 直前にスウォッチ（色見本）を表示し、クリックでカラーピッカーを開けるようにするかどうか。
+    /// 既定true（Pane <c>colorPreviewInCode</c>と同じ既定値）。このキーが無い古い<c>settings.json</c>
+    /// でも既定trueとして動く。
+    /// </summary>
+    public bool ColorPreviewInCode { get; init; } = true;
+
+    /// <summary>
     /// 検討書「インデントガイド（縦線）」。インデントの深さを示す縦線の表示モード。
     /// "none"（表示しない） / "foldable"（折りたたみできる範囲のみ、既定） / "all"（すべての
     /// インデント）のいずれか。<see cref="Graft.Editor.IndentGuideModeParser"/>参照。
