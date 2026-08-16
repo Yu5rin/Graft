@@ -5,6 +5,7 @@ using AvaloniaEdit;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Folding;
 using AvaloniaEdit.Rendering;
+using Graft.Infra;
 using Graft.Themes;
 
 namespace Graft.Editor;
@@ -60,6 +61,22 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
     private IndentGuideMode _mode = IndentGuideMode.FoldableRangesOnly;
     private FoldingSection? _hoveredFolding;
     private bool _disposed;
+
+    /// <summary>
+    /// 下の<see cref="Draw"/>の防御的catchが実際に発生した例外を記録できるよう、生成後に
+    /// 統合担当側（<see cref="Views.EditorPane"/>経由）が設定する。<see cref="Views.ShellWindow"/>の
+    /// <c>Logger</c>プロパティと同じ流儀（未設定＝null許容のnullableプロパティ）で、
+    /// コンストラクタの時点ではまだLoggerが存在しない（<see cref="Views.StartupCoordinator"/>が
+    /// 起動完了後に配線する）ため、この形にしている。未設定でも描画自体は通常どおり行う。
+    /// </summary>
+    public Logger? Logger { get; set; }
+
+    /// <summary>
+    /// <see cref="Draw"/>の防御的catchでログを書くのを、このインスタンスにつき最初の1回だけに
+    /// 絞るためのフラグ（下のcatch節のコメント参照。Drawは毎秒何十回も呼ばれるため、
+    /// 発生し続けた場合にログが溢れるのを防ぐ）。
+    /// </summary>
+    private bool _loggedDrawFailure;
 
     public IndentGuideRenderer(TextEditor editor, FoldingSupport folding)
     {
@@ -164,12 +181,34 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
             DrawAllIndentationLevels(
                 textView, document, drawingContext, normalBrush, hoverBrush, columnWidth, tabSize, hoveredRange);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
             // 上のコメントのとおり、この例外が実際に飛ぶ経路は特定できなかった（静的解析・
             // 375回の負荷再現実験のいずれでも再現せず）。それでも万一AvaloniaEdit側の内部状態と
             // 一瞬食い違った場合に備え、インデントガイド（縦線、あくまで装飾）1フレームぶんの
             // 描画だけを諦めてアプリ全体のクラッシュを避ける。
+            //
+            // 【なぜダイアログではなくログか】 SafeHandler.OnUnexpectedはダイアログを表示するが、
+            // Draw()は画面が見えている間毎秒何十回も呼ばれうる高頻度経路のため、万一この例外が
+            // 繰り返し発生した場合にダイアログが連打され、かえって操作不能に近い状態になる
+            // （エディタを開いているだけでダイアログが延々出続ける）。装飾の欠落自体は実害が
+            // 無いため、ダイアログという強い通知は不釣り合いであり、ログのみに留める。
+            //
+            // 【なぜ1回だけか】 再現できていない以上、実際に発生した場合の痕跡を完全に消して
+            // しまうと原因調査ができなくなる（コーディネータ指摘のとおり）。一方でDraw()の
+            // 呼び出し頻度を考えると、握りつぶした後も同じ状況が続けば次のフレームでまた
+            // 同じ例外が起きうる。これを1回ごとにログへ書くとログファイルが瞬時に肥大化し、
+            // かえって他のログを埋もれさせて調査の邪魔になる。「最初の1回だけ記録すれば、
+            // 原因調査には十分な手がかり（型・メッセージ・スタックトレース）が残る」という
+            // 判断で、インスタンス（＝タブ・エディタ表示1枚）につき最初の1回だけに絞る。
+            if (!_loggedDrawFailure)
+            {
+                _loggedDrawFailure = true;
+                Logger?.Error(
+                    "indent-guide-draw",
+                    $"IndentGuideRenderer.Drawで想定外のInvalidOperationExceptionを捕捉しました"
+                    + $"（このインスタンスでは以後同種の例外を記録しません）: {ex}");
+            }
         }
     }
 
