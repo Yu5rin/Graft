@@ -10,6 +10,7 @@ using AvaloniaEdit.Document;
 using AvaloniaEdit.Indentation;
 using Graft.Core;
 using Graft.Editor;
+using Graft.Infra;
 using Graft.Platform;
 using Graft.ViewModels;
 
@@ -37,6 +38,18 @@ public partial class EditorPane : UserControl
     private readonly ColorPreviewElementGenerator _colorPreview = new();
     private readonly AvaloniaDialogService _dialogs = new();
     private EditorPaneViewModel? _viewModel;
+
+    /// <summary>
+    /// 課題1の<see cref="ShellWindow"/>.Loggerと同じ流儀（生成後にStartupCoordinator経由で
+    /// 設定するnullableプロパティ）。<see cref="IndentGuideRenderer"/>の防御的catch
+    /// （<see cref="IndentGuideRenderer.Logger"/>参照）がログを書けるよう、設定と同時に
+    /// そのまま橋渡しするだけの薄いプロパティ。未設定でも通常の描画・編集は行える。
+    /// </summary>
+    public Logger? Logger
+    {
+        get => _indentGuide.Logger;
+        set => _indentGuide.Logger = value;
+    }
 
     // 現在Editorに読み込まれている（＝Documentを共有している）タブ。切替前にこのタブへ
     // スクロール位置等を退避してから、次のタブへ切り替える。
