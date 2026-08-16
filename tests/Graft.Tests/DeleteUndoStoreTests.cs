@@ -189,6 +189,110 @@ public class DeleteUndoStoreTests
         act.Should().NotThrow();
     }
 
+    // ------------------------------------------------------------------
+    // スレッド安全性の回帰（負荷下フレークの真因調査）
+    //
+    // 【背景】 tests/Graft.UiTests/DeleteUndoTests.cs が負荷実行時にごく低頻度で
+    // "Stack empty"（InvalidOperationException）で落ちる報告があった。調査の結果、
+    // DeleteUndoStore.StageAsync/UndoAsync 内部のawaitが ConfigureAwait(false) を使っており、
+    // 本来UIスレッドだけで完結する前提の _stack（System.Collections.Generic.Stack&lt;T&gt;、
+    // それ自体はスレッド非安全）への書き込みがスレッドプールのスレッド上で行われていたこと、
+    // かつ呼び出し元の ExplorerViewModel.DeleteCommand には多重起動を防ぐ仕組みが無く
+    // （UndoDeleteCommand は AsyncRelayCommand の実行中フラグで防いでいるが、DeleteCommand は
+    // 素の RelayCommand&lt;T&gt; で防いでいない）、負荷下で削除操作が本当に複数スレッドから
+    // 並行実行されうることを突き止めた。以下は、その2つの条件（並行呼び出し・非UIスレッドでの
+    // Stack操作）を人為的に作って"Stack empty"を実際に再現し、修正（DeleteUndoStore内部を
+    // SemaphoreSlimで直列化）後は再現しなくなることを確認する回帰テスト。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "StageAsyncを大量に真の並行実行しても、退避した件数ぶん過不足なくスタックに積まれる")]
+    public async Task StageAsyncの並行実行で取りこぼしが起きない()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new DeleteUndoStore(appPaths);
+
+        const int n = 300;
+        var paths = new string[n];
+        for (var i = 0; i < n; i++) paths[i] = ws.WriteText($"project/f{i}.txt", $"content {i}");
+
+        // 実機のDeleteNodeAsyncと同じ順序（Stage→元ファイル削除）を1セットとして、
+        // DeleteCommandに多重起動ガードが無い状況を模してN件ぶん完全並行にキックする。
+        var tasks = new Task[n];
+        for (var i = 0; i < n; i++)
+        {
+            var p = paths[i];
+            tasks[i] = Task.Run(async () =>
+            {
+                var staged = await store.StageAsync(p, isDirectory: false);
+                if (staged.IsSuccess) File.Delete(p);
+            });
+        }
+        await Task.WhenAll(tasks);
+
+        // 積まれた件数は、内部実装に依存しない外部から観測可能な方法（UndoAsyncを積まれた分
+        // だけ呼び切れるか）で数える。単なるCanUndoの真偽ではなく、実際に全件を正しく
+        // 復元しきれることまで確認する（Stack破損は取りこぼしだけでなく、内部要素の破損
+        // ＝復元先パスの不整合としても現れうるため）。
+        var restoredCount = 0;
+        while (store.CanUndo)
+        {
+            var undone = await store.UndoAsync();
+            if (!undone.IsSuccess || undone.Value is null) break;
+            restoredCount++;
+        }
+
+        restoredCount.Should().Be(n, "並行にPushしても1件も取りこぼさず、全件を正しく取り消せる必要がある");
+        foreach (var p in paths)
+        {
+            File.Exists(p).Should().BeTrue($"{p} が復元されているはず");
+        }
+    }
+
+    [Fact(DisplayName = "削除（Push）と取り消し（Pop）を真に並行実行しても\"Stack empty\"等の例外にならない")]
+    public async Task 削除と取り消しの並行実行で例外にならない()
+    {
+        // 1回の実行では発生しないことがあるため、複数回試行して負荷下の低頻度事象を
+        // 手元でも安定して捕まえる（タスク側の指示どおり、繰り返し実行による再現を採る）。
+        for (var attempt = 0; attempt < 30; attempt++)
+        {
+            using var ws = new TempWorkspace();
+            var appPaths = new AppPaths(ws.CreateDirectory($"app{attempt}"));
+            var store = new DeleteUndoStore(appPaths);
+
+            const int n = 60;
+            var paths = new string[n];
+            for (var i = 0; i < n; i++) paths[i] = ws.WriteText($"project/f{i}.txt", $"c{i}");
+
+            // 半分は削除（Push側）、半分は取り消し（Pop側）を完全並行にキックする。
+            // 取り消し対象がまだ無い状態でのUndoAsyncは何もせず成功するだけの安全な操作
+            // （「何も取り消せるものが無い場合は成功のうえnullを返す」実装）なので、
+            // 純粋にPushとPopが同時多発したときの例外の有無だけを見られる。
+            var tasks = new Task[n];
+            for (var i = 0; i < n; i++)
+            {
+                if (i % 2 == 0)
+                {
+                    var p = paths[i];
+                    tasks[i] = Task.Run(async () =>
+                    {
+                        var staged = await store.StageAsync(p, isDirectory: false);
+                        if (staged.IsSuccess) File.Delete(p);
+                    });
+                }
+                else
+                {
+                    tasks[i] = Task.Run(async () => await store.UndoAsync());
+                }
+            }
+
+            var act = async () => await Task.WhenAll(tasks);
+            await act.Should().NotThrowAsync(
+                $"attempt={attempt}: PushとPopの並行実行で例外が発生した（\"Stack empty\"等）。" +
+                "DeleteUndoStore内部が真のスレッド安全性を持つ必要がある");
+        }
+    }
+
     [Fact(DisplayName = "退避対象が既に存在しない場合はE405として失敗する")]
     public async Task 退避対象が存在しない場合は失敗する()
     {

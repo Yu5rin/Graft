@@ -35,8 +35,31 @@ public sealed record DeleteUndoOutcome(string OriginalFullPath, bool IsDirectory
 /// （セッション内で無制限に溜めないため）。
 /// </para>
 /// <para>
-/// 【スレッド境界】 UIスレッド（ExplorerViewModel）からのみ呼び出す前提で、内部の
-/// <see cref="Stack{T}"/> はロックしていない。
+/// 【スレッド境界（実機不具合の修正）】 当初は「UIスレッド（ExplorerViewModel）からのみ
+/// 呼び出す前提で、内部の<see cref="Stack{T}"/>はロックしていない」という設計だったが、
+/// これは実際には成立していなかった。<see cref="StageAsync"/>・<see cref="UndoAsync"/>の
+/// 内部awaitが<c>ConfigureAwait(false)</c>を使っていたため、<c>_stack</c>を書き換える行
+/// （<c>Push</c>/<c>Peek</c>/<c>Pop</c>）はUIスレッドの<c>SynchronizationContext</c>へ戻らず、
+/// 呼び出し元のTask.Runやスレッドプールのスレッド上で実行されていた。加えて呼び出し側の
+/// <see cref="Graft.ViewModels.ExplorerViewModel.DeleteCommand"/>には多重起動を防ぐ仕組みが
+/// 無く（<see cref="Graft.ViewModels.RelayCommand{T}"/>は非同期の実行中フラグを持たない。
+/// 対照的に<see cref="Graft.ViewModels.ExplorerViewModel.UndoDeleteCommand"/>は
+/// <see cref="Graft.ViewModels.AsyncRelayCommand"/>で多重起動を防いでいる）、負荷下で
+/// 削除キーを連打する等の操作をすると2件目の削除が1件目の完了を待たずに開始しうる。
+/// この2つが重なると、2つの<c>StageAsync</c>（あるいは<c>StageAsync</c>と<c>UndoAsync</c>）が
+/// 別々のスレッドプールのスレッドから本当に同時に<c>Stack{T}</c>を書き換え、内部状態が
+/// 破損して<c>InvalidOperationException: Stack empty</c>（まれに破損した要素を読んで
+/// <c>NullReferenceException</c>）が飛ぶ。tests/Graft.Tests/DeleteUndoStoreTests.cs の
+/// 「スレッド安全性の回帰」節にある再現テストで、実際にこの2例外を確認している。
+/// <para>
+/// 【対処】 「呼び出し元のスレッド・SynchronizationContextに関する前提を守ってもらう」方式は
+/// 壊れやすい（今回のConfigureAwait(false)のように、離れた場所の1行で簡単に破られる）ため、
+/// クラス自身が<see cref="_gate"/>（1個ぶんの<see cref="SemaphoreSlim"/>）で
+/// 退避（Push）・取り消し（Peek→復元→Pop）・破棄（Pop）の各操作を丸ごと直列化する方式に変更した。
+/// 呼び出し元が本当にUIスレッドだけを守っているか、ConfigureAwaitの設定がどうなっているかに
+/// 依存せず、複数スレッドから本当に並行に呼ばれても安全になる（＝呼び出し側のDeleteCommandに
+/// 多重起動ガードが無いこと自体は許容し、こちら側で真の排他制御を持つ）。
+/// </para>
 /// </para>
 /// </summary>
 public sealed class DeleteUndoStore
@@ -44,13 +67,26 @@ public sealed class DeleteUndoStore
     private readonly string _stagingRoot;
     private readonly Stack<DeleteUndoEntry> _stack = new();
 
+    /// <summary>
+    /// <c>_stack</c>への全アクセス（Push/Peek/Pop、およびCleanupでのClear）を直列化する
+    /// 1個ぶんの非同期ミューテックス。<c>lock</c>文はawaitをまたげないため
+    /// （UndoAsyncはPeekの後にファイルI/Oのawaitを挟んでからPopする）、
+    /// <see cref="SemaphoreSlim"/>を使う。
+    /// </summary>
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
     public DeleteUndoStore(AppPaths paths)
     {
         ArgumentNullException.ThrowIfNull(paths);
         _stagingRoot = paths.TrashStagingDirectory;
     }
 
-    /// <summary>元に戻せる削除が1件以上あるかどうか。</summary>
+    /// <summary>
+    /// 元に戻せる削除が1件以上あるかどうか。UIの表示・CanExecute用の目安値であり、
+    /// あえて<see cref="_gate"/>を取らずに読む（intの読み取り自体は原子的なので破損はしない。
+    /// 実際の取り消し可否の最終判定は<see cref="UndoAsync"/>内部でgateを取ったうえで
+    /// 再確認するため、ここが一瞬古い値でも実害はない）。
+    /// </summary>
     public bool CanUndo => _stack.Count > 0;
 
     /// <summary>
@@ -94,7 +130,18 @@ public sealed class DeleteUndoStore
             return GraftResult<bool>.Fail(ErrorCode.E402, $"削除の取り消し用に退避できませんでした: {ExceptionMessages.Describe(ex)}", path: originalFullPath);
         }
 
-        _stack.Push(new DeleteUndoEntry(originalFullPath, stagingPath, isDirectory, DateTimeOffset.Now));
+        // _stack.Pushそのものはgateで直列化する（クラス冒頭コメントの【スレッド境界】参照）。
+        // 退避コピー自体（上のTask.Run）は直列化の対象に含めない。ファイルI/Oは並行しても安全で、
+        // 複数件を連続削除したときに1件ずつ待たされずに済むようにするため。
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            _stack.Push(new DeleteUndoEntry(originalFullPath, stagingPath, isDirectory, DateTimeOffset.Now));
+        }
+        finally
+        {
+            _gate.Release();
+        }
         return GraftResult<bool>.Ok(true);
     }
 
@@ -105,9 +152,20 @@ public sealed class DeleteUndoStore
     /// </summary>
     public void DiscardLast()
     {
-        if (_stack.Count == 0) return;
-        var entry = _stack.Pop();
-        TryDeleteTree(GetTicketDirectory(entry));
+        // 同期メソッドのため、非同期版（WaitAsync）ではなく同期版のWaitを使う。
+        // 待っている相手（Push/Undo）は短時間で完了するため、UIスレッドを塞いでも実害は無い
+        // （同じ理由でCleanup()も同期Waitにしている）。
+        _gate.Wait();
+        try
+        {
+            if (_stack.Count == 0) return;
+            var entry = _stack.Pop();
+            TryDeleteTree(GetTicketDirectory(entry));
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>
@@ -117,33 +175,46 @@ public sealed class DeleteUndoStore
     /// </summary>
     public async Task<GraftResult<DeleteUndoOutcome?>> UndoAsync(CancellationToken ct = default)
     {
-        if (_stack.Count == 0)
+        // Peek→（ファイルI/Oのawait）→Popの一連をgateで丸ごと直列化する。lock文はawaitを
+        // またげないためSemaphoreSlimを使う（クラス冒頭コメントの【スレッド境界】参照）。
+        // Peekしてから実際にPopするまでの間に他の呼び出しへ横入りされると、
+        // 「衝突なしと判定した直後に別スレッドが同じ要素をPopしてしまう」といった
+        // 論理的な競合も起きうるため、I/O部分を含めて丸ごと1つの取り消し操作として直列化する。
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            return GraftResult<DeleteUndoOutcome?>.Ok(null);
-        }
+            if (_stack.Count == 0)
+            {
+                return GraftResult<DeleteUndoOutcome?>.Ok(null);
+            }
 
-        var entry = _stack.Peek();
-        var collides = entry.IsDirectory
-            ? Directory.Exists(LongPath.Extended(entry.OriginalFullPath))
-            : File.Exists(LongPath.Extended(entry.OriginalFullPath));
-        if (collides)
+            var entry = _stack.Peek();
+            var collides = entry.IsDirectory
+                ? Directory.Exists(LongPath.Extended(entry.OriginalFullPath))
+                : File.Exists(LongPath.Extended(entry.OriginalFullPath));
+            if (collides)
+            {
+                var kind = entry.IsDirectory ? "フォルダ" : "ファイル";
+                return GraftResult<DeleteUndoOutcome?>.Fail(
+                    ErrorCode.E201, $"復元先に同名の{kind}が既に存在するため、上書きせずに元に戻すのを取りやめました", path: entry.OriginalFullPath);
+            }
+
+            var restored = entry.IsDirectory
+                ? await RestoreDirectoryAsync(entry.StagingPath, entry.OriginalFullPath, ct).ConfigureAwait(false)
+                : await RestoreFileAsync(entry.StagingPath, entry.OriginalFullPath, ct).ConfigureAwait(false);
+            if (!restored.IsSuccess)
+            {
+                return GraftResult<DeleteUndoOutcome?>.Fail(restored.Issues);
+            }
+
+            _stack.Pop();
+            TryDeleteTree(GetTicketDirectory(entry));
+            return GraftResult<DeleteUndoOutcome?>.Ok(new DeleteUndoOutcome(entry.OriginalFullPath, entry.IsDirectory), restored.Issues);
+        }
+        finally
         {
-            var kind = entry.IsDirectory ? "フォルダ" : "ファイル";
-            return GraftResult<DeleteUndoOutcome?>.Fail(
-                ErrorCode.E201, $"復元先に同名の{kind}が既に存在するため、上書きせずに元に戻すのを取りやめました", path: entry.OriginalFullPath);
+            _gate.Release();
         }
-
-        var restored = entry.IsDirectory
-            ? await RestoreDirectoryAsync(entry.StagingPath, entry.OriginalFullPath, ct).ConfigureAwait(false)
-            : await RestoreFileAsync(entry.StagingPath, entry.OriginalFullPath, ct).ConfigureAwait(false);
-        if (!restored.IsSuccess)
-        {
-            return GraftResult<DeleteUndoOutcome?>.Fail(restored.Issues);
-        }
-
-        _stack.Pop();
-        TryDeleteTree(GetTicketDirectory(entry));
-        return GraftResult<DeleteUndoOutcome?>.Ok(new DeleteUndoOutcome(entry.OriginalFullPath, entry.IsDirectory), restored.Issues);
     }
 
     /// <summary>
@@ -152,7 +223,15 @@ public sealed class DeleteUndoStore
     /// </summary>
     public void Cleanup()
     {
-        _stack.Clear();
+        _gate.Wait();
+        try
+        {
+            _stack.Clear();
+        }
+        finally
+        {
+            _gate.Release();
+        }
         TryDeleteTree(_stagingRoot);
     }
 

@@ -110,23 +110,67 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         var columnWidth = textView.WideSpaceWidth;
         if (columnWidth <= 0) return;
 
-        if (_mode == IndentGuideMode.FoldableRangesOnly)
+        // 【負荷下フレーク調査（再現できなかった項目の記録）】
+        // ここから先は AvaloniaEdit 側のAPI（document.GetLineByOffset/GetText・
+        // FoldingManager.GetFoldingsContaining/GetNextFolding）を呼ぶ。負荷下の実行で1回、
+        // ここから InvalidOperationException が飛んで落ちたという報告があり、以下を実機の
+        // AvaloniaEdit 11.1.0 ソース（本プロジェクトのパッケージ参照と同一バージョン）を
+        // 直接読んで検証した。
+        //   ・TextDocument.GetLineByOffset/GetTextはVerifyAccess()（所有スレッド以外からの
+        //     呼び出しでInvalidOperationException("Call from invalid thread.")）を内部で呼ぶ。
+        //     しかしGraft側でTextDocumentを生成・変更する箇所（DocumentSession.OpenAsync/
+        //     SaveAsync/ReloadAsync）はいずれもUIスレッドへ明示的に戻してから触れており
+        //     （同クラスのコメント参照）、Draw自体もAvaloniaの合成レンダラ経由で必ずUIスレッドから
+        //     呼ばれる（実際に描画ピクセルを生成する別スレッドは、すでに記録済みの描画命令列だけを
+        //     処理し、TextDocument等のアプリ側オブジェクトには触れない）ため、到達できなかった。
+        //   ・TextSegmentCollection.FindSegmentsContaining/FindFirstSegmentWithStartAfter
+        //     （GetFoldingsContaining/GetNextFoldingの実体）は毎回新しいList/ReadOnlyCollectionを
+        //     組み立てて返す設計で、呼び出し元へ渡した後にツリー側が更新されても影響しない
+        //     （ソースの当該メソッドのコメント"safe to modify...while iterating"のとおり）。
+        //     列挙中の「コレクションが変更されました」系例外を投げる経路自体が無い。
+        //   ・FoldingManagerがUninstall済みの直後にDrawが走る経路は、FoldingSupportの
+        //     「不具合1」対策（Editor.Documentが差し替わった瞬間に同期的に古いFoldingManagerを
+        //     uninstallする）とIndentGuideRenderer自身の`ReferenceEquals(_folding.Document,
+        //     document)`チェックの組み合わせで防がれている。実際に「Document差し替え直後・
+        //     _folding.Attach呼び出し前」の窓でDrawを強制的に割り込ませる実験（Dispatcher.
+        //     UIThread.RunJobs()を差し込んで検証、修正後は削除済み）でも再現しなかった。
+        // 150回以上（案件B対応時と合わせ計375回、CPU 4コア飽和下）の
+        // tests/Graft.UiTests/MarkdownPreviewTests.cs実行でも1度も再現しなかった。
+        // 以上より根本原因を特定・再現できなかったため、AvaloniaEdit側の将来の変更・
+        // 未知の内部状態の食い違いに対する最後の防波堤として、この1フレームの描画だけを
+        // 諦める防御的catchを置く（描画専用の副作用の無い処理のため、握りつぶしても
+        // 文書やUndo等の状態を破壊しない。次のフレームで自然に再試行される）。
+        // Draw()は毎秒何十回も呼ばれうるため、他の想定外例外と違いSafeHandler.OnUnexpected
+        // （ダイアログ表示）は使わない（連打されるとダイアログが乱発し、かえって
+        // 使い勝手を損なう。設計目標5の「継続を優先する」の精神をこの高頻度経路向けに
+        // 適用した形）。
+        try
         {
-            var manager = _folding.Manager;
-            // 折りたたみが無効化されている・タブ切替の狭間で文書が一致しない場合は、
-            // 描画のもとになるデータが無いので何も描かない（FoldingSupportクラスコメント(1)参照）。
-            if (manager is null || !ReferenceEquals(_folding.Document, document)) return;
+            if (_mode == IndentGuideMode.FoldableRangesOnly)
+            {
+                var manager = _folding.Manager;
+                // 折りたたみが無効化されている・タブ切替の狭間で文書が一致しない場合は、
+                // 描画のもとになるデータが無いので何も描かない（FoldingSupportクラスコメント(1)参照）。
+                if (manager is null || !ReferenceEquals(_folding.Document, document)) return;
 
-            var segments = CollectActiveFoldSegments(textView, document, manager, tabSize);
-            DrawFoldSegments(textView, drawingContext, segments, normalBrush, hoverBrush, columnWidth, _hoveredFolding);
-            return;
+                var segments = CollectActiveFoldSegments(textView, document, manager, tabSize);
+                DrawFoldSegments(textView, drawingContext, segments, normalBrush, hoverBrush, columnWidth, _hoveredFolding);
+                return;
+            }
+
+            var hoveredRange = _folding.Manager is not null && ReferenceEquals(_folding.Document, document)
+                ? ComputeGuideRangeFor(_hoveredFolding, document, tabSize)
+                : null;
+            DrawAllIndentationLevels(
+                textView, document, drawingContext, normalBrush, hoverBrush, columnWidth, tabSize, hoveredRange);
         }
-
-        var hoveredRange = _folding.Manager is not null && ReferenceEquals(_folding.Document, document)
-            ? ComputeGuideRangeFor(_hoveredFolding, document, tabSize)
-            : null;
-        DrawAllIndentationLevels(
-            textView, document, drawingContext, normalBrush, hoverBrush, columnWidth, tabSize, hoveredRange);
+        catch (InvalidOperationException)
+        {
+            // 上のコメントのとおり、この例外が実際に飛ぶ経路は特定できなかった（静的解析・
+            // 375回の負荷再現実験のいずれでも再現せず）。それでも万一AvaloniaEdit側の内部状態と
+            // 一瞬食い違った場合に備え、インデントガイド（縦線、あくまで装飾）1フレームぶんの
+            // 描画だけを諦めてアプリ全体のクラッシュを避ける。
+        }
     }
 
     private void OnHoveredFoldingChanged(object? sender, FoldingSection? folding)
