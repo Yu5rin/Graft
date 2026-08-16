@@ -37,6 +37,13 @@ public enum GitGutterKind
 /// <see cref="Avalonia.Automation.AutomationProperties"/>へ、<c>ToolTipService</c>は
 /// <see cref="ToolTip"/>へ、<c>MouseEventArgs</c>は<see cref="PointerEventArgs"/>へそれぞれ
 /// 差し替える。Brush/Pen/GeometryのFreeze()はAvaloniaに対応物が無いため呼び出さない。
+///
+/// 実機での指摘2（Windows）: <see cref="Avalonia.Input.InputElement.CursorProperty"/>は継承
+/// プロパティのため、エディタ本文を1回でもクリックするとAvaloniaEditが<c>TextArea</c>へ
+/// 設定するIビームを、祖先である<c>TextArea</c>から継承してIビームのままになってしまう
+/// （詳細な理由は<see cref="MarkerOnlyFoldingMargin"/>のクラスコメント参照）。
+/// このマージンは常駐インスタンス（タブ切替では作り直されない）なので、コンストラクタで
+/// 一度だけ矢印カーソルをローカル値として設定すれば十分。
 /// </summary>
 public sealed class GitGutterProvider : AbstractMargin, IDisposable
 {
@@ -58,6 +65,8 @@ public sealed class GitGutterProvider : AbstractMargin, IDisposable
         _editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _git = gitIntegration ?? throw new ArgumentNullException(nameof(gitIntegration));
         AutomationProperties.SetName(this, "Gitガター（HEADとの差分表示）");
+        // 実機での指摘2: TextAreaから継承したIビームを矢印へ上書きする（クラスコメント参照）。
+        Cursor = new Cursor(StandardCursorType.Arrow);
     }
 
     /// <summary>
