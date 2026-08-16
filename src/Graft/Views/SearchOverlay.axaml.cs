@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
+using Graft.Editor;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -107,8 +108,16 @@ public partial class SearchOverlay : UserControl
         e.Handled = true;
     }
 
+    // 実機での指摘（Windows、折りたたみマーカーのホバー強調のちらつき）の調査で判明した
+    // 落とし穴（Graft.Editor.TextViewRedrawのクラスコメント参照）: TextView.InvalidateLayerは
+    // 実質TextView.InvalidateMeasure()であり、呼ぶたびに可視行が作り直され、
+    // FoldingMarginが折りたたみマーカーを全部再生成してしまう（マウスがマーカー上に
+    // あるとホバー強調がちらつく）。検索ヒットの強調表示もレイアウトの変化を伴わない
+    // （ハイライト矩形の位置・色が変わるだけ）ため、測り直し無しに再描画する。
     private void OnMatchesChanged(object? sender, EventArgs e)
-        => _editor?.TextArea.TextView.InvalidateLayer(KnownLayer.Selection);
+    {
+        if (_editor is not null) TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
+    }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

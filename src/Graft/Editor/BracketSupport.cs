@@ -253,8 +253,17 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
         return new Pen(brush, 1.3);
     }
 
+    // 実機での指摘（Windows、折りたたみマーカーのホバー強調のちらつき）の調査で判明した
+    // 落とし穴（詳細はTextViewRedrawのクラスコメント参照）: TextView.InvalidateLayerは
+    // 実質TextView.InvalidateMeasure()であり、呼ぶたびに可視行が作り直され、
+    // FoldingMarginが＋/－マーカーを全部再生成してしまう。このメソッドはキャレット移動の
+    // たび（＝キー操作・クリックのたび、非常に高頻度）に呼ばれるため、キーボードでカーソルを
+    // 動かしながらマウスは折りたたみマーカー上に置いたままというありふれた操作だけで
+    // マーカーが再生成され続け、ホバー強調のちらつきを誘発しうる。対応する括弧の強調自体は
+    // レイアウトの変化を伴わない（矩形の位置・色が変わるだけ）ため、TextViewRedraw.
+    // WithoutRemeasureで測り直し無しに再描画する。
     private void OnCaretPositionChanged(object? sender, EventArgs e)
-        => _editor.TextArea.TextView.InvalidateLayer(Layer);
+        => TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
 
     private void OnDocumentChanged(object? sender, DocumentChangeEventArgs e)
     {
@@ -266,7 +275,10 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
     {
         _rescanTimer.Stop();
         RescanNow();
-        _editor.TextArea.TextView.InvalidateLayer(Layer);
+        // 上のOnCaretPositionChangedと同じ理由（TextViewRedrawのクラスコメント参照）。
+        // レキサの再スキャン結果を反映するのは括弧強調の再描画だけで足り、可視行を
+        // 作り直す必要は無い。
+        TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
     }
 
     private void RescanNow()
