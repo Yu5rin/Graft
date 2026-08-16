@@ -321,6 +321,21 @@ public sealed class FoldingSupport : IDisposable
         SetHoveredFolding(onThisLine ? fs : null);
     }
 
+    /// <summary>
+    /// 【実機での指摘（Windows）: ホバー強調のちらつき、調査結果】
+    /// 真因は本メソッドではなく<see cref="Editor.IndentGuideRenderer.OnHoveredFoldingChanged"/>
+    /// 側にあった（<see cref="Editor.TextViewRedraw"/>のクラスコメント参照:
+    /// <c>TextView.InvalidateLayer</c>が実質<c>InvalidateMeasure()</c>で、可視行の作り直しに
+    /// 伴い<c>FoldingMargin</c>が＋/－マーカーを再生成し、それによって本メソッドが呼ばれる、
+    /// という循環だった）。その修正後、実機相当のXvfb + xdotool（実際のX11入力イベント、
+    /// 座標はマーカーの<c>Bounds</c>から算出）で「マーカーへカーソルを合わせて数秒静止・
+    /// 微小なジッターを加えながら保持」を複数回試したが、<see cref="HoveredFoldingChanged"/>が
+    /// 意図せずnullへ戻る（＝本メソッドが不要に呼ばれる）事象は一度も再現しなかった。
+    /// 上の修正だけで実際に流れが止まる（可視行・マーカーが再生成されなくなる）ため、本メソッド
+    /// 自身に「退出時に本当にマージンの矩形外にあるか確認してから消す」という防御を追加で
+    /// 入れる必要は実測上確認できなかった。よって本メソッドはあえて変更していない
+    /// （測れていない問題への対処を先回りで足すと、かえって挙動の見通しを悪くするため）。
+    /// </summary>
     private void OnFoldingMarginPointerExited(object? sender, PointerEventArgs e) => SetHoveredFolding(null);
 
     private void SetHoveredFolding(FoldingSection? folding)

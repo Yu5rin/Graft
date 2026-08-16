@@ -90,12 +90,15 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
     /// <summary>本文より背面、選択範囲より背面のレイヤーに描く（下地の縦線のため）。</summary>
     public KnownLayer Layer => KnownLayer.Background;
 
-    /// <summary>15章 <c>editor.indentGuideMode</c> 設定の反映。3モードの切り替えは即時反映する。</summary>
+    /// <summary>15章 <c>editor.indentGuideMode</c> 設定の反映。3モードの切り替えは即時反映する。
+    /// 色や本数が変わるだけでレイアウト（可視行）自体は変わらないため、<see cref="TextViewRedraw.
+    /// WithoutRemeasure"/>で再描画のみ行う（<c>InvalidateLayer</c>を使わない理由は同メソッドの
+    /// クラスコメント参照）。</summary>
     public void SetMode(IndentGuideMode mode)
     {
         if (_mode == mode) return;
         _mode = mode;
-        _editor.TextArea.TextView.InvalidateLayer(Layer);
+        TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
     }
 
     public void Dispose()
@@ -212,14 +215,28 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         }
     }
 
+    /// <summary>
+    /// 実機での指摘（Windows）: 折りたたみマーカーへカーソルを合わせている間、対応する縦線の
+    /// 強調がちらついていた不具合の対処。以前はここで<c>TextView.InvalidateLayer(Layer)</c>を
+    /// 呼んでいたが、これがちらつきの真因そのものだった（<see cref="TextViewRedraw"/>の
+    /// クラスコメント参照: <c>InvalidateLayer</c>は実質<c>InvalidateMeasure()</c>であり、
+    /// 可視行の作り直し→<c>FoldingMargin</c>による＋/－マーカーの再生成→ポインタ直下の
+    /// マーカーが消える→<c>FoldingMargin.PointerExited</c>発火→ホバー解除→この
+    /// ハンドラが再び呼ばれる→再び<c>InvalidateLayer</c>……という循環でちらついていた）。
+    /// 縦線は<c>KnownLayer.Background</c>で描いており、この内容は<c>TextView.Render</c>自身が
+    /// 直接描くため、<see cref="TextViewRedraw.WithoutRemeasure"/>（実体は
+    /// <c>textView.InvalidateVisual()</c>）で測り直し無しに再描画できる。
+    /// </summary>
     private void OnHoveredFoldingChanged(object? sender, FoldingSection? folding)
     {
         if (ReferenceEquals(_hoveredFolding, folding)) return;
         _hoveredFolding = folding;
-        _editor.TextArea.TextView.InvalidateLayer(Layer);
+        TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
     }
 
-    private void OnThemeChanged(object? sender, EventArgs e) => _editor.TextArea.TextView.InvalidateLayer(Layer);
+    /// <summary>テーマ切り替え（色の変更のみ、レイアウトは不変）も同様に測り直し無しで再描画する。</summary>
+    private void OnThemeChanged(object? sender, EventArgs e)
+        => TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
 
     /// <summary>
     /// 可視範囲に懸かる、実際に折りたたみ可能な範囲の一覧を、縦線の描画に必要な位置情報
