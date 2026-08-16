@@ -90,6 +90,18 @@ namespace Graft.Editor;
 ///     コメント一括・再帰的の折りたたみに相当する組み込みコマンドが無いため、公開API
 ///     （<see cref="FoldingManager.AllFoldings"/>・<see cref="FoldingManager.
 ///     GetFoldingsContaining"/>・<see cref="FoldingSection.IsFolded"/>）だけで自前実装した。
+///
+/// 【実機での指摘（L字線を消す）】 折りたたみマージンの＋/－マーカーから下へ伸びる縦線と
+/// 終端の横線（合わせてL字に見える線）が不要との指摘があった。<c>FoldingManager.Install</c>が
+/// 作る標準の<see cref="FoldingMargin"/>はこの線とマーカー枠の両方を同じブラシで描くため
+/// ブラシを透明にする方法は採れず（マーカーごと消えてしまう）、代わりに<see cref="Attach"/>の中で
+/// <see cref="ReplaceFoldingMarginWithMarkerOnly"/>を呼び、線を描かない
+/// <see cref="MarkerOnlyFoldingMargin"/>へその場で（同じ<c>LeftMargins</c>のインデックスのまま）
+/// 差し替えている。差し替え後は<c>FoldingManager.Uninstall</c>がこのインスタンスを取り除いて
+/// くれない（標準の<see cref="FoldingMargin"/>インスタンスをRemoveしようとするだけのため）ので、
+/// <see cref="Uninstall"/>で必ず<see cref="RemoveCustomMargin"/>を呼び自分で取り除く。
+/// 詳細な理由は<see cref="ReplaceFoldingMarginWithMarkerOnly"/>と<see cref="MarkerOnlyFoldingMargin"/>の
+/// クラスコメントを参照。
 /// </summary>
 public sealed class FoldingSupport : IDisposable
 {
@@ -115,6 +127,11 @@ public sealed class FoldingSupport : IDisposable
     // たびに作り直される）と、現在ホバー中の折りたたみ範囲。
     private FoldingMargin? _hookedMargin;
     private FoldingSection? _hoveredFolding;
+
+    // 実機での指摘（L字線を消す）: FoldingManager.Installが作った標準のFoldingMarginと
+    // 差し替えた自前のMarkerOnlyFoldingMargin。Uninstall時にLeftMarginsから自分で
+    // 取り除く必要がある（ReplaceFoldingMarginWithMarkerOnlyのコメント参照）。
+    private MarkerOnlyFoldingMargin? _customMargin;
 
     public FoldingSupport(TextEditor editor)
     {
@@ -204,9 +221,54 @@ public sealed class FoldingSupport : IDisposable
             return;
         }
 
+        ReplaceFoldingMarginWithMarkerOnly();
         HookFoldingMargin();
         document.Changed += OnDocumentChanged;
         RecalculateNow();
+    }
+
+    /// <summary>
+    /// 実機での指摘（Windows）: 折りたたみマージンのL字線（マーカーから下へ伸びる縦線と
+    /// 終端の横線）が不要とのことなので、<see cref="FoldingManager.Install"/>が
+    /// <c>TextArea.LeftMargins</c>へ追加した標準の<see cref="FoldingMargin"/>を、同じ位置
+    /// （インデックス）で<see cref="MarkerOnlyFoldingMargin"/>（L字線を描かない派生クラス。
+    /// 詳細はそのクラスコメント参照）へ差し替える。末尾へ追加し直すのではなく同じ位置で
+    /// 差し替えるのは、Graftは行番号マージンやGitガター（<see cref="GitGutterProvider"/>）も
+    /// <c>LeftMargins</c>に持っており、並び順が変わってしまうと困るため。
+    ///
+    /// <c>ObservableCollection&lt;Control&gt;</c>のインデクサで置き換えるだけで、
+    /// <c>TextArea.LeftMargins</c>の<c>CollectionChanged</c>ハンドラ（内部で
+    /// <c>ITextViewConnect.AddToTextView</c>/<c>RemoveFromTextView</c>を呼ぶ）がReplaceとして
+    /// 検知して自動的に配線し直すため、<c>TextView</c>への接続・切断をここで自前で行う必要は無い。
+    ///
+    /// 【解除漏れへの注意】 <see cref="FoldingManager.Install"/>が生成した標準の
+    /// <see cref="FoldingMargin"/>インスタンスへの参照は、AvaloniaEdit内部の
+    /// <c>FoldingManagerInstallation</c>のprivateフィールドにのみ保持されている。
+    /// <see cref="FoldingManager.Uninstall"/>はそのインスタンスを<c>LeftMargins.Remove</c>
+    /// しようとするだけなので、ここで差し替えた後は対象インスタンスが<c>LeftMargins</c>に
+    /// 存在せず<c>Remove</c>は空振りする。つまり<see cref="FoldingManager.Uninstall"/>は
+    /// 自前のマージンを取り除いてくれない。取り除いた自前のマージンは<c>_customMargin</c>
+    /// に保持しておき、<see cref="Uninstall"/>側で必ず自分で<c>LeftMargins</c>から取り除く
+    /// （そうしないと折りたたみの有効化・無効化やタブ切替を繰り返すたびに増殖する）。
+    /// </summary>
+    private void ReplaceFoldingMarginWithMarkerOnly()
+    {
+        var margins = _editor.TextArea.LeftMargins;
+        var index = -1;
+        for (var i = 0; i < margins.Count; i++)
+        {
+            // MarkerOnlyFoldingMarginもFoldingMarginを継承しているため、既に差し替え済みの
+            // インスタンスを誤って対象にしないよう明示的に除外する。
+            if (margins[i] is FoldingMargin and not MarkerOnlyFoldingMargin) { index = i; break; }
+        }
+
+        // 見つからない場合（AvaloniaEdit側の内部実装が変わった等）は静かに諦める。
+        // L字線が残るだけで、折りたたみ自体の動作には影響させない。
+        if (index < 0) return;
+
+        var custom = new MarkerOnlyFoldingMargin { FoldingManager = _manager };
+        margins[index] = custom;
+        _customMargin = custom;
     }
 
     /// <summary>
@@ -215,6 +277,10 @@ public sealed class FoldingSupport : IDisposable
     /// 新しいインスタンスが作られる）を見つけ、ポインタの出入りを購読する。見つからない場合
     /// （AvaloniaEdit側の内部実装が変わった等）は静かに諦める（ホバー強調が効かないだけで、
     /// 折りたたみ自体の動作には影響させない）。
+    /// <see cref="MarkerOnlyFoldingMargin"/>は<see cref="FoldingMargin"/>の派生クラスであり、
+    /// <see cref="ReplaceFoldingMarginWithMarkerOnly"/>を先に呼んでから本メソッドを呼ぶため、
+    /// <c>OfType&lt;FoldingMargin&gt;()</c>は差し替え後の自前のマージンを正しく拾う
+    /// （tests/Graft.UiTests/FoldingMarginTests.csで確認）。
     /// </summary>
     private void HookFoldingMargin()
     {
@@ -284,7 +350,7 @@ public sealed class FoldingSupport : IDisposable
     private void Uninstall()
     {
         UnhookFoldingMargin(); // Uninstallでこのマージン自体がLeftMarginsから取り除かれるため先に外す。
-        if (_manager is null) return;
+        if (_manager is null) { RemoveCustomMargin(); return; }
         var manager = _manager;
         _manager = null;
         try
@@ -295,6 +361,25 @@ public sealed class FoldingSupport : IDisposable
         {
             SafeHandler.OnUnexpected?.Invoke("折りたたみの解除", ex);
         }
+        finally
+        {
+            // ReplaceFoldingMarginWithMarkerOnlyのコメントのとおり、FoldingManager.Uninstallは
+            // 差し替え前の標準FoldingMarginインスタンスを取り除こうとするだけで、差し替え後の
+            // 自前のマージンはLeftMarginsに残り続けてしまう。ここで確実に自分で取り除く。
+            RemoveCustomMargin();
+        }
+    }
+
+    /// <summary>
+    /// <see cref="ReplaceFoldingMarginWithMarkerOnly"/>で差し替えた<see cref="MarkerOnlyFoldingMargin"/>を
+    /// <c>TextArea.LeftMargins</c>から取り除く。<see cref="FoldingManager.Uninstall"/>はこれを
+    /// 取り除いてくれないため（同メソッドのコメント参照）、<see cref="Uninstall"/>から必ず呼ぶ。
+    /// </summary>
+    private void RemoveCustomMargin()
+    {
+        if (_customMargin is null) return;
+        _editor.TextArea.LeftMargins.Remove(_customMargin);
+        _customMargin = null;
     }
 
     private void OnDocumentChanged(object? sender, DocumentChangeEventArgs e)
