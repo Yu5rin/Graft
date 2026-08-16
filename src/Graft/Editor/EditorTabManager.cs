@@ -60,7 +60,23 @@ public sealed class EditorTabManager
             return GraftResult<EditorTabViewModel>.Ok(existing);
         }
 
-        var opened = await DocumentSession.OpenAsync(fullPath, _projectRoot ?? string.Empty, ct).ConfigureAwait(false);
+        // 不具合修正（CI専用フレークの根本原因）: ここは意図的にConfigureAwait(true)にする。
+        // DocumentSession.OpenAsyncはUIスレッドへ一度切り替えて完了するが（クラス冒頭の
+        // コメント参照）、これをConfigureAwait(false)で受けると、続きの処理（下のTabs.Add）は
+        // 「DocumentSession.OpenAsyncの継続がたまたま実行されたスレッド」で走ってしまう。
+        // headlessテストで実測したところ、これは常にスレッドプール上の別スレッドであり、
+        // UIスレッドに戻る保証がないことを確認した（Dispatcher.UIThread.InvokeAsyncの継続は
+        // 呼び出し元のスレッドへ戻らない実装のため）。TabsはListBox.ItemsSourceへ直接
+        // バインドされたObservableCollectionであり、CollectionChangedをUIスレッド以外から
+        // 上げるとAvaloniaのアイテムコンテナ生成が競合し、同一タブに対して2つのコンテナが
+        // 生成されることがある（ObservableCollectionはTextDocumentと違いVerifyAccessで
+        // 例外化されないため、この競合は普段は無症状のまま潜伏し、CIのように負荷が高く
+        // スレッドスケジューリングが揺れる環境でだけ間欠的に顕在化する。実機のCI障害と
+        // 同じ症状を、この行をConfigureAwait(false)のままCPU負荷をかけた状態で150回反復する
+        // 診断テストで実際に再現し、原因を特定した）。ConfigureAwait(true)にすることで、
+        // このメソッド自身が最初に呼ばれた時点のUIスレッドの同期コンテキストへ確実に
+        // 戻ってから、以降のTabs操作を行う。
+        var opened = await DocumentSession.OpenAsync(fullPath, _projectRoot ?? string.Empty, ct).ConfigureAwait(true);
         if (!opened.IsSuccess)
         {
             return GraftResult<EditorTabViewModel>.Fail(opened.Issues);

@@ -74,6 +74,13 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.2.3" Condition="'$(Configuration)'=='Debug'" />
     <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.1.0" />
+    <!--
+      カラープレビュー機能（検討書「コード中のカラープレビュー」）のカラーピッカーに使う公式コンポーネント。
+      Avalonia本体と同じMITライセンス・同じバージョン系列（Views/OpenSourceLicensesWindow.axaml.csの
+      ライセンス表記に元々含まれていた。Avalonia-LICENSE.txtを共用するため追加のライセンス埋め込みは不要）。
+      ColorView（かっこ・スライダー・16進入力欄一式を持つ編集面）をダイアログへ組み込んで使う。
+    -->
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.2.3" />
     <PackageReference Include="DiffPlex" Version="1.7.2" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
     <!--
