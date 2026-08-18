@@ -159,7 +159,28 @@ public sealed class PromptTemplateStore
         "多数のエスケープが必要な場合は、ヘッダに FENCE=<任意文字列> を指定し、終了マーカーを " +
         ">>>> END:<任意文字列> に変更できます。";
 
-    /// <summary>仕様書4.8「初回用（完全版）」の本文（一字一句そのまま）。</summary>
+    /// <summary>
+    /// 利用者からの指摘対応（案件3）: 「回答がコードブロックで出力されず、コピーが面倒だった」。
+    /// パッチ全体（<<<< PATCH から最後の >>>> ・>>>> END まで、説明文を除く）を、AIのチャットUIの
+    /// 「コピー」ボタンでまとめて1回でコピーできるよう、1つの```コードブロックとして出力させる。
+    /// Graft側はPatchScannerが```で始まる行を読み飛ばすため、このとおり囲まれていても支障なく
+    /// 取り込める。パッチを出力しないテンプレート（<see cref="InvestigateBody"/>）には付けない。
+    ///
+    /// 【副作用の調査】このとおりAIが常に囲むようになると、クリップボード監視の自動検知
+    /// （<see cref="Core.PatchTextDetector"/>）は「単一のコードフェンスで丸ごと囲まれたパッチは
+    /// 自動検知の対象にしない」という既存の意図的な仕様（同クラスのコメント・
+    /// PatchTextDetectorTests.単一フェンスで丸ごと囲まれたパッチは自動検知しないが手動解析はできる
+    /// 参照）に該当するため、以後は自動検知が働きにくくなる。ただし手動の「貼り付け→解析」
+    /// （PatchScanner経由）は影響を受けず従来どおり成功する。この検知ロジック自体の変更は本件の
+    /// 依頼範囲外（コードブロックで囲む＝この既定シナリオがもはや「稀な例外」ではなくなる、
+    /// という前提の見直しが要るため）と判断し、ここでは変更しない。
+    /// </summary>
+    private const string CodeBlockWrapNote =
+        "パッチ全体（<<<< PATCH から最後の >>>> や >>>> END まで。説明文は含めない）を、" +
+        "1つの ``` コードブロックとして囲んで出力してください（チャットのコピー機能で" +
+        "パッチ全体を一括コピーできるようにするためです）。";
+
+    /// <summary>仕様書4.8「初回用（完全版）」の本文。</summary>
     private const string FullBody =
         "コードの修正を提案する際は、必ず以下の形式で出力してください。\n" +
         "\n" +
@@ -184,10 +205,18 @@ public sealed class PromptTemplateStore
         "（全文）\n" +
         ">>>> END\n" +
         "\n" +
-        "説明文はブロックの外に書いてください。";
+        "説明文はブロックの外に書いてください。\n" +
+        "\n" +
+        EscapeRuleNote +
+        "\n\n" +
+        CodeBlockWrapNote;
 
-    /// <summary>仕様書4.8.1 継続用の短縮テンプレートの本文（一字一句そのまま）。</summary>
-    private const string ContinuationBody = "先ほどと同じGraft形式（PATCHメタ + SEARCH/REPLACE）で出力してください。";
+    /// <summary>
+    /// 仕様書4.8.1 継続用の短縮テンプレートの本文。案件3対応でコードブロックの指示を
+    /// 追記した（トークン消費最小化の方針に合わせ、理由の説明までは繰り返さず一言だけ足す）。
+    /// </summary>
+    private const string ContinuationBody =
+        "先ほどと同じGraft形式（PATCHメタ + SEARCH/REPLACE）で、パッチ全体を```で囲んで出力してください。";
 
     /// <summary>
     /// 4.8.3「修正依頼」の形式指示部分（standingContext/filesを含まない）。単体でも、
@@ -214,7 +243,9 @@ public sealed class PromptTemplateStore
         "\n" +
         "説明文はブロックの外に書いてください。\n" +
         "\n" +
-        EscapeRuleNote;
+        EscapeRuleNote +
+        "\n\n" +
+        CodeBlockWrapNote;
 
     /// <summary>4.8.3「修正依頼」: 形式指示（SR優先）＋standingContext＋files。</summary>
     private const string FixRequestBody =
@@ -238,6 +269,8 @@ public sealed class PromptTemplateStore
         "説明文はブロックの外に書いてください。\n" +
         "\n" +
         EscapeRuleNote +
+        "\n\n" +
+        CodeBlockWrapNote +
         "\n\n# 前提\n{{standingContext}}\n\n# プロジェクト構成\n{{tree}}";
 
     /// <summary>4.8.3「調査依頼」: 「まず原因を説明し、修正案の合意が取れてからコードを出力してください」＋files。</summary>

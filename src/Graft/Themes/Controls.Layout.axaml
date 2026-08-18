@@ -263,7 +263,24 @@
         </Style>
     </ControlTheme>
 
-    <!-- ========== ScrollBar ========== -->
+    <!--
+        ========== ScrollBar ==========
+        ここのWidth/MinWidth/Height（既定10px）が、アプリ全体（本文エディタも含む）の
+        スクロールバーの太さを決める唯一の場所（FluentTheme既定のScrollBar/
+        ScrollViewer.axamlをここで丸ごと置き換えている。常時表示・auto-hideなしの
+        単純なデザインで、Fluent既定が使う"ScrollBarSize"リソースは一切参照しない）。
+
+        Windows実機報告 案件1「本文のスクロールバーが細くて掴みにくい」への対応として、
+        本文エディタ（コードエディタ）のScrollBarだけを1.5倍（15px）にする上書きを
+        Themes/EditorScrollBar.axamlに用意している。ここではなくEditorScrollBar.axaml
+        側に置く理由: ここは{x:Type ScrollBar}のControlThemeで、TargetTypeが一致する
+        限りアプリ内の全ScrollBarへ無条件に適用される（スコープを絞れない）。
+        EditorScrollBar.axamlは「ae:TextEditorの子孫のScrollBarに限る」という
+        カスケードStyleセレクタ（ae|TextEditor ScrollBar）で書けるため、そちらに分離した
+        （Controls.Base.axamlと同じ「Setterのみ・Templateは差し替えないカスケード
+        StyleはStyles、Templateごと差し替えるControlThemeはResourceDictionary」という
+        このコードベースの使い分け方針に合わせている）。
+    -->
     <ControlTheme x:Key="GraftScrollBarThumb" TargetType="Thumb">
         <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="Template">
