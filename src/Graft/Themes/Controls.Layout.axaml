@@ -334,6 +334,49 @@
         <Style Selector="^[Orientation=Horizontal] /template/ Track#PART_Track">
             <Setter Property="IsDirectionReversed" Value="False" />
         </Style>
+
+        <!--
+            Windows実機報告 案件「行数の多いファイルでつまみが数ピクセルの線になり掴みにくい」
+            への対応。AvaloniaのTrack.ComputeScrollBarLengths（Avalonia.Controls 11.2.3、
+            ilspycmdで逆コンパイルして確認）は、つまみの最小長を「Thumbの MinHeight（縦）／
+            MinWidth（横）が設定されていればその値、無ければ既定10px」で下限クランプする。
+            Graftはこれまでその設定をしておらず既定の10pxのままだったため、行数が非常に多い
+            ファイルではその10pxすら視認上ほぼ線のようになり掴みにくかった。
+
+            最小長は24pxにする。一般的なデスクトップ環境（Firefox/Chromeの既定つまみ最小長は
+            約20px、Windowsのスクロールボタン規定サイズも同程度）を踏まえ、掴みやすさを
+            優先してやや余裕を持たせた値。Graft自身のスクロールバー太さ（本文以外10px、
+            本文エディタ15px。EditorScrollBar.axaml参照）から見ても、つまみが極端に
+            縦長・横長の棒にならない程度の比率に収まる。
+
+            【トラックが短い場所で消える問題への対応】 同じComputeScrollBarLengths内で
+            「つまみの長さがトラックの長さを超えたらスクロールバーごと非表示にする」
+            （ShowChildren(visible: false)）分岐があるため、最小長を大きくしすぎると
+            背の低い領域（例: SettingsPanels/SafetySettingsView.axamlの高さ60pxの
+            複数行テキスト欄）でスクロールバーが丸ごと消える恐れがある。実機Xvfbで
+            この60px欄・設定画面各タブ・プロジェクトペイン・履歴一覧・Markdownプレビュー等の
+            スクロール領域を確認したところ、いずれもビューポートの実高さ（パディングを
+            差し引いても）が24pxを大きく上回っており、24pxでは消える箇所が無かった。
+            そのためトラック長に対する動的な頭打ち処理（追加のコード）は入れず、固定値の
+            MinHeight/MinWidthだけで対応している。もし将来さらに小さく折りたためる領域
+            （現状はGridSplitterで最小でも0まで畳める＝コンテンツごと隠れる設計のため
+            該当なし）が追加される場合は、このコメントを参照のうえトラック長に対する
+            割合でのクランプを検討すること。
+
+            横スクロールバー（Orientation=Horizontal時のMinWidth）も同じ理屈で対象にする。
+            非常に長い1行（圧縮・minify済みファイル等）を含むファイルでは横方向のつまみも
+            同様に極端に短くなり得るため、縦と揃えて最小長を設ける。
+            縦・横それぞれ「スクロール方向の長さ」を担うプロパティだけを設定し、もう一方の
+            軸（太さ）は変更しない（縦のThumbにMinWidthを、横のThumbにMinHeightを設定すると、
+            スクロールバーの太さ自体が押し広げられてしまうため）。
+        -->
+        <Style Selector="^ /template/ Thumb">
+            <Setter Property="MinHeight" Value="24" />
+        </Style>
+        <Style Selector="^[Orientation=Horizontal] /template/ Thumb">
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="MinWidth" Value="24" />
+        </Style>
     </ControlTheme>
 
     <!--
