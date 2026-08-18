@@ -24,6 +24,9 @@
         <StyleInclude Source="avares://Graft/Themes/Icons.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Controls.Base.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Settings.axaml" />
+        <!-- Windows実機報告 案件1: 本文エディタのScrollBarだけを1.5倍に太くする
+             カスケードStyle。詳細はThemes/EditorScrollBar.axaml参照。 -->
+        <StyleInclude Source="avares://Graft/Themes/EditorScrollBar.axaml" />
     </Application.Styles>
     <Application.Resources>
         <ResourceDictionary>
