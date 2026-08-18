@@ -1,0 +1,74 @@
+<!--
+  Windows実機報告 案件1: 本文エリア（コードエディタ）のスクロールバーが細くて
+  掴みにくいとの指摘。太さを現状の1.5倍にする。
+
+  【調査結果】 アプリのScrollBarの太さは、AvaloniaのFluentテーマ既定
+  （DynamicResource "ScrollBarSize"、既定16px。src/Avalonia.Themes.Fluent/Controls/
+  ScrollBar.xaml等）では決まっていない。Graftは{x:Type ScrollBar}のControlThemeを
+  Themes/Controls.Layout.axamlで丸ごと独自定義しており、そちらがWidth/MinWidth/Height
+  （既定10px固定・auto-hideなし常時表示）でアプリ全体のScrollBarを決めている
+  （実機Xvfbでの実測・"ScrollBarSize"リソースを100pxまで変えても見た目が一切
+  変わらないことを確認して判明。詳しい経緯はControls.Layout.axamlのScrollBar見出し
+  コメント参照）。
+
+  【スコープの絞り方】 Controls.Layout.axamlの{x:Type ScrollBar}ControlThemeは
+  TargetType一致で無条件にアプリ内の全ScrollBarへ適用されるため、そこを直接
+  書き換えると設定画面・プロジェクトペイン・履歴・Markdownプレビュー等、
+  他の画面のスクロールバーまで巻き添えで太くなってしまう。
+
+  そこでこのファイルは、Controls.Base.axamlと同じ理由（ControlThemeはTemplateを
+  指定しないとFluentThemeの既定テンプレートごと失われるため、Templateを差し替えず
+  Setterだけをカスケード適用したい場合はControlThemeではなくStyles＋Styleセレクタを
+  使う、というこのコードベースの既定の使い分け）でルート要素をStylesとし、
+  「ae:TextEditor（本文のコードエディタ。Views/EditorPane.axamlのx:Name="Editor"、
+  コードベース中でae:TextEditorが使われる唯一の箇所）の子孫のScrollBar」だけに
+  絞ったカスケードセレクタ（ae|TextEditor ScrollBar）でWidth/MinWidth/Heightを
+  上書きする。ControlThemeのSetterより後から適用されるStyleのSetterは優先される
+  （Controls.Base.axamlの冒頭コメント参照）ため、Controls.Layout.axaml側の
+  ControlThemeを書き換えずに済み、他の画面への影響が無い。
+
+  太さの倍率は1.5倍（既定10px×1.5＝15px）。倍率を変えたくなったらこのファイルの
+  15という数値2箇所（縦の太さ・横の太さ）を書き換える。GraftScrollBarThumb
+  （Controls.Layout.axaml）のThumb見た目はTrack幅に自動追従するMargin="2"の
+  角丸なので、ここを変えるだけでつまみの見た目も連動して太くなる。
+
+  【重なりの副作用について（実機Xvfbで確認して判明・対策済み）】 ScrollBar自体は
+  Graft独自の常時表示デザインだが、それを収めるScrollViewerはAvaloniaEdit側の既定
+  テンプレート（TextEditor.xaml）がFluentの既定ScrollViewerテンプレートをそのまま
+  使っており、AllowAutoHide（既定true）のときはコンテンツ描画部分
+  （PART_ContentPresenter）がScrollBar用の列・行にもGrid.ColumnSpan/RowSpanで
+  重ねて配置される（過去のMarkdownプレビューの不具合と同じ原因）。太さを変える前の
+  10px版でも既にこの重なりは存在していたが、太さを1.5倍にしたことで重なる幅も
+  10px→15pxへ広がるため、対策を入れた。
+
+  MarkdownプレビューはFluent既定のScrollBar見た目（ホバー時だけ太くなる浮いた
+  スクロールバー）を保つためAllowAutoHideをfalseにする案を見送り、代わりに
+  中身側へ余白を確保する方式を採った（ManualMarkdownRenderer.
+  ReserveSpaceForHorizontalScrollBar参照）が、本文エディタ側はGraft独自の
+  ScrollBar ControlTheme（Controls.Layout.axaml）がAllowAutoHide/IsExpandedを
+  一切参照しない常時同じ見た目のデザインのため、AllowAutoHideをfalseにしても
+  スクロールバー自体の見た目は変わらない（見た目を変えずに重なりだけを解消できる）。
+  そこで下のScrollViewerセレクタでAllowAutoHideをfalseにし、
+  PART_ContentPresenterの重なりそのものを解消する方式にした
+  （Markdownプレビューとは別の対策で問題ない理由はここまでの説明のとおり）。
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit">
+
+    <Style Selector="ae|TextEditor ScrollBar">
+        <Setter Property="Width" Value="15" />
+        <Setter Property="MinWidth" Value="15" />
+    </Style>
+    <Style Selector="ae|TextEditor ScrollBar[Orientation=Horizontal]">
+        <Setter Property="Width" Value="NaN" />
+        <Setter Property="Height" Value="15" />
+    </Style>
+
+    <!-- 本文エリアの重なり対策（上のコメント参照）。本文の右端・末尾行がスクロール
+         バーに隠れないよう、常にスクロールバー用の領域を確保する。 -->
+    <Style Selector="ae|TextEditor ScrollViewer">
+        <Setter Property="AllowAutoHide" Value="False" />
+    </Style>
+
+</Styles>
