@@ -26,28 +26,37 @@ public sealed class DryRunPlanner
         var renameSourceFor = patch.Blocks.OfType<RenameBlock>()
             .ToDictionary(r => NormalizeKey(r.ToPath), r => r.FromPath, StringComparer.OrdinalIgnoreCase);
 
+        // 依頼4対応（診断ログ用）: ドライラン中に実際に存在確認・読み取りを行った対象ファイルを
+        // 記録する。MainViewModel側がドライラン完了後にLoggerへ1ファイル1行で書き出す。
+        // ドライランのときだけ集める（適用時やUI再描画のたびには集めない）ことで、
+        // 過剰なログにならないようにする。
+        var fileProbes = new List<DryRunFileProbe>();
+
         var plans = new List<BlockPlan>();
         plans.AddRange(patch.Blocks.OfType<MkdirBlock>().Select(b => PlanMkdir(b, ctx)));
-        plans.AddRange(patch.Blocks.OfType<RenameBlock>().Select(b => PlanRename(b, ctx)));
+        plans.AddRange(patch.Blocks.OfType<RenameBlock>().Select(b => PlanRename(b, ctx, fileProbes)));
 
         var textGroups = patch.Blocks
             .Where(b => b is FullContentBlock or SearchReplaceBlock or AppendBlock or PrependBlock)
             .GroupBy(b => b.Path, StringComparer.OrdinalIgnoreCase);
         foreach (var group in textGroups)
         {
-            var units = await PlanFileTextBlocksAsync(group.Key, group.ToList(), ctx, renamedFrom, renameSourceFor, ct)
+            var units = await PlanFileTextBlocksAsync(group.Key, group.ToList(), ctx, renamedFrom, renameSourceFor, fileProbes, ct)
                 .ConfigureAwait(false);
             plans.AddRange(units);
         }
 
         foreach (var block in patch.Blocks.OfType<DeleteBlock>())
         {
-            plans.Add(await PlanDeleteAsync(block, ctx, renamedFrom, ct).ConfigureAwait(false));
+            plans.Add(await PlanDeleteAsync(block, ctx, renamedFrom, fileProbes, ct).ConfigureAwait(false));
         }
 
         var dupIssues = await CheckDuplicateAsync(ctx, patchHash, ct).ConfigureAwait(false);
         var stats = ComputeStats(patch, plans, ctx);
-        var result = new DryRunResult { Patch = patch, Plans = plans, PatchHash = patchHash, Stats = stats };
+        var result = new DryRunResult
+        {
+            Patch = patch, Plans = plans, PatchHash = patchHash, Stats = stats, FileProbes = fileProbes,
+        };
         return GraftResult<DryRunResult>.Ok(result, dupIssues);
     }
 
@@ -66,7 +75,7 @@ public sealed class DryRunPlanner
         };
     }
 
-    private static BlockPlan PlanRename(RenameBlock block, ApplyContext ctx)
+    private static BlockPlan PlanRename(RenameBlock block, ApplyContext ctx, List<DryRunFileProbe> probes)
     {
         var issues = new List<GraftIssue>();
         var fromCheck = ctx.Guard.Inspect(block.FromPath);
@@ -79,6 +88,12 @@ public sealed class DryRunPlanner
             issues.AddRange(UpgradeReadOnlyIfBlocking(fromCheck.Issues, fromCheck.Value, ctx));
             if (!fromCheck.Value.Exists)
                 issues.Add(GraftIssue.Of(ErrorCode.E201, "移動元のファイルが存在しません", path: block.FromPath));
+
+            probes.Add(new DryRunFileProbe
+            {
+                Path = block.FromPath, FullPath = fromCheck.Value.FullPath, Exists = fromCheck.Value.Exists,
+                SizeBytes = fromCheck.Value.Exists ? fromCheck.Value.SizeBytes : null,
+            });
         }
 
         var toResolved = ctx.Guard.Resolve(block.ToPath);
@@ -99,7 +114,8 @@ public sealed class DryRunPlanner
 
     private async Task<IReadOnlyList<BlockPlan>> PlanFileTextBlocksAsync(
         string path, IReadOnlyList<PatchBlock> blocksForFile, ApplyContext ctx,
-        HashSet<string> renamedFrom, IReadOnlyDictionary<string, string> renameSourceFor, CancellationToken ct)
+        HashSet<string> renamedFrom, IReadOnlyDictionary<string, string> renameSourceFor,
+        List<DryRunFileProbe> probes, CancellationToken ct)
     {
         if (renamedFrom.Contains(NormalizeKey(path)))
         {
@@ -116,6 +132,32 @@ public sealed class DryRunPlanner
         if (!inspect.IsSuccess) return FailPlansForFile(blocksForFile, path, inspect.Issues);
 
         var check = inspect.Value;
+
+        // 実機不具合対応: ファイルが存在しない（または読み取れない）のに、SEARCH/REPLACEの
+        // 照合結果として「SEARCH部が見つからない（E101）」と表示されるのは誤解を招く
+        // （「ファイルは読めたが中身が一致しない」という意味に読めてしまう）。ここで
+        // ファイルの有無を先に確認し、無ければE210で明確に報告する。
+        // ただしFULL形式が同じファイルに含まれる場合は対象外にする。FULLは新規作成が正規の
+        // 用途で（EntryOperation.Create）、BlockResolver.ResolveFileはFULLを先に適用した
+        // 「これから書き込む内容」に対してSEARCH/REPLACEを解決する（E208混在警告と同じ経路）。
+        // つまりファイルが未作成でもSEARCH/REPLACEが正しくマッチしうる正規のケースであり、
+        // これをE210で止めてしまうと既存の「FULL/SR混在」機能を壊すため除外する。
+        if (!check.Exists
+            && blocksForFile.Any(b => b is SearchReplaceBlock)
+            && !blocksForFile.Any(b => b is FullContentBlock))
+        {
+            // 依頼4対応: 読み取りに進まず打ち切る場合も、確認した内容（存在しなかったこと）を
+            // 診断ログ用に記録しておく。
+            probes.Add(new DryRunFileProbe { Path = readPath, FullPath = check.FullPath, Exists = false });
+
+            // 依頼2対応: Graftが実際に存在確認を行った絶対パス（check.FullPath）を必ず
+            // メッセージへ含める。利用者がログを掘らなくても、画面を見た瞬間に
+            // 「Graftが見に行った場所が正しいか」を判断できるようにするため。
+            var notFoundIssue = GraftIssue.Of(ErrorCode.E210,
+                $"確認した絶対パス: {check.FullPath}", path: path);
+            return FailPlansForFile(blocksForFile, path, new[] { notFoundIssue });
+        }
+
         var fileIssues = UpgradeReadOnlyIfBlocking(inspect.Issues, check, ctx).ToList();
         if (blocksForFile.Any(b => b is FullContentBlock) && blocksForFile.Any(b => b is SearchReplaceBlock))
         {
@@ -125,6 +167,18 @@ public sealed class DryRunPlanner
         }
 
         var loaded = await LoadCurrentLinesAsync(check, ctx, ct).ConfigureAwait(false);
+
+        // 依頼4対応: 「解決した絶対パス」「存在するか」「読み取った行数」を1ファイル1行で記録する。
+        // 読み取りに失敗した場合（E204等）は行数が取れないためnullのままにする。
+        probes.Add(new DryRunFileProbe
+        {
+            Path = readPath,
+            FullPath = check.FullPath,
+            Exists = check.Exists,
+            SizeBytes = check.Exists ? check.SizeBytes : null,
+            LineCount = loaded.IsSuccess ? loaded.Value.Lines.Count : null,
+        });
+
         if (!loaded.IsSuccess) return FailPlansForFile(blocksForFile, path, loaded.Issues);
 
         var (originalLines, shape) = loaded.Value;
@@ -167,7 +221,8 @@ public sealed class DryRunPlanner
     // DELETE
     // ------------------------------------------------------------------
 
-    private async Task<BlockPlan> PlanDeleteAsync(DeleteBlock block, ApplyContext ctx, HashSet<string> renamedFrom, CancellationToken ct)
+    private async Task<BlockPlan> PlanDeleteAsync(
+        DeleteBlock block, ApplyContext ctx, HashSet<string> renamedFrom, List<DryRunFileProbe> probes, CancellationToken ct)
     {
         if (renamedFrom.Contains(NormalizeKey(block.Path)))
         {
@@ -184,8 +239,19 @@ public sealed class DryRunPlanner
         if (check.Exists)
         {
             var read = await FileTextIO.ReadAsync(check.FullPath, ct).ConfigureAwait(false);
+            // 依頼4対応: 読み取り成否に関わらず1件記録する。読み取りに失敗した場合は行数が
+            // 取れないためnullのままにする。
+            probes.Add(new DryRunFileProbe
+            {
+                Path = block.Path, FullPath = check.FullPath, Exists = true, SizeBytes = check.SizeBytes,
+                LineCount = read.IsSuccess ? TextNormalizer.SplitLines(read.Value.Text).Count : null,
+            });
             if (!read.IsSuccess) return FailedDeletePlan(block, read.Issues);
             beforeText = read.Value.Text;
+        }
+        else
+        {
+            probes.Add(new DryRunFileProbe { Path = block.Path, FullPath = check.FullPath, Exists = false });
         }
 
         var canApply = check.Exists && issues.All(i => i.Severity != Severity.Error);
