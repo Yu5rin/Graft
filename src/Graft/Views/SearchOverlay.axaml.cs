@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -20,6 +21,12 @@ namespace Graft.Views;
 /// （<see cref="IBackgroundRenderer"/>）で強調表示する。配置・Ctrl+F/Ctrl+Hからの
 /// 呼び出しはEditorPane側から<see cref="OpenFind"/>/<see cref="OpenReplace"/>を
 /// 呼ぶ形で行う。v2.0のWPF版からの移植（19章 L3）。
+///
+/// 「検索ハイライト機能：視認性を高める」（利用者要望、A＋B）の窓口も兼ねる。Aは本文内の
+/// ヒット強調そのもの（<see cref="SearchHighlightRenderer"/>）、Bは縦スクロールバー上の
+/// ヒット位置目印（<see cref="SearchMarkerBar"/>。<see cref="PushMarkerState"/>で押し込む。
+/// 位置計算そのものは<see cref="SearchMarkerLayout"/>という純粋関数へ切り出してあり、
+/// tests/Graft.Testsで検証している）。
 /// </summary>
 public partial class SearchOverlay : UserControl
 {
@@ -33,7 +40,7 @@ public partial class SearchOverlay : UserControl
     // ScrollViewer/ScrollBarはAvaloniaEdit自身のテンプレート適用（初回レイアウト後）で
     // 初めて実体化するため、Attach直後にはまだ見つからないことがある。MatchesChanged等の
     // 呼び出しのたびに未取得なら探し直す（自己修復。1回見つかれば以降はキャッシュを使う）。
-    private Editor.SearchMarkerBar? _markerBar;
+    private SearchMarkerBar? _markerBar;
 
     public SearchOverlay()
     {
@@ -184,7 +191,7 @@ public partial class SearchOverlay : UserControl
     private void PushMarkerState()
     {
         if (_editor is null) return;
-        if (_markerBar is null) _markerBar = _editor.GetVisualDescendants().OfType<Editor.SearchMarkerBar>().FirstOrDefault();
+        if (_markerBar is null) _markerBar = _editor.GetVisualDescendants().OfType<SearchMarkerBar>().FirstOrDefault();
         if (_markerBar is null) return;
 
         var document = _editor.Document;
