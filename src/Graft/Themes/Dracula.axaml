@@ -163,4 +163,23 @@
     <Color x:Key="IndentGuideHoverColor">#50FA7B</Color>
     <SolidColorBrush x:Key="IndentGuideHover" Color="{StaticResource IndentGuideHoverColor}" />
 
+
+    <!-- ========== 検索ハイライト（Ctrl+F、依頼「検索ハイライト機能」A） ==========
+         色の選定方法・実測コントラスト比の一覧はDark.axaml冒頭の同見出しのコメントを参照
+         （9テーマ共通の算出方法のため、詳細な説明はそちらに集約している）。
+         このテーマでの実測: 全ヒット塗りvs本文=4.61:1・vs背景=2.9:1、
+         現在ヒット塗りvs本文=4.62:1・vs背景=2.89:1（いずれも4.5:1以上）。 -->
+
+    <Color x:Key="SearchMatchColor">#876E20</Color>
+    <SolidColorBrush x:Key="SearchMatch" Color="{StaticResource SearchMatchColor}" />
+
+    <Color x:Key="SearchMatchBorderColor">#E9B310</Color>
+    <SolidColorBrush x:Key="SearchMatchBorder" Color="{StaticResource SearchMatchBorderColor}" />
+
+    <Color x:Key="SearchCurrentMatchColor">#AF590E</Color>
+    <SolidColorBrush x:Key="SearchCurrentMatch" Color="{StaticResource SearchCurrentMatchColor}" />
+
+    <Color x:Key="SearchCurrentMatchBorderColor">#FA9034</Color>
+    <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
 </ResourceDictionary>
