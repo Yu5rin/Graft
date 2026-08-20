@@ -95,6 +95,39 @@ public class ThemeTests : IDisposable
         AssertAllColorTokensResolve();
     }
 
+    // 利用者要望「検索ハイライト機能」A: 既定ライト/ダーク(Dark/Light)＋7プリセットの計9テーマ
+    // すべて（Systemは実体を持たない自動選択の意味であり対象外）。
+    public static readonly TheoryData<AppTheme> AllNineThemes = new()
+    {
+        AppTheme.Dark, AppTheme.Light,
+        AppTheme.Sepia, AppTheme.Github, AppTheme.SolarizedLight, AppTheme.SolarizedDark,
+        AppTheme.Nord, AppTheme.Dracula, AppTheme.Night,
+    };
+
+    // 依頼A「4つの色リソースを新設」（全ヒットの塗り・枠線、現在ヒットの塗り・枠線）。
+    // Color/Brushの対で持つため、AssertAllColorTokensResolveと同じ形で8キーを列挙する。
+    private static readonly string[] SearchHighlightColorTokenKeys =
+    {
+        "SearchMatchColor", "SearchMatch",
+        "SearchMatchBorderColor", "SearchMatchBorder",
+        "SearchCurrentMatchColor", "SearchCurrentMatch",
+        "SearchCurrentMatchBorderColor", "SearchCurrentMatchBorder",
+    };
+
+    [AvaloniaTheory(DisplayName = "検索ハイライトの4色（塗り・枠線×全ヒット・現在ヒット）が9テーマすべてで解決できる")]
+    [MemberData(nameof(AllNineThemes))]
+    public void 検索ハイライトの4色が9テーマすべてで解決できる(AppTheme theme)
+    {
+        ThemeManager.SetTheme(theme);
+
+        foreach (var key in SearchHighlightColorTokenKeys)
+        {
+            var found = Application.Current!.TryFindResource(key, null, out var value);
+            found.Should().BeTrue($"検索ハイライトのトークン '{key}' は{theme}テーマで解決できる必要がある");
+            value.Should().NotBeNull($"検索ハイライトのトークン '{key}' の値は{theme}テーマでnullであってはならない");
+        }
+    }
+
     // 検討書「各テーマが『暗いか明るいか』の判定…も、9テーマに合わせて正しく返す必要がある」。
     // sepia/github/solarized-lightは明るいテーマ、nord/dracula/solarized-dark/nightは
     // 暗いテーマとして扱う（Pane（github.com/Yu5rin/pane）のsrc/themes.cssのdata-theme

@@ -52,9 +52,74 @@
   PART_ContentPresenterの重なりそのものを解消する方式にした
   （Markdownプレビューとは別の対策で問題ない理由はここまでの説明のとおり）。
 -->
+<!--
+  依頼B（検索ハイライト機能）: 本文エディタの縦スクロールバーにだけ、検索ヒットの位置目印
+  （Graft.Editor.SearchMarkerBar）を重ねて描く。
+
+  【方式の選定】 依頼文が挙げた2案のうち、AdornerLayerで後から重ねる案(a)ではなく、
+  ScrollBarのControlTemplate自体に組み込む案(b)を選んだ。理由は次の3点。
+    1. AdornerLayerはVisual.GetVisualAncestors()等でScrollBarの実際の画面上の矩形
+       （Bounds）を追いかけ、AdornerLayer側の座標へ変換し続ける必要がある。ScrollBarの
+       Thumbが動く・ウィンドウがリサイズされるたびにこの追従処理を自前で書く羽目になり、
+       ControlTemplateへ直接置くよりも複雑で壊れやすい。
+    2. AdornerLayerはVisualTreeでScrollBarより上位（TextEditor全体やWindow直下）に
+       挿入されることが多く、「エディタ配下のScrollBarにだけ効かせる」スコープの絞り込みを
+       Adorner側のZIndexや配置ロジックで別途保証しないといけない。ControlTemplateへ
+       置く方式なら、Templateが適用されたScrollBarインスタンスの内部だけに閉じるため
+       スコープ漏れの心配が構造的に無い。
+    3. 既にこのファイル自体が「ae:TextEditor配下のScrollBarにだけ効かせる」ための
+       カスケードStyleセレクタ（下のScrollBar系Style参照）を持っており、同じ絞り込み手法
+       （Selectorのスコープ限定）をControlThemeの適用にもそのまま延長できる
+       （Controls.Layout.axamlの{x:Type ScrollBar}を直接書き換えないという制約とも
+       整合する）。
+
+  下の<ControlTheme x:Key="EditorVerticalScrollBarTheme">は、Controls.Layout.axamlの
+  {x:Type ScrollBar}ControlThemeとほぼ同じTrack/Thumb/RepeatButtonの構成を保ちつつ、
+  Grid内のTrackより手前（描画順で背面）にSearchMarkerBarを1つ追加しただけのもの。
+  Trackの両脇（DecreaseButton/IncreaseButton）はGraftScrollBarRepeatButtonが透明背景
+  なので、目印はThumbの真下以外どこでもそのまま透けて見える（詳細はSearchMarkerBar
+  クラスコメント参照）。GraftScrollBarThumb/GraftScrollBarRepeatButtonはControls.Layout.axaml
+  （ResourceInclude経由でApplication.Resourcesへマージ済み）で定義されており、このファイルは
+  StyleInclude経由でApplication.Stylesへ追加される別ファイルのため、StaticResourceでの
+  同一ファイル内解決を前提にしたキー探索に頼らずDynamicResourceで参照する（実行時に
+  ambientな論理ツリーを辿って解決するため、ファイル・登録方法をまたいでも確実に見つかる）。
+
+  ルート要素をStylesにしたままControlThemeを持たせるには、Icons.axamlと同じく
+  <Styles.Resources>内へキー付きリソースとして置く（XAML文書のルート要素は1つしか
+  持てないため、<ControlTheme>を<Styles>の外側の兄弟要素にはできない）。
+-->
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit">
+        xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        xmlns:se="clr-namespace:Graft.Editor">
+
+    <Styles.Resources>
+        <ControlTheme x:Key="EditorVerticalScrollBarTheme" TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid Background="{TemplateBinding Background}">
+                        <se:SearchMarkerBar />
+                        <Track Name="PART_Track"
+                               Minimum="{TemplateBinding Minimum}"
+                               Maximum="{TemplateBinding Maximum}"
+                               Value="{TemplateBinding Value, Mode=TwoWay}"
+                               ViewportSize="{TemplateBinding ViewportSize}"
+                               Orientation="{TemplateBinding Orientation}"
+                               IsDirectionReversed="True">
+                            <Track.DecreaseButton>
+                                <RepeatButton Theme="{DynamicResource GraftScrollBarRepeatButton}" />
+                            </Track.DecreaseButton>
+                            <Track.IncreaseButton>
+                                <RepeatButton Theme="{DynamicResource GraftScrollBarRepeatButton}" />
+                            </Track.IncreaseButton>
+                            <Thumb Theme="{DynamicResource GraftScrollBarThumb}" />
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+    </Styles.Resources>
 
     <Style Selector="ae|TextEditor ScrollBar">
         <Setter Property="Width" Value="15" />
@@ -63,6 +128,14 @@
     <Style Selector="ae|TextEditor ScrollBar[Orientation=Horizontal]">
         <Setter Property="Width" Value="NaN" />
         <Setter Property="Height" Value="15" />
+    </Style>
+
+    <!-- 依頼B: 縦ScrollBarにだけ上のEditorVerticalScrollBarThemeを適用し、検索ヒットの
+         目印を描けるようにする。水平ScrollBarはControls.Layout.axamlの既定ControlThemeの
+         ままで、目印を出す対象は「文書全体のどこにヒットがあるか」という縦方向の情報のため
+         横方向には不要（意図的に絞っている）。 -->
+    <Style Selector="ae|TextEditor ScrollBar[Orientation=Vertical]">
+        <Setter Property="Theme" Value="{StaticResource EditorVerticalScrollBarTheme}" />
     </Style>
 
     <!-- 本文エリアの重なり対策（上のコメント参照）。本文の右端・末尾行がスクロール
