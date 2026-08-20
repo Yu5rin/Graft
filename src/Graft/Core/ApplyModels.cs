@@ -54,6 +54,31 @@ public sealed record BlockPlan
     public int Removed { get; init; }
 }
 
+/// <summary>
+/// 実機不具合対応（診断用）: ドライラン中に1ファイルへ行った存在確認・読み取りの記録。
+/// UI表示には使わず、MainViewModel側でLoggerへ1行ずつ書き出す診断専用のデータ。
+/// 「エディタは開けるのに接ぎ木だけ失敗する」という実機報告の原因を切り分けるため、
+/// PathGuard.Inspectが実際に確認した絶対パス・存在有無・読み取れたサイズ/行数を残す。
+/// </summary>
+public sealed record DryRunFileProbe
+{
+    /// <summary>プロジェクト相対パス（パッチ内の表記）。</summary>
+    public required string Path { get; init; }
+
+    /// <summary>PathGuardが実際に存在確認・読み取りを行った絶対パス。</summary>
+    public required string FullPath { get; init; }
+
+    /// <summary>存在確認の結果。</summary>
+    public required bool Exists { get; init; }
+
+    /// <summary>FileCheck.SizeBytes（存在する場合のみ）。</summary>
+    public long? SizeBytes { get; init; }
+
+    /// <summary>読み取りに成功した場合の行数（TextNormalizer.SplitLines後）。読み取りを伴わない
+    /// 操作（RENAME・DELETE）や読み取り失敗時はnull。</summary>
+    public int? LineCount { get; init; }
+}
+
 /// <summary>ドライラン全体の結果。ファイルへは一切書き込まない。</summary>
 public sealed record DryRunResult
 {
@@ -68,6 +93,9 @@ public sealed record DryRunResult
 
     /// <summary>全体の統計。</summary>
     public RevisionStats Stats { get; init; } = new();
+
+    /// <summary>診断用: ドライラン中に確認した対象ファイルごとの記録（MainViewModelがログへ出力する）。</summary>
+    public IReadOnlyList<DryRunFileProbe> FileProbes { get; init; } = Array.Empty<DryRunFileProbe>();
 
     /// <summary>適用可能なブロック数。</summary>
     public int ApplicableCount => Plans.Count(p => p.CanApply);
