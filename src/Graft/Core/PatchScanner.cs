@@ -13,8 +13,27 @@ internal enum BodyOutcome
     Broken,
 }
 
-/// <summary>本文収集の結果。</summary>
-internal sealed record BodyResult(BodyOutcome Outcome, IReadOnlyList<string> Lines, int? BrokenLine);
+/// <summary>
+/// 本文収集の結果。
+/// </summary>
+/// <param name="Outcome">収集の結果種別。</param>
+/// <param name="Lines">収集できた本文（Brokenの場合は打ち切られるまでの分）。</param>
+/// <param name="BrokenLine">Brokenの場合、破損の原因になった行番号。それ以外は null。</param>
+/// <param name="BrokenText">
+/// Brokenの場合、破損の原因になった行の内容（前後の空白を除く）。呼び出し側が
+/// 「新しいブロックの開始行として解釈できる形（"&lt;&lt;&lt;&lt;"始まり）かどうか」を
+/// 判定してメッセージを出し分けるために使う（PatchParser参照）。それ以外は null。
+/// </param>
+/// <param name="TerminatorLine">
+/// Completedの場合、終了マーカーが見つかった行番号。呼び出し側が「次のブロック（例:
+/// REPLACE本文）の開始行」として引き継ぐために使う。それ以外は null。
+/// </param>
+internal sealed record BodyResult(
+    BodyOutcome Outcome,
+    IReadOnlyList<string> Lines,
+    int? BrokenLine,
+    string? BrokenText = null,
+    int? TerminatorLine = null);
 
 /// <summary>
 /// パッチ本文を行単位で走査するためのカーソル。Markdownコードフェンスの除去と、
@@ -66,7 +85,7 @@ internal sealed class PatchScanner
             if (isTerminator(text))
             {
                 Next();
-                return new BodyResult(BodyOutcome.Completed, buffer, null);
+                return new BodyResult(BodyOutcome.Completed, buffer, null, TerminatorLine: lineNumber);
             }
 
             var unescaped = PatchTextUtil.TryUnescapeMarkerLine(text);
@@ -78,7 +97,7 @@ internal sealed class PatchScanner
             }
 
             if (PatchTextUtil.LooksLikeMarker(text))
-                return new BodyResult(BodyOutcome.Broken, buffer, lineNumber);
+                return new BodyResult(BodyOutcome.Broken, buffer, lineNumber, BrokenText: text.Trim());
 
             buffer.Add(text);
             Next();

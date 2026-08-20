@@ -1,0 +1,15 @@
+<<<< PATCH
+summary: 予定のJSONエクスポートを追加し、インポート時にキー・uid照合で重複を排除
+type: feat
+
+<<<< PATCH
+summary: 予定のJSONエクスポートを追加し、インポート時にキー・uid照合で重複を排除
+type: feat
+>>>>
+
+<<<< FILE: src/app.py
+<<<<<<< SEARCH
+old
+=======
+new
+>>>>>>> REPLACE
