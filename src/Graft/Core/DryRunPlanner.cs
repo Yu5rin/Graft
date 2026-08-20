@@ -116,6 +116,25 @@ public sealed class DryRunPlanner
         if (!inspect.IsSuccess) return FailPlansForFile(blocksForFile, path, inspect.Issues);
 
         var check = inspect.Value;
+
+        // 実機不具合対応: ファイルが存在しない（または読み取れない）のに、SEARCH/REPLACEの
+        // 照合結果として「SEARCH部が見つからない（E101）」と表示されるのは誤解を招く
+        // （「ファイルは読めたが中身が一致しない」という意味に読めてしまう）。ここで
+        // ファイルの有無を先に確認し、無ければE210で明確に報告する。
+        // ただしFULL形式が同じファイルに含まれる場合は対象外にする。FULLは新規作成が正規の
+        // 用途で（EntryOperation.Create）、BlockResolver.ResolveFileはFULLを先に適用した
+        // 「これから書き込む内容」に対してSEARCH/REPLACEを解決する（E208混在警告と同じ経路）。
+        // つまりファイルが未作成でもSEARCH/REPLACEが正しくマッチしうる正規のケースであり、
+        // これをE210で止めてしまうと既存の「FULL/SR混在」機能を壊すため除外する。
+        if (!check.Exists
+            && blocksForFile.Any(b => b is SearchReplaceBlock)
+            && !blocksForFile.Any(b => b is FullContentBlock))
+        {
+            var notFoundIssue = GraftIssue.Of(ErrorCode.E210,
+                "SEARCH/REPLACE対象のファイルが見つからない、または読み取れません", path: path);
+            return FailPlansForFile(blocksForFile, path, new[] { notFoundIssue });
+        }
+
         var fileIssues = UpgradeReadOnlyIfBlocking(inspect.Issues, check, ctx).ToList();
         if (blocksForFile.Any(b => b is FullContentBlock) && blocksForFile.Any(b => b is SearchReplaceBlock))
         {
