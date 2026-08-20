@@ -711,11 +711,29 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
             .ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(name)) return;
 
+        // CI環境固有のごく低確率な失敗調査で発見したレース対策: 抑制登録は必ず実書き込みより
+        // 前に行う（SuppressPath/SuppressDirectoryのクラスコメント・RevealCreatedNodeAsyncの
+        // クラスコメント参照）。CreateFileAsync（内部でFileTextIO.WriteAsyncが一時ファイル
+        // 書き込み→リネームする）は実ディスクI/Oを伴うため、書き込み後にSuppressPathを呼ぶ
+        // 従来の順序だと、「作成完了からSuppressPath呼び出しまでの間」にFileSystemWatcherが
+        // 自分自身の書き込みを検知してしまう窓ができる。通常は数マイクロ秒で無視できる窓だが、
+        // CPU競合下（低速なCIランナー・高負荷時）ではディスパッチャの再開が数百ms遅れることが
+        // あり、その間にウォッチャー起点の別経路のReconcileDirectoryAsyncが先に走ってRootNodes/
+        // Childrenへ反映してしまう。すると「作成した項目をツリー上で選択状態にする」処理
+        // （RevealCreatedNodeAsync）がまだ走っていないのに、項目自体はツリーに現れてしまい、
+        // 利用者から見ると「作成はされたのに選択されない」という不具合になる
+        // （このクラスの回帰テストNewFileRevealTestsが検出）。書き込み前に確定できる想定パスへ
+        // 先に抑制を掛けておけば、ウォッチャーがいつ気付いてもこの窓自体が存在しない。
+        // 一時ファイル名（乱数）はSuppressPathで個別に予測できないため、対象ディレクトリごと
+        // SuppressDirectoryで併せて抑制する（同メソッドのコメント参照）。
+        var prospectiveFullPath = ToFullPath(CombineRelative(relativeDir, name));
+        _fileWatch.SuppressDirectory(dirNode is null ? _project.Root : dirNode.FullPath);
+        _fileWatch.SuppressPath(prospectiveFullPath);
+
         var created = await _treeService.CreateFileAsync(_project, relativeDir, name, _guardOptions).ConfigureAwait(true);
         if (!created.IsSuccess) { await ShowFailureAsync("ファイルを作成できませんでした", created.Issues).ConfigureAwait(true); return; }
 
         var fullPath = ToFullPath(created.Value);
-        _fileWatch.SuppressPath(fullPath);
         await RevealCreatedNodeAsync(dirNode, created.Value).ConfigureAwait(true);
         await OpenFileNodeAsync(fullPath).ConfigureAwait(true);
     }
@@ -727,10 +745,14 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         var name = await _dialogs.PromptAsync("新規フォルダ", "フォルダ名を入力してください。", null).ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(name)) return;
 
+        // NewFileAsyncと同じレース対策（同メソッドのコメント参照）: 抑制は実際にディレクトリを
+        // 作成するより前に登録する。
+        _fileWatch.SuppressDirectory(dirNode is null ? _project.Root : dirNode.FullPath);
+        _fileWatch.SuppressPath(ToFullPath(CombineRelative(relativeDir, name)));
+
         var created = await _treeService.CreateFolderAsync(_project, relativeDir, name, _guardOptions).ConfigureAwait(true);
         if (!created.IsSuccess) { await ShowFailureAsync("フォルダを作成できませんでした", created.Issues).ConfigureAwait(true); return; }
 
-        _fileWatch.SuppressPath(ToFullPath(created.Value));
         await RevealCreatedNodeAsync(dirNode, created.Value).ConfigureAwait(true);
         RequestFocus();
     }
@@ -822,6 +844,14 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         _importCts = new CancellationTokenSource();
         SetImporting(true);
         ImportProgressText = plan.Count == 1 ? "取り込み中..." : $"0/{plan.Count}件を取り込み中...";
+
+        // NewFileAsyncと同じレース対策（同メソッドのコメント参照）: 取り込み先ディレクトリの
+        // 抑制は実コピーより前に登録しておく。個別の最終パス（衝突時の別名づけ込み）は
+        // コピー後の実行結果（outcomes）でしか確定しないため、このディレクトリ単位の抑制は
+        // 「コピー中の一時ファイル・書き込みイベントに巻き込まれたディレクトリ再列挙が
+        // Revealより先に走ってしまう」窓を塞ぐための保険であり、下のoutcomeごとの
+        // SuppressPath（確定パスへの抑制）と役割を分担する。
+        _fileWatch.SuppressDirectory(dirNode is null ? _project.Root : dirNode.FullPath);
 
         IReadOnlyList<FileImportItemOutcome> outcomes;
         try
@@ -1030,12 +1060,19 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         var name = await _dialogs.PromptAsync("名前の変更", "新しい名前を入力してください。", node.Name).ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(name) || name == node.Name) return;
 
+        // NewFileAsyncと同じレース対策（同メソッドのコメント参照）: 新しいパスの抑制は
+        // 実際のリネームより前に登録する（FileTreeService.RenameAsyncと同じ組み立て方で
+        // 想定パスを事前計算する）。元のパスは消える側なので抑制の意味は薄いが、
+        // OSによってはリネームがDelete+Createとして観測されることもあるため念のため
+        // こちらも先に抑制しておく。
+        var newRelativePath = CombineRelative(GetParentRelativePath(node.RelativePath), name);
+        var newFullPath = ToFullPath(newRelativePath);
+        _fileWatch.SuppressDirectory(node.Parent is null ? _project.Root : node.Parent.FullPath);
+        _fileWatch.SuppressPath(node.FullPath);
+        _fileWatch.SuppressPath(newFullPath);
+
         var renamed = await _treeService.RenameAsync(_project, node.RelativePath, name, node.IsDirectory, _guardOptions).ConfigureAwait(true);
         if (!renamed.IsSuccess) { await ShowFailureAsync("名前を変更できませんでした", renamed.Issues).ConfigureAwait(true); return; }
-
-        _fileWatch.SuppressPath(node.FullPath);
-        var newFullPath = ToFullPath(renamed.Value);
-        _fileWatch.SuppressPath(newFullPath);
 
         // 開いているタブを新しいパスへ追従させる（4.2・4.3）。
         if (!node.IsDirectory) _editor.NotifyRenamed(node.FullPath, newFullPath);
@@ -1056,6 +1093,9 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         // 別の安全網があるため削除自体は続行する。取り消し通知は退避に成功した場合のみ出す。
         var staged = await _undoStore.StageAsync(node.FullPath, node.IsDirectory).ConfigureAwait(true);
 
+        // NewFileAsyncと同じレース対策（同メソッドのコメント参照）: 抑制は実際の削除より前に
+        // 登録する。
+        _fileWatch.SuppressDirectory(node.Parent is null ? _project.Root : node.Parent.FullPath);
         _fileWatch.SuppressPath(node.FullPath);
         var deleted = await _treeService.DeleteAsync(_project, node.RelativePath, node.IsDirectory, _guardOptions).ConfigureAwait(true);
         if (!deleted.IsSuccess)
