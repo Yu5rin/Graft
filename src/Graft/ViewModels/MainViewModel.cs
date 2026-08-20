@@ -497,6 +497,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         _lastContext = context;
         _dryRun = dryRun.Value;
+        LogDryRunFileProbes(dryRun.Value, context); // 依頼4対応: MainViewModel.DryRunDiagnostics.cs参照
         ReplaceBlocks(dryRun.Value.Plans);
         OnPropertyChanged(nameof(StatusSummaryText));
         OnPropertyChanged(nameof(TargetSummaryText));
