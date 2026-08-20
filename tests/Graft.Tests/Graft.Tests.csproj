@@ -117,6 +117,14 @@
     -->
     <Compile Include="..\..\src\Graft\Editor\MarkdownBlockContinuation.cs" LinkBase="Linked\Editor" />
     <Compile Include="..\..\src\Graft\Editor\MarkdownTableCalculator.cs" LinkBase="Linked\Editor" />
+    <!--
+      利用者要望「検索ハイライト機能」B（スクロールバー上のヒット位置目印）。行番号を
+      トラック上のY座標へ按分し、重複ヒットを畳み込むSearchMarkerLayout.Computeは
+      Avalonia/AvaloniaEditのいずれにも依存しない純粋関数のみで構成されるため、上と同じ
+      理由で取り込む。実際の描画（SearchMarkerBar、Avalonia依存）はtests/Graft.UiTests側で
+      検証する。
+    -->
+    <Compile Include="..\..\src\Graft\Editor\SearchMarkerLayout.cs" LinkBase="Linked\Editor" />
   </ItemGroup>
 
   <ItemGroup>

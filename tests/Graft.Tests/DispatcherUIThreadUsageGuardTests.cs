@@ -51,6 +51,11 @@ public class DispatcherUIThreadUsageGuardTests
         ("Views/ShellWindow.axaml.cs", "Dispatcher.UIThread.Post(() => QuickOpenOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);"),
         ("Views/ShellWindow.axaml.cs", "Dispatcher.UIThread.Post(() => CommandPaletteOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);"),
         ("Views/SearchOverlay.axaml.cs", "Dispatcher.UIThread.Post(() =>"),
+        // 検索ハイライト機能B（スクロールバー上のヒット位置目印）: SearchOverlay.Attachから、
+        // タブ切替のたびにUIスレッド上のイベントハンドラ（EditorPane側のタブ切替処理）経由で
+        // しか呼ばれない。ConfigureAwait(false)後の継続等、バックグラウンドスレッドから
+        // 呼ばれる経路は無い。
+        ("Views/SearchOverlay.axaml.cs", "Dispatcher.UIThread.Post(PushMarkerState);"),
         ("Views/EditorPane.TabStrip.cs", "Dispatcher.UIThread.Post(() =>"),
         ("Views/EditorPane.TabStrip.cs", "Dispatcher.UIThread.Post(() => TabPickerSearchBox.Focus(), DispatcherPriority.Background);"),
         // チュートリアル進行中のみ、UIスレッド上のawaitチェーンから呼ばれる（レイアウト反映待ち）。
