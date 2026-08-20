@@ -112,10 +112,10 @@ public sealed class PatchParser
 
     private static PatchMeta ParsePatchMeta(PatchScanner scanner)
     {
-        scanner.Next(); // "<<<< PATCH" 行を消費
+        var (metaLine, metaText) = scanner.Next(); // "<<<< PATCH" 行を消費
         var result = scanner.CollectBody(t => t.TrimEnd() == ">>>>");
         if (result.Outcome == BodyOutcome.Truncated) throw new TruncatedSignal();
-        if (result.Outcome == BodyOutcome.Broken) throw Fail(ErrorCode.E006, result.BrokenLine);
+        if (result.Outcome == BodyOutcome.Broken) throw BrokenBodyFailure(result, metaLine, metaText, ">>>>");
 
         string? summary = null;
         string? type = null;
@@ -149,16 +149,16 @@ public sealed class PatchParser
         scanner.Next(); // FILE ヘッダ行を消費
 
         return isFull
-            ? ParseFullContentBody(scanner, path, lineNumber, fence, occurrence, description)
+            ? ParseFullContentBody(scanner, path, lineNumber, headerText, fence, occurrence, description)
             : ParseSearchReplaceBody(scanner, path, lineNumber, occurrence);
     }
 
     private static FullContentBlock ParseFullContentBody(
-        PatchScanner scanner, string path, int lineNumber, string? fence, OccurrenceSpec? occurrence, string? description)
+        PatchScanner scanner, string path, int lineNumber, string headerText, string? fence, OccurrenceSpec? occurrence, string? description)
     {
         var result = scanner.CollectBody(BlockEndTerminator(fence));
         if (result.Outcome == BodyOutcome.Truncated) throw new TruncatedSignal();
-        if (result.Outcome == BodyOutcome.Broken) throw Fail(ErrorCode.E006, result.BrokenLine);
+        if (result.Outcome == BodyOutcome.Broken) throw BrokenBodyFailure(result, lineNumber, headerText, EndMarkerText(fence));
 
         return new FullContentBlock
         {
@@ -171,9 +171,12 @@ public sealed class PatchParser
         };
     }
 
+    /// <summary>FULL形式・APPEND/PREPENDの終了マーカーの表示文字列（FENCE指定を反映）。</summary>
+    private static string EndMarkerText(string? fence) => fence is null ? ">>>> END" : $">>>> END:{fence}";
+
     private static Func<string, bool> BlockEndTerminator(string? fence)
     {
-        var expected = fence is null ? ">>>> END" : $">>>> END:{fence}";
+        var expected = EndMarkerText(fence);
         return t => t.TrimEnd() == expected;
     }
 
@@ -199,7 +202,7 @@ public sealed class PatchParser
 
             scanner.Next();
             if (pairOccurrence is not null) occurrence = pairOccurrence;
-            pairs.Add(ParseSearchReplacePair(scanner, searchLine, isRange, description));
+            pairs.Add(ParseSearchReplacePair(scanner, searchLine, text, isRange, description));
         }
 
         if (pairs.Count == 0)
@@ -218,17 +221,21 @@ public sealed class PatchParser
     }
 
     private static SearchReplacePair ParseSearchReplacePair(
-        PatchScanner scanner, int searchLine, bool isRange, string? description)
+        PatchScanner scanner, int searchLine, string searchMarkerText, bool isRange, string? description)
     {
         var searchResult = scanner.CollectBody(t => t.TrimEnd() == "=======");
         if (searchResult.Outcome == BodyOutcome.Truncated) throw new TruncatedSignal();
-        if (searchResult.Outcome == BodyOutcome.Broken) throw Fail(ErrorCode.E006, searchResult.BrokenLine);
+        if (searchResult.Outcome == BodyOutcome.Broken)
+            throw BrokenBodyFailure(searchResult, searchLine, searchMarkerText, "=======");
         if (searchResult.Lines.Count == 0 || searchResult.Lines.All(l => l.Length == 0))
             throw Fail(ErrorCode.E003, searchLine);
 
+        // "=======" が見つかった行がREPLACE本文の開始行になる（Completedのため必ず値を持つ）。
+        var replaceStartLine = searchResult.TerminatorLine!.Value;
         var replaceResult = scanner.CollectBody(t => t.TrimEnd() == ">>>>>>> REPLACE");
         if (replaceResult.Outcome == BodyOutcome.Truncated) throw new TruncatedSignal();
-        if (replaceResult.Outcome == BodyOutcome.Broken) throw Fail(ErrorCode.E006, replaceResult.BrokenLine);
+        if (replaceResult.Outcome == BodyOutcome.Broken)
+            throw BrokenBodyFailure(replaceResult, replaceStartLine, "=======", ">>>>>>> REPLACE");
 
         return new SearchReplacePair
         {
@@ -312,7 +319,8 @@ public sealed class PatchParser
 
         var result = scanner.CollectBody(BlockEndTerminator(fence));
         if (result.Outcome == BodyOutcome.Truncated) throw new TruncatedSignal();
-        if (result.Outcome == BodyOutcome.Broken) throw Fail(ErrorCode.E006, result.BrokenLine);
+        if (result.Outcome == BodyOutcome.Broken)
+            throw BrokenBodyFailure(result, lineNumber, headerText, EndMarkerText(fence));
 
         var content = string.Join('\n', result.Lines);
         var occ = occurrence ?? OccurrenceSpec.Single;
@@ -371,6 +379,48 @@ public sealed class PatchParser
 
     private static SyntaxFailure Fail(ErrorCode code, int? line, string? detail = null, string? path = null)
         => new(GraftIssue.Of(code, detail, line, path));
+
+    /// <summary>
+    /// 本文収集（CollectBody）がBrokenで終わった場合の失敗を組み立てる。実際の事故対応:
+    /// 「1行目の PATCH メタが >>>> で閉じられないまま、5行目で次の PATCH メタが始まった」
+    /// というパッチが、原因の特定できないE006（エスケープ規則の不整合）としてしか
+    /// 報告されず、利用者が本当の原因（1つ目のブロックの閉じ忘れ）に辿り着けなかった問題を直す。
+    ///
+    /// 【E006と使い分ける理由】現れた行が「新しいブロックの開始行として解釈できる形」
+    /// （"&lt;&lt;&lt;&lt;"で始まる行）かどうかで出し分ける。Graft形式のブロックヘッダ
+    /// （&lt;&lt;&lt;&lt; PATCH・&lt;&lt;&lt;&lt; FILE:・&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH 等）は
+    /// すべて"&lt;&lt;&lt;&lt;"始まりであり、逆にAIが生成する通常の本文（コード・文章）が
+    /// 偶然この形になることは実務上ほぼ無い。そのためこの形の行は「新しいブロックが
+    /// 始まった」と断定してよく、専用のE008で開始行・出現行の両方を伝える。
+    /// 一方 ">>>>" や "=======" だけの行は、あらゆるブロックヘッダの先頭にはなり得ない
+    /// （閉じマーカー・区切り線としてのみ使われる）ため「次のブロックが始まった」とは言えず、
+    /// 「本文として書きたかった記号のエスケープ忘れ」である可能性の方が高い。この場合は
+    /// 従来どおりE006とし、文言にエスケープの案内を残す（区別できない・すべきでない
+    /// と判断したわけではなく、記号の種類から機械的に判定できると判断した）。
+    /// </summary>
+    private static SyntaxFailure BrokenBodyFailure(
+        BodyResult result, int startLine, string startMarkerText, string expectedTerminatorText)
+    {
+        var brokenLine = result.BrokenLine!.Value;
+        var brokenText = result.BrokenText ?? string.Empty;
+        var openMarker = startMarkerText.Trim();
+
+        if (brokenText.StartsWith("<<<<", StringComparison.Ordinal))
+        {
+            var detail =
+                $"{startLine}行目の \"{openMarker}\" ブロックが \"{expectedTerminatorText}\" で閉じられていないまま、" +
+                $"{brokenLine}行目で次のブロック \"{brokenText}\" が始まっています。" +
+                $"{startLine}行目のブロックを \"{expectedTerminatorText}\" で閉じるか、{brokenLine}行目をこのブロックの" +
+                "本文として使いたい場合は行頭に \\ を付けてエスケープしてください。";
+            return Fail(ErrorCode.E008, brokenLine, detail);
+        }
+
+        var mismatchDetail =
+            $"{startLine}行目の \"{openMarker}\" ブロックの本文を集めている途中、{brokenLine}行目に \"{brokenText}\" という" +
+            $"記号だけの行が現れ、期待する終了マーカー \"{expectedTerminatorText}\" と一致しませんでした。" +
+            "本文としてこの記号を使いたい場合は、行頭に \\ を付けてエスケープしてください。";
+        return Fail(ErrorCode.E006, brokenLine, mismatchDetail);
+    }
 
     /// <summary>4.10 の切断検出を表す内部制御用シグナル。パーサ内部でのみ捕捉する。</summary>
     private sealed class TruncatedSignal : Exception;

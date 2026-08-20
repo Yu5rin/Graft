@@ -39,7 +39,7 @@ public class PromptTemplateCodeBlockTests
 
     [Fact(DisplayName = "継続用（短縮版）はコードブロックの指示を含む")]
     public void 継続用はコードブロックの指示を含む()
-        => Body("builtin-continuation").Should().Contain("```で囲んで出力してください");
+        => Body("builtin-continuation").Should().Contain("```text・最終行```で囲んでください");
 
     [Fact(DisplayName = "修正依頼はコードブロックの指示を含む")]
     public void 修正依頼はコードブロックの指示を含む()
@@ -63,6 +63,91 @@ public class PromptTemplateCodeBlockTests
     [Fact(DisplayName = "初回用（完全版）はエスケープ規則も含む（従来欠けていた不整合の是正）")]
     public void 初回用はエスケープ規則も含む()
         => Body("builtin-full").Should().Contain("【エスケープ規則】");
+
+    // ------------------------------------------------------------------
+    // 案件1・2の回帰: 実際の事故（PATCHメタの二重出力・1つ目が未閉鎖）を踏まえ、
+    // 「<<<< PATCH は1回だけ」「開いたブロックは必ず閉じる」「出力前に自分で確認する」の
+    // 3点が既定テンプレートに含まれることを確認する。
+    // ------------------------------------------------------------------
+
+    [Theory(DisplayName = "パッチを出力するテンプレートは「<<<< PATCHは1回だけ」の指示を含む")]
+    [InlineData("builtin-full")]
+    [InlineData("builtin-fix-request")]
+    [InlineData("builtin-new-file")]
+    public void パッチを出力するテンプレートはPATCHメタ1回だけの指示を含む(string id)
+        => Body(id).Should().Contain("<<<< PATCH は出力全体で1回だけ");
+
+    [Fact(DisplayName = "継続用（短縮版）も「<<<< PATCHは1回だけ」の指示を含む（事故が起きやすい場面のため）")]
+    public void 継続用もPATCHメタ1回だけの指示を含む()
+        => Body("builtin-continuation").Should().Contain("<<<< PATCH は1回だけ");
+
+    [Theory(DisplayName = "パッチを出力するテンプレートは終了マーカーの対応と出力前の自己確認を促す")]
+    [InlineData("builtin-full")]
+    [InlineData("builtin-fix-request")]
+    [InlineData("builtin-new-file")]
+    public void パッチを出力するテンプレートは終了マーカーの対応と自己確認を促す(string id)
+    {
+        var body = Body(id);
+        body.Should().Contain("======= と >>>>>>> REPLACE で、MODE=FULLは >>>> END で、開いたブロックは必ず閉じてください", "SEARCH/REPLACEとMODE=FULLの終了マーカーが具体的に示されているはず");
+        body.Should().Contain("開始マーカーと終了マーカーの数が対応しているか自分で確認", "出力前の自己点検が促されているはず");
+    }
+
+    [Fact(DisplayName = "調査依頼はパッチを出力しないため「1回だけ」の指示も含まない")]
+    public void 調査依頼はPATCHメタ1回だけの指示も含まない()
+        => Body("builtin-investigate").Should().NotContain("<<<< PATCH は");
+
+    // ------------------------------------------------------------------
+    // 案件3の回帰: 「コピーボタンが出ない」対策として追加した、言語識別子の明示と
+    // 本文に```を含む場合のバッククォート4個への切り替え指示。
+    // ------------------------------------------------------------------
+
+    [Theory(DisplayName = "パッチを出力するテンプレートは1行目・最終行の書き方を具体的に指示する")]
+    [InlineData("builtin-full")]
+    [InlineData("builtin-fix-request")]
+    [InlineData("builtin-new-file")]
+    public void パッチを出力するテンプレートは1行目最終行を具体的に指示する(string id)
+    {
+        var body = Body(id);
+        body.Should().Contain("```text", "言語識別子を明示する具体的な書き方が示されているはず");
+        body.Should().Contain("パッチ本文に ``` が含まれる場合", "本文に```を含む場合の代替指示があるはず");
+        body.Should().Contain("````text", "本文に```を含む場合はバッククォート4個にするよう具体的に示されているはず");
+    }
+
+    [Fact(DisplayName = "回帰_バッククォート4個で囲み、本文にMarkdownの```例示を含むAI出力も解析できる")]
+    public void バッククォート4個で囲みMarkdown例示を含む出力も解析できる()
+    {
+        // CodeBlockWrapNoteが指示する「本文に```を含む場合は外側を````にする」形。
+        // README.mdへの追記（内容自体に```で囲まれたコード例を含む）を模す。
+        var text =
+            "承知しました。\n\n" +
+            "````text\n" +
+            "<<<< PATCH\n" +
+            "summary: READMEに使用例を追記する\n" +
+            "type: docs\n" +
+            ">>>>\n" +
+            "\n" +
+            "<<<< FILE: README.md MODE=FULL\n" +
+            "# 使い方\n" +
+            "```bash\n" +
+            "echo hello\n" +
+            "```\n" +
+            ">>>> END\n" +
+            "````\n";
+
+        var result = new PatchParser().Parse(text);
+
+        result.IsSuccess.Should().BeTrue("PatchScannerは```で始まる行（バッククォート3個以上すべて）を読み飛ばすため、" +
+            "外側が4個・内側が3個でも解析できるはず");
+        result.Value.Meta.Summary.Should().Be("READMEに使用例を追記する");
+        result.Value.Blocks.Should().HaveCount(1);
+        // 注意（既知の制約・本件の対応範囲外）: PatchScannerは"```"で始まる行を、外側の
+        // ラップかどうかに関わらず一律で読み飛ばす実装のため、この本文中の"```bash"・"```"
+        // （README.mdの中身として本来残したい行）も取り除かれ、Contentからは消える。
+        // つまりバッククォート4個への切り替えは「チャットUIの表示・コピーボタン」問題
+        // （案件3の対象）は解決するが、パッチ本文が文字どおり```を含む場合の内容保持は
+        // 別問題として残る（PatchScanner.Createのfor文参照）。ここでは案件3の対象である
+        // 解析成功（IsSuccess）とブロック数のみを確認し、内容の完全一致までは主張しない。
+    }
 
     [Fact(DisplayName = "回帰_指示どおりパッチ全体を1つのコードブロックで囲んだAI出力を解析できる")]
     public void 指示どおり丸ごと囲んだ出力を解析できる()
