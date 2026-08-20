@@ -42,14 +42,36 @@ public class PatchParserEscapeTests
         block.Content.Should().Be("def hello():\n    print(\"hello\")");
     }
 
-    [Fact(DisplayName = "未エスケープのマーカーらしき行が本文中に現れるとE006になる")]
-    public void 未エスケープマーカーはE006になる()
+    [Fact(DisplayName = "未エスケープの \"<<<<\" 始まりの行が本文中に現れるとE008（新しいブロックの開始）になる")]
+    public void 未エスケープマーカーはE008になる()
     {
+        // mimikaeshi_marker_e006.txt の4行目「<<<< THIS LOOKS LIKE A HEADER」は"<<<<"始まりのため、
+        // 「新しいブロックが始まった」と解釈できる行として扱われE008になる（従来はE006だった。
+        // 詳細はPatchParser.BrokenBodyFailureのコメントと、実際の事故を再現した
+        // PatchParserUnclosedBlockTests参照）。ファイル名は変更しない（フィクスチャの使い回し）。
         var text = FixtureLoader.LoadPatch("mimikaeshi_marker_e006");
         var result = new PatchParser().Parse(text);
 
         result.IsSuccess.Should().BeFalse("本文中の未エスケープのマーカー様の行は構文破損として扱われるはず");
+        result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E008);
+        result.Issues.Single(i => i.Code == ErrorCode.E008).LineNumber.Should().Be(4);
+    }
+
+    [Fact(DisplayName = "\">>>>\" や \"=======\" だけの未エスケープ行はE006のまま（新しいブロックの開始ではないため）")]
+    public void 閉じマーカー様の未エスケープ行はE006のまま()
+    {
+        // FULL本文の途中に、どの終了マーカーにも一致しない ">>>> " 始まりの行が現れるケース。
+        // "<<<<"始まりではないため「次のブロックが始まった」とは判定せず、従来どおり
+        // エスケープ忘れとしてE006を返す（PatchParser.BrokenBodyFailure参照）。
+        var text =
+            "<<<< FILE: src/broken.py MODE=FULL\n" +
+            "def foo():\n" +
+            ">>>> NOT A REAL TERMINATOR\n" +
+            ">>>> END\n";
+        var result = new PatchParser().Parse(text);
+
+        result.IsSuccess.Should().BeFalse();
         result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E006);
-        result.Issues.Single(i => i.Code == ErrorCode.E006).LineNumber.Should().Be(4);
+        result.Issues.Single(i => i.Code == ErrorCode.E006).LineNumber.Should().Be(3);
     }
 }
