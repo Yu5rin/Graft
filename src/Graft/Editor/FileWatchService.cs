@@ -28,6 +28,7 @@ public sealed class FileWatchService : IDisposable
     private readonly DispatcherTimer _debounceTimer;
     private readonly HashSet<string> _pendingPaths = new(PathComparer);
     private readonly Dictionary<string, DateTimeOffset> _suppressed = new(PathComparer);
+    private readonly Dictionary<string, DateTimeOffset> _suppressedDirs = new(PathComparer);
     private FileSystemWatcher? _watcher;
     private string? _projectRoot;
 
@@ -103,6 +104,26 @@ public sealed class FileWatchService : IDisposable
         lock (_suppressed) _suppressed[fullPath] = DateTimeOffset.UtcNow.Add(SuppressDuration);
     }
 
+    /// <summary>
+    /// CI環境固有のごく低確率な失敗調査で発見したレース対策。<see cref="SuppressPath"/>は
+    /// 特定の1パスだけを抑制するが、FileTextIO.WriteAsyncはアトミック書き込みのため
+    /// 「一時ファイル（乱数名）を書く→目的のファイル名へリネーム」という手順を踏む。
+    /// 一時ファイルのパスは事前に予測できないため<see cref="SuppressPath"/>では抑制できず、
+    /// その作成・削除イベントが未抑制のまま素通りしてしまう。ところが
+    /// <see cref="DirectoriesChanged"/>はファイル単位ではなく「変更のあったディレクトリ」単位で
+    /// 通知するため、一時ファイルの未抑制イベントであっても、そのデバウンス発火時点で
+    /// 目的のファイルへのリネームが既に完了していれば、結果的に自分自身が作成した項目が
+    /// ディレクトリ再列挙に「巻き込まれて」（未確定タイミングで）反映されてしまう
+    /// （NewFileRevealTestsのクラスコメント・ExplorerViewModel.NewFileAsyncのコメント参照）。
+    /// これを塞ぐには個別パスではなくディレクトリ単位で一時的に抑制する必要がある。
+    /// エクスプローラ側の新規作成・改名・削除など「自分がこれから書き込む」操作の直前に、
+    /// 対象ディレクトリへ呼ぶ。
+    /// </summary>
+    public void SuppressDirectory(string fullDirPath)
+    {
+        lock (_suppressed) _suppressedDirs[fullDirPath] = DateTimeOffset.UtcNow.Add(SuppressDuration);
+    }
+
     public void Dispose() => Stop();
 
     private void OnRenamed(object sender, RenamedEventArgs e)
@@ -133,14 +154,25 @@ public sealed class FileWatchService : IDisposable
     {
         lock (_suppressed)
         {
-            if (!_suppressed.TryGetValue(fullPath, out var until)) return false;
-            if (until < DateTimeOffset.UtcNow)
-            {
-                _suppressed.Remove(fullPath);
-                return false;
-            }
-            return true;
+            if (IsFresh(_suppressed, fullPath)) return true;
+
+            // 一時ファイル名は予測できないため、パス自体ではなく「その親ディレクトリが
+            // 抑制中か」でも判定する（SuppressDirectoryのコメント参照）。
+            var dir = Path.GetDirectoryName(fullPath);
+            return !string.IsNullOrEmpty(dir) && IsFresh(_suppressedDirs, dir);
         }
+    }
+
+    /// <summary>呼び出し側で<c>lock (_suppressed)</c>済みであることが前提。期限切れは掃除する。</summary>
+    private static bool IsFresh(Dictionary<string, DateTimeOffset> table, string key)
+    {
+        if (!table.TryGetValue(key, out var until)) return false;
+        if (until < DateTimeOffset.UtcNow)
+        {
+            table.Remove(key);
+            return false;
+        }
+        return true;
     }
 
     private void OnDebounceTick(object? sender, EventArgs e)
