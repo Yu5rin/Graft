@@ -68,6 +68,21 @@ public sealed partial class MainViewModel
         var updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
         var updatedDryRun = dryRun with { Plans = updatedPlans };
 
+        // 実機不具合対応: ApplyCommand自体はドライラン時点の適用可能件数（チェックの状態を
+        // 見ない）で有効・無効を決めているため、失敗したブロックしか無い、またはユーザーが
+        // 適用可能なブロックのチェックを全部外した場合でも実行できてしまう。そのまま
+        // ApplyEngine.ApplyAsyncへ渡すと、書き換えは1件も無いのに「rNとして記録しました」という
+        // 空のリビジョンだけが作られてしまう（履歴・世代管理・リビジョン番号を無駄に消費するうえ、
+        // 利用者からは何が起きたのか分からない）。チェック済みかつ適用可能なブロックが1件も無い
+        // 場合は、ここで案内を出して適用処理自体を始めない。
+        if (!updatedPlans.Any(p => p.IsSelected && p.CanApply))
+        {
+            await _dialogs
+                .ShowMessageAsync("適用対象がありません", "チェックが付いている、適用可能な変更がありません。適用する変更にチェックを付けてください。")
+                .ConfigureAwait(true);
+            return;
+        }
+
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
             var input = await _dialogs.PromptAsync("要約を入力", "このリビジョンの概要を入力してください。", null).ConfigureAwait(true);
@@ -143,7 +158,14 @@ public sealed partial class MainViewModel
             await TryAutoCommitAfterApplyAsync(project, result.Value).ConfigureAwait(true);
         }
 
-        await _dialogs.ShowMessageAsync("適用が完了しました", $"r{result.Value.Revision} として記録しました。").ConfigureAwait(true);
+        // 実機不具合対応: 部分適用（一部のブロックが失敗している状態で、成功したブロックだけを
+        // 適用したとき）は、失敗の存在自体はエラーではなく正常系として扱う。ただし「失敗した
+        // ブロックがあったこと」自体は利用者に伝わるべき情報のため、成功の完了メッセージに
+        // 併記する（既存の「N件を適用します」等の文言と同じ「◯件」の言い回しに揃える）。
+        var completionMessage = updatedDryRun.FailedCount > 0
+            ? $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）"
+            : $"r{result.Value.Revision} として記録しました。";
+        await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
 
         // 機能2: 適用直後の「元に戻す」通知（MainViewModel.ApplyUndoNotice.cs）。確認ダイアログを
         // 閉じた後に出す（ダイアログ表示中はステータスバーが見えず、閉じるまでの間に数秒の

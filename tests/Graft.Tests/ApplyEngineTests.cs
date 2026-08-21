@@ -84,8 +84,54 @@ public class ApplyEngineTests
     // 6.1 allOrNothing / 部分適用モードとバックアップ
     // ------------------------------------------------------------------
 
-    [Fact(DisplayName = "allOrNothingでは1件でも失敗すれば全体を中止し、いずれのファイルも変更されない")]
-    public async Task allOrNothingで1件失敗すると全体を中止する()
+    // ------------------------------------------------------------------
+    // 実機不具合対応（Windows実機・v1.0.6）の根本原因回帰テスト。
+    //
+    // 修正前のApplyEngine.ApplyAsyncは、allOrNothingの判定で
+    // `plan.Plans.Where(p => !p.CanApply)`（選択状態を見ない）を使っていた。失敗したブロックは
+    // DryRunPlannerがIsSelected=falseで返し、チェックも外れたまま操作できない（BlockItemViewModel.
+    // CanToggle参照）ため、利用者が「失敗ブロックのチェックを外して成功ブロックだけを適用する」
+    // という通常の使い方をしても、外れているはずの失敗ブロックがそのままfatal判定に数えられ、
+    // 適用可能なブロックが残っているのに全体がエラーになっていた
+    // （利用者からの報告:「一部だけを適用すると、通常は履歴に関するお知らせが出るはずが、
+    // エラーが表示される」。実際に表示されたエラーはE101）。
+    // 「全件適用（All or Nothing）」の正しい意味は「選んだ（チェックが付いている）ブロックが
+    // 全部適用できるなら適用し、選んだブロックの中に1つでもダメなものがあれば中止する」であり、
+    // 「選んでいない失敗ブロックの存在で中止する」ことではない。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "根本原因の回帰: allOrNothing（既定）でも、失敗ブロックが選択されていなければ成功したブロックだけが適用される")]
+    public async Task allOrNothingでも選択していない失敗ブロックは中止の理由にならない()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        harness.WriteProjectText("ok.txt", "hello\n");
+        harness.WriteProjectText("bad.txt", "存在しない検索対象は含まれていません\n");
+
+        var patchText = BuildSrPatch("ok.txt", "hello", "world")
+            + "\n" + BuildSrPatch("bad.txt", "見つからない文字列", "置換後");
+        // 設定は何も指定しない＝既定値（allOrNothing）のままであることが本質。
+        var ctx = harness.MakeContext(1);
+        var dryRun = await harness.DryRunAsync(patchText, ctx);
+        dryRun.FailedCount.Should().BeGreaterThan(0, "bad.txt側はSEARCH不一致で失敗するはず");
+        dryRun.Plans.Single(p => p.Path == "bad.txt").IsSelected.Should().BeFalse(
+            "失敗ブロックはDryRunPlannerが自動的に選択解除するはず（BlockItemViewModel.CanToggle参照）");
+
+        var apply = await harness.ApplyAsync(dryRun, ctx);
+
+        apply.IsSuccess.Should().BeTrue(
+            "既定のallOrNothingのままでも、選んでいない失敗ブロックの存在だけでは中止してはならない。" +
+            $"実際のissues: {string.Join(", ", apply.Issues.Select(i => i.ToDisplayText()))}");
+        harness.ReadProjectBytes("ok.txt").Should().Equal(Encoding.UTF8.GetBytes("world\n"),
+            "選択されている成功ブロックは適用されるはず");
+        harness.ReadProjectBytes("bad.txt").Should().Equal(Encoding.UTF8.GetBytes("存在しない検索対象は含まれていません\n"),
+            "選択されていない失敗ブロックの対象ファイルは書き換わらないはず");
+        apply.Value.Entries.Select(e => e.Path).Should().BeEquivalentTo(new[] { "ok.txt" },
+            "履歴のリビジョンには実際に書き換えたok.txtだけが含まれるはず");
+    }
+
+    [Fact(DisplayName = "allOrNothingは、選択されている(IsSelected=true)ブロックの中に適用不可なものが1件でもあれば中止する")]
+    public async Task allOrNothingは選択されている失敗ブロックがあれば中止する()
     {
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);
@@ -96,11 +142,18 @@ public class ApplyEngineTests
             + "\n" + BuildSrPatch("bad.txt", "見つからない文字列", "置換後");
         var ctx = harness.MakeContext(1);
         var dryRun = await harness.DryRunAsync(patchText, ctx);
-        dryRun.FailedCount.Should().BeGreaterThan(0, "bad.txt側はSEARCH不一致で失敗するはず");
 
-        var apply = await harness.ApplyAsync(dryRun, ctx);
+        // 通常のUI操作（Spaceキー・チェックボックス）では失敗ブロックを選択状態にはできない
+        // （BlockItemViewModel.CanToggle参照）が、allOrNothingの安全機構自体が正しく機能する
+        // ことを直接確認するため、ここではDryRunResultを直接組み立てて選択状態を強制する。
+        var forcedPlans = dryRun.Plans
+            .Select(p => p.Path == "bad.txt" ? p with { IsSelected = true } : p)
+            .ToList();
+        var forcedDryRun = dryRun with { Plans = forcedPlans };
 
-        apply.IsSuccess.Should().BeFalse();
+        var apply = await harness.ApplyAsync(forcedDryRun, ctx);
+
+        apply.IsSuccess.Should().BeFalse("選択されている失敗ブロックが1件でもあればallOrNothingは中止するはず");
         harness.ReadProjectBytes("ok.txt").Should().Equal(Encoding.UTF8.GetBytes("hello\n"),
             "allOrNothingで中止された場合、成功側のファイルも変更されてはならない");
         Directory.Exists(harness.Paths.GetProjectBackupDirectory(harness.ProjectId)).Should().BeFalse(

@@ -57,9 +57,31 @@ public sealed partial class ApplyEngine
         var dupIssues = await CheckDuplicateAsync(ctx, plan.PatchHash, ct).ConfigureAwait(false);
         if (dupIssues.HardBlock) return GraftResult<RevisionManifest>.Fail(dupIssues.Issues);
 
+        // 実機不具合対応: 適用モードを問わず、実際に書き込むブロック（チェック済みかつ適用可能）が
+        // 1件も無いなら、ここで必ず失敗として返す。これが無いと、部分適用モードでは
+        // 「全ブロック失敗」や「チェックを全部外した」状態でもExecuteAsyncが素通りし、
+        // 何も書き換えていないのに成功扱いの空のリビジョンが記録されてしまう
+        // （MainViewModel.ApplyCoreAsync側にも同種のガードを置いているが、ApplyEngineは
+        // UIを経由しない呼び出し元からも直接使われうるため、ここでも独立して防ぐ）。
+        var eligiblePlans = plan.Plans.Where(p => p.IsSelected && p.CanApply).ToList();
+        if (eligiblePlans.Count == 0)
+        {
+            var noneIssues = plan.Plans.Where(p => !p.CanApply).SelectMany(p => p.Issues).ToList();
+            if (noneIssues.Count == 0)
+            {
+                noneIssues.Add(GraftIssue.Of(ErrorCode.E101, "チェックが付いている、適用可能な変更がありません"));
+            }
+            return GraftResult<RevisionManifest>.Fail(noneIssues);
+        }
+
         if (ctx.Settings.ApplyMode != "partial")
         {
-            var fatal = plan.Plans.Where(p => !p.CanApply).SelectMany(p => p.Issues).ToList();
+            // 実機不具合対応（根本原因）: ここが p.IsSelected を見ていなかったため、利用者が
+            // 失敗ブロックのチェックを外して成功ブロックだけを選んでも、選んでいない失敗ブロックが
+            // fatalに数えられ全体がエラーになっていた。「全件適用（All or Nothing）」の本来の意味は
+            // 「選んだブロックが全部適用できるなら適用、1つでもダメなら中止」であり、
+            // 「選んでいないブロックの失敗でも中止」ではない。
+            var fatal = plan.Plans.Where(p => p.IsSelected && !p.CanApply).SelectMany(p => p.Issues).ToList();
             if (fatal.Count > 0) return GraftResult<RevisionManifest>.Fail(fatal);
         }
 
