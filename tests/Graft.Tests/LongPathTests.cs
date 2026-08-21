@@ -133,4 +133,106 @@ public class LongPathTests
         var moderate = @"C:\" + new string('a', 400);
         LongPath.ExceedsExtendedLimit(moderate).Should().BeFalse();
     }
+
+    // ------------------------------------------------------------------
+    // v1.0.7実機不具合対応: UNCパスの往復（\\server\share\... ⇔ \\?\UNC\server\share\...）と、
+    // プロジェクトルート復元（RecoverProjectRoot）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "UNCパスの往復: Extendedで拡張表記にしてもStripExtendedPrefixで元に戻る")]
+    public void UNCパスは拡張表記との間を往復できる()
+    {
+        var longUnc = @"\\server\share\" + new string('a', LongPath.WindowsMaxPathLength);
+
+        var extended = LongPath.ExtendedCore(longUnc, isWindows: true, isNetworkDrive: _ => false);
+        extended.Should().Be(@"\\?\UNC\" + longUnc[2..], "前提: 拡張変換自体は既存仕様のまま");
+
+        LongPath.StripExtendedPrefix(extended).Should().Be(longUnc, "拡張表記から通常のUNC表記へ戻せること");
+    }
+
+    [Fact(DisplayName = "ローカルパスの往復: Extendedで拡張表記にしてもStripExtendedPrefixで元に戻る")]
+    public void ローカルパスは拡張表記との間を往復できる()
+    {
+        var longLocal = @"C:\" + new string('a', LongPath.WindowsMaxPathLength);
+
+        var extended = LongPath.ExtendedCore(longLocal, isWindows: true, isNetworkDrive: _ => false);
+        extended.Should().Be(@"\\?\" + longLocal);
+
+        LongPath.StripExtendedPrefix(extended).Should().Be(longLocal);
+    }
+
+    [Fact(DisplayName = "StripExtendedPrefix: 拡張表記でない通常のパスはそのまま返る（冪等）")]
+    public void 拡張表記でないパスはそのまま()
+    {
+        LongPath.StripExtendedPrefix(@"\\server\share\project").Should().Be(@"\\server\share\project");
+        LongPath.StripExtendedPrefix(@"C:\Users\name\project").Should().Be(@"C:\Users\name\project");
+        LongPath.StripExtendedPrefix("").Should().Be("");
+    }
+
+    /// <summary>
+    /// 実機不具合（v1.0.6）の再現テスト。
+    /// <see cref="LongPath.ExtendedCore"/>がUNCパス（<c>\\gfs\inaden\...\inaCalendar</c>）を
+    /// <c>\\?\UNC\gfs\inaden\...\inaCalendar</c>へ変換するところまでは正しい（E210メッセージの
+    /// 現地調査で確認済み）。しかし報告された絶対パスは、この拡張表記から先頭の<c>\\?\</c>
+    /// （4文字）だけが失われ、<c>UNC\gfs\inaden\...\inaCalendar</c>という一見相対パスに見える
+    /// 文字列になっていた。<see cref="LongPath.RecoverProjectRoot"/>が導入される前は、この文字列を
+    /// そのまま<c>Path.GetFullPath</c>へ渡すとカレントディレクトリ（exeフォルダ）基準の
+    /// 絶対パスへ誤って解決されてしまう（このプロジェクト配下の全ブロックが失敗した根本原因）。
+    /// 本テストはRecoverProjectRootが、この壊れた形を正しいUNC表記へ復元することを保証する。
+    /// </summary>
+    [Fact(DisplayName = "実機不具合の再現: \\\\?\\UNC\\の先頭\\\\?\\が失われた文字列をUNC表記へ復元する")]
+    public void 化けたUNC表記のRootは元のUNC表記へ復元される()
+    {
+        // 実機で報告された実際のパスはMAX_PATH未満だが、ExtendedCoreの\\?\UNC\変換自体は
+        // 長さに関わらず同じ規則（\\?\UNC\ + absolutePath[2..]）で行われるため、ここでは
+        // MAX_PATH以上になるよう末尾を延ばして変換条件（1.0.6で実際に変換された条件と同じ）を
+        // 満たしたうえで検証する（変換規則そのものはLongPathTests内の他のテストで別途検証済み）。
+        var original = @"\\gfs\inaden\営業部\02-国営課\18_各担当ファイル\佐々木\7.ツール\10. ツール拡張機能\inaCalendar"
+            + new string('a', LongPath.WindowsMaxPathLength);
+        var extended = LongPath.ExtendedCore(original, isWindows: true, isNetworkDrive: _ => false);
+        extended.Should().StartWith(@"\\?\UNC\");
+
+        // 実際に報告された壊れた文字列: 拡張表記の先頭4文字（\\?\）だけが失われた形。
+        var corrupted = extended[4..];
+        corrupted.Should().Be("UNC\\" + original[2..], "再現条件: 先頭の\\\\?\\が失われるとUNC\\...という相対パスに見える文字列になる");
+        corrupted.Should().NotStartWith(@"\", "再現条件: 化けた文字列は絶対パスに見えない（先頭に区切り文字が無い）");
+
+        var recovered = LongPath.RecoverProjectRoot(corrupted);
+
+        recovered.Should().Be(original, "化けたRootは元のUNC表記へ復元されるべき");
+    }
+
+    [Fact(DisplayName = "RecoverProjectRoot: 拡張表記のまま渡されても通常のUNC表記へ戻す")]
+    public void 拡張表記のRootは通常のUNC表記へ戻る()
+    {
+        var extended = @"\\?\UNC\gfs\inaden\project";
+
+        LongPath.RecoverProjectRoot(extended).Should().Be(@"\\gfs\inaden\project");
+    }
+
+    [Fact(DisplayName = "RecoverProjectRoot: 拡張表記のまま渡されても通常のローカル表記へ戻す")]
+    public void 拡張表記のローカルRootは通常表記へ戻る()
+    {
+        var extended = @"\\?\C:\Users\name\project";
+
+        LongPath.RecoverProjectRoot(extended).Should().Be(@"C:\Users\name\project");
+    }
+
+    [Fact(DisplayName = "RecoverProjectRoot: 既に正しい絶対パスは一切変更しない（冪等・誤爆防止）")]
+    public void 正常なRootは変更されない()
+    {
+        LongPath.RecoverProjectRoot(@"\\server\share\project").Should().Be(@"\\server\share\project");
+        LongPath.RecoverProjectRoot(@"C:\Users\name\project").Should().Be(@"C:\Users\name\project");
+        LongPath.RecoverProjectRoot("/home/user/project").Should().Be("/home/user/project");
+
+        // "UNC"のような名前を含んでいても、絶対パスとして正しい形なら誤って書き換えない。
+        LongPath.RecoverProjectRoot(@"C:\Projects\UNC\share").Should().Be(@"C:\Projects\UNC\share");
+    }
+
+    [Fact(DisplayName = "RecoverProjectRoot: null・空文字はそのまま返る")]
+    public void RecoverProjectRootはnullと空文字を素通しする()
+    {
+        LongPath.RecoverProjectRoot("").Should().Be("");
+        LongPath.RecoverProjectRoot(null!).Should().BeNull();
+    }
 }

@@ -291,4 +291,78 @@ public class PathGuardTests
         result.IsSuccess.Should().BeFalse();
         result.Errors.Single().Code.Should().Be(ErrorCode.E201);
     }
+
+    // ------------------------------------------------------------------
+    // v1.0.7実機不具合対応: ネットワーク上（UNC）のプロジェクトで取り込みが必ず失敗する不具合。
+    // 詳しい経緯はLongPath.cs・ProjectStore.csのコメント、変更履歴1.0.7を参照。
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 実機不具合の再現＋修正確認。修正前は、拡張UNC表記(<c>\\?\UNC\server\share\...</c>)の
+    /// 先頭4文字(<c>\\?\</c>)だけが失われた<c>UNC\server\share\...</c>という文字列がRootとして
+    /// 渡ると、<see cref="PathGuard"/>のコンストラクタが<c>Path.GetFullPath</c>で
+    /// カレントディレクトリ（実機ではexeフォルダ）基準の絶対パスへ誤って解決してしまい、
+    /// 実在するはずのファイルがすべて「見つからない」（E210）扱いになっていた。
+    /// 本テストは、化けたRootを渡した場合と、あらかじめ正しく復元したRootを渡した場合とで、
+    /// <see cref="PathGuard.Resolve"/>の結果が完全に一致することを確認する（＝PathGuardが
+    /// 内部でコンストラクタ時に自動復元していることの証明）。この比較はOSのパス解決の
+    /// 実装差（Windows/Linuxで絶対パスの判定基準が異なる）に依存しないため、Linux上の
+    /// テスト実行環境でも確実に検証できる。
+    /// </summary>
+    [Fact(DisplayName = "実機不具合の再現と修正確認: 化けたUNCルート(\"UNC\\\\server\\\\share\\\\proj\")は復元後のルートと同じ結果に解決される")]
+    public void 化けたUNCルートは復元後のルートと同じ結果に解決される()
+    {
+        var corruptedRoot = @"UNC\server\share\project"; // \\?\UNC\server\share\project から \\?\ が失われた形
+        var recoveredRoot = LongPath.RecoverProjectRoot(corruptedRoot);
+        recoveredRoot.Should().Be(@"\\server\share\project", "先頭に\\\\を補って通常のUNC表記へ戻るべき");
+
+        var guardFromCorrupted = new PathGuard(corruptedRoot, PathGuardOptions.Default);
+        var guardFromRecovered = new PathGuard(recoveredRoot, PathGuardOptions.Default);
+
+        var resolvedFromCorrupted = guardFromCorrupted.Resolve("src/app.py");
+        var resolvedFromRecovered = guardFromRecovered.Resolve("src/app.py");
+
+        resolvedFromCorrupted.IsSuccess.Should().BeTrue();
+        resolvedFromCorrupted.Value.Should().Be(
+            resolvedFromRecovered.Value,
+            "PathGuardは化けたUNC表記のRootを渡されても、あらかじめ正しく復元した場合とまったく同じ絶対パスへ解決するべき" +
+            "（修正前はここが一致せず、化けたRoot側だけがカレントディレクトリ基準の誤ったパスになっていた）");
+    }
+
+    /// <summary>
+    /// 上記テストのWindows実機向け版。Windows上では<c>\\server\share\...</c>が正しく絶対パスと
+    /// 認識される（Linux上のテスト実行環境ではバックスラッシュ区切りのUNC表記はOSの
+    /// パス解決仕様上そもそも絶対パスと認識されないため、この検証はWindows上でのみ意味を持つ）。
+    /// タスク要件「PathGuardにUNCのプロジェクトルートを渡したときにResolveが正しい絶対パスを
+    /// 返すこと」を、実際にWindows実機で実行した場合に検証する。
+    /// </summary>
+    [Fact(DisplayName = "(Windows専用) UNCのプロジェクトルートを渡すとResolveは正しいUNC絶対パスを返す")]
+    public void UNCルートのResolveは正しい絶対パスを返す_Windows()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var guard = new PathGuard(@"\\server\share\project", PathGuardOptions.Default);
+
+        var result = guard.Resolve("src/app.py");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(@"\\server\share\project\src\app.py");
+    }
+
+    /// <summary>同上のWindows専用版: 化けたUNCルートも、Windows実機では正しいUNC絶対パスへ解決される。</summary>
+    [Fact(DisplayName = "(Windows専用) 化けたUNCルートはカレントディレクトリ基準ではなく正しいUNC絶対パスへ解決される")]
+    public void 化けたUNCルートは正しい絶対パスへ解決される_Windows()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var guard = new PathGuard(@"UNC\gfs\inaden\project", PathGuardOptions.Default);
+
+        var result = guard.Resolve("extension/calendar.html");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(@"\\gfs\inaden\project\extension\calendar.html");
+        result.Value.Should().NotContain(
+            Directory.GetCurrentDirectory(),
+            "修正前はカレントディレクトリ（実機ではexeフォルダ）が誤って混入していた（実機不具合の症状そのもの）");
+    }
 }
