@@ -108,6 +108,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _editorFolding = true;
     private bool _editorCompletion = true; private bool _editorGitGutter = true;
     private string _selectedIndentGuideMode = "foldable";
+    private string _selectedLineSpacing = "normal";
     private bool _editorColorPreviewInCode = true;
 
     // 検討書「フォント設定」。""は「未指定＝アプリ既定のフォントを使う」を表す
@@ -257,6 +258,18 @@ public sealed partial class SettingsViewModel : ObservableObject
         new ChoiceOption("表示しない", "none"),
         new ChoiceOption("折りたたみできる範囲のみ", "foldable"),
         new ChoiceOption("すべてのインデント", "all"),
+    };
+
+    /// <summary>
+    /// 機能改善「行間を設定できるようにする」の4段階。既定は「標準」。
+    /// 値のidは<see cref="Graft.Editor.LineSpacingModeParser"/>と揃える（対応表を二重に持たない）。
+    /// </summary>
+    public IReadOnlyList<ChoiceOption> LineSpacingOptions { get; } = new[]
+    {
+        new ChoiceOption("せまい", "narrow"),
+        new ChoiceOption("標準", "normal"),
+        new ChoiceOption("広め", "wide"),
+        new ChoiceOption("さらに広い", "wider"),
     };
 
     public IReadOnlyList<ChoiceOption> ApplyModeOptions { get; } = new[]
@@ -418,6 +431,20 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         get => _selectedIndentGuideMode;
         set => SetEditableProperty(ref _selectedIndentGuideMode, value);
+    }
+
+    /// <summary>
+    /// 機能改善「行間を設定できるようにする」。<see cref="SelectedIndentGuideMode"/>と全く同じ
+    /// 理由・同じ経路（ComboBoxのため選択が変わった瞬間にsetterへ届き、実際にエディタへ即時
+    /// 反映するのは<c>EditorPaneViewModel.LineSpacing</c>を経由した<c>EditorPane.
+    /// ApplyLineSpacingOption</c>の呼び出し）。行間は縦線・折りたたみマーカー・行番号・検索
+    /// ハイライトの位置計算のもとになる値のため、こちらもタブを切り替えなくても即時反映が
+    /// 必須（EditorPaneViewModel.LineSpacingのXMLコメント参照）。
+    /// </summary>
+    public string SelectedLineSpacing
+    {
+        get => _selectedLineSpacing;
+        set => SetEditableProperty(ref _selectedLineSpacing, value);
     }
 
     /// <summary>
@@ -857,6 +884,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         EditorCompletion = e.Completion; EditorGitGutter = e.GitGutter;
         EditorColorPreviewInCode = e.ColorPreviewInCode;
         SelectedIndentGuideMode = e.IndentGuideMode;
+        SelectedLineSpacing = e.LineSpacing;
         SelectedFontFamily = e.FontFamily ?? string.Empty;
         SelectedMonospaceFontFamily = e.MonospaceFontFamily ?? string.Empty;
     }
@@ -912,6 +940,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             Completion = _editorCompletion, GitGutter = _editorGitGutter,
             ColorPreviewInCode = _editorColorPreviewInCode,
             IndentGuideMode = _selectedIndentGuideMode,
+            LineSpacing = _selectedLineSpacing,
             FontFamily = string.IsNullOrWhiteSpace(_selectedFontFamily) ? null : _selectedFontFamily,
             MonospaceFontFamily = string.IsNullOrWhiteSpace(_selectedMonospaceFontFamily) ? null : _selectedMonospaceFontFamily,
         },

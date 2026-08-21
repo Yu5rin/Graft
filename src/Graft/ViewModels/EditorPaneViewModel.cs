@@ -153,6 +153,16 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     /// </summary>
     public string IndentGuideMode => _settings.Editor.IndentGuideMode;
 
+    /// <summary>
+    /// 機能改善「行間を設定できるようにする」の表示モード（"narrow"/"normal"/"wide"/"wider"）。
+    /// <see cref="IndentGuideMode"/>と全く同じ理由で即時反映を保証する必要がある
+    /// （<see cref="UpdateSettings"/>が明示的に<see cref="ObservableObject.OnPropertyChanged(string)"/>
+    /// を呼ぶ。行間は縦線・折りたたみマーカー・行番号・検索ハイライトの位置計算のもとになる値
+    /// であり、これらすべてが設定画面での変更に開いているタブを切り替えなくても追従する
+    /// 必要があるため）。
+    /// </summary>
+    public string LineSpacing => _settings.Editor.LineSpacing;
+
     /// <summary>UIフレームワーク固有の機能。検索オーバーレイなどViewから参照する。</summary>
     public Graft.Platform.IUiServices Ui { get; }
 
@@ -190,6 +200,7 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     public void UpdateSettings(Settings settings)
     {
         var previousIndentGuideMode = _settings.Editor.IndentGuideMode;
+        var previousLineSpacing = _settings.Editor.LineSpacing;
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         FontSize = _settings.Editor.FontSize;
 
@@ -198,6 +209,13 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (!string.Equals(previousIndentGuideMode, _settings.Editor.IndentGuideMode, StringComparison.Ordinal))
         {
             OnPropertyChanged(nameof(IndentGuideMode));
+        }
+
+        // 機能改善「行間を設定できるようにする」。IndentGuideModeと同じ理由で即時反映する
+        // （LineSpacingのXMLコメント参照）。
+        if (!string.Equals(previousLineSpacing, _settings.Editor.LineSpacing, StringComparison.Ordinal))
+        {
+            OnPropertyChanged(nameof(LineSpacing));
         }
     }
 

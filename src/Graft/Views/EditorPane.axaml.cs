@@ -186,6 +186,12 @@ public partial class EditorPane : UserControl
             // （EditorPaneViewModel.IndentGuideModeのXMLコメント参照）。
             ApplyIndentGuideModeOption();
         }
+        else if (e.PropertyName == nameof(EditorPaneViewModel.LineSpacing))
+        {
+            // 機能改善「行間を設定できるようにする」。IndentGuideModeと同じ理由で即時反映する
+            // （EditorPaneViewModel.LineSpacingのXMLコメント参照）。
+            ApplyLineSpacingOption();
+        }
     }
 
     /// <summary>アクティブタブの切替。Documentの差し替え・言語別ハイライトの再接続・
@@ -225,6 +231,7 @@ public partial class EditorPane : UserControl
         ApplyWhitespaceOption();
         ApplyWordWrapOption();
         ApplyIndentGuideModeOption();
+        ApplyLineSpacingOption();
         ApplyIndentOptions(tab);
 
         // 課題3（再設計）: 極端に長い行（1行20,000文字超）を含んでいても、無効化するのは
@@ -413,6 +420,19 @@ public partial class EditorPane : UserControl
     /// </summary>
     private void ApplyIndentGuideModeOption()
         => _indentGuide.SetMode(IndentGuideModeParser.Parse(_viewModel?.IndentGuideMode));
+
+    /// <summary>
+    /// 機能改善「行間を設定できるようにする」。<c>TextEditorOptions.LineHeightFactor</c>
+    /// （AvaloniaEdit 11.4.1以降）へ直接反映する。この1行だけで行の高さが変わり、
+    /// 行番号・折りたたみマーカー・インデントガイド・検索ハイライトはいずれもAvaloniaEdit
+    /// 自身が提供する行の座標API（<c>VisualLine.Height</c>／<c>BackgroundGeometryBuilder</c>等）
+    /// 経由で位置を求めているため、追従のための追加コードは不要（<see cref="LineSpacingMode"/>の
+    /// クラスコメント参照）。キャレット位置・クリック位置の対応も同じAPIが担うため、
+    /// この値を変えるだけで両方とも新しい行の高さに合わせて動く（実機のスクリーンショットで
+    /// 確認済み。本メソッド自体はテストで動作しないPART不要のため単純な代入のみ）。
+    /// </summary>
+    private void ApplyLineSpacingOption()
+        => Editor.Options.LineHeightFactor = LineSpacingModeParser.ToLineHeightFactor(_viewModel?.LineSpacing);
 
     /// <summary>
     /// 課題3（再設計）: 折り返し表示の反映。以前は極端に長い行を含むファイルでは利用者の

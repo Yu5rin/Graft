@@ -186,6 +186,15 @@ public sealed record EditorSettings
     /// 未知の値・このキー自体が無い古いsettings.jsonは既定の"foldable"として扱う。
     /// </summary>
     public string IndentGuideMode { get; init; } = "foldable";
+
+    /// <summary>
+    /// 機能改善「行間を設定できるようにする」。行間（行の高さ）の広さ。
+    /// "narrow"（せまい） / "normal"（標準、既定） / "wide"（広め） / "wider"（さらに広い）の
+    /// いずれか。<see cref="Graft.Editor.LineSpacingModeParser"/>参照。既定の"normal"は
+    /// AvaloniaEdit更新前の見た目にほぼ一致するよう較正済み（同クラスのコメント参照）。
+    /// 未知の値・このキー自体が無い古いsettings.jsonは既定の"normal"として扱う。
+    /// </summary>
+    public string LineSpacing { get; init; } = "normal";
 }
 
 /// <summary>クリップボード監視設定（9章）。</summary>
