@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
+using Graft.Infra;
 
 namespace Graft.Platform.Linux;
 
@@ -183,9 +184,13 @@ public sealed partial class X11ClipboardWriter : IDisposable
             {
                 ProcessAvailableEvents();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // 1件のイベント処理で予期しない例外が出ても、ループ自体は継続する。
+                // v1.0.7: 何が・何回起きたのかを後から追えるよう、種類ごとの発生回数だけを
+                // 数える（詳細は出さない。このループは毎秒何度も回りうる高頻度経路のため）。
+                // 終了時のshutdownログに集計される（SuppressedExceptionTracker参照）。
+                SuppressedExceptionTracker.Shared.Record("clipboard-x11-write-loop", ex);
             }
 
             if (!WaitForActivity()) break; // 接続エラー（Dispose時の強制closeを含む）。

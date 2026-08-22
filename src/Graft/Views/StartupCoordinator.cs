@@ -195,6 +195,13 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         var settingsResult = await _settingsStore.LoadAsync().ConfigureAwait(true);
         _settings = settingsResult.Value;
 
+        // v1.0.7実機不具合対応: 起動時の環境要約をログへ残す（EnvironmentSummaryLoggerの
+        // クラスコメント参照）。この時点ではまだプロジェクトが自動選択される前
+        // （ProjectPane.LoadAsyncはMainViewModel.InitializeAsync、ShellWindow.OnLoadedより後）
+        // のため、プロジェクトは「未選択」として記録される。実際に選ばれたプロジェクトの
+        // 要約は、選択のたびにShellViewModel.OnProjectSelectedから別途記録する。
+        EnvironmentSummaryLogger.Log(_logger, _appPaths, _exeDirectory, _settings, projectRoot: null);
+
         // 9.3: 保存しておいたテーマを反映する。App起動時点では設定をまだ読めていないため、
         // ここで当て直さないと、選んだテーマが再起動のたびにシステム追従へ戻ってしまう。
         Themes.ThemeManager.SetTheme(Themes.ThemeManager.ParseTheme(_settings.Theme));

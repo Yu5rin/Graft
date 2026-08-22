@@ -113,10 +113,15 @@ internal static class WindowsTitleBarTheme
 
     private static void LogFailureOnce(Logger? logger, Exception ex)
     {
+        // v1.0.7: 詳細ログとは別に、発生そのものはプロセス全体での延べ回数として毎回数える
+        // （SuppressedExceptionTrackerのクラスコメント参照。1回だけなのか毎回のテーマ切替で
+        // 起き続けているのかを終了時のshutdownログから判別できるようにする）。
+        SuppressedExceptionTracker.Shared.Record("titlebar-theme", ex);
+
         if (_dwmFailureLogged) return;
         _dwmFailureLogged = true;
         // 握りつぶすが黙って捨てはしない。毎回のテーマ切替でログが溢れないよう1回だけ記録する
         // （依頼書4章）。
-        logger?.Error("titlebar-theme", $"DWMでのタイトルバー配色適用に失敗しました（以後は再記録しません）: {ex}");
+        logger?.Error("titlebar-theme", $"DWMでのタイトルバー配色適用に失敗しました（以後は再記録しません。発生回数は終了時のshutdownログに集計されます）: {ex}");
     }
 }

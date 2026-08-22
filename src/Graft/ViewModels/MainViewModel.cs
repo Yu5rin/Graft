@@ -215,6 +215,15 @@ public sealed partial class MainViewModel : ObservableObject
     public event EventHandler? HistoryDiffChanged;
 
     /// <summary>起動直後の初期化。設定・レイアウト・プロジェクト一覧を読み込む。</summary>
+    /// <summary>
+    /// v1.0.7実機不具合対応（環境要約ログ）: 現在有効な設定への読み取り専用アクセス。
+    /// <see cref="_settings"/>は適用処理中のみ反映を保留する以外は常に最新（<see cref="UpdateSettings"/>
+    /// 参照）であり、<see cref="ShellViewModel"/>側の環境要約ログ（プロジェクト切替時、
+    /// <see cref="Infra.EnvironmentSummaryLogger"/>参照）が「取り込み結果を左右する設定」の
+    /// 現在値を読むために公開する。
+    /// </summary>
+    public Settings CurrentSettings => _settings;
+
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         var settingsResult = await _settingsStore.LoadAsync(ct).ConfigureAwait(true);
