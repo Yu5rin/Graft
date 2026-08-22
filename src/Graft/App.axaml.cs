@@ -393,12 +393,18 @@ public partial class App : Application
         _desktop?.TryShutdown();
     }
 
-    /// <summary>UIスレッド外（バックグラウンドタスク・ファイナライザ等）の想定外の例外。記録のみ行う。</summary>
+    /// <summary>UIスレッド外（バックグラウンドタスク・ファイナライザ等）の想定外の例外。記録のみ行う。
+    /// この経路はAppDomain.UnhandledExceptionの仕様上プロセス終了そのものは止められない
+    /// （通知のみ）ため、最後に残せる情報をできるだけ残す。</summary>
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
     {
         if (e.ExceptionObject is Exception ex)
         {
             _coordinator?.Logger?.Error("unhandled", ex.ToString());
+            // 課題#82: この経路で握りつぶしているわけではない（プロセスは実際に終了する）が、
+            // 「起動から終了までに何が何回起きたか」をshutdownログの集計対象と揃えておくため、
+            // ここでも記録しておく（次回の同様の調査でログの見落としを減らす目的）。
+            SuppressedExceptionTracker.Shared.Record("app-domain-unhandled", ex);
         }
     }
 
@@ -407,6 +413,12 @@ public partial class App : Application
     /// 必ず記録したうえで、AvaloniaEdit由来と判定できる場合に限り<c>e.Handled = true</c>にして
     /// アプリを継続させる（<see cref="AvaloniaEditExceptionGuard"/>のコメント参照。それ以外は
     /// 従来どおり<see cref="OnUnhandledException"/>経由でプロセスが終了する）。
+    ///
+    /// 課題#82: 実機ログに<c>Invalid document</c>が複数回残っていた件の調査で、
+    /// <see cref="Editor.FoldingSupport.PrepareForDocumentSwap"/>により発生源そのものを塞いだが、
+    /// 万一別経路で再発した場合に「何回起きたか」「TextViewの文書とFoldingManagerの文書が
+    /// 実際に食い違っていたか」を次の調査ですぐ突き止められるよう、握りつぶした回数の集計
+    /// （<see cref="SuppressedExceptionTracker"/>、PR #45）にもこの経路を乗せる。
     /// </summary>
     private void OnDispatcherUnhandledException(object? sender, Avalonia.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
@@ -414,14 +426,30 @@ public partial class App : Application
 
         if (AvaloniaEditExceptionGuard.ShouldContinue(e.Exception))
         {
+            SuppressedExceptionTracker.Shared.Record("dispatcher-unhandled-avaloniaedit", e.Exception);
             e.Handled = true;
         }
     }
 
-    /// <summary>await されなかった Task 内の想定外の例外。記録のうえ観測済みとしてプロセス終了を防ぐ。</summary>
+    /// <summary>
+    /// await されなかった Task 内の想定外の例外。記録のうえ観測済みとしてプロセス終了を防ぐ。
+    /// 課題#82: 実機ログの「A Task's exception(s) were not observed」はこの経路で記録された
+    /// ものと一致する形（ファイナライザスレッドからの再送出）。<see cref="Editor.
+    /// DocumentSession.OpenAsync"/>・<c>SaveAsync</c>・<c>ReloadAsync</c>が使う
+    /// <c>Dispatcher.UIThread.InvokeAsync(Func&lt;T&gt;)</c>系（<see cref="Avalonia.Threading.
+    /// Dispatcher"/>の<c>DispatcherOperation&lt;T&gt;.InvokeCore</c>は例外をTaskへ積むだけで
+    /// <c>Dispatcher.UIThread.UnhandledException</c>を発火しない。<c>DispatcherOperation</c>
+    /// （非ジェネリック版、Postで使われる）との実装差はILSpy逆コンパイルで確認済み）は、
+    /// いずれも呼び出し側がawaitして観測しているため未観測化しない設計になっている
+    /// （<see cref="Editor.EditorTabManager.OpenAsync"/>のConfigureAwait(true)の
+    /// コメント参照）。この経路が今後実際に発火した場合は、上記のいずれかでawait漏れが
+    /// 新たに生じたことを意味するため、集計（<see cref="SuppressedExceptionTracker"/>）へ
+    /// 乗せて次回shutdownログで気付けるようにする。
+    /// </summary>
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
         _coordinator?.Logger?.Error("unhandled", e.Exception.ToString());
+        SuppressedExceptionTracker.Shared.Record("unobserved-task", e.Exception);
         e.SetObserved();
     }
 

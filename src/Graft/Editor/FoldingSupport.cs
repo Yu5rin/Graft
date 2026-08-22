@@ -91,6 +91,57 @@ namespace Graft.Editor;
 ///     （<see cref="FoldingManager.AllFoldings"/>・<see cref="FoldingManager.
 ///     GetFoldingsContaining"/>・<see cref="FoldingSection.IsFolded"/>）だけで自前実装した。
 ///
+/// 【課題#82: 上の「対処」だけでは閉じ切れていなかった食い違いの窓】
+/// 不具合1の再発（実機ログに<c>Invalid document</c>が3回、うち1回は
+/// <c>A Task's exception(s) were not observed</c>としてファイナライザスレッドから記録）を受けて
+/// 再調査した結果、上の「対処」（<see cref="TextEditor.DocumentChanged"/>を購読して同期的に
+/// uninstallする）には見落としがあったと判明した。<see cref="TextEditor.DocumentChanged"/>は
+/// 「一番最後に」発火するイベントであり、それより手前で<b>TextView.Documentは既に新しい文書へ
+/// 切り替わっている</b>。AvaloniaEdit 11.1.0のソース（ILSpy逆コンパイルおよび
+/// https://github.com/AvaloniaUI/AvaloniaEdit の11.1.0タグで実際に確認済み）を辿ると:
+/// <code>
+/// TextEditor.OnDocumentChanged(old, new)
+///   → TextArea.Document = new;              // ← ①ここでTextArea.OnDocumentChangedへ
+///        TextArea.OnDocumentChanged(old, new)
+///          → TextView.Document = new;        // ← ②ここでTextView.Documentが既に新しい文書になる
+///               （TextView.InvalidateMeasure()も呼ばれ、Renderジョブがこの時点でキューに積まれる）
+///          → Caret.Location = new TextLocation(1, 1);  // ← ③キャレット位置のリセット
+///               → Caret.RaisePositionChanged();          // TextViewPositionが変わっていれば同期発火
+///                    → TextArea.CaretPositionChanged（TextArea購読）
+///                         → ScrollToLine → BringIntoView（ルーテッドイベント。実機ではIME通知・
+///                           フォーカス変更等に伴うWin32メッセージポンプの入れ子呼び出しが
+///                           ここに割り込みうる）
+///          → TextArea.DocumentChanged?.Invoke(...)  // TextAreaのDocumentChanged（本クラスは未購読）
+///   → TextEditor.DocumentChanged?.Invoke(...);      // ← ④本クラスのOnEditorDocumentChangedはここで初めて発火
+/// </code>
+/// つまり①〜④の間（TextView.Documentは新しいが、本クラスがまだ気付いていない区間）が
+/// 実在し、③のCaret位置リセット（すべての文書差し替えで必ず起きる。タブ切替時は元のタブでの
+/// カーソル行が(1,1)でない限り必ずPositionChangedが同期発火する）の最中に、②で既にキューへ
+/// 積まれた保留中のRenderジョブ（<c>MediaContext.BeginInvokeOnRender</c>経由）を処理してしまう
+/// ような再入（Windows実機でのIME・フォーカス変更・アクセシビリティ通知等に伴うネイティブ
+/// メッセージポンプの入れ子呼び出しが典型例）が起きると、「TextView.Documentは新しい文書、
+/// FoldingManagerは古い文書のまま」という食い違った状態でレイアウトパスが走り、
+/// <see cref="FoldingElementGenerator.StartGeneration"/>が<c>Invalid document</c>を投げる。
+/// <para>
+/// この機序はheadlessテストでも実際に再現できる（tests/Graft.UiTests/EditorTests.csの
+/// 「文書代入中に再入したディスパッチャジョブがInvalid documentを引き起こす」参照）。
+/// テストでは<see cref="AvaloniaEdit.Editing.Caret.PositionChanged"/>のハンドラの中で
+/// <c>Dispatcher.UIThread.RunJobs()</c>を呼び、②で積まれたRenderジョブを即座に処理させることで
+/// 実機のネイティブメッセージポンプ再入と同じ効果をプラットフォーム非依存に模擬している。
+/// 修正前のコード（本クラスのコンストラクタで<see cref="TextEditor.DocumentChanged"/>のみを
+/// 購読する版）では実際にこのテストが<c>Invalid document</c>で失敗することを確認済み。
+/// </para>
+/// <para>
+/// 【対処2】 呼び出し側（<see cref="Views.EditorPane"/>）が<c>Editor.Document</c>へ代入する
+/// "前"に、<see cref="PrepareForDocumentSwap"/>を呼んで古い<see cref="FoldingManager"/>を
+/// 先回りしてuninstallする。これにより①より前の時点で本クラスの状態は「未取り付け」になり、
+/// ②〜④のどの瞬間に再入が起きても、<see cref="FoldingElementGenerator"/>の
+/// <c>FoldingManager</c>フィールドは既にnullで<see cref="FoldingElementGenerator.StartGeneration"/>
+/// が即return（例外を投げるコードパス自体を通らない）。<see cref="TextEditor.DocumentChanged"/>
+/// を購読するコンストラクタの対処はそのまま残す（<see cref="PrepareForDocumentSwap"/>の
+/// 呼び出しを呼び出し側が万一忘れた場合でも、①〜④の外側では引き続き機能する二重の防御）。
+/// </para>
+///
 /// 【実機での指摘（L字線を消す）】 折りたたみマージンの＋/－マーカーから下へ伸びる縦線と
 /// 終端の横線（合わせてL字に見える線）が不要との指摘があった。<c>FoldingManager.Install</c>が
 /// 作る標準の<see cref="FoldingMargin"/>はこの線とマーカー枠の両方を同じブラシで描くため
@@ -166,6 +217,22 @@ public sealed class FoldingSupport : IDisposable
     {
         if (!ReferenceEquals(_document, _editor.Document)) DetachDocument();
     }
+
+    /// <summary>
+    /// 課題#82: 呼び出し側（<see cref="Views.EditorPane"/>）が<c>Editor.Document</c>へ代入する
+    /// "直前"に必ず呼ぶ。クラスコメントの【課題#82】節のとおり、<see cref="TextEditor.
+    /// DocumentChanged"/>（本クラスがコンストラクタで購読している同期イベント）は
+    /// <c>Editor.Document</c>代入の中で一番最後に発火するため、それより前段（<c>TextView.
+    /// Document</c>の切り替え・Caretのリセット）で何らかの理由により描画パスが再入すると、
+    /// 古い<see cref="FoldingManager"/>がまだ生きたままレイアウトパスが走ってしまう。
+    /// 本メソッドを代入の前に呼んでおけば、その時点で本クラスは「未取り付け」（<see
+    /// cref="Manager"/>がnull）になるため、代入中のどの瞬間に再入が起きても
+    /// <see cref="FoldingElementGenerator.StartGeneration"/>は<c>_foldingManager == null</c>で
+    /// 即returnし、<c>Invalid document</c>を投げる余地そのものが無くなる。
+    /// 呼び忘れても<see cref="OnEditorDocumentChanged"/>が引き続き安全網として働くが、
+    /// それは【課題#82】節の①〜④区間の外でのみ有効なため、必ず呼ぶこと。
+    /// </summary>
+    public void PrepareForDocumentSwap() => DetachDocument();
 
     /// <summary>15章 <c>editor.folding</c> 設定の反映。無効化するとインストール済みの
     /// <see cref="FoldingManager"/>を解除する。</summary>

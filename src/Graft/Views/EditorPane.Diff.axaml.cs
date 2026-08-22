@@ -17,6 +17,9 @@ public partial class EditorPane
     /// <summary>タブが無い状態（9.2）。エディタ・DiffHost・HistoryDiffHostのいずれも空にする。</summary>
     private void ApplyEmptyTab()
     {
+        // 課題#82: ApplyDocumentTabと同じ理由でDocument代入の前に外す
+        // （FoldingSupport.PrepareForDocumentSwapのクラスコメント【課題#82】節参照）。
+        _folding.PrepareForDocumentSwap();
         Editor.Document = new TextDocument();
         Editor.IsEnabled = false;
         Editor.IsVisible = true;

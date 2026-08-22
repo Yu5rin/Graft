@@ -221,6 +221,15 @@ public partial class EditorPane : UserControl
         HistoryDiffHost.DataContext = null;
 
         Editor.IsEnabled = true;
+        // 課題#82: Editor.Documentを差し替える前に、古い文書に紐づいたFoldingManagerを
+        // 先回りしてuninstallする（FoldingSupport.PrepareForDocumentSwapのクラスコメント
+        // 【課題#82】節参照）。TextEditor.DocumentChanged（次のAttach呼び出しの前提となる
+        // 同期イベント）は代入の中で一番最後に発火するため、それより手前でのAvaloniaEdit内部の
+        // 再入（Caretリセットに伴うPositionChanged経由。実機ではWindowsのIME・フォーカス変更の
+        // メッセージポンプ入れ子呼び出しが典型例）に対しては無力だった。先に外しておけば
+        // その再入区間のどの瞬間でもFoldingManagerが存在しないため、Invalid documentの
+        // 温床そのものが無くなる。
+        _folding.PrepareForDocumentSwap();
         Editor.Document = tab.Session.Document;
         ApplyWhitespaceOption();
         ApplyWordWrapOption();
