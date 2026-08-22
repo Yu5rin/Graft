@@ -76,13 +76,29 @@ public sealed partial class ApplyEngine
 
         if (ctx.Settings.ApplyMode != "partial")
         {
-            // 実機不具合対応（根本原因）: ここが p.IsSelected を見ていなかったため、利用者が
-            // 失敗ブロックのチェックを外して成功ブロックだけを選んでも、選んでいない失敗ブロックが
-            // fatalに数えられ全体がエラーになっていた。「全件適用（All or Nothing）」の本来の意味は
-            // 「選んだブロックが全部適用できるなら適用、1つでもダメなら中止」であり、
-            // 「選んでいないブロックの失敗でも中止」ではない。
-            var fatal = plan.Plans.Where(p => p.IsSelected && !p.CanApply).SelectMany(p => p.Issues).ToList();
-            if (fatal.Count > 0) return GraftResult<RevisionManifest>.Fail(fatal);
+            // 「全件適用（All or Nothing）」: 選択状態を問わず、パッチ全体に1件でも適用できない
+            // ブロックがあれば何も書き込まず中止する（取扱説明書6.4のとおり）。DryRunPlannerが
+            // 失敗ブロックを自動的にIsSelected=falseへ倒し、UI側でも再選択できない
+            // （BlockItemViewModel.CanToggle）ため、ここでIsSelectedも条件に加えてしまうと
+            // 「選択されている失敗ブロック」は事実上存在しなくなり、allOrNothingが名前だけ残って
+            // 何も中止しないモードになってしまう。「1件でも当てはまらなければ何も書き込まない」
+            // という設定どおりの安全側の既定を守るのが目的のため、あえてIsSelectedは見ない。
+            var fatal = plan.Plans.Where(p => !p.CanApply).SelectMany(p => p.Issues).ToList();
+            if (fatal.Count > 0)
+            {
+                // 実機不具合対応: 以前はここでE101等の個別ブロックのエラーだけがそのまま
+                // 利用者へ表示され、「全件適用の設定のせいで中止された」ことが伝わらなかった
+                // （個々のブロックのエラーだけを見ると、そのブロック単体の問題に見えてしまう）。
+                // E304を先頭に加え、設定が原因であることと対処法（部分適用可への切り替え）を
+                // 明示する。個々のブロックのエラー（E101等）はfatalに含めたまま従来どおり併記する。
+                var failedBlockCount = plan.Plans.Count(p => !p.CanApply);
+                var blockDetail = string.Join(" / ", fatal.Take(3).Select(i => i.ToDisplayText()));
+                if (fatal.Count > 3) blockDetail += $" ほか{fatal.Count - 3}件";
+                var modeNotice = GraftIssue.Of(ErrorCode.E304,
+                    detail: $"「全件適用」の設定のため、適用できない変更が{failedBlockCount}件あった時点で中止しました。" +
+                        $"設定の「適用モード」で「部分適用可」に切り替えると、適用できる変更だけを書き込めます。（{blockDetail}）");
+                return GraftResult<RevisionManifest>.Fail(new[] { modeNotice }.Concat(fatal).ToList());
+            }
         }
 
         var initial = BuildInitialManifest(plan, ctx);

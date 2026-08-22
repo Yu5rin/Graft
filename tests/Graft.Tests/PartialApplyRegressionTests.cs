@@ -13,28 +13,25 @@ namespace Graft.Tests;
 /// 実機不具合対応（Windows実機・v1.0.6）: 「一部接ぎ木できる状態で、一部だけを適用すると、
 /// 通常は履歴に関するお知らせが出るはずが、エラーが表示される」の回帰テスト。
 ///
-/// 再現の結論: <see cref="Core.ApplyEngine.ApplyAsync"/>のallOrNothing判定
-/// （<c>plan.Plans.Where(p => !p.CanApply)</c>）が、対象ブロックの選択状態（IsSelected）を
-/// 見ずに「パッチ全体に1件でも適用できないブロックがあるか」だけで判定していた。失敗ブロックは
-/// <see cref="Core.DryRunPlanner"/>が自動的にIsSelected=falseへ倒し、UI側でも
-/// チェックを付け直せない（<see cref="ViewModels.BlockItemViewModel.CanToggle"/>参照）ため、
-/// 利用者が「失敗ブロックを除いた残りだけを適用する」という通常の操作をしても、選ばれていない
-/// 失敗ブロックのせいで適用処理全体がエラー扱いになり、履歴への記録も成功の通知も出なかった
-/// （既定の適用モードが「全件適用（All or Nothing）」でも、AI回答の一部だけが実際のコードに
-/// 当てはまらないのはごくありふれた状況であり、ほとんどの利用者がこの不具合に遭遇していた）。
-/// 対応（<see cref="Core.ApplyEngine.ApplyAsync"/>）: 判定条件へ<c>p.IsSelected &amp;&amp;</c>
-/// を加え、「選んだブロックが全部適用できるなら適用、選んだブロックの中に1つでもダメなものが
-/// あれば中止する」という「全件適用（All or Nothing）」本来の意味に合わせた。既定の適用モード
-/// （allOrNothing）自体は変更していない。allOrNothingの本来の安全機構（選択されている失敗
-/// ブロックがあれば中止する）自体の回帰テストはApplyEngineTests.csにある。
+/// 再現の結論: 既定の適用モード（<see cref="Settings.ApplyMode"/>）が"allOrNothing"だったため、
+/// パッチに含まれるブロックのうち1件でもSEARCH不一致（E101）等で適用できないものがあると、
+/// 実際にチェックが付いている（適用可能な）ブロックが残っていても<see cref="ApplyEngine.ApplyAsync"/>
+/// が全体を失敗として返し、利用者には「E101 SEARCH部が見つからない」等の内部エラーだけが表示され、
+/// 履歴への記録も成功の通知も出なかった（ほとんどの利用者はこの設定を一度も開かないため、
+/// 既定値そのものが実質的な不具合として体感されていた）。
+/// 対応: <see cref="Settings.ApplyMode"/>の既定値を"partial"へ変更した（Settings.cs参照）。
+/// これにより、以下のシナリオが既定設定のまま（設定を一切変更せずに）成立することを確認する。
+/// 「全件適用（All or Nothing）」自体の挙動（選択状態を問わず1件でも失敗すれば全体を中止する）
+/// 自体は変更していない。その回帰テスト（allOrNothingを明示的に選んだ場合は同じ状況でも
+/// 中止され、設定が理由であることが分かるE304が出ること）はApplyEngineTests.csにある。
 /// </summary>
 public class PartialApplyRegressionTests
 {
     private static string BuildSrPatch(string path, string search, string replace) =>
         $"<<<< FILE: {path}\n<<<<<<< SEARCH\n{search}\n=======\n{replace}\n>>>>>>> REPLACE\n";
 
-    [Fact(DisplayName = "既定の適用モード（allOrNothing）でも3ブロック中2つを選択して適用・1つは選択せず失敗のままなら成功し、履歴が1件増える")]
-    public async Task 既定のallOrNothingで2成功1失敗が正常に適用される()
+    [Fact(DisplayName = "既定設定（partial）で3ブロック中2つ成功・1つ失敗しても、成功した2件は適用され履歴が1件増える")]
+    public async Task 既定設定で3ブロック中2成功1失敗が正常に適用される()
     {
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);
@@ -46,19 +43,16 @@ public class PartialApplyRegressionTests
             + "\n" + BuildSrPatch("b.txt", "bbb", "bbb-changed")
             + "\n" + BuildSrPatch("c.txt", "見つからない文字列", "置換後");
 
-        // 明示的に既定値どおりのallOrNothingを指定する（コードの既定値が将来変わっても
-        // このテストの意図＝「allOrNothingでも部分適用は正常系」が揺らがないようにするため）。
-        var settings = new Settings { ApplyMode = "allOrNothing" };
-        var ctx = harness.MakeContext(1, settings);
+        // 設定は一切指定しない＝既定値（partial）のままであることが本質。
+        var ctx = harness.MakeContext(1);
         var dryRun = await harness.DryRunAsync(patchText, ctx);
         dryRun.FailedCount.Should().Be(1, "c.txt側だけがSEARCH不一致で失敗するはず");
         dryRun.ApplicableCount.Should().Be(2, "a.txt・b.txt側は適用可能なはず");
-        dryRun.Plans.Single(p => p.Path == "c.txt").IsSelected.Should().BeFalse("失敗ブロックは自動的に選択解除されるはず");
 
         var apply = await harness.ApplyAsync(dryRun, ctx);
 
         apply.IsSuccess.Should().BeTrue(
-            "allOrNothingのままでも、選んでいる（適用可能な）ブロックが残っている限りエラーにならず成功するはず。" +
+            "既定設定のままでも、適用可能なブロックが残っている限りエラーにならず成功するはず。" +
             $"実際のissues: {string.Join(", ", apply.Issues.Select(i => i.ToDisplayText()))}");
         apply.Value.Entries.Should().HaveCount(2, "実際に書き換わったのはa.txt・b.txtの2件だけのはず");
         apply.Value.Entries.Select(e => e.Path).Should().BeEquivalentTo(new[] { "a.txt", "b.txt" },
@@ -74,8 +68,8 @@ public class PartialApplyRegressionTests
         history.Value[0].Manifest.Status.Should().Be(RevisionStatus.Success);
     }
 
-    [Fact(DisplayName = "上記の部分適用を元に戻すと、実際に適用した2ファイルだけが元に戻り、失敗したブロックの対象ファイルには触れない")]
-    public async Task 部分適用の元に戻すは適用した2ファイルだけを戻す()
+    [Fact(DisplayName = "同じ状況でも「全件適用」を選んでいれば、何も書き込まれず中止し、履歴も増えない")]
+    public async Task allOrNothingを選んでいれば同じ状況でも中止する()
     {
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);
@@ -88,6 +82,32 @@ public class PartialApplyRegressionTests
             + "\n" + BuildSrPatch("c.txt", "見つからない文字列", "置換後");
         var settings = new Settings { ApplyMode = "allOrNothing" };
         var ctx = harness.MakeContext(1, settings);
+        var dryRun = await harness.DryRunAsync(patchText, ctx);
+
+        var apply = await harness.ApplyAsync(dryRun, ctx);
+
+        apply.IsSuccess.Should().BeFalse("「全件適用」を選んでいる限り、1件でも失敗すれば中止するのが仕様どおりの挙動");
+        apply.Errors.First().Code.Should().Be(ErrorCode.E304,
+            "設定（全件適用）が理由で中止したことが最初に伝わるべき");
+        Encoding.UTF8.GetString(harness.ReadProjectBytes("a.txt")).Should().Be("aaa\n", "中止された場合は何も書き換わらないはず");
+        Encoding.UTF8.GetString(harness.ReadProjectBytes("b.txt")).Should().Be("bbb\n");
+        var history = await harness.Revisions.ListAsync(harness.ProjectId);
+        history.Value.Should().BeEmpty("何も書き込まれていないので履歴は増えないはず");
+    }
+
+    [Fact(DisplayName = "上記の部分適用を元に戻すと、実際に適用した2ファイルだけが元に戻り、失敗したブロックの対象ファイルには触れない")]
+    public async Task 部分適用の元に戻すは適用した2ファイルだけを戻す()
+    {
+        using var ws = new TempWorkspace();
+        var harness = new ApplyHarness(ws);
+        harness.WriteProjectText("a.txt", "aaa\n");
+        harness.WriteProjectText("b.txt", "bbb\n");
+        harness.WriteProjectText("c.txt", "存在しない検索対象は含まれていません\n");
+
+        var patchText = BuildSrPatch("a.txt", "aaa", "aaa-changed")
+            + "\n" + BuildSrPatch("b.txt", "bbb", "bbb-changed")
+            + "\n" + BuildSrPatch("c.txt", "見つからない文字列", "置換後");
+        var ctx = harness.MakeContext(1);
         var dryRun = await harness.DryRunAsync(patchText, ctx);
         var apply = await harness.ApplyAsync(dryRun, ctx);
         apply.IsSuccess.Should().BeTrue();
@@ -107,8 +127,8 @@ public class PartialApplyRegressionTests
             "元々適用されていないc.txtは元に戻す操作でも触れられないはず");
     }
 
-    [Fact(DisplayName = "全ブロックが失敗すれば（allOrNothing・部分適用のどちらでも）履歴は増えずエラーになる")]
-    public async Task 全ブロック失敗ならどちらのモードでもエラーになる()
+    [Fact(DisplayName = "既定設定（partial）でも全ブロックが失敗すれば履歴は増えずエラーになる")]
+    public async Task 既定設定でも全ブロック失敗ならエラーになる()
     {
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);
@@ -123,14 +143,14 @@ public class PartialApplyRegressionTests
 
         var apply = await harness.ApplyAsync(dryRun, ctx);
 
-        apply.IsSuccess.Should().BeFalse("適用可能なブロックが1件も無い場合はエラーになるはず");
+        apply.IsSuccess.Should().BeFalse("適用可能なブロックが1件も無い場合は、部分適用モードでもエラーになるはず");
         apply.Errors.Should().Contain(i => i.Code == ErrorCode.E101);
         var history = await harness.Revisions.ListAsync(harness.ProjectId);
         history.Value.Should().BeEmpty("何も書き換わっていないので履歴は増えないはず");
     }
 
-    [Fact(DisplayName = "チェックを外して適用対象0件にすればエラーになり、空のリビジョンは記録されない")]
-    public async Task チェックを外して0件ならエラーになる()
+    [Fact(DisplayName = "既定設定（partial）でもチェックを外して適用対象0件にすればエラーになり、空のリビジョンは記録されない")]
+    public async Task 既定設定でもチェックを外して0件ならエラーになる()
     {
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);

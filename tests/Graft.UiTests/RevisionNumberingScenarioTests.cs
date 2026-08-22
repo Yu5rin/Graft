@@ -85,20 +85,17 @@ public class RevisionNumberingScenarioTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(_projectDirectory, "bad.txt"), "存在しない検索対象は含まれていません\n").ConfigureAwait(true);
 
+        // 実機不具合対応でApplyModeの既定値は"partial"になったため、ここではApplyEngine.ApplyAsync
+        // 自体をFailで終わらせたいので明示的にallOrNothingを指定する。
         var shell = await OpenShellAsync(new Settings { ApplyMode = "allOrNothing" }).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
         var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
 
-        // ok.txtは適用可能・bad.txtはSEARCH不一致で失敗する組み合わせにする（仕様書6章のallOrNothing）。
-        // 実機不具合対応（ApplyEngine.ApplyAsyncのfatal判定にIsSelectedを見るよう修正）後は、
-        // bad.txt側は自動的にチェックが外れているため、そのままではok.txt側だけが成功して
-        // しまう。ここではApplyEngine.ApplyAsync自体を確実にFailで終わらせたいので、
-        // 通常のUI操作ではできないが、BlockItemViewModel.IsSelectedを直接操作してbad.txtを
-        // 強制的に選択状態にする（ApplyUndoNoticeTests.適用失敗では通知が出ないと同じ手法）。
+        // allOrNothingでok.txtは適用可能・bad.txtはSEARCH不一致で失敗する組み合わせにし、
+        // ApplyEngine.ApplyAsync自体をFailで終わらせる（仕様書6章のallOrNothing）。
         _clipboard.Text = BuildPatch("ok.txt", "hello", "world") + "\n" + BuildPatch("bad.txt", "見つからない文字列", "置換後");
         await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
         shell.Graft.ApplyCommand.CanExecute(null).Should().BeTrue("ok.txt側は適用可能なのでApplyコマンドは実行できるはず");
-        shell.Graft.Blocks.Single(b => b.PathText == "bad.txt").IsSelected = true;
 
         await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
 

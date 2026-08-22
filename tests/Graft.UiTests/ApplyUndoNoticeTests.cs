@@ -93,33 +93,30 @@ public class ApplyUndoNoticeTests : IDisposable
         shell.Graft.HasApplyUndoNotice.Should().BeFalse("元に戻した時点で、もう有効ではない通知は消えているはず");
     }
 
-    [AvaloniaFact(DisplayName = "allOrNothingで、選択されている失敗ブロックがあるために適用に失敗した場合は通知を出さない")]
+    [AvaloniaFact(DisplayName = "allOrNothingを選んでいて適用に失敗した場合は通知を出さない")]
     public async Task 適用失敗では通知が出ない()
     {
         await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "ok.txt"), "hello\n").ConfigureAwait(true);
         await File.WriteAllTextAsync(
             Path.Combine(_projectDirectory, "bad.txt"), "存在しない検索対象は含まれていません\n").ConfigureAwait(true);
 
+        // 実機不具合対応でApplyModeの既定値は"partial"になったため、ここではallOrNothingの
+        // 挙動自体（1件でも失敗すれば全体を中止する）を検証する目的で明示的に指定する。
         var shell = await OpenShellAsync(new Settings { ShowPreview = false, ApplyMode = "allOrNothing" }).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
-        // ok.txt側は適用可能・bad.txt側はSEARCH不一致で失敗する組み合わせにする。実機不具合対応
-        // （ApplyEngine.ApplyAsyncのfatal判定にIsSelectedを見るよう修正）後は、bad.txt側は
-        // 自動的にチェックが外れているため、そのままではok.txt側だけが成功してしまう
-        // （その正常系はチェックを外すと案内が出て履歴は増えないテストの隣、
-        // 部分適用でも成功の通知が出て失敗件数が併記されるテストで確認済み）。
-        // ここではallOrNothing自体の安全機構（選択されている失敗ブロックがあれば中止する）を
-        // 検証したいので、通常のUI操作（Space・チェックボックス）ではできないが、
-        // BlockItemViewModel.IsSelectedを直接操作して失敗ブロックを強制的に選択状態にする。
+        // ok.txt側は適用可能・bad.txt側はSEARCH不一致で失敗する組み合わせにし、
+        // allOrNothingでApplyEngine.ApplyAsync自体をFailで終わらせる
+        // （RevisionNumberingScenarioTestsの不具合2回帰テストと同じ手法）。
         _clipboard.Text = BuildPatch("ok.txt", "hello", "world") + "\n" + BuildPatch("bad.txt", "見つからない文字列", "置換後");
         await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
-        var badBlock = shell.Graft.Blocks.Single(b => b.PathText == "bad.txt");
-        badBlock.CanToggle.Should().BeFalse("失敗ブロックは通常のUI操作では選択できないはず");
-        badBlock.IsSelected = true;
+        shell.Graft.ApplyCommand.CanExecute(null).Should().BeTrue("ok.txt側は適用可能なのでApplyコマンドは実行できるはず");
 
         await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
 
         shell.Graft.HasApplyUndoNotice.Should().BeFalse("適用全体が失敗した場合は通知を出してはならない");
+        shell.Graft.CenterError?.Code.Should().Be(ErrorCode.E304,
+            "「全件適用」の設定のため中止したことが利用者に伝わるべき");
     }
 
     // ------------------------------------------------------------------
@@ -128,7 +125,7 @@ public class ApplyUndoNoticeTests : IDisposable
     // 画面から見える結果（通知・完了ダイアログの文言・履歴件数）まで確認する。
     // ------------------------------------------------------------------
 
-    [AvaloniaFact(DisplayName = "既定の適用モード（allOrNothing）で3ブロック中2つ成功・1つ失敗しても、成功の通知が出て完了メッセージに失敗件数が併記される（エラーにならない）")]
+    [AvaloniaFact(DisplayName = "既定の適用モード（partial）で3ブロック中2つ成功・1つ失敗しても、成功の通知が出て完了メッセージに失敗件数が併記される（エラーにならない）")]
     public async Task 部分適用でも成功の通知が出て失敗件数が併記される()
     {
         await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "a.txt"), "aaa\n").ConfigureAwait(true);
@@ -136,9 +133,8 @@ public class ApplyUndoNoticeTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(_projectDirectory, "c.txt"), "存在しない検索対象は含まれていません\n").ConfigureAwait(true);
 
-        // 明示的に既定値どおりのallOrNothingを指定する（コードの既定値が将来変わっても
-        // このテストの意図が揺らがないようにするため）。
-        var shell = await OpenShellAsync(new Settings { ShowPreview = false, ApplyMode = "allOrNothing" }).ConfigureAwait(true);
+        // 設定は一切指定しない＝既定値（partial）のままであることが本質。
+        var shell = await OpenShellAsync().ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
 
         _clipboard.Text = BuildPatch("a.txt", "aaa", "aaa-changed")
