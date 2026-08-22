@@ -103,9 +103,10 @@ public sealed partial class SettingsViewModel
             switch (result.Status)
             {
                 case UpdateCheckStatus.NotDue:
-                    // 常時表示の「現在のバージョン」欄（CurrentVersionText）と重複するため、
-                    // ここでは何も表示しない（起動のたびに確認したわけではないことを、
-                    // わざわざ文言で伝える必要は無い）。
+                    // 「バージョン情報」タブ上部に常時表示されているバージョン表示
+                    // （AboutView.axaml.csのVersionText。CurrentVersionTextと同じ取得方法）と
+                    // 重複するため、ここでは何も表示しない（起動のたびに確認したわけではない
+                    // ことを、わざわざ文言で伝える必要は無い）。
                     UpdateStatusMessage = null;
                     break;
                 case UpdateCheckStatus.Failed:
