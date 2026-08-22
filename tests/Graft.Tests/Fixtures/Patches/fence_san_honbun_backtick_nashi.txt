@@ -1,0 +1,14 @@
+```text
+<<<< PATCH
+summary: 関数名をリネーム
+type: refactor
+>>>>
+<<<< FILE: src/util.py
+<<<<<<< SEARCH  # 関数名を変更
+def old_name():
+    pass
+=======
+def new_name():
+    pass
+>>>>>>> REPLACE
+```

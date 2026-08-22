@@ -15,7 +15,6 @@ public sealed class PatchParser
         if (!PatchTextDetector.HasGraftMarker(patchText) && UnifiedDiffAdapter.IsUnifiedDiff(patchText))
             return UnifiedDiffAdapter.Parse(patchText);
 
-        var scanner = PatchScanner.Create(patchText);
         var blocks = new List<PatchBlock>();
         var meta = new PatchMeta();
         var metaSeen = false;
@@ -23,6 +22,9 @@ public sealed class PatchParser
 
         try
         {
+            // PatchScanner.Create自体が外側フェンスの解釈に失敗しうる（本文中の```による
+            // 早期クローズの疑い・FenceAmbiguousCloseException）ため、この中で呼ぶ。
+            var scanner = PatchScanner.Create(patchText);
             while (scanner.HasNext)
             {
                 var (lineNumber, text) = scanner.Peek();
@@ -47,6 +49,10 @@ public sealed class PatchParser
             truncated = true;
         }
         catch (SyntaxFailure failure)
+        {
+            return GraftResult<Patch>.Fail(failure.Issue);
+        }
+        catch (FenceAmbiguousCloseException failure)
         {
             return GraftResult<Patch>.Fail(failure.Issue);
         }
