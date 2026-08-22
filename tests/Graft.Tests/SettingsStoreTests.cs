@@ -33,7 +33,7 @@ public class SettingsStoreTests
         result.IsSuccess.Should().BeTrue();
         var s = result.Value;
         s.Theme.Should().Be("system");
-        s.ApplyMode.Should().Be("allOrNothing");
+        s.ApplyMode.Should().Be("partial");
         s.ShowPreview.Should().BeTrue();
         s.RequireSummary.Should().BeTrue();
         s.ClipboardWatch.Enabled.Should().BeFalse();
@@ -295,6 +295,27 @@ public class SettingsStoreTests
         result.Issues.Should().Contain(i => i.Code == ErrorCode.E404);
     }
 
+    [Fact(DisplayName = "実機不具合対応: 既に保存済みのapplyModeが\"allOrNothing\"の場合、既定値変更（partialへ）の影響を受けずそのまま尊重される")]
+    public async Task 保存済みのallOrNothing設定は既定値変更の影響を受けない()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """
+            {
+              "applyMode": "allOrNothing"
+            }
+            """);
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.ApplyMode.Should().Be("allOrNothing",
+            "既に明示的に保存されている値はNormalizeChoiceがそのまま通すため、" +
+            "既定値をpartialへ変更しても既存利用者の選択を勝手に書き換えてはならない");
+        result.Issues.Should().NotContain(i => i.Code == ErrorCode.E404 && i.Detail != null && i.Detail.Contains("applyMode"),
+            "有効な値なので警告も出ないはず");
+    }
+
     [Fact(DisplayName = "複数の不正な値がある場合はそれぞれについて個別に警告が返る")]
     public async Task 複数の不正値でそれぞれ警告が返る()
     {
@@ -311,7 +332,7 @@ public class SettingsStoreTests
 
         var result = await store.LoadAsync();
 
-        result.Value.ApplyMode.Should().Be("allOrNothing");
+        result.Value.ApplyMode.Should().Be("partial");
         result.Value.Backup.MaxRevisions.Should().Be(100);
         result.Value.Hooks.TimeoutSec.Should().Be(120);
         result.Issues.Count(i => i.Code == ErrorCode.E404).Should().BeGreaterOrEqualTo(3);
