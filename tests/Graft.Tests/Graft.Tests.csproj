@@ -29,6 +29,13 @@
     <Compile Include="..\..\src\Graft\Platform\IUiServices.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\IDialogService.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\ITextEditorAccess.cs" LinkBase="Linked\Platform" />
+    <!--
+      依頼2（E706）・依頼3（E709）: 「機能が利用できない/OSのハイコントラストを検出した」を
+      ログへ残すだけのロジック（PlatformDiagnosticsLogging）は、IPlatformService・GraftIssue・
+      Loggerのみに依存しUIフレームワークに触れないため、UI非依存の単体テストで検証できる
+      （tests/Graft.Tests/PlatformDiagnosticsLoggingTests.cs参照）。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\PlatformDiagnosticsLogging.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\Null\**\*.cs" LinkBase="Linked\Platform\Null" />
     <!--
       Linux版クリップボード読み取り不具合の修正（X11ClipboardReader）。P/Invoke宣言

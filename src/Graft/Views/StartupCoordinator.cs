@@ -259,6 +259,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // ここで当て直さないと、選んだテーマが再起動のたびにシステム追従へ戻ってしまう。
         Themes.ThemeManager.SetTheme(Themes.ThemeManager.ParseTheme(_settings.Theme));
 
+        // 依頼3（E709）: OSのハイコントラストモードの検出結果（App.axaml.csのThemeManager.
+        // Initializeで起動時に1回読み取り済み）をログへ残す。9.3のとおり配色は切り替えないため、
+        // ここではダイアログを出さずログのみに記録する（PlatformDiagnosticsLoggingのコメント参照）。
+        PlatformDiagnosticsLogging.LogHighContrastIfDetected(_logger, Themes.ThemeManager.IsHighContrastActive);
+
         // 検討書「フォント設定」。テーマと同じ理由（この後SettingsViewModelを生成するまでの
         // 間に表示されうるダイアログ・ShellWindow自体の初回描画にも正しいフォントを効かせる
         // ため）で、ここでも早期に反映しておく。SettingsViewModel.InitializeAsync側の
@@ -537,6 +542,16 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
     private void WirePlatformServices(ShellWindow window, MainViewModel mainViewModel, List<GraftIssue> issues)
     {
+        // 依頼2（E706）: 個別のエラーコードを持たない機能（トレイ常駐・自動起動）がこの環境で
+        // 使えない場合、その事実をログへ残す。設定画面（SettingsViewModel.
+        // IsTraySupported/IsAutoStartSupported）は既にUnsupportedReasonで理由付きの無効表示を
+        // 行っているため機能としては満たしているが、E706というエラーコードとしてのトレース
+        // （このコードが実際に何のために使われたか、ログから追える状態）が欠けていた。
+        // ホットキー（E601）・クリップボード監視（E602）は専用コードを既に持つためここでは
+        // 対象にしない（重複記録を避ける。ErrorCodes.csのE706コメント参照）。
+        PlatformDiagnosticsLogging.LogUnsupportedFeature(_logger, "タスクトレイ常駐", _platform.Tray);
+        PlatformDiagnosticsLogging.LogUnsupportedFeature(_logger, "自動起動", _platform.AutoStart);
+
         // クリップボード監視とホットキーが受信するウィンドウハンドルの割り当ては
         // WindowMessageBridge が行う（Windowsは専用のメッセージ受信ウィンドウ、
         // Linuxはハンドルを使わない実装）。

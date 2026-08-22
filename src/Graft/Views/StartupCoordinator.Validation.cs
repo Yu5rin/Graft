@@ -4,6 +4,7 @@ using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
+using Graft.Themes;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -54,6 +55,24 @@ public sealed partial class StartupCoordinator
         {
             var queueIssues = (await _patchQueue.LoadAsync().ConfigureAwait(false)).Issues;
             lock (issues) issues.AddRange(queueIssues);
+        }
+
+        // 依頼1（E705）: 日本語グリフを描画できるフォントが環境に1つも無いかを確認する。
+        // 18章「起動から操作可能まで1秒以内」への影響: この検証（RunStartupValidationAsync）
+        // 自体がStartAsync側でウィンドウ表示（window.Show()、「操作可能まで」計測点）より
+        // 後ろに投げっぱなし（fire-and-forget）で開始されるバックグラウンド処理のため、
+        // ここに何を足しても起動の体感速度には一切影響しない。実測でもJapaneseFontAvailability.
+        // HasJapaneseCapableFont自体は数ms（TryMatchCharacterの初回呼び出しでフォント一覧の
+        // 構築が走るのが支配的）で完了することを確認済み（実装ノート参照）。
+        lock (issues)
+        {
+            if (!JapaneseFontAvailability.HasJapaneseCapableFont())
+            {
+                issues.Add(GraftIssue.Of(ErrorCode.E705,
+                    "UI・コードいずれのフォントフォールバック列（Themes/Tokens.axaml）を辿っても、" +
+                    "日本語（ひらがな・カタカナ・漢字）を描画できるフォントが見つかりませんでした。",
+                    severity: Severity.Warning));
+            }
         }
 
         // 不具合4対応: プロジェクトが1件以上あれば、起動直後の自動選択でExplorerViewModelが

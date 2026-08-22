@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 
@@ -50,6 +51,53 @@ public sealed class WindowsSystemThemeWatcher : ISystemThemeWatcher
 
         return null;
     }
+
+    /// <summary>
+    /// 依頼3（v2.1 仕様書9.3）。<c>SystemParametersInfo(SPI_GETHIGHCONTRAST)</c>で
+    /// <see cref="HighContrastInfo.dwFlags"/>の<c>HCF_HIGHCONTRASTON</c>ビットを見る。
+    /// これはWindowsが「設定 &gt; アクセシビリティ &gt; コントラストテーマ」の状態を取得する際の
+    /// 標準API（レジストリを直接読む方式は非公式で将来のOSバージョンで壊れる恐れがあるため
+    /// 採らない）。<see cref="TryReadIsLightTheme"/>と同じく読み取り専用の最善努力の参照であり、
+    /// 失敗時は種別を問わず吸収してnull（判定不能）を返す。
+    /// </summary>
+    public bool? TryReadIsHighContrast()
+    {
+        try
+        {
+            var info = new HighContrastInfo { cbSize = (uint)Marshal.SizeOf<HighContrastInfo>() };
+            if (SystemParametersInfo(SpiGetHighContrast, info.cbSize, ref info, 0))
+            {
+                return (info.dwFlags & HcfHighContrastOn) != 0;
+            }
+        }
+        catch (Exception)
+        {
+            // TryReadIsLightThemeと同じ方針: 読み取り専用の最善努力の参照のため、
+            // 例外種別を問わずここで吸収し判定不能として扱う。
+        }
+
+        return null;
+    }
+
+    // --- ハイコントラスト検出用のWin32 P/Invoke宣言 ---
+    // このファイル固有のAPIのため、共有宣言（WindowsNativeMethods.cs、クリップボード監視・
+    // ホットキー・タイトルバー配色向け）へは加えず、使用箇所に閉じて宣言する
+    // （WindowsTrashService.csが独自にshell32.dllの宣言を持つのと同じ方針）。
+
+    private const uint SpiGetHighContrast = 0x0042;
+    private const uint HcfHighContrastOn = 0x00000001;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HighContrastInfo
+    {
+        public uint cbSize;
+        public uint dwFlags;
+        public IntPtr lpszDefaultScheme;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref HighContrastInfo pvParam, uint fWinIni);
 
     public void StartWatching()
     {

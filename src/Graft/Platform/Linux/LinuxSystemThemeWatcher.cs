@@ -38,6 +38,27 @@ public sealed class LinuxSystemThemeWatcher : ISystemThemeWatcher
         return ReadGSettingsColorScheme();
     }
 
+    /// <summary>
+    /// 依頼3（v2.1 仕様書9.3）。「対応するデスクトップ設定があれば追従し、なければ何もしない」
+    /// との指示のとおり、GNOME系のアクセシビリティ設定
+    /// （<c>org.gnome.desktop.a11y.interface high-contrast</c>、真偽値）のみを対象にする。
+    /// XDGデスクトップポータルにはハイコントラストに相当する標準キーが無いため
+    /// （<see cref="TryReadIsLightTheme"/>のcolor-schemeのようなポータル経由の代替が無い）、
+    /// gsettingsのみを見る。KDE等gsettingsを持たない/このスキーマを持たない環境では
+    /// <see cref="RunAndCapture"/>がnullを返し、そのままnull（判定不能）として返る
+    /// （＝「なければ何もしない」を満たす）。
+    /// </summary>
+    public bool? TryReadIsHighContrast()
+    {
+        var output = RunAndCapture("gsettings", "get", "org.gnome.desktop.a11y.interface", "high-contrast");
+        if (output is null) return null;
+
+        var trimmed = output.Trim();
+        if (trimmed.Equals("true", StringComparison.OrdinalIgnoreCase)) return true;
+        if (trimmed.Equals("false", StringComparison.OrdinalIgnoreCase)) return false;
+        return null; // 未知の出力形式。判定不能として呼び出し側の既定へ委ねる。
+    }
+
     public void StartWatching()
     {
         if (_disposed || _monitor is not null) return;
