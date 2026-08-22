@@ -8,7 +8,11 @@ namespace Graft.Core.Update;
 /// </summary>
 public sealed record UpdateCheckState
 {
-    /// <summary>前回、実際に通信して確認した日時（起動時の絞り込み・手動確認いずれも含む）。未確認ならnull。</summary>
+    /// <summary>
+    /// 前回、実際に通信して確認した日時（起動時チェック・手動確認いずれも含む）。未確認ならnull。
+    /// 「バージョン情報」タブの「最終確認」表示にのみ使う（v1.0.12から、起動時チェックの
+    /// 絞り込みには使わなくなった。<see cref="UpdateChecker.CheckOnStartupAsync"/>参照）。
+    /// </summary>
     public DateTimeOffset? LastCheckedAt { get; init; }
 }
 

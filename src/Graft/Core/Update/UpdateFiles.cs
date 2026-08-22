@@ -32,4 +32,13 @@ public static class UpdateFiles
 
     /// <summary>配布物ZIP内で、配布アセット名のうちWindows版を見分けるための接尾辞。</summary>
     public const string WindowsAssetNameSuffix = "-win-x64.zip";
+
+    /// <summary>
+    /// 自動更新のダウンロード・展開に使う一時作業フォルダの、<c>%TEMP%</c>直下でのフォルダ名。
+    /// 実際の作業フォルダは<c>%TEMP%\GraftUpdate\&lt;GUID&gt;\</c>
+    /// （<see cref="Graft.ViewModels.SettingsViewModel"/>のRunUpdateAsyncが起動のたびに新しい
+    /// GUIDで作る）。<see cref="PendingUpdateWorkDirCleanup"/>が次回起動時に古い残骸を掃除する際、
+    /// 同じ名前を参照する単一の情報源としてここへ集約する。
+    /// </summary>
+    public const string WorkDirectoryRootName = "GraftUpdate";
 }
