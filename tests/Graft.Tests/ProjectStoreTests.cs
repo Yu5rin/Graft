@@ -688,6 +688,112 @@ public class ProjectStoreTests
             "既定はキー自体が無い旧形式であり、その場合は全ファイルが既定（内容も出す）扱いになるはず");
     }
 
+    // ------------------------------------------------------------------
+    // v1.0.7実機不具合対応: ネットワーク上（UNC）のプロジェクトで取り込みが必ず失敗する不具合。
+    // 詳しい経緯はLongPath.cs・PathGuard.csのコメント、変更履歴1.0.7を参照。
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 既存の利用者データの救済（完了条件2）。拡張UNC表記(<c>\\?\UNC\server\share\...</c>)の
+    /// 先頭4文字(<c>\\?\</c>)だけが失われて<c>UNC\server\share\...</c>という一見相対パスに
+    /// 見える文字列がRootとして既にprojects.jsonへ書き込まれてしまっていた既存プロジェクトを、
+    /// 読み込むたびに正しいUNC表記へ復元し、正しい形でファイルへ書き戻すことを確認する。
+    /// </summary>
+    [Fact(DisplayName = "v1.0.7: 化けたUNC表記(\"UNC\\\\server\\\\share\\\\proj\")のRootは読み込み時に通常のUNC表記へ復元され再保存される")]
+    public async Task 化けたUNC表記のRootは読み込み時に復元され再保存される()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        appPaths.EnsureCoreDirectoriesExist();
+        // 実際に報告された壊れた形（拡張UNC表記の先頭\\?\が失われた文字列）を直接書き込む。
+        var corruptedJson = """
+            { "projects": [ { "id": "p_broken", "name": "broken", "root": "UNC\\gfs\\inaden\\project" } ] }
+            """;
+        await File.WriteAllTextAsync(appPaths.ProjectsFilePath, corruptedJson);
+
+        var store = new ProjectStore(appPaths);
+        var loaded = await store.LoadAsync();
+
+        loaded.IsSuccess.Should().BeTrue();
+        loaded.Value.Single().Root.Should().Be(@"\\gfs\inaden\project", "先頭に\\\\を補って正しいUNC表記へ復元されるべき");
+
+        // 復元した内容がファイルへも書き戻されている（次回以降も壊れたままにしない）ことを確認する。
+        var savedJson = await File.ReadAllTextAsync(appPaths.ProjectsFilePath);
+        savedJson.Should().Contain(@"\\gfs\inaden\project".Replace(@"\", @"\\"));
+        savedJson.Should().NotContain("\"UNC\\\\gfs\\\\inaden\\\\project\"", "壊れた形のままファイルへ残ってはいけない");
+    }
+
+    /// <summary>拡張表記(<c>\\?\UNC\...</c>)がそのままRootへ永続化されてしまっていた場合も、読み込み時に通常表記へ戻ることを確認する。</summary>
+    [Fact(DisplayName = "v1.0.7: 拡張表記(\"\\\\?\\\\UNC\\\\...\")のまま保存されていたRootも読み込み時に通常のUNC表記へ戻る")]
+    public async Task 拡張表記のRootは読み込み時に通常表記へ戻る()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        appPaths.EnsureCoreDirectoriesExist();
+        var corruptedJson = """
+            { "projects": [ { "id": "p_ext", "name": "ext", "root": "\\\\?\\UNC\\gfs\\inaden\\project" } ] }
+            """;
+        await File.WriteAllTextAsync(appPaths.ProjectsFilePath, corruptedJson);
+
+        var store = new ProjectStore(appPaths);
+        var loaded = await store.LoadAsync();
+
+        loaded.IsSuccess.Should().BeTrue();
+        loaded.Value.Single().Root.Should().Be(@"\\gfs\inaden\project");
+    }
+
+    /// <summary>
+    /// 正常なRoot（ローカル・UNCどちらも）は読み込み時に一切変更されず、余計な再保存も
+    /// 発生しないこと（誤爆防止・既存動作への非破壊性）を確認する。
+    /// </summary>
+    [Fact(DisplayName = "v1.0.7: 正常なRootは読み込み時に変更されない")]
+    public async Task 正常なRootは読み込み時に変更されない()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(appPaths);
+        var root = ws.CreateDirectory("normal-project");
+
+        var registered = await store.RegisterAsync(root, "普通のプロジェクト");
+        registered.IsSuccess.Should().BeTrue();
+
+        var loaded = await store.LoadAsync();
+
+        loaded.IsSuccess.Should().BeTrue();
+        loaded.Value.Single().Root.Should().Be(registered.Value.Root);
+    }
+
+    /// <summary>
+    /// RegisterAsync自体も、化けたUNC表記のような文字列を渡された場合に備えて復元してから
+    /// 絶対パス化・永続化する（将来にわたって拡張表記・化けたUNC表記が新たに永続化されない
+    /// ようにするための防御。完了条件1）。
+    /// <para>
+    /// Windows上ではRecoverProjectRootで復元した<c>\\gfs\inaden\project</c>がそのまま絶対パスと
+    /// 認識されるためRootと完全に一致する。Linux上のテスト実行環境ではバックスラッシュ区切りの
+    /// UNC表記はOSのパス解決仕様上そもそも絶対パスと認識されず、<c>Path.GetFullPath</c>が
+    /// カレントディレクトリを前置してしまう（Graftの不具合ではなくOSの一般的な仕様の違い）ため、
+    /// 復元後の文字列を含んでいることだけを検証する。
+    /// </para>
+    /// </summary>
+    [Fact(DisplayName = "v1.0.7: RegisterAsyncは化けたUNC表記のRootも復元してから登録する")]
+    public async Task RegisterAsyncは化けたUNC表記も復元してから登録する()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(appPaths);
+
+        var registered = await store.RegisterAsync(@"UNC\gfs\inaden\project", "壊れた入力からの登録");
+
+        registered.IsSuccess.Should().BeTrue();
+        registered.Value.Root.Should().Contain(@"\\gfs\inaden\project", "先頭に\\\\を補って正しいUNC表記へ復元されているべき");
+        registered.Value.Root.Should().NotContain("UNC\\gfs", "化けた形（UNC\\で始まる相対パス由来の文字列）が残ってはいけない");
+
+        if (OperatingSystem.IsWindows())
+        {
+            registered.Value.Root.Should().Be(@"\\gfs\inaden\project");
+        }
+    }
+
     [Fact(DisplayName = "overridesが未指定の場合は全体設定のままになる")]
     public void overrides未指定なら全体設定のままになる()
     {

@@ -32,7 +32,44 @@ public sealed class ProjectStore
         var result = await _store
             .ReadWithRecoveryAsync(_paths.ProjectsFilePath, static () => new ProjectCatalog(), JsonFileStore.DefaultOptions, ct)
             .ConfigureAwait(false);
-        return GraftResult<IReadOnlyList<Project>>.Ok(result.Value.Projects, result.Issues);
+
+        // v1.0.7実機不具合対応: 過去のバージョンで拡張表記（\\?\・\\?\UNC\）や、その先頭4文字が
+        // 失われて相対パスに見える形（UNC\server\share\...）でRootが永続化されてしまった
+        // 既存データを、読み込むたびに正規化して救済する（LongPath.RecoverProjectRoot参照）。
+        // 実際に直った場合のみ書き戻し、通常の（既に正しい）projects.jsonへは一切書き込まない。
+        var recovered = RecoverCorruptedRoots(result.Value.Projects);
+        if (recovered.Changed)
+        {
+            await SaveAsync(recovered.Projects, ct).ConfigureAwait(false);
+        }
+
+        return GraftResult<IReadOnlyList<Project>>.Ok(recovered.Projects, result.Issues);
+    }
+
+    /// <summary>
+    /// <see cref="LoadAsync"/>が読み込んだ一覧のうち、Rootが化けている（拡張表記のまま、または
+    /// 拡張UNC表記の先頭\\?\だけが失われた形）ものを<see cref="LongPath.RecoverProjectRoot"/>で
+    /// 復元する。1件でも変わっていればChanged=trueを返す。
+    /// </summary>
+    private static (IReadOnlyList<Project> Projects, bool Changed) RecoverCorruptedRoots(
+        IReadOnlyList<Project> projects)
+    {
+        var changed = false;
+        var result = new List<Project>(projects.Count);
+        foreach (var project in projects)
+        {
+            var recoveredRoot = LongPath.RecoverProjectRoot(project.Root);
+            if (!string.Equals(recoveredRoot, project.Root, StringComparison.Ordinal))
+            {
+                result.Add(project with { Root = recoveredRoot });
+                changed = true;
+            }
+            else
+            {
+                result.Add(project);
+            }
+        }
+        return (result, changed);
     }
 
     /// <summary>
@@ -76,7 +113,9 @@ public sealed class ProjectStore
         string fullRoot;
         try
         {
-            fullRoot = Path.GetFullPath(root);
+            // v1.0.7実機不具合対応: 拡張表記や、化けたUNC表記（先頭\\?\が失われた形）のまま
+            // 渡された場合でも正しい絶対パスへ復元してから絶対パス化する（LongPath.cs参照）。
+            fullRoot = Path.GetFullPath(LongPath.RecoverProjectRoot(root));
         }
         catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
         {
@@ -184,7 +223,8 @@ public sealed class ProjectStore
         string fullRoot;
         try
         {
-            fullRoot = Path.GetFullPath(newRoot);
+            // v1.0.7実機不具合対応: RegisterAsyncと同様、拡張表記・化けたUNC表記を先に復元する。
+            fullRoot = Path.GetFullPath(LongPath.RecoverProjectRoot(newRoot));
         }
         catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
         {
