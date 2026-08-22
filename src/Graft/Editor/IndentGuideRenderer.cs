@@ -118,6 +118,28 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         var document = textView.Document;
         if (document is null) return;
 
+        // 不具合2（実機で確認された未処理例外の根治。詳細は
+        // tests/Graft.UiTests/FoldingReloadLifetimeTests.csのクラスコメント参照）:
+        // AvaloniaEditのTextViewは、文書全体を1回のReplaceで置き換えたとき（
+        // <see cref="Editor.DocumentSession.ReloadAsync"/>が行う<c>Document.Text = newText</c>。
+        // 適用後の再読込・外部変更検知の再読込のどちらもこの経路を通る）、次のレイアウトパスが
+        // 完了するまでの一瞬、<c>TextView.VisualLinesValid</c>は<c>true</c>のままなのに
+        // <c>TextView.VisualLines</c>が「置き換え前の文書に属していた（既に文書から切り離され
+        // <c>IsDeleted</c>な）<see cref="DocumentLine"/>」を握った<see cref="AvaloniaEdit.
+        // Rendering.VisualLine"/>を返し続けることがある（<c>TextView.Redraw(int, int)</c>が
+        // 変更範囲と重なる<c>VisualLine</c>を内部リストから外して<c>InvalidateMeasure()</c>を
+        // 呼ぶだけで、外部公開用の一覧はその場で更新しないため）。この一瞬に描画が割り込むと、
+        // 下の<see cref="CollectActiveFoldSegments"/>・<see cref="DrawAllIndentationLevels"/>が
+        // 触れる<c>DocumentLine.Offset</c>/<c>LineNumber</c>が<see cref="InvalidOperationException"/>
+        // を投げる（"Operation is not valid due to the current state of the object."）。
+        //
+        // 「投げてからcatchする」のではなく「触る前に確認する」ことで根治する:
+        // <c>DocumentLine.IsDeleted</c>は例外を投げない安全なプロパティなので、可視行が実際に
+        // 生きているかをここで確認してから先へ進む。1つでも切り離されていれば、その1フレーム
+        // ぶんの描画だけを（例外を発生させることなく）諦める。次のレイアウトパスが完了すれば
+        // 自然に正しいVisualLinesへ入れ替わり、その次の描画から通常どおり表示される。
+        if (!VisualLinesReferenceLiveDocumentLines(textView)) return;
+
         // 色はテーマのリソースから引く（ハードコードしない。検討書の必須要件）。
         // 9テーマすべてに"IndentGuide"/"IndentGuideHover"キーが無ければ何も描かない
         // （安全側。Themes/*.axamlのキー欠落を検出しやすくするため、既定色へのフォールバックは
@@ -130,40 +152,13 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         var columnWidth = textView.WideSpaceWidth;
         if (columnWidth <= 0) return;
 
-        // 【負荷下フレーク調査（再現できなかった項目の記録）】
-        // ここから先は AvaloniaEdit 側のAPI（document.GetLineByOffset/GetText・
-        // FoldingManager.GetFoldingsContaining/GetNextFolding）を呼ぶ。負荷下の実行で1回、
-        // ここから InvalidOperationException が飛んで落ちたという報告があり、以下を実機の
-        // AvaloniaEdit 11.1.0 ソース（本プロジェクトのパッケージ参照と同一バージョン）を
-        // 直接読んで検証した。
-        //   ・TextDocument.GetLineByOffset/GetTextはVerifyAccess()（所有スレッド以外からの
-        //     呼び出しでInvalidOperationException("Call from invalid thread.")）を内部で呼ぶ。
-        //     しかしGraft側でTextDocumentを生成・変更する箇所（DocumentSession.OpenAsync/
-        //     SaveAsync/ReloadAsync）はいずれもUIスレッドへ明示的に戻してから触れており
-        //     （同クラスのコメント参照）、Draw自体もAvaloniaの合成レンダラ経由で必ずUIスレッドから
-        //     呼ばれる（実際に描画ピクセルを生成する別スレッドは、すでに記録済みの描画命令列だけを
-        //     処理し、TextDocument等のアプリ側オブジェクトには触れない）ため、到達できなかった。
-        //   ・TextSegmentCollection.FindSegmentsContaining/FindFirstSegmentWithStartAfter
-        //     （GetFoldingsContaining/GetNextFoldingの実体）は毎回新しいList/ReadOnlyCollectionを
-        //     組み立てて返す設計で、呼び出し元へ渡した後にツリー側が更新されても影響しない
-        //     （ソースの当該メソッドのコメント"safe to modify...while iterating"のとおり）。
-        //     列挙中の「コレクションが変更されました」系例外を投げる経路自体が無い。
-        //   ・FoldingManagerがUninstall済みの直後にDrawが走る経路は、FoldingSupportの
-        //     「不具合1」対策（Editor.Documentが差し替わった瞬間に同期的に古いFoldingManagerを
-        //     uninstallする）とIndentGuideRenderer自身の`ReferenceEquals(_folding.Document,
-        //     document)`チェックの組み合わせで防がれている。実際に「Document差し替え直後・
-        //     _folding.Attach呼び出し前」の窓でDrawを強制的に割り込ませる実験（Dispatcher.
-        //     UIThread.RunJobs()を差し込んで検証、修正後は削除済み）でも再現しなかった。
-        // 150回以上（案件B対応時と合わせ計375回、CPU 4コア飽和下）の
-        // tests/Graft.UiTests/MarkdownPreviewTests.cs実行でも1度も再現しなかった。
-        // 以上より根本原因を特定・再現できなかったため、AvaloniaEdit側の将来の変更・
-        // 未知の内部状態の食い違いに対する最後の防波堤として、この1フレームの描画だけを
-        // 諦める防御的catchを置く（描画専用の副作用の無い処理のため、握りつぶしても
-        // 文書やUndo等の状態を破壊しない。次のフレームで自然に再試行される）。
-        // Draw()は毎秒何十回も呼ばれうるため、他の想定外例外と違いSafeHandler.OnUnexpected
-        // （ダイアログ表示）は使わない（連打されるとダイアログが乱発し、かえって
-        // 使い勝手を損なう。設計目標5の「継続を優先する」の精神をこの高頻度経路向けに
-        // 適用した形）。
+        // 以下のtry/catchは根治前（課題#69）の対症療法であり、上のVisualLinesReferenceLiveDocumentLines
+        // による事前チェックが根治した後も、AvaloniaEdit側の将来の変更・未知の内部状態の食い違いに
+        // 対する最後の安全網として残す（このtry/catch自体が「修正」ではない点に注意。真因は
+        // 上の事前チェックが塞いでいる）。Draw()は毎秒何十回も呼ばれうるため、他の想定外例外と
+        // 違いSafeHandler.OnUnexpected（ダイアログ表示）は使わない（連打されるとダイアログが
+        // 乱発し、かえって使い勝手を損なう。設計目標5の「継続を優先する」の精神をこの高頻度
+        // 経路向けに適用した形）。
         try
         {
             if (_mode == IndentGuideMode.FoldableRangesOnly)
@@ -186,10 +181,12 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         }
         catch (InvalidOperationException ex)
         {
-            // 上のコメントのとおり、この例外が実際に飛ぶ経路は特定できなかった（静的解析・
-            // 375回の負荷再現実験のいずれでも再現せず）。それでも万一AvaloniaEdit側の内部状態と
-            // 一瞬食い違った場合に備え、インデントガイド（縦線、あくまで装飾）1フレームぶんの
-            // 描画だけを諦めてアプリ全体のクラッシュを避ける。
+            // 上のVisualLinesReferenceLiveDocumentLinesによる事前チェックが、実機ログで
+            // 確認できていた不具合2の真因（AvaloniaEdit TextViewが文書全体の置き換え直後に
+            // 古いVisualLineを指したままになる一瞬の窓）を塞いだ後も、万一AvaloniaEdit側の
+            // 将来の変更・未知の内部状態の食い違いが起きた場合に備え、インデントガイド
+            // （縦線、あくまで装飾）1フレームぶんの描画だけを諦めてアプリ全体のクラッシュを
+            // 避ける安全網として残す。
             //
             // 【なぜダイアログではなくログか】 SafeHandler.OnUnexpectedはダイアログを表示するが、
             // Draw()は画面が見えている間毎秒何十回も呼ばれうる高頻度経路のため、万一この例外が
@@ -197,14 +194,13 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
             // （エディタを開いているだけでダイアログが延々出続ける）。装飾の欠落自体は実害が
             // 無いため、ダイアログという強い通知は不釣り合いであり、ログのみに留める。
             //
-            // 【なぜ詳細（スタックトレース）は1回だけか】 再現できていない以上、実際に発生した
-            // 場合の痕跡を完全に消してしまうと原因調査ができなくなる（コーディネータ指摘の
-            // とおり）。一方でDraw()の呼び出し頻度を考えると、握りつぶした後も同じ状況が続けば
-            // 次のフレームでまた同じ例外が起きうる。これを1回ごとにログへ書くとログファイルが
-            // 瞬時に肥大化し、かえって他のログを埋もれさせて調査の邪魔になる。「最初の1回だけ
-            // 記録すれば、原因調査には十分な手がかり（型・メッセージ・スタックトレース）が
-            // 残る」という判断で、インスタンス（＝タブ・エディタ表示1枚）につき最初の1回だけに
-            // 絞る。
+            // 【なぜ詳細（スタックトレース）は1回だけか】 事前チェックで大半は防げるはずである
+            // 以上、万一発生した場合の痕跡を完全に消してしまうと原因調査ができなくなる。一方で
+            // Draw()の呼び出し頻度を考えると、握りつぶした後も同じ状況が続けば次のフレームでまた
+            // 同じ例外が起きうる。これを1回ごとにログへ書くとログファイルが瞬時に肥大化し、
+            // かえって他のログを埋もれさせて調査の邪魔になる。「最初の1回だけ記録すれば、原因
+            // 調査には十分な手がかり（型・メッセージ・スタックトレース）が残る」という判断で、
+            // インスタンス（＝タブ・エディタ表示1枚）につき最初の1回だけに絞る。
             //
             // 【回数の集計】 詳細ログとは別に、発生そのものは<see cref="SuppressedExceptionTracker.
             // Shared"/>へ毎回記録する（インスタンスをまたいだアプリ全体での延べ回数）。これにより
@@ -244,6 +240,27 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
     /// <summary>テーマ切り替え（色の変更のみ、レイアウトは不変）も同様に測り直し無しで再描画する。</summary>
     private void OnThemeChanged(object? sender, EventArgs e)
         => TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
+
+    /// <summary>
+    /// 不具合2の根治本体: <c>textView.VisualLines</c>の各行が握る<see cref="DocumentLine"/>が
+    /// 実際に文書に生きている（<see cref="DocumentLine.IsDeleted"/>でない）ことを確認する。
+    /// <see cref="DocumentLine.IsDeleted"/>自体は例外を投げない安全なプロパティなので、
+    /// ここでの確認そのものにコストもリスクも無い。
+    ///
+    /// 可視行数（せいぜい数十〜百行程度、18章の性能要件と同じ前提）ぶんしか見ないため、
+    /// 呼び出し頻度（Draw()は毎秒何十回も呼ばれうる）に対しても軽い。<see cref="Draw"/>から
+    /// 呼ぶだけで、<see cref="CollectActiveFoldSegments"/>・<see cref="DrawAllIndentationLevels"/>
+    /// のどちらのモードも保護できる（両方とも<c>FirstDocumentLine</c>/<c>LastDocumentLine</c>
+    /// から<c>Offset</c>/<c>LineNumber</c>を読むため）。
+    /// </summary>
+    private static bool VisualLinesReferenceLiveDocumentLines(TextView textView)
+    {
+        foreach (var line in textView.VisualLines)
+        {
+            if (line.FirstDocumentLine.IsDeleted || line.LastDocumentLine.IsDeleted) return false;
+        }
+        return true;
+    }
 
     /// <summary>
     /// 可視範囲に懸かる、実際に折りたたみ可能な範囲の一覧を、縦線の描画に必要な位置情報
