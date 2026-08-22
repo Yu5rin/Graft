@@ -242,6 +242,10 @@ public sealed partial class StartupCoordinator
             // ロガーは他の後始末すべてが終わった後、一番最後に破棄する（上記コメント参照）。
             if (_logger is not null)
             {
+                // v1.0.7実機不具合対応: 起動から今までに握りつぶした想定外の例外の集計
+                // （SuppressedExceptionTracker）を、1回以上発生した種類だけshutdownログへ
+                // 残す。ロガーを破棄する直前（＝これ以上ログを書けなくなる前）に必ず行う。
+                SuppressedExceptionTracker.Shared.LogSummary(_logger);
                 await _logger.DisposeAsync().ConfigureAwait(true);
             }
         }

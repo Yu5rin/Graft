@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
+using Graft.Infra;
 
 namespace Graft.Platform.Linux;
 
@@ -155,10 +156,13 @@ public sealed class X11ClipboardReader : IDisposable
             {
                 result = ProcessRequest(request.Timeout);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // 1件の要求で予期しない例外が出ても、次の要求の処理は続ける。
                 // これが本クラスの目的（1回の失敗・タイムアウトが以後に影響しないこと）そのもの。
+                // v1.0.7: 種類ごとの発生回数だけを数える（詳細は出さない。高頻度経路のため）。
+                // 終了時のshutdownログに集計される（SuppressedExceptionTracker参照）。
+                SuppressedExceptionTracker.Shared.Record("clipboard-x11-read-request", ex);
                 result = null;
             }
             request.Completion.TrySetResult(result);

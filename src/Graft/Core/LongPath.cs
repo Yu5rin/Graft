@@ -183,20 +183,51 @@ public static class LongPath
     /// File.Replace が失敗しやすい環境の事前検知に用いる。
     /// </summary>
     public static bool IsNetworkOrCloudSyncFolder(string absolutePath)
+        => ClassifyLocation(absolutePath) != PathLocationKind.Local;
+
+    /// <summary>
+    /// v1.0.7 実機不具合対応（環境要約ログ）: 絶対パスがどの種別の場所を指すかを判定する。
+    /// <see cref="IsNetworkOrCloudSyncFolder"/>と同じ判定基準（UNC共有・マップ済み
+    /// ネットワークドライブ・主要なクラウド同期フォルダ）を使うが、そちらは「ネットワーク等か
+    /// どうか」のbool判定であるのに対し、環境要約ログでは種別そのものを記録したいため
+    /// こちらは<see cref="PathLocationKind"/>を返す。
+    /// </summary>
+    public enum PathLocationKind
     {
-        if (string.IsNullOrEmpty(absolutePath)) return false;
+        /// <summary>上記のいずれにも当てはまらない、ローカルディスク上のパス。</summary>
+        Local,
+
+        /// <summary>UNC共有（<c>\\server\share\...</c>）。</summary>
+        UncShare,
+
+        /// <summary>マップ済みネットワークドライブ（例: <c>net use</c>でマウントした<c>Z:\...</c>）。</summary>
+        NetworkDrive,
+
+        /// <summary>OneDrive・Dropbox等、主要なクラウド同期フォルダ配下と推定されるパス。</summary>
+        CloudSyncFolder,
+    }
+
+    /// <summary><see cref="PathLocationKind"/>の判定本体。</summary>
+    public static PathLocationKind ClassifyLocation(string absolutePath)
+    {
+        if (string.IsNullOrEmpty(absolutePath)) return PathLocationKind.Local;
 
         if (absolutePath.StartsWith(@"\\", StringComparison.Ordinal))
         {
-            return true;
+            return PathLocationKind.UncShare;
         }
 
         if (OperatingSystem.IsWindows() && IsNetworkDrive(absolutePath))
         {
-            return true;
+            return PathLocationKind.NetworkDrive;
         }
 
-        return ContainsCloudSyncMarker(absolutePath);
+        if (ContainsCloudSyncMarker(absolutePath))
+        {
+            return PathLocationKind.CloudSyncFolder;
+        }
+
+        return PathLocationKind.Local;
     }
 
     private static bool IsNetworkDrive(string absolutePath)

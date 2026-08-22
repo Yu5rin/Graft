@@ -365,4 +365,41 @@ public class PathGuardTests
             Directory.GetCurrentDirectory(),
             "修正前はカレントディレクトリ（実機ではexeフォルダ）が誤って混入していた（実機不具合の症状そのもの）");
     }
+
+    // ------------------------------------------------------------------
+    // v1.0.7実機不具合対応（環境要約ログ）: NormalizeRoot。
+    // コンストラクタが実際に使う正規化と同じ結果を、インスタンスを作らずに得られること。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "NormalizeRoot: コンストラクタが実際に使う正規化後の値（_root）と一致する")]
+    public void NormalizeRootはコンストラクタの正規化結果と一致する()
+    {
+        using var ws = new TempWorkspace();
+        // 末尾に区切り文字を付けたり相対化要素を混ぜたりして、正規化が実際に効くことも確認する。
+        var messyRoot = ws.RootPath + Path.DirectorySeparatorChar;
+
+        var normalized = PathGuard.NormalizeRoot(messyRoot);
+
+        var guard = new PathGuard(messyRoot, PathGuardOptions.Default);
+        // PathGuardは正規化後のrootを直接は公開していないため、Resolve("")相当ではなく
+        // 「正規化後のrootの直下」を指す相対パスを解決させ、間接的に一致を確認する。
+        var resolved = guard.Resolve("file.txt");
+        resolved.IsSuccess.Should().BeTrue();
+        Path.GetDirectoryName(resolved.Value).Should().Be(normalized);
+    }
+
+    [Fact(DisplayName = "NormalizeRoot: 化けたUNC表記（先頭\\\\?\\が失われた形）も復元してから正規化する")]
+    public void NormalizeRootは化けたUNC表記も復元する()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        PathGuard.NormalizeRoot(@"UNC\gfs\inaden\project").Should().Be(@"\\gfs\inaden\project");
+    }
+
+    [Fact(DisplayName = "NormalizeRoot: nullはArgumentNullException")]
+    public void NormalizeRootはnullで例外()
+    {
+        Action act = () => PathGuard.NormalizeRoot(null!);
+        act.Should().Throw<ArgumentNullException>();
+    }
 }
