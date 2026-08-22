@@ -1,0 +1,10 @@
+<<<< PATCH
+summary: 変数名を変更
+type: refactor
+>>>>
+<<<< FILE: src/a.py
+<<<<<<< SEARCH
+x = 1
+=======
+y = 1
+>>>>>>> REPLACE

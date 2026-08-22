@@ -1,0 +1,7 @@
+```diff
+<<<< PATCH
+summary: 不要ファイルを削除
+type: chore
+>>>>
+<<<< DELETE: old/legacy.py
+```

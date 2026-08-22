@@ -1,0 +1,16 @@
+````text
+<<<< PATCH
+summary: READMEにサンプルコードブロックを追加
+type: docs
+>>>>
+<<<< FILE: README.md
+<<<<<<< SEARCH  # サンプルセクションを追加
+## 使い方
+=======
+## 使い方
+
+```python
+print("hello")
+```
+>>>>>>> REPLACE
+````
