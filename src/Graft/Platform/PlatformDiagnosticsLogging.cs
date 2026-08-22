@@ -4,7 +4,7 @@ using Graft.Infra;
 namespace Graft.Platform;
 
 /// <summary>
-/// 起動時にログへ残すだけの「静かな縮退」の記録（E706・E707）をまとめる。
+/// 起動時にログへ残すだけの「静かな縮退」の記録（E706・E709）をまとめる。
 /// <see cref="Views.StartupCoordinator"/>（Avalonia依存）から切り出してある理由:
 /// ここに置くロジックは <see cref="IPlatformService"/>・<see cref="GraftIssue"/>・
 /// <see cref="Logger"/> のみに依存し、UIフレームワークに一切触れないため、
@@ -32,7 +32,7 @@ internal static class PlatformDiagnosticsLogging
     }
 
     /// <summary>
-    /// 依頼3（E707）: OSのハイコントラストモードが有効（<paramref name="isHighContrastActive"/>
+    /// 依頼3（E709）: OSのハイコントラストモードが有効（<paramref name="isHighContrastActive"/>
     /// がtrue）だったことをログへ残す。9.3のとおりGraftは配色トークンを切り替えないため、
     /// ダイアログでは通知せずログのみに記録する（E706と同じ方針。起動のたびに利用者を
     /// 煩わせないため）。判定不能（null）・無効（false）のいずれでも何もしない。
@@ -44,7 +44,7 @@ internal static class PlatformDiagnosticsLogging
             return;
         }
 
-        var issue = GraftIssue.Of(ErrorCode.E707,
+        var issue = GraftIssue.Of(ErrorCode.E709,
             "OSのハイコントラストモードが有効です。Graftは9.3のとおりOSに関わらず同一の配色トークンを維持します。",
             severity: Severity.Info);
         logger?.Info("platform", issue.ToDisplayText());

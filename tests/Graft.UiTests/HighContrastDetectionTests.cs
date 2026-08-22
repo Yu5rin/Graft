@@ -7,7 +7,7 @@ using Xunit;
 namespace Graft.UiTests;
 
 /// <summary>
-/// 依頼3（v2.1 仕様書9.3・17章E707 ハイコントラスト検出）のテスト。
+/// 依頼3（v2.1 仕様書9.3・17章E709 ハイコントラスト検出）のテスト。
 /// <see cref="Graft.Platform.Windows.WindowsSystemThemeWatcher"/>は実機（Windows）でしか
 /// SPI_GETHIGHCONTRASTの本体経路を検証できないため対象外とする
 /// （tests/Graft.Tests/Graft.Tests.csprojのコメントのとおり、本体はWindows以外での

@@ -259,7 +259,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // ここで当て直さないと、選んだテーマが再起動のたびにシステム追従へ戻ってしまう。
         Themes.ThemeManager.SetTheme(Themes.ThemeManager.ParseTheme(_settings.Theme));
 
-        // 依頼3（E707）: OSのハイコントラストモードの検出結果（App.axaml.csのThemeManager.
+        // 依頼3（E709）: OSのハイコントラストモードの検出結果（App.axaml.csのThemeManager.
         // Initializeで起動時に1回読み取り済み）をログへ残す。9.3のとおり配色は切り替えないため、
         // ここではダイアログを出さずログのみに記録する（PlatformDiagnosticsLoggingのコメント参照）。
         PlatformDiagnosticsLogging.LogHighContrastIfDetected(_logger, Themes.ThemeManager.IsHighContrastActive);

@@ -99,7 +99,7 @@ public static class ThemeManager
     public static bool IsDarkResolved { get; private set; } = true;
 
     /// <summary>
-    /// 依頼3（v2.1 仕様書9.3・17章E707）。OSのハイコントラストモードが有効かどうか。
+    /// 依頼3（v2.1 仕様書9.3・17章E709）。OSのハイコントラストモードが有効かどうか。
     /// 判定できない環境（<see cref="NullSystemThemeWatcher"/>・対応するデスクトップ設定を
     /// 持たないLinux環境等）ではnull。<see cref="Initialize"/>で起動時に1回、以降は
     /// <see cref="ISystemThemeWatcher.Changed"/>（OS設定変更の通知）のたびに更新する。
@@ -138,7 +138,7 @@ public static class ThemeManager
                 _watcherAttached = true;
             }
 
-            // 依頼3（E707）: 起動時に1回だけ読み取っておく。以降はOS側の設定変更通知
+            // 依頼3（E709）: 起動時に1回だけ読み取っておく。以降はOS側の設定変更通知
             // （Changed）のたびにHandleSystemThemeChangedOnUiThreadで更新する
             // （IsHighContrastActiveのXMLコメント参照）。
             RefreshHighContrastState();
@@ -249,7 +249,7 @@ public static class ThemeManager
     }
 
     /// <summary>
-    /// 依頼3（E707）。<see cref="IsHighContrastActive"/>を今の<see cref="ISystemThemeWatcher"/>から
+    /// 依頼3（E709）。<see cref="IsHighContrastActive"/>を今の<see cref="ISystemThemeWatcher"/>から
     /// 読み直す。呼び出しは必ずUIスレッドから行うこと（IsHighContrastActiveのXMLコメント参照）。
     /// </summary>
     private static void RefreshHighContrastState()

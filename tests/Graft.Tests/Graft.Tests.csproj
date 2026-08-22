@@ -30,7 +30,7 @@
     <Compile Include="..\..\src\Graft\Platform\IDialogService.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\ITextEditorAccess.cs" LinkBase="Linked\Platform" />
     <!--
-      依頼2（E706）・依頼3（E707）: 「機能が利用できない/OSのハイコントラストを検出した」を
+      依頼2（E706）・依頼3（E709）: 「機能が利用できない/OSのハイコントラストを検出した」を
       ログへ残すだけのロジック（PlatformDiagnosticsLogging）は、IPlatformService・GraftIssue・
       Loggerのみに依存しUIフレームワークに触れないため、UI非依存の単体テストで検証できる
       （tests/Graft.Tests/PlatformDiagnosticsLoggingTests.cs参照）。

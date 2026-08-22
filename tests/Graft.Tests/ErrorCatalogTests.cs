@@ -7,7 +7,7 @@ namespace Graft.Tests;
 /// <summary>
 /// <see cref="ErrorCode"/>を1つ追加するたびに<see cref="ErrorCatalog"/>への登録を忘れる事故
 /// （追加すればコンパイルは通るが、実際に使われた瞬間にErrorCatalog.SummaryOf/RemedyOfが
-/// KeyNotFoundExceptionで落ちる）を機械的に検出する。依頼1〜3（E705・E706・E707）はいずれも
+/// KeyNotFoundExceptionで落ちる）を機械的に検出する。依頼1〜3（E705・E706・E709）はいずれも
 /// この形で登録漏れが無いことを保証されている。
 /// </summary>
 public class ErrorCatalogTests
@@ -28,10 +28,10 @@ public class ErrorCatalogTests
         }
     }
 
-    [Theory(DisplayName = "依頼1〜3で追加したエラーコード（E705・E706・E707）の内容が期待どおり")]
+    [Theory(DisplayName = "依頼1〜3で追加したエラーコード（E705・E706・E709）の内容が期待どおり")]
     [InlineData(ErrorCode.E705, "フォント")]
     [InlineData(ErrorCode.E706, "利用できない")]
-    [InlineData(ErrorCode.E707, "ハイコントラスト")]
+    [InlineData(ErrorCode.E709, "ハイコントラスト")]
     public void 追加した3件のエラーコードの内容が期待どおり(ErrorCode code, string expectedSummaryFragment)
     {
         ErrorCatalog.SummaryOf(code).Should().Contain(expectedSummaryFragment);

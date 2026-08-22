@@ -10,7 +10,7 @@ using Xunit;
 namespace Graft.Tests;
 
 /// <summary>
-/// 依頼2（E706・トレイ常駐/自動起動が使えない環境の記録）・依頼3（E707・OSのハイコントラスト
+/// 依頼2（E706・トレイ常駐/自動起動が使えない環境の記録）・依頼3（E709・OSのハイコントラスト
 /// モード検出の記録）の単体テスト。<see cref="PlatformDiagnosticsLogging"/>はIPlatformService・
 /// GraftIssue・Loggerのみに依存しUIフレームワークに触れないため、実際の
 /// StartupCoordinator（Avalonia依存、tests/Graft.UiTests側の担当）を経由せず、
@@ -86,11 +86,11 @@ public class PlatformDiagnosticsLoggingTests
     }
 
     // ------------------------------------------------------------------
-    // 依頼3（E707）
+    // 依頼3（E709）
     // ------------------------------------------------------------------
 
-    [Fact(DisplayName = "ハイコントラストが有効(true)のときE707付きでログへ記録される")]
-    public async Task ハイコントラスト有効はE707付きで記録される()
+    [Fact(DisplayName = "ハイコントラストが有効(true)のときE709付きでログへ記録される")]
+    public async Task ハイコントラスト有効はE709付きで記録される()
     {
         var (appPaths, logger, ws) = CreateLogger();
         using var _ = ws;
@@ -100,7 +100,7 @@ public class PlatformDiagnosticsLoggingTests
         await logger.DisposeAsync().ConfigureAwait(true);
 
         var logText = await ReadLogTextAsync(appPaths).ConfigureAwait(true);
-        logText.Should().Contain("E707", "E707付きで記録される必要がある");
+        logText.Should().Contain("E709", "E709付きで記録される必要がある");
         logText.Should().Contain("ハイコントラスト", "検出した内容が分かる文言を含める必要がある");
     }
 

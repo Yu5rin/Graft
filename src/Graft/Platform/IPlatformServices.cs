@@ -180,7 +180,7 @@ public interface ISystemThemeWatcher : IPlatformService, IDisposable
     bool? TryReadIsLightTheme();
 
     /// <summary>
-    /// 依頼3（v2.1 仕様書9.3・17章E707）。OSのハイコントラストモードが有効かどうかを
+    /// 依頼3（v2.1 仕様書9.3・17章E709）。OSのハイコントラストモードが有効かどうかを
     /// 読み取り専用で参照する。Windowsは<c>SPI_GETHIGHCONTRAST</c>、Linuxは対応する
     /// デスクトップ設定（GNOMEの<c>org.gnome.desktop.a11y.interface high-contrast</c>）が
     /// あればそれに追従する。判定できない場合（対応する設定が無い環境・読み取りに失敗した場合）は
