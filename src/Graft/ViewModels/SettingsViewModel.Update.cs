@@ -31,12 +31,14 @@ public sealed partial class SettingsViewModel
     private IExternalLinkLauncher _externalLinks = null!;
     private UpdateChecker _updateChecker = null!;
     private UpdateInstallPipeline _updateInstallPipeline = null!;
+    private UpdateCheckStateStore _updateCheckStateStore = null!;
     private CancellationTokenSource? _updateDownloadCts;
 
     private bool _isUpdateBusy;
     private string? _updateStatusMessage;
     private double _updateProgressPercent;
     private bool _isUpdateDownloading;
+    private DateTimeOffset? _updateLastCheckedAt;
 
     /// <summary>
     /// 更新の再起動前に未保存の編集を確認するための差し替え口。<see cref="SettingsViewModel"/>は
@@ -62,6 +64,27 @@ public sealed partial class SettingsViewModel
     /// <summary>現在のバージョン表示。<see cref="Views.AboutView"/>と同じ取得方法（実行アセンブリのバージョン）。</summary>
     public string CurrentVersionText => Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "不明";
 
+    /// <summary>
+    /// 機能追加（v1.0.11・「起動時に更新チェックされているか分からない」への対応）:
+    /// 実際に通信して確認した直近の日時（<see cref="UpdateCheckState.LastCheckedAt"/>と同じ値。
+    /// 起動時チェック・手動確認いずれも含み、24時間未満のスキップや設定オフでのスキップでは
+    /// 更新されない）。一度も確認していなければnull。
+    /// </summary>
+    public DateTimeOffset? UpdateLastCheckedAt
+    {
+        get => _updateLastCheckedAt;
+        private set => SetProperty(ref _updateLastCheckedAt, value, () => OnPropertyChanged(nameof(UpdateLastCheckedText)));
+    }
+
+    /// <summary>
+    /// 「バージョン情報」タブに常時表示する「最終確認: yyyy/MM/dd HH:mm」文言（未確認なら
+    /// 「未確認」）。指示書どおり、確認したのに何も起きない（＝最新だった）のか、そもそも
+    /// 確認していないのかを利用者が区別できるようにするための表示。
+    /// </summary>
+    public string UpdateLastCheckedText => _updateLastCheckedAt is { } at
+        ? $"最終確認: {at.LocalDateTime:yyyy/MM/dd HH:mm}"
+        : "最終確認: 未確認";
+
     private void InitializeUpdateFeature(
         AppPaths appPaths, IExternalLinkLauncher? externalLinks,
         IReleaseFeed? releaseFeed, IUpdateDownloader? updateDownloader)
@@ -69,7 +92,11 @@ public sealed partial class SettingsViewModel
         _externalLinks = externalLinks ?? new NullExternalLinkLauncher();
         _releaseFeed = releaseFeed ?? new GitHubReleaseFeed();
         _updateDownloader = updateDownloader ?? new HttpUpdateDownloader();
-        _updateChecker = new UpdateChecker(_releaseFeed, new UpdateCheckStateStore(appPaths));
+        // UpdateLastCheckedTextの初期表示（RefreshUpdateLastCheckedAsync）用に、UpdateChecker内部と
+        // 同じupdate-check.jsonを読むストアをここでも保持する（UpdateChecker自身は状態を
+        // 外部へ公開しないため）。書き込みはUpdateChecker側だけが行い、ここでは読み込み専用。
+        _updateCheckStateStore = new UpdateCheckStateStore(appPaths);
+        _updateChecker = new UpdateChecker(_releaseFeed, _updateCheckStateStore);
         _updateInstallPipeline = new UpdateInstallPipeline(_updateDownloader);
 
         CheckForUpdateNowCommand = new AsyncRelayCommand(
@@ -82,15 +109,28 @@ public sealed partial class SettingsViewModel
     /// fire-and-forgetで呼ばれる（要件: 通信は非同期で行い起動をブロックしないこと）。
     /// 設定がオフ、または前回確認から24時間未満なら通信自体を行わない
     /// （<see cref="UpdateChecker.CheckOnStartupAsync"/>参照）。
+    ///
+    /// 機能追加（v1.0.11・「起動時に更新チェックされているか分からない」への対応）: 設定オフで
+    /// 通信そのものを行わなかった場合も、ここでその旨をログへ残す（<see
+    /// cref="CheckForUpdateAsync"/>側は実際に<see cref="_updateChecker"/>を呼んだ場合しか
+    /// ログを残せないため、この早期returnの分だけここで個別に記録する）。
     /// </summary>
     public async Task CheckForUpdateOnStartupIfDueAsync()
     {
-        if (!_updateCheckOnStartup) return;
+        if (!_updateCheckOnStartup)
+        {
+            Logger?.Info("update", "起動時の更新確認: 「起動時に更新を確認する」設定がオフのためスキップしました。");
+            return;
+        }
+
         await CheckForUpdateAsync(isManual: false).ConfigureAwait(true);
     }
 
     private async Task CheckForUpdateAsync(bool isManual)
     {
+        // ログ文言・UpdateStatusMessageの両方で使う「どちらの経路からの確認か」の表示名。
+        var trigger = isManual ? "手動の更新確認（今すぐ更新を確認）" : "起動時の更新確認";
+
         IsUpdateBusy = true;
         UpdateStatusMessage = "更新を確認しています…";
         try
@@ -100,6 +140,13 @@ public sealed partial class SettingsViewModel
                 ? await _updateChecker.CheckNowAsync(_updateCheckUrl, CurrentVersionText, userAgent, CancellationToken.None).ConfigureAwait(true)
                 : await _updateChecker.CheckOnStartupAsync(_updateCheckUrl, CurrentVersionText, userAgent, CancellationToken.None).ConfigureAwait(true);
 
+            // 機能追加（v1.0.11）: 「バージョン情報」タブの「最終確認」表示を、実際に
+            // update-check.jsonへ書き込まれた値（NotDueなら前回のまま、それ以外は今回の日時）に
+            // 同期させる。UpdateChecker.CheckNowAsyncは通信の成否に関わらずLastCheckedAtを
+            // 先に更新する契約（そのクラスのコメント参照）のため、Failedでも「確認しようとした」
+            // 事実がここに反映される。
+            await RefreshUpdateLastCheckedAsync().ConfigureAwait(true);
+
             switch (result.Status)
             {
                 case UpdateCheckStatus.NotDue:
@@ -108,18 +155,22 @@ public sealed partial class SettingsViewModel
                     // 重複するため、ここでは何も表示しない（起動のたびに確認したわけではない
                     // ことを、わざわざ文言で伝える必要は無い）。
                     UpdateStatusMessage = null;
+                    Logger?.Info("update", $"{trigger}: 前回の確認から24時間未満のためスキップしました。");
                     break;
                 case UpdateCheckStatus.Failed:
                     // 要件: 通信の失敗は握りつぶして「確認できなかった」で済ませ、起動を妨げない。
                     // 手動確認時は押した本人が状況を知りたいはずなので、理由を画面に残す。
                     // 起動時の自動確認での失敗は（NotDueと同じ理由で）何も表示しない。
                     UpdateStatusMessage = isManual ? result.ErrorMessage : null;
+                    Logger?.Warn("update", $"{trigger}: 通信に失敗しました（{result.ErrorMessage}）。");
                     break;
                 case UpdateCheckStatus.UpToDate:
                     UpdateStatusMessage = $"最新版です（現在のバージョン: {CurrentVersionText}）。";
+                    Logger?.Info("update", $"{trigger}: 確認しました。最新版です（現在: {CurrentVersionText}）。");
                     break;
                 case UpdateCheckStatus.UpdateAvailable:
                     UpdateStatusMessage = $"新しいバージョン {result.Release!.TagName} が利用可能です（現在: {CurrentVersionText}）。";
+                    Logger?.Info("update", $"{trigger}: 確認しました。新しいバージョンが見つかりました（{result.Release!.TagName}、現在: {CurrentVersionText}）。");
                     await OfferUpdateAsync(result.Release!).ConfigureAwait(true);
                     break;
             }
@@ -274,6 +325,18 @@ public sealed partial class SettingsViewModel
 
     /// <summary>ダウンロード中の「中断」ボタン用。</summary>
     public void CancelUpdateDownload() => _updateDownloadCts?.Cancel();
+
+    /// <summary>
+    /// 機能追加（v1.0.11）: update-check.jsonから<see cref="UpdateCheckState.LastCheckedAt"/>を
+    /// 読み直し、<see cref="UpdateLastCheckedAt"/>（ひいては<see cref="UpdateLastCheckedText"/>）へ
+    /// 反映する。<see cref="SettingsViewModel.InitializeAsync"/>（画面を開いた直後の初期表示）と
+    /// <see cref="CheckForUpdateAsync"/>（確認のたびの更新）の両方から呼ばれる。
+    /// </summary>
+    private async Task RefreshUpdateLastCheckedAsync(CancellationToken ct = default)
+    {
+        var state = await _updateCheckStateStore.LoadAsync(ct).ConfigureAwait(true);
+        UpdateLastCheckedAt = state.LastCheckedAt;
+    }
 
     private static string DescribeInstallFailure(UpdateInstallResult result) => result.Status switch
     {
