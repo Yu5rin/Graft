@@ -94,23 +94,48 @@ public sealed partial class StartupCoordinator
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 不具合調査（利用者報告「使い方を学ぶ終了後にProjectが消える」）で判明した、書き込みの
+    /// 競合を避けるための実装。
+    ///
+    /// 【以前の実装の問題】以前はここで全プロジェクトの補正結果をまとめてリストへ組み立て、
+    /// 1件でも補正が必要なら<see cref="ProjectStore.SaveAsync"/>でリスト全体を1回だけ書き戻して
+    /// いた。しかしそのリストの元（引数<paramref name="projects"/>）は、このメソッドの呼び出しより
+    /// 前——具体的には<see cref="RunStartupValidationAsync"/>の冒頭、起動直後——に読み込んだ
+    /// スナップショットである。この起動時検証はback/配下の実体走査を伴うため数百ms〜数秒かかる
+    /// ことがあり（クラスコメント参照）、その完了を待たずに画面上のチュートリアル
+    /// （<c>Graft.Views.ShellWindow</c>のShellWindow.Tutorial.cs）がサンプルプロジェクトの
+    /// 登録・適用・削除を並行して行うと、リスト全体の書き戻しがそれらの結果を古いスナップショットで
+    /// 上書きしてしまう（サンプルが復活して残り続ける、または直前に登録された実プロジェクトが
+    /// 消える、といった実害につながりうる）。
+    ///
+    /// 【対応】1件でも補正が必要な場合、そのプロジェクト単体だけを<see cref="ProjectStore.
+    /// UpdateAsync"/>で更新する。<see cref="ProjectStore.UpdateAsync"/>は書き込みの直前に
+    /// 自前で<see cref="ProjectStore.LoadAsync"/>し直してから該当IDのプロジェクトだけを書き換えて
+    /// 保存するため、「読んでから書くまでの隙間」が1回のUpdateAsync呼び出し分（ミリ秒オーダー）まで
+    /// 縮まり、他の操作の結果を巻き戻す実害を無くせる。対象プロジェクトが既に削除されている場合
+    /// （並行してチュートリアルのサンプルが片付けられた等）はUpdateAsyncが失敗を返すだけで、
+    /// 例外にはならない（補正の必要も無くなっているため無視してよい）。
+    /// </summary>
     private static async Task<IReadOnlyList<Project>> ReconcileRevisionsAsync(
         ProjectStore projectStore, RevisionStore revisionStore, IReadOnlyList<Project> projects)
     {
         var updated = new List<Project>(projects.Count);
-        var changed = false;
         foreach (var project in projects)
         {
             var maxRevision = await revisionStore.DetectMaxRevisionAsync(project.Id).ConfigureAwait(false);
             var reconciled = maxRevision.IsSuccess ? ProjectStore.ReconcileRevision(project, maxRevision.Value) : project;
-            changed |= reconciled.NextRevision != project.NextRevision;
             updated.Add(reconciled);
+
+            if (reconciled.NextRevision != project.NextRevision)
+            {
+                var targetRevision = reconciled.NextRevision;
+                await projectStore
+                    .UpdateAsync(project.Id, p => p with { NextRevision = targetRevision })
+                    .ConfigureAwait(false);
+            }
         }
 
-        if (changed)
-        {
-            await projectStore.SaveAsync(updated).ConfigureAwait(false);
-        }
         return updated;
     }
 
