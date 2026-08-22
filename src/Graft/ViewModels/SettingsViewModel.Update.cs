@@ -103,14 +103,16 @@ public sealed partial class SettingsViewModel
             switch (result.Status)
             {
                 case UpdateCheckStatus.NotDue:
-                    UpdateStatusMessage = $"現在のバージョン: {CurrentVersionText}";
+                    // 常時表示の「現在のバージョン」欄（CurrentVersionText）と重複するため、
+                    // ここでは何も表示しない（起動のたびに確認したわけではないことを、
+                    // わざわざ文言で伝える必要は無い）。
+                    UpdateStatusMessage = null;
                     break;
                 case UpdateCheckStatus.Failed:
                     // 要件: 通信の失敗は握りつぶして「確認できなかった」で済ませ、起動を妨げない。
                     // 手動確認時は押した本人が状況を知りたいはずなので、理由を画面に残す。
-                    UpdateStatusMessage = isManual
-                        ? result.ErrorMessage
-                        : $"現在のバージョン: {CurrentVersionText}";
+                    // 起動時の自動確認での失敗は（NotDueと同じ理由で）何も表示しない。
+                    UpdateStatusMessage = isManual ? result.ErrorMessage : null;
                     break;
                 case UpdateCheckStatus.UpToDate:
                     UpdateStatusMessage = $"最新版です（現在のバージョン: {CurrentVersionText}）。";
