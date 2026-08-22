@@ -44,7 +44,13 @@ public sealed class UpdateInstallPipeline
     }
 
     /// <param name="asset">Windows版配布物ZIPのアセット情報（<see cref="GitHubReleaseInfo.FindAssetByNameSuffix"/>）。</param>
-    /// <param name="installDirectory">Graft.exeが実際に置かれているフォルダ。</param>
+    /// <param name="installDirectory">
+    /// Graft.exeが実際に置かれているフォルダ。
+    /// 【注意】<see cref="Infra.AppPaths.BaseDirectory"/>（settings.json等の"データ保存先"。
+    /// ポインタファイルがあれば%APPDATA%\Graftを指す）とは別物。混同すると「データ保存先を
+    /// ユーザーフォルダへ移動」した環境で自動更新が必ず失敗する不具合を招く
+    /// （詳しくは<see cref="Infra.AppRestart.TryResolveExecutableDirectory"/>のXMLコメント参照）。
+    /// </param>
     /// <param name="workDirectory">
     /// ダウンロード先・展開先として使う専用の一時フォルダ（呼び出し側が用意する。
     /// <paramref name="installDirectory"/>とは別の場所にすること。settings.json等の利用者データが

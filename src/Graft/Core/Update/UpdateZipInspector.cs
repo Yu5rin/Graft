@@ -9,8 +9,11 @@ namespace Graft.Core.Update;
 /// 設定・プロジェクト一覧・バックアップ・履歴を巻き込みうる。想定外のファイルが1つでも
 /// 含まれていたら、1バイトも書き出さずに中止する（<see cref="Validate"/>は展開を一切行わない
 /// 読み取り専用の検査だけを行い、実際の書き出しは検証に通った後の<see cref="ExtractTo"/>でのみ
-/// 行う2段構え）。展開先も、実際のインストール先（settings.json等がある<see
-/// cref="Infra.AppPaths.BaseDirectory"/>）ではなく専用の一時フォルダに限定し、
+/// 行う2段構え）。展開先も、実際のインストール先（Graft.exeが置かれているフォルダ。
+/// 【注意】settings.json等の"データ保存先"である<see cref="Infra.AppPaths.BaseDirectory"/>とは
+/// 別物であり、混同すると「データ保存先をユーザーフォルダへ移動」した環境で自動更新が
+/// 必ず失敗する不具合を招く。詳しくは<see cref="Infra.AppRestart.TryResolveExecutableDirectory"/>の
+/// XMLコメント参照）ではなく専用の一時フォルダに限定し、
 /// <see cref="SelfUpdateInstaller"/>がそこから必要な6ファイルだけを個別にコピーする。
 /// </summary>
 public static class UpdateZipInspector
