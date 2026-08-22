@@ -179,6 +179,17 @@ public interface ISystemThemeWatcher : IPlatformService, IDisposable
     /// </summary>
     bool? TryReadIsLightTheme();
 
+    /// <summary>
+    /// 依頼3（v2.1 仕様書9.3・17章E707）。OSのハイコントラストモードが有効かどうかを
+    /// 読み取り専用で参照する。Windowsは<c>SPI_GETHIGHCONTRAST</c>、Linuxは対応する
+    /// デスクトップ設定（GNOMEの<c>org.gnome.desktop.a11y.interface high-contrast</c>）が
+    /// あればそれに追従する。判定できない場合（対応する設定が無い環境・読み取りに失敗した場合）は
+    /// nullを返す。9.3のとおりGraft自身の配色トークンはこの結果によって切り替えない
+    /// （プラットフォームで色を変えない方針）。あくまで検出結果を診断ログへ残すための情報として
+    /// 呼び出し側（Themes.ThemeManager・Platform.PlatformDiagnosticsLogging）が使う。
+    /// </summary>
+    bool? TryReadIsHighContrast();
+
     /// <summary>システムのテーマ設定が変化した可能性があるときに発火する。</summary>
     event EventHandler? Changed;
 

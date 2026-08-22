@@ -19,6 +19,9 @@ public sealed class NullSystemThemeWatcher : ISystemThemeWatcher
 
     public bool? TryReadIsLightTheme() => null;
 
+    /// <summary>依頼3。判定手段を持たないため常にnull（判定不能）を返す。</summary>
+    public bool? TryReadIsHighContrast() => null;
+
     public void StartWatching()
     {
         // 何もしない。

@@ -48,10 +48,12 @@ public enum AppTheme
 ///   何もしない <see cref="NullSystemThemeWatcher"/> が使われる。判定できない場合は
 ///   ダークへフォールバックする（<see cref="ISystemThemeWatcher.TryReadIsLightTheme"/>
 ///   のドキュメントどおり）。
-/// - ハイコントラストモードへのフォールバック（v2.0のWPF版の<c>BuildHighContrastDictionary</c>）
-///   は持たない。<see cref="ISystemThemeWatcher"/> にハイコントラストの概念がなく、
-///   検出手段が確立していないため（L4以降、Windows/Linux実装が追加された時点で
-///   必要なら拡張する）。
+/// - ハイコントラストモードへの配色フォールバック（v2.0のWPF版の<c>BuildHighContrastDictionary</c>、
+///   専用の配色辞書への切り替え）は持たない。9.3の方針（プラットフォームで色を変えない）に
+///   合わせ、検出はする（<see cref="IsHighContrastActive"/>・<see cref="
+///   ISystemThemeWatcher.TryReadIsHighContrast"/>）が、それを理由にテーマ辞書を切り替えることは
+///   しない。検出結果はログ記録（<see cref="Platform.PlatformDiagnosticsLogging.
+///   LogHighContrastIfDetected"/>）にのみ使う。
 /// - テーマ切り替え時のクロスフェード演出（v2.0のWPF版の<c>AnimateSwap</c>、
 ///   <c>RenderTargetBitmap</c>によるスナップショット合成）は持たない。即時反映という
 ///   要件（9.3・附録A）は満たすが、演出の移植はUIツリーが揃うフェーズL3以降で
@@ -96,6 +98,18 @@ public static class ThemeManager
     /// </summary>
     public static bool IsDarkResolved { get; private set; } = true;
 
+    /// <summary>
+    /// 依頼3（v2.1 仕様書9.3・17章E707）。OSのハイコントラストモードが有効かどうか。
+    /// 判定できない環境（<see cref="NullSystemThemeWatcher"/>・対応するデスクトップ設定を
+    /// 持たないLinux環境等）ではnull。<see cref="Initialize"/>で起動時に1回、以降は
+    /// <see cref="ISystemThemeWatcher.Changed"/>（OS設定変更の通知）のたびに更新する。
+    /// <see cref="SetTheme"/>（Graft側のテーマ選択）では更新しない: ハイコントラストは
+    /// Graftのテーマ選択とは独立したOS側の状態であり、Graftのテーマ切り替えのたびに
+    /// 外部コマンド（Linuxのgsettings）を呼び直す必要はないため
+    /// （<see cref="RefreshHighContrastState"/>参照）。
+    /// </summary>
+    public static bool? IsHighContrastActive { get; private set; }
+
     /// <summary>テーマ辞書が差し替わるたびに発火する。</summary>
     public static event EventHandler? ThemeChanged;
 
@@ -123,6 +137,11 @@ public static class ThemeManager
                 _themeWatcher.StartWatching();
                 _watcherAttached = true;
             }
+
+            // 依頼3（E707）: 起動時に1回だけ読み取っておく。以降はOS側の設定変更通知
+            // （Changed）のたびにHandleSystemThemeChangedOnUiThreadで更新する
+            // （IsHighContrastActiveのXMLコメント参照）。
+            RefreshHighContrastState();
         }
 
         ApplyResolvedTheme();
@@ -198,23 +217,44 @@ public static class ThemeManager
 
     private static void OnSystemThemeChanged(object? sender, EventArgs e)
     {
-        if (_selectedTheme != AppTheme.System)
-        {
-            // システム追従を選んでいない間はシステム設定の変化を無視する（v2.0のWPF版と同じ方針）。
-            return;
-        }
-
         // _uiDispatcherはInitializeで必ず先に捕捉済み（このハンドラは_watcherAttachedが
         // trueのとき、つまりInitializeが実行済みのときしか購読されない）。
+        // ハイコントラストの再読み取り（RefreshHighContrastState）はGraft側のテーマ選択
+        // （_selectedTheme）とは無関係のOS状態のため、System追従を選んでいない場合でも
+        // 行う必要がある。IsHighContrastActiveへの書き込みをUIスレッドへ揃えるため
+        // （静的プロパティへ別スレッドから書くと、他のUIスレッド側の読み取りと競合しうる）、
+        // ApplyResolvedThemeの要否判定ごとディスパッチしてまとめて処理する。
         var ui = _uiDispatcher;
         if (ui is null || ui.CheckAccess())
         {
-            ApplyResolvedTheme();
+            HandleSystemThemeChangedOnUiThread();
         }
         else
         {
-            ui.Post(ApplyResolvedTheme);
+            ui.Post(HandleSystemThemeChangedOnUiThread);
         }
+    }
+
+    private static void HandleSystemThemeChangedOnUiThread()
+    {
+        RefreshHighContrastState();
+
+        if (_selectedTheme != AppTheme.System)
+        {
+            // システム追従を選んでいない間はテーマ辞書の変化を無視する（v2.0のWPF版と同じ方針）。
+            return;
+        }
+
+        ApplyResolvedTheme();
+    }
+
+    /// <summary>
+    /// 依頼3（E707）。<see cref="IsHighContrastActive"/>を今の<see cref="ISystemThemeWatcher"/>から
+    /// 読み直す。呼び出しは必ずUIスレッドから行うこと（IsHighContrastActiveのXMLコメント参照）。
+    /// </summary>
+    private static void RefreshHighContrastState()
+    {
+        IsHighContrastActive = _themeWatcher.TryReadIsHighContrast();
     }
 
     private static void ApplyResolvedTheme()
