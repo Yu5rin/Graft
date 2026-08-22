@@ -184,7 +184,21 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 配布物ファイルの.old版のみで、settings.json等の利用者データには一切触れない。
         // 削除に失敗しても起動は継続する（次回起動時に再試行される）ため、ここも他の
         // 起動時後始末と同じくLogger生成直後・軽量な同期処理として行う。
-        var removedOldFiles = Core.Update.PendingUpdateCleanup.Run(_appPaths.BaseDirectory);
+        //
+        // 【不具合修正（v1.0.11・実機報告「フォルダの中が.oldで溢れる」）】以前はここで
+        // _appPaths.BaseDirectory（settings.json等の"データ保存先"）を渡していたが、.oldは
+        // 実行ファイルの隣（Core.Update.SelfUpdateInstallerがGraft.exe等をリネームする場所）に
+        // できる。「設定画面からデータ保存先をユーザーフォルダへ移動」した環境ではこの2つが
+        // 食い違い、.oldが永久に掃除されない不具合を引き起こしていた。これはPR #41で修正した
+        // 自動更新のインストール先の取り違え（Infra.AppRestart.TryResolveExecutableDirectoryの
+        // XMLコメント参照）と全く同じ種類の誤りで、この呼び出し箇所だけがPR #41の修正から
+        // 漏れていた。SettingsViewModel.Update.csのRunUpdateAsyncと同じ解決経路
+        // （AppRestart.TryResolveExecutableDirectory）に必ず揃える。
+        // 万一実行ファイルの場所を解決できなければ（Environment.ProcessPathが取得できない
+        // 異常時のみ）、_exeDirectory（本番ではAppContext.BaseDirectoryと一致する。コンストラクタの
+        // コメント参照）へ安全側でフォールバックする。
+        var oldFileCleanupDirectory = Infra.AppRestart.TryResolveExecutableDirectory() ?? _exeDirectory;
+        var removedOldFiles = Core.Update.PendingUpdateCleanup.Run(oldFileCleanupDirectory);
         if (removedOldFiles.Count > 0)
         {
             _logger.Info("update", $"前回の更新で残っていた退避ファイルを削除しました: {string.Join(", ", removedOldFiles)}");
@@ -254,6 +268,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // _exeDirectoryも渡す（SettingsViewModel.DataDirectory.cs参照）。
         _settingsViewModel = new SettingsViewModel(
             _appPaths, dialogService, _ui, ApplyLiveSettingsChange, _exeDirectory, externalLinks: _platform.ExternalLinks);
+        // 機能追加（v1.0.11・起動時の更新確認の可観測性）: 起動時・手動いずれの更新確認の結果も
+        // logs/<日付>.logへ記録できるよう、他の常駐ViewModel（mainViewModel.Logger等、下記参照）と
+        // 同じ作法でロガーを渡す。InitializeAsync（RefreshUpdateLastCheckedAsyncを含む）より
+        // 前に設定しておく。
+        _settingsViewModel.Logger = _logger;
         await _settingsViewModel.InitializeAsync().ConfigureAwait(true);
 
         // 機能追加（自動更新）: 「更新の準備ができました」ダイアログの「今すぐ再起動」から

@@ -223,6 +223,16 @@ public sealed partial class SettingsViewModel : ObservableObject
         ShowLatestLogCommand = new AsyncRelayCommand(ShowLatestLogAsync, context: "最新のログの表示");
     }
 
+    /// <summary>
+    /// 機能追加（v1.0.11・起動時の更新確認の可観測性）: 起動時・手動いずれの更新確認も
+    /// logs/&lt;日付&gt;.logへ記録できるよう、他のViewModel（MainViewModel.Logger・
+    /// HistoryPaneViewModel.Logger等）と同じ「生成後にnullableプロパティで渡す」作法に揃える。
+    /// コンストラクタで渡せないのは、<see cref="Views.StartupCoordinator.StartAsync"/>内で
+    /// このViewModelがLogger生成（<c>InitializeDataDirectoryAsync</c>）の後に作られるためで、
+    /// 未設定（null）の間はSettingsViewModel単体のテスト・利用を妨げないよう記録自体を省略する。
+    /// </summary>
+    public Logger? Logger { get; set; }
+
     public PromptTemplateViewModel Templates { get; }
     public TokenStatisticsViewModel TokenStats { get; }
     public HookSettingsViewModel Hooks { get; }
@@ -532,6 +542,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         await Templates.InitializeAsync(ct).ConfigureAwait(true);
         await TokenStats.LoadProjectsAsync(ct).ConfigureAwait(true);
         await Hooks.InitializeAsync(ct).ConfigureAwait(true);
+        // 機能追加（v1.0.11）: 「バージョン情報」タブの「最終確認」表示の初期値。
+        // まだ一度もこのプロセスで確認していなくても、過去の起動で確認済みならその日時を
+        // 表示できるよう、update-check.jsonから読み直す（SettingsViewModel.Update.cs参照）。
+        await RefreshUpdateLastCheckedAsync(ct).ConfigureAwait(true);
     }
 
     /// <summary>
