@@ -60,7 +60,13 @@ public sealed class PathGuard
         ArgumentNullException.ThrowIfNull(projectRoot);
         ArgumentNullException.ThrowIfNull(options);
 
-        var normalizedRoot = NormalizeTrailingSeparator(Path.GetFullPath(projectRoot));
+        // v1.0.7実機不具合対応: projectRootは呼び出し元（MainViewModel等）がprojects.jsonから
+        // 読み込んだProject.Rootをそのまま渡す経路が複数あり、ProjectStore側の防御
+        // （RegisterAsync/RelocateAsync/LoadAsync）を経由しないまま渡される可能性がある。
+        // ここでも同じ復元をかけておくことで、万一拡張表記や化けたUNC表記のRootが渡っても
+        // カレントディレクトリ基準の誤った絶対パスへ解決してしまうことを防ぐ（LongPath.cs参照）。
+        var recoveredRoot = LongPath.RecoverProjectRoot(projectRoot);
+        var normalizedRoot = NormalizeTrailingSeparator(Path.GetFullPath(recoveredRoot));
         _root = NormalizeTrailingSeparator(ResolveRealPath(normalizedRoot));
         _options = options;
     }

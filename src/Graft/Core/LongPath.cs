@@ -106,6 +106,79 @@ public static class LongPath
     }
 
     /// <summary>
+    /// <see cref="Extended(string)"/>の逆変換。拡張表記（<c>\\?\</c>・<c>\\?\UNC\</c>）を
+    /// 対応する通常表記へ戻す。既に通常表記（プレフィックス無し）ならそのまま返す（冪等）。
+    /// <para>
+    /// 用途: プロジェクトルート（<see cref="Graft.Features.Project.Root"/>）のように永続化・
+    /// 保持する値へ、誤って拡張表記が紛れ込んでいた場合の防御に使う。クラスコメントの設計方針
+    /// どおり、拡張表記はファイルAPI呼び出しの直前だけで使うべきで、永続化してはならない。
+    /// </para>
+    /// </summary>
+    public static string StripExtendedPrefix(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return path;
+
+        const string extendedUncPrefix = @"\\?\UNC\";
+        if (path.StartsWith(extendedUncPrefix, StringComparison.Ordinal))
+        {
+            return @"\\" + path[extendedUncPrefix.Length..];
+        }
+
+        const string extendedPrefix = @"\\?\";
+        if (path.StartsWith(extendedPrefix, StringComparison.Ordinal))
+        {
+            return path[extendedPrefix.Length..];
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// v1.0.7 実機不具合対応: プロジェクトルートとして永続化・使用する文字列を防御的に正規化する。
+    /// 詳しい経緯（発生経路は未確定なことも含む）は本クラスのコメントと変更履歴1.0.7を参照。
+    /// <para>
+    /// 1. <see cref="StripExtendedPrefix"/>で拡張表記を通常表記へ戻す。
+    /// </para>
+    /// <para>
+    /// 2. それでも絶対パスに見えない場合、"UNC\"・"UNC/"で始まっていれば、拡張UNC表記
+    /// <c>\\?\UNC\server\share\...</c> の先頭4文字（<c>\\?\</c>）だけが何らかの理由で失われ、
+    /// <c>UNC\server\share\...</c> という一見相対パスに見える文字列になってしまった既存データと
+    /// みなし、先頭に<c>\\</c>を補って通常のUNC表記（<c>\\server\share\...</c>）へ復元する。
+    /// 実際に報告された実機不具合（v1.0.6）のプロジェクトルートが、まさにこの形（先頭の
+    /// <c>\\?\</c>が失われ、カレントディレクトリ基準の相対パスとして誤って解決されていた）と
+    /// 一致していたための対応。「"UNC\"で始まり、かつ絶対パスに見えない」という条件に一致する
+    /// 場合のみ復元するため、通常の絶対パス（ローカル・UNCどちらも）には一切影響しない。
+    /// </para>
+    /// </summary>
+    public static string RecoverProjectRoot(string root)
+    {
+        if (string.IsNullOrEmpty(root)) return root;
+
+        var stripped = StripExtendedPrefix(root);
+        if (LooksAbsolute(stripped)) return stripped;
+
+        if (stripped.StartsWith(@"UNC\", StringComparison.Ordinal) ||
+            stripped.StartsWith("UNC/", StringComparison.Ordinal))
+        {
+            return @"\\" + stripped[4..];
+        }
+
+        return stripped;
+    }
+
+    /// <summary>
+    /// 先頭が '/' '\' またはドライブレター（"C:"等）かどうかで、OSを問わず絶対パスらしさを
+    /// 判定する（<see cref="PathGuard"/>の同名の判定と同じ基準。純粋な文字列判定のためテストは
+    /// 実行環境のOSに関わらず成り立つ）。
+    /// </summary>
+    private static bool LooksAbsolute(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        if (path[0] is '/' or '\\') return true;
+        return path.Length >= 2 && char.IsAsciiLetter(path[0]) && path[1] == ':';
+    }
+
+    /// <summary>
     /// パスがネットワークドライブ・UNC共有・主要なクラウド同期フォルダ配下かどうかを判定する。
     /// File.Replace が失敗しやすい環境の事前検知に用いる。
     /// </summary>
