@@ -15,10 +15,45 @@
   - IsMouseOver/IsSelectedのTriggerは :pointerover / :selected 疑似クラスへ。
   - StrokeStartLineCap/StrokeEndLineCap は StrokeLineCap 1つに、StrokeLineJoin は
     StrokeJoin という名前になる（値は変えていない）。
+
+  【折りたたみマーカーの＋－が■に潰れて見える件（実機・Windows）】
+  原因を逆コンパイル（ilspycmd）で特定した。AvaloniaEdit 11.1.0が配る
+  AvaloniaEdit.dllには、App.axamlが読み込む
+  <c>avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml</c>の実体（既定の
+  ControlTheme一式）が実際には1件も同梱されていない（dllの内蔵リソース索引
+  "!AvaloniaResources"のClassToResourcePathIndexを直接ダンプして確認した。要素数0件）。
+  そのため上の<c>ControlTheme x:Key="{x:Type ae:TextEditor}"</c>の
+  <c>BasedOn="{StaticResource {x:Type ae:TextEditor}}"</c>は解決先が存在せず
+  実質nullとなり、AvaloniaEdit側が本来この既定テーマで塗るはずだった
+  <c>FoldingMargin.FoldingMarkerBrush</c>/<c>FoldingMarkerBackgroundBrush</c>/
+  <c>SelectedFoldingMarkerBrush</c>/<c>SelectedFoldingMarkerBackgroundBrush</c>
+  （いずれも継承される添付プロパティ、既定値はAvaloniaEdit側のC#コードで
+  Gray/White/Black/Whiteに固定されている。逆コンパイルした
+  <c>FoldingMargin</c>の静的コンストラクタで確認済み）がGraftのどのテーマ
+  トークンにも一切追従しない。結果、9テーマすべてで「白地に灰色の枠と＋－」
+  という固定色のまま描かれ続け、周囲の背景色との組み合わせによっては
+  ＋－の細い線がほぼ潰れて見える（■化）。
+  対処: 下のSetterで4つの添付プロパティをテーマトークンへ明示的に束縛する。
+  いずれも継承プロパティなので、TextEditor（マージンの祖先）へSetValueすれば
+  そのままFoldingMargin・FoldingMarginMarker（いずれもinternal sealedで
+  直接は触れない）まで伝播する（同じ考え方はMarkerOnlyFoldingMargin.csの
+  コンストラクタでCursorをArrowへ上書きしている箇所と同一。あちらのクラス
+  コメント「実機での指摘2」参照）。
+    - 塗り: BgElevated（本文の背景BgBaseよりわずかに明暗差がある「浮いた面」用
+      トークン。マーカーの■自体を背景から分離して見せる）
+    - 枠・＋－: TextPrimary（9テーマ全件でBgElevatedとのコントラスト比を
+      WCAG相対輝度計算で検算済み。最も低いSolarizedDarkでも4.86:1、他は
+      7:1以上あり、いずれもWCAG AA(4.5:1)を満たす。中間色のTextSecondaryだと
+      SolarizedLightで3.64:1・Nightで3.79:1しかなく基準未達のため採らなかった）
+    - ホバー/選択中の塗り: BgHover（他のホバー表現と統一）。枠・＋－は
+      ホバーでも読みやすさを最優先しTextPrimaryのまま据え置く（Accentへ
+      変える案も検討したが、Accent対BgHoverのコントラストがSepiaで2.92:1・
+      SolarizedLightで2.96:1などWCAG AA未達のテーマがあり不採用）。
 -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                      xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+                     xmlns:folding="clr-namespace:AvaloniaEdit.Folding;assembly=AvaloniaEdit"
                      xmlns:views="clr-namespace:Graft.Views">
 
     <!-- ========== AvaloniaEdit TextEditor 本体 ========== -->
@@ -30,6 +65,12 @@
         <Setter Property="LineNumbersForeground" Value="{DynamicResource TextDisabled}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="4" />
+
+        <!-- 折りたたみマーカーの＋－（クラスコメント参照）。 -->
+        <Setter Property="folding:FoldingMargin.FoldingMarkerBrush" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="folding:FoldingMargin.FoldingMarkerBackgroundBrush" Value="{DynamicResource BgElevated}" />
+        <Setter Property="folding:FoldingMargin.SelectedFoldingMarkerBrush" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="folding:FoldingMargin.SelectedFoldingMarkerBackgroundBrush" Value="{DynamicResource BgHover}" />
     </ControlTheme>
 
     <!--
