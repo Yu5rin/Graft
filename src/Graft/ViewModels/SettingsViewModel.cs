@@ -134,6 +134,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _minimizeToTray;
     private readonly Action<Settings>? _onLiveSettingsChanged;
 
+    // 機能追加（自動更新）。設定本体（settings.json）に持たせるのはこの2項目のみで、
+    // 実際の更新確認・ダウンロード・インストールの状態はSettingsViewModel.Update.cs
+    // （分割ファイル）が持つ非永続プロパティ側で扱う。上の2項目と同じ即時反映方式。
+    private bool _updateCheckOnStartup = true;
+    private string _updateCheckUrl = new UpdateSettings().CheckUrl;
+
     /// <param name="appPaths">現在のデータ保存先。</param>
     /// <param name="dialogService">確認・通知ダイアログ。</param>
     /// <param name="ui">クリップボード等のUI機能。</param>
@@ -152,10 +158,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// テストからフェイクへ差し替えられるようにするための引数
     /// （<see cref="IFontCatalog"/>のクラスドキュメント参照）。
     /// </param>
+    /// <param name="externalLinks">
+    /// 機能追加（自動更新）: 書き込み権限が無い場合の案内でリリースページを開くのに使う。
+    /// 省略時は<see cref="Platform.Null.NullExternalLinkLauncher"/>（何もしない）。
+    /// </param>
+    /// <param name="releaseFeed">
+    /// 機能追加（自動更新）: GitHub Releases APIとの通信手段。省略時は実通信を行う
+    /// <see cref="Core.Update.GitHubReleaseFeed"/>。テストからフェイクへ差し替える。
+    /// </param>
+    /// <param name="updateDownloader">
+    /// 機能追加（自動更新）: 配布物ZIPのダウンロード手段。省略時は実通信を行う
+    /// <see cref="Core.Update.HttpUpdateDownloader"/>。テストからフェイクへ差し替える。
+    /// </param>
     public SettingsViewModel(
         AppPaths appPaths, IDialogService dialogService, IUiServices ui,
         Action<Settings>? onLiveSettingsChanged = null, string? exeDirectory = null,
-        IFontCatalog? fontCatalog = null)
+        IFontCatalog? fontCatalog = null, IExternalLinkLauncher? externalLinks = null,
+        Core.Update.IReleaseFeed? releaseFeed = null, Core.Update.IUpdateDownloader? updateDownloader = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         ArgumentNullException.ThrowIfNull(ui);
@@ -170,6 +189,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _fontCatalog = fontCatalog ?? new SystemFontCatalog();
         _settingsStore = new SettingsStore(appPaths);
         var projectStore = new ProjectStore(appPaths);
+
+        InitializeUpdateFeature(appPaths, externalLinks, releaseFeed, updateDownloader);
 
         Templates = new PromptTemplateViewModel(appPaths, projectStore, dialogService, _settings, ui);
         TokenStats = new TokenStatisticsViewModel(appPaths, projectStore);
@@ -387,6 +408,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// そのまま次回の最小化から反映される。
     /// </summary>
     public bool MinimizeToTray { get => _minimizeToTray; set => SetEditableProperty(ref _minimizeToTray, value); }
+
+    /// <summary>機能追加（自動更新）: 起動時に更新を確認するか。チェックボックスのため即時反映。既定オン。</summary>
+    public bool UpdateCheckOnStartup { get => _updateCheckOnStartup; set => SetEditableProperty(ref _updateCheckOnStartup, value); }
+
+    /// <summary>
+    /// 機能追加（自動更新）: 更新確認先URL。TextBoxのため<see cref="SettingsWindow"/>側で
+    /// UpdateSourceTrigger=LostFocusを指定し、フォーカスを外すかEnterで確定する
+    /// （他のテキスト入力欄と同じ作法。クラスドキュメントの【即時反映方式】参照）。
+    /// </summary>
+    public string UpdateCheckUrl { get => _updateCheckUrl; set => SetEditableProperty(ref _updateCheckUrl, value); }
 
     /// <summary>15章・4章 エディタ設定（12項目）。設定画面の「エディタ」タブが編集する。</summary>
     public string EditorFontSizeText { get => _editorFontSizeText; set => SetEditableProperty(ref _editorFontSizeText, value); }
@@ -843,6 +874,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         SetProperty(ref _closeBehavior, s.CloseBehavior, nameof(CloseBehavior));
         SetProperty(ref _launchAtStartup, s.LaunchAtStartup, nameof(LaunchAtStartup));
         SetProperty(ref _minimizeToTray, s.MinimizeToTray, nameof(MinimizeToTray));
+        SetProperty(ref _updateCheckOnStartup, s.Update.CheckOnStartup, nameof(UpdateCheckOnStartup));
+        SetProperty(ref _updateCheckUrl, s.Update.CheckUrl, nameof(UpdateCheckUrl));
         PopulateEditorFields(s.Editor);
     }
 
@@ -873,6 +906,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         CloseBehavior = _closeBehavior,
         LaunchAtStartup = _launchAtStartup,
         MinimizeToTray = _minimizeToTray,
+        Update = new UpdateSettings { CheckOnStartup = _updateCheckOnStartup, CheckUrl = _updateCheckUrl },
         ClipboardWatch = new ClipboardWatchSettings
         {
             Enabled = _clipboardWatchEnabled, Action = _selectedClipboardAction, AutoParse = _clipboardAutoParse,

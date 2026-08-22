@@ -80,6 +80,15 @@ public sealed class AppPaths
     public string LogsDirectory => Path.Combine(BaseDirectory, "logs");
 
     /// <summary>
+    /// 自動更新（機能追加）: 前回の更新確認日時（<see cref="Graft.Core.Update.UpdateCheckState"/>）の
+    /// 保存先。settings.json（利用者が編集しうる設定本体）とは別ファイルにしているのは、
+    /// 「JSON直接編集タブ」やエクスポート/インポートの対象を増やしたくないため
+    /// （settings.jsonはUpdateSettings.CheckOnStartup/CheckUrlのみを持ち、こちらは内部状態）。
+    /// 他の内部状態（queue.json・layout.json）と同じくexeと同じ階層に平置きする。
+    /// </summary>
+    public string UpdateCheckStateFilePath => Path.Combine(BaseDirectory, "update-check.json");
+
+    /// <summary>
     /// 初回起動ガイド（<see cref="Views.OnboardingWindow"/>）の完了マーカーファイルの絶対パス。
     /// 不具合2の修正: 以前は<see cref="Views.OnboardingWindow"/>側でファイル名を直書きしており、
     /// <see cref="DataDirectoryMigrator"/>のコピー対象一覧（<see cref="AppPaths"/>の各プロパティを
