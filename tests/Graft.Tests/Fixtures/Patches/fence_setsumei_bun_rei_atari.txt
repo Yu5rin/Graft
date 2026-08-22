@@ -1,0 +1,23 @@
+Graftの使い方の例です。
+
+```python
+def example():
+    return 1
+```
+
+実際の修正はこちらです：
+
+```text
+<<<< PATCH
+summary: 挨拶メッセージを変更
+type: fix
+>>>>
+<<<< FILE: src/greet.py
+<<<<<<< SEARCH  # 挨拶文を変更
+print("Hello")
+=======
+print("こんにちは")
+>>>>>>> REPLACE
+```
+
+ご確認ください。
