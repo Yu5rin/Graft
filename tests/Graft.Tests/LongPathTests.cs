@@ -235,4 +235,45 @@ public class LongPathTests
         LongPath.RecoverProjectRoot("").Should().Be("");
         LongPath.RecoverProjectRoot(null!).Should().BeNull();
     }
+
+    // ------------------------------------------------------------------
+    // v1.0.7実機不具合対応（環境要約ログ）: ClassifyLocation。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ClassifyLocation: UNC共有はUncShare")]
+    public void UNCパスはUncShare()
+    {
+        LongPath.ClassifyLocation(@"\\server\share\project").Should().Be(LongPath.PathLocationKind.UncShare);
+    }
+
+    [Theory(DisplayName = "ClassifyLocation: 主要なクラウド同期フォルダはCloudSyncFolder")]
+    [InlineData(@"C:\Users\name\OneDrive\project")]
+    [InlineData(@"C:\Users\name\Dropbox\project")]
+    [InlineData("/home/name/Google Drive/project")]
+    public void クラウド同期フォルダはCloudSyncFolder(string path)
+    {
+        LongPath.ClassifyLocation(path).Should().Be(LongPath.PathLocationKind.CloudSyncFolder);
+    }
+
+    [Fact(DisplayName = "ClassifyLocation: 何にも当てはまらない普通のローカルパスはLocal")]
+    public void 普通のローカルパスはLocal()
+    {
+        LongPath.ClassifyLocation(@"C:\Users\name\project").Should().Be(LongPath.PathLocationKind.Local);
+        LongPath.ClassifyLocation("/home/name/project").Should().Be(LongPath.PathLocationKind.Local);
+    }
+
+    [Fact(DisplayName = "ClassifyLocation: 空文字・nullはLocal（安全側）")]
+    public void 空文字はLocal扱い()
+    {
+        LongPath.ClassifyLocation("").Should().Be(LongPath.PathLocationKind.Local);
+        LongPath.ClassifyLocation(null!).Should().Be(LongPath.PathLocationKind.Local);
+    }
+
+    [Fact(DisplayName = "IsNetworkOrCloudSyncFolder: ClassifyLocationがLocal以外ならtrue、Localならfalse（回帰）")]
+    public void IsNetworkOrCloudSyncFolderはClassifyLocationと整合する()
+    {
+        LongPath.IsNetworkOrCloudSyncFolder(@"\\server\share\project").Should().BeTrue();
+        LongPath.IsNetworkOrCloudSyncFolder(@"C:\Users\name\OneDrive\project").Should().BeTrue();
+        LongPath.IsNetworkOrCloudSyncFolder(@"C:\Users\name\project").Should().BeFalse();
+    }
 }

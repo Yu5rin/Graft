@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using Graft.Core;
+using Graft.Infra;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -49,8 +50,12 @@ public static class Converters
             {
                 return new FontFamily(value);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // v1.0.7: 理論上は起きないはずの経路のため、発生したこと自体を終了時の
+                // shutdownログに残す（詳細は出さない。バインディングの評価毎に呼ばれうる
+                // 高頻度経路のため）。SuppressedExceptionTracker参照。
+                SuppressedExceptionTracker.Shared.Record("font-family-converter", ex);
                 return null;
             }
         });

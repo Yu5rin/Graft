@@ -52,6 +52,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private readonly IDialogService _dialogs;
     private readonly Graft.Infra.Settings _settings;
     private readonly IUiServices _ui;
+    // v1.0.7実機不具合対応: プロジェクト切替時の環境要約ログ（EnvironmentSummaryLogger）が
+    // データ保存先（ポータブル／ユーザーフォルダ）を判定するために必要。
+    private readonly Graft.Infra.AppPaths _appPaths;
     private readonly HashSet<LegacyKey> _notifiedLegacyKeys = new();
 
     private SideViewKind _selectedSideView = SideViewKind.Project;
@@ -73,6 +76,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Editor = editor ?? throw new ArgumentNullException(nameof(editor));
         _dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+        _appPaths = appPaths ?? throw new ArgumentNullException(nameof(appPaths));
         Explorer = new ExplorerViewModel(appPaths, Editor, _dialogs, settings, ui);
         // A: 検索結果の右クリックメニュー「パスをコピー」がテストから差し替えられるよう、
         // 既存のクリップボード窓口（_ui.Clipboard）をそのまま渡す。
@@ -558,6 +562,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
                 _currentProjectId = project.Id;
+
+                // v1.0.7実機不具合対応: プロジェクト切替のたびに環境要約をログへ残す
+                // （起動直後の自動選択もこの経路を通るため、そこも含めて記録される）。
+                // 設定はGraft.CurrentSettings（常に最新、UpdateSettings参照）から読む。
+                // exeのフォルダは、このViewModelがexeDirectoryを個別に受け取っていないため
+                // AppContext.BaseDirectoryを直接参照する（本番の実行ファイルの場所そのもの）。
+                Infra.EnvironmentSummaryLogger.Log(
+                    Graft.Logger, _appPaths, AppContext.BaseDirectory, Graft.CurrentSettings, project.Root);
             }).ConfigureAwait(true);
         }
         finally

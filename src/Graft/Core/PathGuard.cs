@@ -60,15 +60,29 @@ public sealed class PathGuard
         ArgumentNullException.ThrowIfNull(projectRoot);
         ArgumentNullException.ThrowIfNull(options);
 
-        // v1.0.7実機不具合対応: projectRootは呼び出し元（MainViewModel等）がprojects.jsonから
-        // 読み込んだProject.Rootをそのまま渡す経路が複数あり、ProjectStore側の防御
-        // （RegisterAsync/RelocateAsync/LoadAsync）を経由しないまま渡される可能性がある。
-        // ここでも同じ復元をかけておくことで、万一拡張表記や化けたUNC表記のRootが渡っても
-        // カレントディレクトリ基準の誤った絶対パスへ解決してしまうことを防ぐ（LongPath.cs参照）。
+        _root = NormalizeRoot(projectRoot);
+        _options = options;
+    }
+
+    /// <summary>
+    /// v1.0.7実機不具合対応: projectRootは呼び出し元（MainViewModel等）がprojects.jsonから
+    /// 読み込んだProject.Rootをそのまま渡す経路が複数あり、ProjectStore側の防御
+    /// （RegisterAsync/RelocateAsync/LoadAsync）を経由しないまま渡される可能性がある。
+    /// ここでも同じ復元をかけておくことで、万一拡張表記や化けたUNC表記のRootが渡っても
+    /// カレントディレクトリ基準の誤った絶対パスへ解決してしまうことを防ぐ（LongPath.cs参照）。
+    /// <para>
+    /// コンストラクタ本体から切り出しているのは、環境要約ログ（v1.0.7、
+    /// <see cref="Infra.EnvironmentSummaryLogger"/>参照）が「PathGuardが実際に使う正規化後の
+    /// 値」をログへ残すために、PathGuardインスタンスを作らずこの正規化だけを呼びたいため。
+    /// </para>
+    /// </summary>
+    public static string NormalizeRoot(string projectRoot)
+    {
+        ArgumentNullException.ThrowIfNull(projectRoot);
+
         var recoveredRoot = LongPath.RecoverProjectRoot(projectRoot);
         var normalizedRoot = NormalizeTrailingSeparator(Path.GetFullPath(recoveredRoot));
-        _root = NormalizeTrailingSeparator(ResolveRealPath(normalizedRoot));
-        _options = options;
+        return NormalizeTrailingSeparator(ResolveRealPath(normalizedRoot));
     }
 
     /// <summary>相対パスを検証し、ルート内の絶対パスへ解決する。E201/E202/E206を返しうる。</summary>
