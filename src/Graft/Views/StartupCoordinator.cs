@@ -41,6 +41,15 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     private WindowMessageBridge? _messageBridge;
     private AppSettings _settings = new();
 
+    // 機能追加（v1.0.12・自己再起動では起動時の更新確認をしない）: TryAcquireSingleInstanceAsyncが
+    // 受け取るisRestartLaunchを覚えておき、StartAsync内の起動時更新確認の呼び出しへそのまま
+    // 使い回すためのフィールド。TryAcquireSingleInstanceAsyncとStartAsyncはApp.axaml.cs側で
+    // 順番に（別々のawaitとして）呼ばれるため、引数で受け渡す経路が無く、フィールドに
+    // 一旦覚えておく必要がある。既定値false（=自己再起動ではない）は、単体テスト等で
+    // TryAcquireSingleInstanceAsyncを呼ばずに直接StartAsyncだけを呼ぶ経路（通常の起動として
+    // 扱われる）にとって安全な既定値。
+    private bool _isRestartLaunch;
+
     // 機能改善（Ctrl+マウスホイールでの文字サイズ変更の永続化）: 従来は設定画面を開くたびに
     // 使い捨てのSettingsViewModelを生成していたが（OpenSettings参照）、ホイール操作は設定画面を
     // 開いていない間にも起こりうる。ホイール操作からも設定画面の入力欄（EditorFontSizeText）と
@@ -121,6 +130,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// </summary>
     public async Task<bool> TryAcquireSingleInstanceAsync(bool isRestartLaunch)
     {
+        // 機能追加（v1.0.12）: 起動時の更新確認をStartAsync内で自己再起動かどうかにより
+        // 出し分けるため、判定結果をフィールドへ覚えておく（クラス冒頭のフィールドコメント参照）。
+        _isRestartLaunch = isRestartLaunch;
+
         var mutexName = SingleInstanceGuard.BuildInstanceScopedName(MutexNamePrefix, _appPaths.BaseDirectory);
         var acquired = await SingleInstanceAcquireRetry
             .TryAcquireAsync(() => _platform.SingleInstance.TryAcquire(mutexName), isRestartLaunch)
@@ -202,6 +215,20 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         if (removedOldFiles.Count > 0)
         {
             _logger.Info("update", $"前回の更新で残っていた退避ファイルを削除しました: {string.Join(", ", removedOldFiles)}");
+        }
+
+        // 機能追加（v1.0.12・利用者からの指摘「ダウンロードした一時ファイルは削除されているか」）:
+        // 自動更新のダウンロード中にGraftが強制終了・クラッシュすると、一時作業フォルダ
+        // （%TEMP%\GraftUpdate\<GUID>\。50MB超のZIPを含みうる）が掃除されずに残り続ける
+        // （UpdateInstallPipeline.RunAsyncのfinallyはプロセスが生きている間しか働かないため）。
+        // 上の.old掃除と同じ「次回起動時に掃除する」方針で、ここでまとめて後始末する。
+        // 実行中の更新（別プロセスが今まさに使っている作業フォルダ）を誤って消さないための
+        // 安全策はPendingUpdateWorkDirCleanupのクラスコメント参照（既定24時間以上前に
+        // 作成されたフォルダだけを対象にする）。
+        var removedWorkDirs = Core.Update.PendingUpdateWorkDirCleanup.Run();
+        if (removedWorkDirs > 0)
+        {
+            _logger.Info("update", $"自動更新の古い一時作業フォルダを{removedWorkDirs}件削除しました。");
         }
 
         // 設計目標5（製品相当の完成度）: UIハンドラ内の想定外の例外でアプリを終わらせない。
@@ -401,12 +428,20 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 
         // 機能追加（自動更新）: 起動時の更新確認。ウィンドウ表示後にfire-and-forgetで開始し、
         // 起動そのものを一切ブロックしない（要件: 通信は非同期・起動をブロックしないこと。
-        // 上の「操作可能まで」計測より後ろに置いているのはそのため）。設定がオフ、または
-        // 前回確認から24時間未満なら通信自体を行わない（SettingsViewModel.Update.cs・
-        // Core.Update.UpdateChecker参照）。通信の失敗はUpdateChecker側で「確認できなかった」に
-        // 丸められ例外は投げない契約だが、附録A.4（握り潰さない）に倣い、万一の想定外の例外は
-        // 観測してログへ落とす。
-        _ = _settingsViewModel.CheckForUpdateOnStartupIfDueAsync()
+        // 上の「操作可能まで」計測より後ろに置いているのはそのため）。設定がオフなら通信自体を
+        // 行わない（SettingsViewModel.Update.cs・Core.Update.UpdateChecker参照）。通信の失敗は
+        // UpdateChecker側で「確認できなかった」に丸められ例外は投げない契約だが、
+        // 附録A.4（握り潰さない）に倣い、万一の想定外の例外は観測してログへ落とす。
+        //
+        // 仕様変更（v1.0.12・利用者からの追加要望）: 「起動するたびに確認する」の対象は
+        // 利用者が自分で起動したときであり、Graft自身がテーマ変更・データ保存先の移動・
+        // 自動更新の適用後に自己再起動したとき（AppRestart.BuildStartInfo経由の再起動は
+        // すべて該当。<see cref="_isRestartLaunch"/>参照）は対象外とする。短時間に何度も
+        // 再起動が起きる状況（例: 起動直後にクラッシュを繰り返す）でGitHub APIの未認証時
+        // 上限（IPごと1時間60回）を無駄に消費しない、という副次的な効果もあるが、それを
+        // 主目的とした時間ベースのガード（等）は入れていない。自己再起動は「利用者による
+        // 起動」ではないという設計上の理由だけで十分に説明できるため。
+        _ = _settingsViewModel.CheckForUpdateOnStartupAsync(_isRestartLaunch)
             .ContinueWith(
                 task => _logger?.Error("update", $"起動時の更新確認に失敗しました: {task.Exception!.GetBaseException()}"),
                 CancellationToken.None,

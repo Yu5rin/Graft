@@ -3,9 +3,6 @@ namespace Graft.Core.Update;
 /// <summary>更新確認結果の種別。</summary>
 public enum UpdateCheckStatus
 {
-    /// <summary>前回確認から24時間未満のため、今回は通信しなかった（起動時チェックのみ）。</summary>
-    NotDue,
-
     /// <summary>確認でき、新しいバージョンが見つかった。</summary>
     UpdateAvailable,
 
@@ -23,8 +20,6 @@ public sealed record UpdateCheckResult
     public GitHubReleaseInfo? Release { get; init; }
     public string? ErrorMessage { get; init; }
 
-    public static UpdateCheckResult NotDue() => new() { Status = UpdateCheckStatus.NotDue };
-
     public static UpdateCheckResult Available(GitHubReleaseInfo release)
         => new() { Status = UpdateCheckStatus.UpdateAvailable, Release = release };
 
@@ -35,15 +30,12 @@ public sealed record UpdateCheckResult
 }
 
 /// <summary>
-/// 更新確認のオーケストレーション（1日1回の絞り込み・GitHub Releases APIとの通信・
-/// バージョンの数値比較）を担う。通信の失敗はここで吸収し、例外を外へ投げない
+/// 更新確認のオーケストレーション（GitHub Releases APIとの通信・バージョンの数値比較）を担う。
+/// 通信の失敗はここで吸収し、例外を外へ投げない
 /// （要件: 通信の失敗は握りつぶして「確認できなかった」で済ませる。起動を妨げない）。
 /// </summary>
 public sealed class UpdateChecker
 {
-    /// <summary>起動時チェックの絞り込み間隔（1日1回）。</summary>
-    public static readonly TimeSpan MinimumCheckInterval = TimeSpan.FromHours(24);
-
     private readonly IReleaseFeed _feed;
     private readonly UpdateCheckStateStore _stateStore;
     private readonly Func<DateTimeOffset> _now;
@@ -57,26 +49,27 @@ public sealed class UpdateChecker
     }
 
     /// <summary>
-    /// 起動時チェック。前回確認から<see cref="MinimumCheckInterval"/>未満なら通信せず
-    /// <see cref="UpdateCheckStatus.NotDue"/>を返す（要件: 起動時1日1回まで）。
+    /// 起動時チェック。
+    ///
+    /// 仕様変更（v1.0.12）: 以前はここで「前回確認から24時間未満なら通信しない」という
+    /// 絞り込みをかけていたが、設定画面のチェックボックスの文言が最初から
+    /// 「起動時に更新を確認する」であり、実態（1日1回まで）と食い違っていた（利用者からの
+    /// 指摘）。文言どおり「起動するたびに必ず確認する」よう、この絞り込みを廃止した。
+    /// 呼び出し元（<see cref="Graft.ViewModels.SettingsViewModel.CheckForUpdateOnStartupAsync"/>）
+    /// 側で「起動時に更新を確認する」設定がオフなら、そもそもこのメソッドを呼ばない形で
+    /// 「確認するかどうか」自体は引き続き利用者が制御できる。
+    /// 中身は<see cref="CheckNowAsync"/>と同一だが、呼び出し側の意図（起動時経由か手動か）を
+    /// 型で表すためにメソッドとして残す。
     /// </summary>
-    public async Task<UpdateCheckResult> CheckOnStartupAsync(
+    public Task<UpdateCheckResult> CheckOnStartupAsync(
         string checkUrl, string currentVersion, string userAgent, CancellationToken ct = default)
-    {
-        var state = await _stateStore.LoadAsync(ct).ConfigureAwait(false);
-        if (state.LastCheckedAt is { } last && _now() - last < MinimumCheckInterval)
-        {
-            return UpdateCheckResult.NotDue();
-        }
-
-        return await CheckNowAsync(checkUrl, currentVersion, userAgent, ct).ConfigureAwait(false);
-    }
+        => CheckNowAsync(checkUrl, currentVersion, userAgent, ct);
 
     /// <summary>
-    /// 「今すぐ更新を確認」ボタン用。絞り込みを無視して必ず通信する。
+    /// 実際に通信して確認する本体。「今すぐ更新を確認」ボタン、<see cref="CheckOnStartupAsync"/>
+    /// いずれからも呼ばれ、必ず通信する（起動時・手動を問わず絞り込みは行わない）。
     /// 呼び出しの成否に関わらず、前回確認日時を今回の時刻へ更新する
-    /// （通信に失敗しても「確認しようとした」事実は記録し、失敗し続ける環境で毎起動ごとに
-    /// GitHubへ再試行し続けることを避ける）。
+    /// （通信に失敗しても「確認しようとした」事実は記録に残す。「最終確認」表示用）。
     /// </summary>
     public async Task<UpdateCheckResult> CheckNowAsync(
         string checkUrl, string currentVersion, string userAgent, CancellationToken ct = default)

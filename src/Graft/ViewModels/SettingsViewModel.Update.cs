@@ -20,9 +20,12 @@ namespace Graft.ViewModels;
 /// 実処理はView側（<see cref="Views.SettingsWindow"/>経由で<see cref="Graft.App.RequestRestart"/>）
 /// が担う、という役割分担も同じ）だけを担う。
 ///
-/// 通信は「起動時1日1回まで」（<see cref="CheckForUpdateOnStartupIfDueAsync"/>、
-/// <see cref="StartupCoordinator.StartAsync"/>からのみ呼ばれる）と「今すぐ更新を確認」ボタン
-/// （<see cref="CheckForUpdateNowCommand"/>）でのみ発生し、それ以外の経路は無い。
+/// 通信は「起動時に更新を確認する」設定がオンのときの起動時チェック（<see
+/// cref="CheckForUpdateOnStartupAsync"/>、<see cref="StartupCoordinator.StartAsync"/>から
+/// のみ呼ばれる。v1.0.12から、起動のたびに必ず1回発生する。かつては前回確認から24時間
+/// 未満なら通信しない絞り込みがあったが、チェックボックスの文言「起動時に更新を確認する」
+/// と実態が食い違っていたため廃止した）と「今すぐ更新を確認」ボタン（<see
+/// cref="CheckForUpdateNowCommand"/>）でのみ発生し、それ以外の経路は無い。
 /// </summary>
 public sealed partial class SettingsViewModel
 {
@@ -67,8 +70,8 @@ public sealed partial class SettingsViewModel
     /// <summary>
     /// 機能追加（v1.0.11・「起動時に更新チェックされているか分からない」への対応）:
     /// 実際に通信して確認した直近の日時（<see cref="UpdateCheckState.LastCheckedAt"/>と同じ値。
-    /// 起動時チェック・手動確認いずれも含み、24時間未満のスキップや設定オフでのスキップでは
-    /// 更新されない）。一度も確認していなければnull。
+    /// 起動時チェック・手動確認いずれも含み、設定オフでのスキップでは更新されない）。
+    /// 一度も確認していなければnull。
     /// </summary>
     public DateTimeOffset? UpdateLastCheckedAt
     {
@@ -107,16 +110,38 @@ public sealed partial class SettingsViewModel
     /// <summary>
     /// <see cref="Views.StartupCoordinator.StartAsync"/>から、メインウィンドウ表示後に
     /// fire-and-forgetで呼ばれる（要件: 通信は非同期で行い起動をブロックしないこと）。
-    /// 設定がオフ、または前回確認から24時間未満なら通信自体を行わない
-    /// （<see cref="UpdateChecker.CheckOnStartupAsync"/>参照）。
+    /// 「起動時に更新を確認する」設定がオフなら通信自体を行わない。オンなら、v1.0.12から
+    /// 起動のたびに必ず通信する（<see cref="UpdateChecker.CheckOnStartupAsync"/>参照。
+    /// かつて存在した「前回確認から24時間未満ならスキップ」という絞り込みは、設定画面の
+    /// チェックボックスの文言が最初から「起動時に更新を確認する」であり実態と食い違って
+    /// いたため廃止し、文言どおり毎回確認するようにした）。
     ///
     /// 機能追加（v1.0.11・「起動時に更新チェックされているか分からない」への対応）: 設定オフで
     /// 通信そのものを行わなかった場合も、ここでその旨をログへ残す（<see
     /// cref="CheckForUpdateAsync"/>側は実際に<see cref="_updateChecker"/>を呼んだ場合しか
     /// ログを残せないため、この早期returnの分だけここで個別に記録する）。
     /// </summary>
-    public async Task CheckForUpdateOnStartupIfDueAsync()
+    /// <param name="isRestartLaunch">
+    /// 仕様変更（v1.0.12・利用者からの追加要望）: このプロセスがテーマ変更・データ保存先の
+    /// 移動・自動更新の適用後などでGraft自身が自己再起動して起動したものかどうか
+    /// （<see cref="Infra.AppRestart.IsRestartLaunch"/>で起動引数から判定し、<see
+    /// cref="Views.StartupCoordinator"/>経由でここへ渡される）。「起動のたびに確認する」は
+    /// あくまで利用者が自分の意思でGraftを起動したときの話であり、Graftが自分の都合で
+    /// 再起動しただけのときまで確認しに行く理由が無いため、trueなら設定に関わらず
+    /// 通信そのものを行わない。連続再起動でGitHub APIへ無駄に何度も問い合わせる事態も、
+    /// この除外だけで自然に防げるため、別途時間ベースの間隔ガードは設けていない
+    /// （時間ガードは「利用者の意思での起動かどうか」という本質と無関係に短期間の起動
+    /// すべてを一律スキップしてしまい、例えば手動で素早く再起動したい場合にも確認できなく
+    /// なってしまう。自己再起動かどうかで判定する方が設計として素直）。
+    /// </param>
+    public async Task CheckForUpdateOnStartupAsync(bool isRestartLaunch)
     {
+        if (isRestartLaunch)
+        {
+            Logger?.Info("update", "起動時の更新確認: 自己再起動のためスキップしました。");
+            return;
+        }
+
         if (!_updateCheckOnStartup)
         {
             Logger?.Info("update", "起動時の更新確認: 「起動時に更新を確認する」設定がオフのためスキップしました。");
@@ -141,26 +166,20 @@ public sealed partial class SettingsViewModel
                 : await _updateChecker.CheckOnStartupAsync(_updateCheckUrl, CurrentVersionText, userAgent, CancellationToken.None).ConfigureAwait(true);
 
             // 機能追加（v1.0.11）: 「バージョン情報」タブの「最終確認」表示を、実際に
-            // update-check.jsonへ書き込まれた値（NotDueなら前回のまま、それ以外は今回の日時）に
-            // 同期させる。UpdateChecker.CheckNowAsyncは通信の成否に関わらずLastCheckedAtを
-            // 先に更新する契約（そのクラスのコメント参照）のため、Failedでも「確認しようとした」
-            // 事実がここに反映される。
+            // update-check.jsonへ書き込まれた値（今回の日時）に同期させる。
+            // UpdateChecker.CheckNowAsyncは通信の成否に関わらずLastCheckedAtを先に更新する契約
+            // （そのクラスのコメント参照）のため、Failedでも「確認しようとした」事実がここに
+            // 反映される。
             await RefreshUpdateLastCheckedAsync().ConfigureAwait(true);
 
             switch (result.Status)
             {
-                case UpdateCheckStatus.NotDue:
-                    // 「バージョン情報」タブ上部に常時表示されているバージョン表示
-                    // （AboutView.axaml.csのVersionText。CurrentVersionTextと同じ取得方法）と
-                    // 重複するため、ここでは何も表示しない（起動のたびに確認したわけではない
-                    // ことを、わざわざ文言で伝える必要は無い）。
-                    UpdateStatusMessage = null;
-                    Logger?.Info("update", $"{trigger}: 前回の確認から24時間未満のためスキップしました。");
-                    break;
                 case UpdateCheckStatus.Failed:
                     // 要件: 通信の失敗は握りつぶして「確認できなかった」で済ませ、起動を妨げない。
                     // 手動確認時は押した本人が状況を知りたいはずなので、理由を画面に残す。
-                    // 起動時の自動確認での失敗は（NotDueと同じ理由で）何も表示しない。
+                    // 起動時の自動確認での失敗は、UpToDate等と同じく画面には何も表示しない
+                    // （利用者が見ていない場面での通信結果を、わざわざ画面上に出す必要は無い。
+                    // 詳細はログに残る）。
                     UpdateStatusMessage = isManual ? result.ErrorMessage : null;
                     Logger?.Warn("update", $"{trigger}: 通信に失敗しました（{result.ErrorMessage}）。");
                     break;
@@ -256,7 +275,7 @@ public sealed partial class SettingsViewModel
         _updateDownloadCts = new CancellationTokenSource();
         try
         {
-            var workDir = Path.Combine(Path.GetTempPath(), "GraftUpdate", Guid.NewGuid().ToString("N"));
+            var workDir = Path.Combine(Path.GetTempPath(), UpdateFiles.WorkDirectoryRootName, Guid.NewGuid().ToString("N"));
             var progress = new Progress<double>(p => UpdateProgressPercent = Math.Round(p * 100, 1));
 
             var installResult = await _updateInstallPipeline

@@ -54,8 +54,10 @@ public sealed class UpdateInstallPipeline
     /// <param name="workDirectory">
     /// ダウンロード先・展開先として使う専用の一時フォルダ（呼び出し側が用意する。
     /// <paramref name="installDirectory"/>とは別の場所にすること。settings.json等の利用者データが
-    /// あるフォルダを一切経由させないため）。処理完了後（成功・失敗いずれも）このフォルダの
-    /// 中身は掃除する。
+    /// あるフォルダを一切経由させないため）。処理完了後（成功・失敗いずれも）このフォルダ自体を
+    /// 含めて掃除する（プロセスが生きている間の後始末。プロセスが強制終了・クラッシュした
+    /// 場合はここでは掃除できないため、次回起動時の掃除を<see cref="PendingUpdateWorkDirCleanup"/>
+    /// が別途担う）。
     /// </param>
     public async Task<UpdateInstallResult> RunAsync(
         GitHubReleaseAsset asset,
@@ -114,8 +116,12 @@ public sealed class UpdateInstallPipeline
         }
         finally
         {
-            TryCleanup(zipPath, isDirectory: false);
-            TryCleanup(stagingDir, isDirectory: true);
+            // 不具合修正（利用者からの指摘・穴1「一時フォルダの入れ物が残る」）: 以前はzipPathと
+            // stagingDirの中身だけを個別に消しており、それらを収めていたworkDirectory自体
+            // （%TEMP%\GraftUpdate\<GUID>\）は空フォルダのまま残り続けていた。更新を試みる
+            // たびに空フォルダが1つずつ溜まる。workDirectoryをまるごと再帰削除すれば、
+            // 中のzipPath・stagingDirも合わせて消えるため、個別のTryCleanup呼び出しは不要になる。
+            TryCleanup(workDirectory, isDirectory: true);
         }
     }
 

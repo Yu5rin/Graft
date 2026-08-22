@@ -60,8 +60,8 @@
                        AutomationProperties.Name="更新の最終確認日時" />
             <CheckBox Classes="settingRow" Content="起動時に更新を確認する" IsChecked="{Binding UpdateCheckOnStartup}"
                       AutomationProperties.Name="起動時に更新を確認する"
-                      local:HelpTip.Standard="起動のたびに（ただし前回の確認から24時間以上経っていれば）GitHubへ新しいバージョンが無いか確認します。既定はオンです。"
-                      local:HelpTip.Detailed="オンにすると（既定）、Graftを起動するたびに、前回の確認から24時間以上経っていることを条件として、GitHub（下の「チェック先URL」）へ新しいバージョンが無いか問い合わせます。見つかった場合はダイアログで知らせ、同意した場合のみダウンロードが始まります（無断でダウンロードされることはありません）。オフにしても、下の「今すぐ更新を確認」はいつでも使えます。確認・ダウンロードのとき以外、Graftは外部と通信しません。" />
+                      local:HelpTip.Standard="Graftを起動するたびにGitHubへ新しいバージョンが無いか確認します（テーマ変更・データ保存先の移動・更新の適用後などGraft自身が再起動したときは除きます）。既定はオンです。"
+                      local:HelpTip.Detailed="オンにすると（既定）、利用者がGraftを起動するたびに、GitHub（下の「チェック先URL」）へ新しいバージョンが無いか問い合わせます。見つかった場合はダイアログで知らせ、同意した場合のみダウンロードが始まります（無断でダウンロードされることはありません）。ただし、テーマ変更・データ保存先の移動・自動更新の適用後などGraft自身が自己再起動して起動したときは、この設定がオンでも確認しません（利用者が意図した起動ではないため）。オフにしても、下の「今すぐ更新を確認」はいつでも使えます。確認・ダウンロードのとき以外、Graftは外部と通信しません。" />
             <StackPanel Margin="0,0,0,10">
                 <TextBlock Text="チェック先URL" Margin="0,0,0,4" />
                 <TextBox Text="{Binding UpdateCheckUrl, UpdateSourceTrigger=LostFocus}"
@@ -74,7 +74,7 @@
                 <Button Content="今すぐ更新を確認" Command="{Binding CheckForUpdateNowCommand}"
                         AutomationProperties.Name="今すぐ更新を確認"
                         local:HelpTip.Standard="今すぐGitHubへ問い合わせて、新しいバージョンが無いか確認します。"
-                        local:HelpTip.Detailed="「起動時に更新を確認する」がオフでも、押した瞬間に必ずGitHubへ問い合わせます（24時間の間隔は無視されます）。新しいバージョンが見つかった場合はダイアログで案内し、同意した場合のみダウンロードへ進みます。" />
+                        local:HelpTip.Detailed="「起動時に更新を確認する」がオフでも、また自己再起動の直後であっても、押した瞬間に必ずGitHubへ問い合わせます。新しいバージョンが見つかった場合はダイアログで案内し、同意した場合のみダウンロードへ進みます。" />
                 <Button Content="中断" Command="{Binding CancelUpdateDownloadCommand}" Margin="8,0,0,0"
                         IsVisible="{Binding IsUpdateDownloading}"
                         AutomationProperties.Name="更新のダウンロードを中断"

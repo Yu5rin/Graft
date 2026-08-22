@@ -47,6 +47,9 @@ public class UpdateInstallPipelineTests
 
         result.Status.Should().Be(UpdateInstallStatus.ChecksumMismatch);
         scenario.AssertInstallDirUntouched();
+
+        // 失敗時も作業フォルダ自体は掃除される（finallyで必ず実行されるため）。
+        Directory.Exists(scenario.WorkDir).Should().BeFalse("失敗時も作業フォルダ自体は後始末されるべき");
     }
 
     [Fact(DisplayName = "SHA256が一致すれば検証を通り、実際にインストールされる")]
@@ -75,9 +78,11 @@ public class UpdateInstallPipelineTests
         }
         scenario.AssertUserDataUntouched();
 
-        // 作業フォルダ（ZIP・展開先の一時ファイル）は後始末されている。
-        Directory.Exists(scenario.WorkDir).Should().BeTrue();
-        Directory.GetFileSystemEntries(scenario.WorkDir).Should().BeEmpty("ダウンロード・展開の作業ファイルは後始末されるべき");
+        // 不具合修正（利用者からの指摘・穴1「一時フォルダの入れ物が残る」）: 以前はZIP・展開先の
+        // 中身だけを消して入れ物のworkDirectory自体は空フォルダのまま残していたが、
+        // workDirectory自体を再帰削除するようにした。更新を試みるたびに空フォルダが
+        // 溜まり続けることを防ぐ。
+        Directory.Exists(scenario.WorkDir).Should().BeFalse("作業フォルダ自体（%TEMP%\\GraftUpdate\\<GUID>\\相当）も後始末されるべき");
     }
 
     [Fact(DisplayName = "ZIPの中身が想定外ならUnexpectedZipContentsで中止する")]
