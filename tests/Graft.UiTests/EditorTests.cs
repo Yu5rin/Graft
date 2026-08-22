@@ -3,6 +3,7 @@ using System.Text;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
 using FluentAssertions;
@@ -222,6 +223,105 @@ public class EditorTests : IDisposable
 
         folding.Attach(docB, "py");
         act.Should().NotThrow();
+    }
+
+    /// <summary>
+    /// 課題#82の入口特定テスト（機序の実証）。<see cref="FoldingSupport"/>クラスコメントの
+    /// 【課題#82】節で辿った経路（<c>Editor.Document</c>代入 → <c>TextArea.Document</c> →
+    /// <c>TextView.Document</c>の順に切り替わったあと、<c>Caret.Location</c>のリセットで
+    /// <c>Caret.PositionChanged</c>が同期発火し、<c>TextEditor.DocumentChanged</c>（本クラスが
+    /// 古いFoldingManagerをuninstallする契機）はまだ発火していない）を、実際の
+    /// <c>Editor.Document = docB</c>代入を通して確認する。
+    ///
+    /// <c>Caret.PositionChanged</c>のハンドラの中で<c>Dispatcher.UIThread.RunJobs()</c>を呼び、
+    /// <c>TextView.Document</c>切り替え時に<c>InvalidateMeasure()</c>で積まれた保留中のRender
+    /// ジョブを即座に処理させる。これは実機（Windows）でIME通知・フォーカス変更・
+    /// アクセシビリティ通知等に伴うネイティブメッセージポンプが入れ子で呼ばれ、同じ
+    /// タイミングで保留中の描画が処理されてしまう状況を、プラットフォーム非依存に
+    /// headlessで模擬したもの。<see cref="FoldingSupport.PrepareForDocumentSwap"/>による
+    /// 対処2を入れる前のコード（コンストラクタでの<c>TextEditor.DocumentChanged</c>購読のみ）
+    /// では、このテストが実際に<c>System.ArgumentException: Invalid document</c>で失敗する
+    /// ことを確認済み（本テストはその機序を固定するため、意図的にPrepareForDocumentSwapを
+    /// 呼ばない）。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "課題#82入口特定: 文書代入中にキャレットのPositionChanged経由でディスパッチャが再入すると、対処1だけではInvalid documentが出る")]
+    public void 文書代入中のキャレットPositionChanged経由の再入でInvalid_documentが起きる()
+    {
+        var (window, editor) = CreateEditorWindow();
+        var docA = new TextDocument("if x:\n    a = 1\n    b = 2\nprint(a)\n");
+        editor.Document = docA;
+        window.Show();
+
+        using var folding = new FoldingSupport(editor);
+        folding.Attach(docA, "py");
+        using (window.CaptureRenderedFrame()) { }
+
+        // Caret.Location = (1,1) の代入がPositionChangedを発火させるには、代入前のキャレット位置が
+        // (1,1)以外である必要がある（Caret.PositionのsetterはTextViewPosition比較で早期returnする。
+        // AvaloniaEdit 11.1.0のEditing/Caret.csで確認済み）。タブ切替では元のタブのカーソル行が
+        // 1行目でない限り、この条件は実際の利用でごく普通に成立する。
+        editor.TextArea.Caret.Line = 3;
+
+        var docB = new TextDocument("if y:\n    c = 3\n    d = 4\nprint(c)\n");
+
+        void ReentrantRenderViaNestedDispatch(object? s, EventArgs e) => Dispatcher.UIThread.RunJobs();
+        editor.TextArea.Caret.PositionChanged += ReentrantRenderViaNestedDispatch;
+        try
+        {
+            // folding.PrepareForDocumentSwap()を意図的に呼ばない（対処1のみの状態を再現するため）。
+            var act = () => editor.Document = docB;
+            act.Should().Throw<ArgumentException>()
+                .WithMessage("Invalid document")
+                .Where(ex => ex.Source == "AvaloniaEdit",
+                    "App.axaml.csのAvaloniaEditExceptionGuardが継続を許可する条件と同じ発生元であるはず");
+        }
+        finally
+        {
+            editor.TextArea.Caret.PositionChanged -= ReentrantRenderViaNestedDispatch;
+        }
+    }
+
+    /// <summary>
+    /// 課題#82の修正確認テスト。上のテストと全く同じ再入（<c>Caret.PositionChanged</c>経由の
+    /// ディスパッチャ再入）を起こしても、<see cref="FoldingSupport.PrepareForDocumentSwap"/>を
+    /// <c>Editor.Document</c>代入の"前"に呼んでおけば例外が出ないことを確認する
+    /// （<see cref="Views.EditorPane.ApplyDocumentTab"/>・<see cref="Views.EditorPane.
+    /// ApplyEmptyTab"/>が実際に採用している順序と同じ）。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "課題#82修正確認: PrepareForDocumentSwapを先に呼べば同じ再入でも例外が出ない")]
+    public void PrepareForDocumentSwapを先に呼べば再入があっても例外が出ない()
+    {
+        var (window, editor) = CreateEditorWindow();
+        var docA = new TextDocument("if x:\n    a = 1\n    b = 2\nprint(a)\n");
+        editor.Document = docA;
+        window.Show();
+
+        using var folding = new FoldingSupport(editor);
+        folding.Attach(docA, "py");
+        using (window.CaptureRenderedFrame()) { }
+
+        editor.TextArea.Caret.Line = 3;
+        var docB = new TextDocument("if y:\n    c = 3\n    d = 4\nprint(c)\n");
+
+        void ReentrantRenderViaNestedDispatch(object? s, EventArgs e) => Dispatcher.UIThread.RunJobs();
+        editor.TextArea.Caret.PositionChanged += ReentrantRenderViaNestedDispatch;
+        try
+        {
+            var act = () =>
+            {
+                folding.PrepareForDocumentSwap(); // EditorPane.ApplyDocumentTabと同じ順序（代入の前）。
+                editor.Document = docB;
+            };
+            act.Should().NotThrow("代入前にFoldingManagerを外しておけば、代入中のどの再入でも食い違いが生じない");
+        }
+        finally
+        {
+            editor.TextArea.Caret.PositionChanged -= ReentrantRenderViaNestedDispatch;
+        }
+
+        folding.Attach(docB, "py");
+        var render = () => window.CaptureRenderedFrame()?.Dispose();
+        render.Should().NotThrow("再接続後の通常描画も引き続き問題なく動作するはず");
     }
 
     /// <summary>
