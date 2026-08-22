@@ -150,14 +150,34 @@ public sealed partial class SettingsViewModel
 
     private async Task RunUpdateAsync(GitHubReleaseInfo release)
     {
+        // 不具合修正（自動更新が「データ保存先をユーザーフォルダへ移動」済みの環境で
+        // 必ず失敗していた件）: 以前はここで_appPaths.BaseDirectory（データ保存先。
+        // datapath.txtポインタがあれば%APPDATA%\Graftを指す）を「実行ファイルのフォルダ」
+        // として使っていたが、両者は別物であり、移行済み環境では実際には存在しない
+        // フォルダのGraft.exeを退避しようとして必ず失敗していた（詳しい経緯は
+        // AppRestart.TryResolveExecutableDirectoryのXMLコメント参照）。
+        // インストール先は必ず「実行ファイルが実際に置かれているフォルダ」を使う。
+        var installDirectory = AppRestart.TryResolveExecutableDirectory();
+        if (installDirectory is null)
+        {
+            await _dialogService.ShowMessageAsync(
+                "自動更新できません",
+                "実行ファイルの場所を特定できなかったため、自動更新できませんでした。" +
+                "リリースページから配布物をダウンロードし、手動で置き換えてください。")
+                .ConfigureAwait(true);
+            return;
+        }
+
         // 指示書の最重要事項: Program Files 等へ書き込めない場合は自動更新をあきらめ、
-        // 手動更新の案内（リリースページを開く）へ誘導する。既存のCanWriteToBaseDirectory
-        // （課題1の書き込み権限確認）をそのまま再利用する。
-        if (!_appPaths.CanWriteToBaseDirectory())
+        // 手動更新の案内（リリースページを開く）へ誘導する。書き込み可否は「実際に
+        // ファイルを置き換える場所」＝installDirectoryに対して確認する（上記のとおり
+        // データ保存先とは別物になりうるため。既存のAppPaths.CanWriteToDirectory
+        // （課題1の書き込み権限確認）をディレクトリ引数化して再利用する）。
+        if (!AppPaths.CanWriteToDirectory(installDirectory))
         {
             var openReleasePage = await _dialogService.ShowActionMessageAsync(
                 "自動更新できません",
-                $"データ保存先（{_appPaths.BaseDirectory}）へ書き込めないため、自動更新できませんでした。" +
+                $"実行ファイルのフォルダ（{installDirectory}）へ書き込めないため、自動更新できませんでした。" +
                 "Program Files 等、書き込みが制限されたフォルダに置かれている可能性があります。" +
                 "リリースページから配布物をダウンロードし、手動で置き換えてください。",
                 "リリースページを開く")
@@ -188,7 +208,7 @@ public sealed partial class SettingsViewModel
             var progress = new Progress<double>(p => UpdateProgressPercent = Math.Round(p * 100, 1));
 
             var installResult = await _updateInstallPipeline
-                .RunAsync(asset, _appPaths.BaseDirectory, workDir, progress, _updateDownloadCts.Token)
+                .RunAsync(asset, installDirectory, workDir, progress, _updateDownloadCts.Token)
                 .ConfigureAwait(true);
 
             if (!installResult.Success)

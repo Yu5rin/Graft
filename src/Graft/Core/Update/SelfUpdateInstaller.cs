@@ -39,7 +39,17 @@ public sealed record SelfUpdateInstallOutcome
 /// </summary>
 public static class SelfUpdateInstaller
 {
-    /// <param name="installDirectory">Graft.exeが実際に置かれているフォルダ（<see cref="Infra.AppPaths.BaseDirectory"/>相当）。</param>
+    /// <param name="installDirectory">
+    /// Graft.exeが実際に置かれているフォルダ。
+    /// 【注意】<see cref="Infra.AppPaths.BaseDirectory"/>（settings.json等の"データ保存先"）
+    /// とは別物であり、これを混同すると「データ保存先をユーザーフォルダへ移動」した
+    /// 環境で実際には存在しないフォルダのGraft.exeを退避しようとして自動更新が必ず
+    /// 失敗する不具合が再発する（実機報告で発覚。詳しい経緯・回帰テストは
+    /// <see cref="Infra.AppRestart.TryResolveExecutableDirectory"/>のXMLコメントと
+    /// tests/Graft.Tests/UpdateInstallDirectoryRegressionTests.cs参照）。
+    /// 呼び出し側（<c>SettingsViewModel.Update.cs</c>）は必ず
+    /// <see cref="Infra.AppRestart.TryResolveExecutableDirectory"/>の解決結果を渡すこと。
+    /// </param>
     /// <param name="stagingDirectory">
     /// ダウンロード・検証済みのZIPを展開済みの一時フォルダ。<see cref="UpdateFiles.RequiredFileNames"/>と
     /// 同名のファイルがフラットに置かれている前提（<see cref="UpdateZipInspector.ExtractTo"/>参照）。

@@ -83,4 +83,37 @@ public static class AppRestart
         var path = processPath ?? Environment.ProcessPath;
         return string.IsNullOrEmpty(path) || !File.Exists(path) ? null : path;
     }
+
+    /// <summary>
+    /// 実行ファイルが実際に置かれているフォルダを解決する。自己更新のインストール先
+    /// （<see cref="Graft.ViewModels.SettingsViewModel"/>の更新機能、その先の
+    /// <see cref="Graft.Core.Update.UpdateInstallPipeline"/>・<see cref="Graft.Core.Update.SelfUpdateInstaller"/>）が
+    /// このクラスの自己再起動と全く同じ実行ファイルパス解決（<see cref="TryResolveExecutablePath"/>、
+    /// つまり<see cref="Environment.ProcessPath"/>）を必ず共有するための公開口。
+    ///
+    /// 【不具合の経緯】自己更新は以前<see cref="Infra.AppPaths.BaseDirectory"/>
+    /// （settings.json等の"データ保存先"。<c>datapath.txt</c>ポインタファイルがあれば
+    /// %APPDATA%\Graft を指す）をインストール先として使っていた。これは実行ファイルの
+    /// 場所とは別物であり、「設定画面からデータ保存先をユーザーフォルダへ移動」した
+    /// 環境では両者が食い違う。ポータブル運用（両者が一致する）では発覚しないまま、
+    /// 移行済み環境でだけ「Graft.exe を退避できませんでした: Could not find file」で
+    /// 自動更新が必ず失敗する不具合を引き起こした（実機報告・tests/Graft.Tests/
+    /// UpdateInstallDirectoryRegressionTests.cs参照）。
+    ///
+    /// 実行ファイルの場所は、<see cref="Environment.ProcessPath"/>（単一ファイル発行では
+    /// <see cref="System.Reflection.Assembly.Location"/>が空になるため使えず、これが
+    /// 確実な取得手段。このクラス冒頭のコメント参照）を使う。<see cref="AppContext.BaseDirectory"/>
+    /// も同じ値になるはずだが（Graft.csprojはIncludeNativeLibrariesForSelfExtract=false・
+    /// EnableCompressionInSingleFile=falseで単一ファイルの実行時自己展開を一切行わないため、
+    /// 両者は理論上一致する）、あえて<see cref="Environment.ProcessPath"/>に統一するのは、
+    /// 「更新ファイルを配置する場所」と「自己再起動で実際に起動し直す実行ファイルの場所」を
+    /// 同じ解決ロジック1本に揃え、将来どちらか一方だけ実装が変わって食い違う事故を
+    /// 構造的に防ぐため。
+    /// </summary>
+    /// <param name="processPath">テスト用に差し替え可能な実行ファイルパス。省略時は<see cref="Environment.ProcessPath"/>。</param>
+    public static string? TryResolveExecutableDirectory(string? processPath = null)
+    {
+        var path = TryResolveExecutablePath(processPath);
+        return path is null ? null : Path.GetDirectoryName(path);
+    }
 }

@@ -150,10 +150,24 @@ public sealed class AppPaths
     ///
     /// 例外は握りつぶし、判定結果のみをboolで返す。呼び出し側（StartupCoordinator）が
     /// falseの場合に日本語の警告を表示する責務を持つ。
+    ///
+    /// 実体は<see cref="CanWriteToDirectory"/>へ委譲する。自動更新（<see
+    /// cref="ViewModels.SettingsViewModel"/>の更新機能）が「実行ファイルのフォルダ」
+    /// （<see cref="BaseDirectory"/>＝データ保存先とは別物。両者の違いが不具合の原因に
+    /// なった経緯は<see cref="Infra.AppRestart.TryResolveExecutableDirectory"/>参照）への
+    /// 書き込み可否を同じ最小限の手法で確認できるよう、判定先ディレクトリを引数化して
+    /// 共有している。
     /// </summary>
-    public bool CanWriteToBaseDirectory()
+    public bool CanWriteToBaseDirectory() => CanWriteToDirectory(BaseDirectory);
+
+    /// <summary>
+    /// 任意のディレクトリへ実際に書き込めるかを、空の一時ファイルを1つ作成して即座に
+    /// 削除するだけの最小限の方法で確認する（<see cref="CanWriteToBaseDirectory"/>参照）。
+    /// 例外は握りつぶし、判定結果のみをboolで返す。
+    /// </summary>
+    public static bool CanWriteToDirectory(string directory)
     {
-        var probePath = Path.Combine(BaseDirectory, $".graft_write_check_{Guid.NewGuid():N}.tmp");
+        var probePath = Path.Combine(directory, $".graft_write_check_{Guid.NewGuid():N}.tmp");
         try
         {
             using (File.Create(probePath))
