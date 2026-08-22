@@ -1,0 +1,16 @@
+```text
+<<<< PATCH
+summary: READMEにコード例を追記
+type: docs
+>>>>
+<<<< FILE: README.md
+<<<<<<< SEARCH  # 使い方セクションの下に例を追加
+## 使い方
+=======
+## 使い方
+
+```
+print("hello")
+```
+>>>>>>> REPLACE
+```
