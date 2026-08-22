@@ -80,40 +80,10 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
     /// <summary>15章 <c>editor.autoClosingBrackets</c> 設定の反映。</summary>
     public void SetAutoCloseEnabled(bool enabled) => _autoCloseEnabled = enabled;
 
-    /// <summary>
-    /// AvaloniaEdit更新（11.1.0→11.4.1、機能改善「行間を設定できるようにする」対応）で発覚した
-    /// 不具合の修正: 以前は<c>textView.EnsureVisualLines()</c>を呼んでから可視行データ
-    /// （<see cref="DrawBracketBox"/>が使う<c>BackgroundGeometryBuilder</c>）を使っていたが、
-    /// これは実際には不要かつ危険だった。
-    ///
-    /// 【なぜ不要か】 <c>Draw(TextView, DrawingContext)</c>はAvaloniaEdit自身の
-    /// <c>TextView.RenderBackground</c>（描画パスの最中）からしか呼ばれず、その時点で可視行は
-    /// 必ず確定済み（<see cref="IndentGuideRenderer.Draw"/>・<c>SearchOverlay.
-    /// SearchHighlightRenderer.Draw</c>もこの前提のまま<c>VisualLinesValid</c>を読むだけで
-    /// 動いており、<c>EnsureVisualLines()</c>を呼んでいない）。<see cref="FindMatchingPairAtCaret"/>
-    /// 自体も<c>TextDocument</c>（文字オフセット）だけを見る純テキスト処理で、可視行データには
-    /// 一切依存しない。
-    ///
-    /// 【なぜ危険になったか】 AvaloniaEdit 11.4.1で追加された<c>TextEditorOptions.
-    /// LineHeightFactor</c>（PR #539）に伴い、<c>TextView.OnOptionChanged</c>が
-    /// オプション変更のたび<c>InvalidateDefaultTextMetrics()</c>を呼ぶようになった
-    /// （逆コンパイルで確認: 11.1.0のOnOptionChangedにはこの呼び出しが無かった）。これが
-    /// 経路によっては描画パスの最中に可視行を無効化することがあり、その直後に
-    /// <c>EnsureVisualLines()</c>が「無効なら作り直す」ため<c>InvalidateVisual()</c>を
-    /// 呼び直してしまい、Avalonia側の「描画パスの最中にVisualを無効化した」検出
-    /// （<c>System.InvalidOperationException: Visual was invalidated during the render
-    /// pass</c>）に引っかかっていた（実測: tests/Graft.UiTestsのMarkdown編集系15件が
-    /// この例外で落ちることをAvaloniaEdit更新直後に確認し、11.1.0へ戻すと再現しないことも
-    /// 確認した上での対処）。
-    ///
-    /// 対処として、他の<c>IBackgroundRenderer</c>と同じ「無効なら何もせず諦める」方式へ揃える。
-    /// 可視行が一時的に無効な1フレームだけ括弧の強調表示が出ないことがあり得るが、次のフレームで
-    /// 自然に再描画されるため実害は無い（装飾のみで文書やUndo等の状態には触れない処理のため）。
-    /// </summary>
     public void Draw(TextView textView, DrawingContext drawingContext)
     {
         if (_editor.Document is null) return;
-        if (!textView.VisualLinesValid) return;
+        textView.EnsureVisualLines();
 
         var pair = FindMatchingPairAtCaret();
         if (pair is null) return;

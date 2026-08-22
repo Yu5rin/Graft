@@ -73,7 +73,7 @@
     <PackageReference Include="Avalonia.Win32" Version="11.2.3" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
     <PackageReference Include="Avalonia.Diagnostics" Version="11.2.3" Condition="'$(Configuration)'=='Debug'" />
-    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.4.1" />
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.1.0" />
     <!--
       カラープレビュー機能（検討書「コード中のカラープレビュー」）のカラーピッカーに使う公式コンポーネント。
       Avalonia本体と同じMITライセンス・同じバージョン系列（Views/OpenSourceLicensesWindow.axaml.csの

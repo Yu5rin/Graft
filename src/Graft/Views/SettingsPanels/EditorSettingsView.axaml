@@ -28,19 +28,6 @@
                          views:HelpTip.Standard="コード表示の文字の大きさです。既定は13です。エディタ上でCtrl+マウスホイールでも変更できます。"
                          views:HelpTip.Detailed="中央のエディタ領域に表示するコードの文字サイズ（pt）です。既定は13です。エディタの上にカーソルを置いてCtrlキーを押しながらマウスホイールを回しても同じように変更でき、そちらで変えた値もここへ反映されます。表示だけの設定でファイルの内容には影響しません。" />
             </StackPanel>
-            <!-- 機能改善「行間を設定できるようにする」。フォントサイズのすぐ下に置く（見た目の
-                 大きさに関わる項目としてまとめる）。縦線・折りたたみマーカー・行番号・検索
-                 ハイライトも一緒に追従することはEditorPane側で保証する（IndentGuideModeと同じ
-                 即時反映の仕組み。SettingsViewModel.SelectedLineSpacingのコメント参照）。 -->
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="行間" Classes="fieldLabel" />
-                <ComboBox ItemsSource="{Binding LineSpacingOptions}" SelectedValueBinding="{Binding Value}"
-                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedLineSpacing}"
-                          AutomationProperties.Name="行間"
-                          views:HelpTip.Minimal="{Binding SelectedLineSpacing, StringFormat='行間: {0}'}"
-                          views:HelpTip.Standard="コードの行と行の間隔の広さです。既定は「標準」です。"
-                          views:HelpTip.Detailed="コードの各行の高さ（行と行の間隔）を4段階から選べます。「せまい」がもっとも詰まった表示、「標準」（既定）が今までどおりの広さ、「広め」「さらに広い」の順に間隔が広がります。行番号・インデントの縦線・折りたたみの＋－マーカー・検索結果の枠は、いずれも選んだ行間へ自動的に追従します。選んだ瞬間にその場で切り替わります（アプリの再起動は不要）。" />
-            </StackPanel>
             <CheckBox Classes="settingRow" Content="長い行を折り返す" IsChecked="{Binding EditorWordWrap}"
                       AutomationProperties.Name="長い行を折り返す"
                       views:HelpTip.Standard="1行が画面幅を超えるとき、横スクロールの代わりに折り返して表示します。既定はオフです。"

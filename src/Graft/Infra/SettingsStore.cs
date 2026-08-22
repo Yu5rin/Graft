@@ -53,10 +53,6 @@ public sealed class SettingsStore
     private static readonly HashSet<string> ValidIndentGuideModes =
         new(StringComparer.OrdinalIgnoreCase) { "none", "foldable", "all" };
 
-    // 機能改善「行間を設定できるようにする」の4段階。既定は"normal"。
-    private static readonly HashSet<string> ValidLineSpacings =
-        new(StringComparer.OrdinalIgnoreCase) { "narrow", "normal", "wide", "wider" };
-
     private readonly AppPaths _paths;
     private readonly JsonFileStore _store;
 
@@ -245,8 +241,6 @@ public sealed class SettingsStore
             TabSize = NormalizeMin(s.TabSize, 1, 4, "editor.tabSize", issues, context),
             IndentGuideMode = NormalizeChoice(
                 s.IndentGuideMode, ValidIndentGuideModes, "foldable", "editor.indentGuideMode", issues, context),
-            LineSpacing = NormalizeChoice(
-                s.LineSpacing, ValidLineSpacings, "normal", "editor.lineSpacing", issues, context),
         };
 
     private static ClipboardWatchSettings ValidateClipboardWatch(
