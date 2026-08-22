@@ -198,6 +198,44 @@
                            AutomationProperties.Name="データ保存先の切り替えには再起動が必要" />
             </StackPanel>
 
+            <!--
+                機能追加（自動更新）: GitHub Releasesへ問い合わせて新しいバージョンを確認し、
+                同意のうえダウンロード・検証・自己置き換え・再起動までを行う。通信はここに
+                書かれた条件（起動時1日1回まで・このボタン）のときだけ発生する
+                （SettingsViewModel.Update.cs参照）。
+            -->
+            <TextBlock Text="更新" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow" Content="起動時に更新を確認する" IsChecked="{Binding UpdateCheckOnStartup}"
+                      AutomationProperties.Name="起動時に更新を確認する"
+                      views:HelpTip.Standard="起動のたびに（ただし前回の確認から24時間以上経っていれば）GitHubへ新しいバージョンが無いか確認します。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、Graftを起動するたびに、前回の確認から24時間以上経っていることを条件として、GitHub（下の「チェック先URL」）へ新しいバージョンが無いか問い合わせます。見つかった場合はダイアログで知らせ、同意した場合のみダウンロードが始まります（無断でダウンロードされることはありません）。オフにしても、下の「今すぐ更新を確認」はいつでも使えます。確認・ダウンロードのとき以外、Graftは外部と通信しません。" />
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="チェック先URL" Classes="fieldLabel" />
+                <TextBox Text="{Binding UpdateCheckUrl, UpdateSourceTrigger=LostFocus}" Width="420"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="更新のチェック先URL"
+                         views:HelpTip.Standard="更新の確認先（GitHub Releases API）です。どこへ通信しているかをここで確認・変更できます。"
+                         views:HelpTip.Detailed="更新の確認で問い合わせるGitHub Releases APIのURLです。既定はGraft本体のリポジトリ（https://api.github.com/repos/Yu5rin/Graft/releases/latest）で、通常は変更する必要はありません。「どこへ通信するのか」をコードに隠さず、ここで確認・変更できるようにしています。HTTPS以外のURLへは通信しません。" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Content="今すぐ更新を確認" Command="{Binding CheckForUpdateNowCommand}"
+                        AutomationProperties.Name="今すぐ更新を確認"
+                        views:HelpTip.Standard="今すぐGitHubへ問い合わせて、新しいバージョンが無いか確認します。"
+                        views:HelpTip.Detailed="「起動時に更新を確認する」がオフでも、押した瞬間に必ずGitHubへ問い合わせます（24時間の間隔は無視されます）。新しいバージョンが見つかった場合はダイアログで案内し、同意した場合のみダウンロードへ進みます。" />
+                <Button Content="中断" Command="{Binding CancelUpdateDownloadCommand}" Margin="8,0,0,0"
+                        IsVisible="{Binding IsUpdateDownloading}"
+                        AutomationProperties.Name="更新のダウンロードを中断"
+                        views:HelpTip.Standard="ダウンロード中の更新ファイルの取得を中断します。" />
+            </StackPanel>
+            <ProgressBar Value="{Binding UpdateProgressPercent}" Minimum="0" Maximum="100" Height="4" Margin="0,8,0,0"
+                         IsVisible="{Binding IsUpdateDownloading}"
+                         AutomationProperties.Name="更新のダウンロード進捗" />
+            <TextBlock Text="{Binding UpdateStatusMessage}" Classes="fieldHint" TextWrapping="Wrap" Margin="0,8,0,0"
+                       IsVisible="{Binding UpdateStatusMessage, Converter={x:Static views:Converters.NotNull}}"
+                       AutomationProperties.Name="更新の状況" />
+            <TextBlock Text="{Binding CurrentVersionText, StringFormat=現在のバージョン: {0}}" Classes="fieldHint"
+                       AutomationProperties.Name="更新欄の現在のバージョン" />
+
             <TextBlock Text="バックアップ・世代管理" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />

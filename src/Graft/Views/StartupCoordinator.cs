@@ -178,6 +178,18 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         LogDataDirectoryRecoveryOutcome(_dataDirectoryRecoveryOutcome);
         LogPendingCleanupOutcome(pendingCleanupOutcome);
 
+        // 機能追加（自動更新）: 前回の自動更新で残った*.old（旧ファイルの退避、
+        // Core.Update.SelfUpdateInstaller参照）を掃除する。指示書の設計どおり
+        // 「次回起動時に.oldを削除する」。対象はUpdateFiles.RequiredFileNamesに列挙された
+        // 配布物ファイルの.old版のみで、settings.json等の利用者データには一切触れない。
+        // 削除に失敗しても起動は継続する（次回起動時に再試行される）ため、ここも他の
+        // 起動時後始末と同じくLogger生成直後・軽量な同期処理として行う。
+        var removedOldFiles = Core.Update.PendingUpdateCleanup.Run(_appPaths.BaseDirectory);
+        if (removedOldFiles.Count > 0)
+        {
+            _logger.Info("update", $"前回の更新で残っていた退避ファイルを削除しました: {string.Join(", ", removedOldFiles)}");
+        }
+
         // 設計目標5（製品相当の完成度）: UIハンドラ内の想定外の例外でアプリを終わらせない。
         // 記録したうえで日本語の通知だけ出し、操作を続けられるようにする。
         SafeHandler.OnUnexpected = (context, ex) =>
@@ -240,8 +252,22 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 読み直しておく。
         // データ保存先の切り替え（datapath.txt）はexeと同じ階層を基準に判断するため、
         // _exeDirectoryも渡す（SettingsViewModel.DataDirectory.cs参照）。
-        _settingsViewModel = new SettingsViewModel(_appPaths, dialogService, _ui, ApplyLiveSettingsChange, _exeDirectory);
+        _settingsViewModel = new SettingsViewModel(
+            _appPaths, dialogService, _ui, ApplyLiveSettingsChange, _exeDirectory, externalLinks: _platform.ExternalLinks);
         await _settingsViewModel.InitializeAsync().ConfigureAwait(true);
+
+        // 機能追加（自動更新）: 「更新の準備ができました」ダイアログの「今すぐ再起動」から
+        // 発火するRestartRequestedを、データ保存先移行の「再起動」ボタンと同じ経路
+        // （Graft.App.RequestRestart）へつなぐ。SettingsWindow.axaml.cs側にも同じ配線が
+        // あるが、それはウィンドウを開いている間しか有効でない購読であり、起動時の自動確認
+        // （設定画面を一度も開いていない状態でも発火しうる）を取りこぼさないよう、常駐する
+        // SettingsViewModelの生存期間ぶんここで購読しておく。App.RequestRestart自体は
+        // 二重要求を防ぐガードを持つため、SettingsWindowを開いていたときの重複購読と鉢合わせても
+        // 実害はない。
+        _settingsViewModel.RestartRequested += (_, _) =>
+        {
+            if (Avalonia.Application.Current is App app) app.RequestRestart();
+        };
 
         void OpenSettings()
         {
@@ -255,6 +281,13 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
             dialogService, _ui, OpenSettings, _platform.Trash);
         var mainViewModel = shellViewModel.Graft;
         _shellViewModel = shellViewModel;
+
+        // 機能追加（自動更新）: 更新の再起動前に未保存の編集を確認する差し替え口
+        // （SettingsViewModel.Update.csのConfirmUnsavedDocumentsAsyncコメント参照）。
+        // SettingsViewModelはShellViewModelより先に生成されるためコンストラクタでは渡せず、
+        // ここで生成後に設定する。既存のプロジェクト切り替え時の未保存確認
+        // （ShellViewModel.cs参照）と同じEditor.CloseAllAsyncをそのまま流用する。
+        _settingsViewModel.ConfirmUnsavedDocumentsAsync = () => shellViewModel.Editor.CloseAllAsync();
 
         // 機能改善: エディタ・差分表示でのCtrl+マウスホイールでの確定を、常駐の
         // SettingsViewModelへ橋渡しする（SettingsViewModel.SetEditorFontSizeLiveのコメント参照）。
@@ -346,6 +379,20 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         window.Show();
         _logger.Info("startup",
             $"操作可能まで {(int)(DateTime.Now - startedAt).TotalMilliseconds} ms");
+
+        // 機能追加（自動更新）: 起動時の更新確認。ウィンドウ表示後にfire-and-forgetで開始し、
+        // 起動そのものを一切ブロックしない（要件: 通信は非同期・起動をブロックしないこと。
+        // 上の「操作可能まで」計測より後ろに置いているのはそのため）。設定がオフ、または
+        // 前回確認から24時間未満なら通信自体を行わない（SettingsViewModel.Update.cs・
+        // Core.Update.UpdateChecker参照）。通信の失敗はUpdateChecker側で「確認できなかった」に
+        // 丸められ例外は投げない契約だが、附録A.4（握り潰さない）に倣い、万一の想定外の例外は
+        // 観測してログへ落とす。
+        _ = _settingsViewModel.CheckForUpdateOnStartupIfDueAsync()
+            .ContinueWith(
+                task => _logger?.Error("update", $"起動時の更新確認に失敗しました: {task.Exception!.GetBaseException()}"),
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
 
         if (!OnboardingWindow.HasCompleted(_appPaths))
         {

@@ -103,6 +103,30 @@ public sealed record Settings
     /// StartAsync</c>のwindow.PropertyChangedハンドラ参照）。
     /// </summary>
     public bool MinimizeToTray { get; init; } = false;
+
+    /// <summary>自動更新（機能追加）。既定はオン（起動時に確認する）。</summary>
+    public UpdateSettings Update { get; init; } = new();
+}
+
+/// <summary>
+/// 自動更新設定（機能追加）。仕様書の改定に伴う追加。GitHub Releases（<see cref="CheckUrl"/>）への
+/// 通信は、起動時1日1回まで（前回確認からの経過時間は設定ファイルではなく
+/// <see cref="Graft.Core.Update.UpdateCheckStateStore"/>がexeと同じ階層のupdate-check.jsonへ
+/// 別途持つ。<see cref="Infra.AppPaths.UpdateCheckStateFilePath"/>参照）と、
+/// 「今すぐ更新を確認」ボタンでの手動実行時にのみ発生する。それ以外の外部通信は行わない。
+/// </summary>
+public sealed record UpdateSettings
+{
+    /// <summary>起動時に更新を確認するか。既定オン。オフでも「今すぐ更新を確認」は使える。</summary>
+    public bool CheckOnStartup { get; init; } = true;
+
+    /// <summary>
+    /// 更新確認先URL（GitHub ReleasesのAPIエンドポイント）。既定はGraft本体のリポジトリ。
+    /// コードへ直書きせずここへ持たせているのは、将来配布リポジトリを移した場合に設定変更だけで
+    /// 追従できるようにするためと、「どこへ通信するのか」を利用者が設定画面から確認・変更できる
+    /// ようにするため。
+    /// </summary>
+    public string CheckUrl { get; init; } = "https://api.github.com/repos/Yu5rin/Graft/releases/latest";
 }
 
 /// <summary>コードエディタ設定（v2.0 仕様書15章・4章）。</summary>
