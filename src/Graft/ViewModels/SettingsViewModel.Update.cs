@@ -51,6 +51,9 @@ public sealed partial class SettingsViewModel
     /// <summary>「今すぐ更新を確認」ボタン。</summary>
     public AsyncRelayCommand CheckForUpdateNowCommand { get; private set; } = null!;
 
+    /// <summary>ダウンロード中に表示する「中断」ボタン。</summary>
+    public RelayCommand CancelUpdateDownloadCommand { get; private set; } = null!;
+
     public bool IsUpdateBusy { get => _isUpdateBusy; private set => SetProperty(ref _isUpdateBusy, value); }
     public string? UpdateStatusMessage { get => _updateStatusMessage; private set => SetProperty(ref _updateStatusMessage, value); }
     public double UpdateProgressPercent { get => _updateProgressPercent; private set => SetProperty(ref _updateProgressPercent, value); }
@@ -71,6 +74,7 @@ public sealed partial class SettingsViewModel
 
         CheckForUpdateNowCommand = new AsyncRelayCommand(
             () => CheckForUpdateAsync(isManual: true), () => !_isUpdateBusy, context: "更新の確認");
+        CancelUpdateDownloadCommand = new RelayCommand(CancelUpdateDownload, () => _isUpdateDownloading);
     }
 
     /// <summary>
