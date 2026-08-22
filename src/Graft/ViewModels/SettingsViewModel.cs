@@ -66,7 +66,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private string _selectedTheme = "system";
     private string _selectedTooltipDetail = "standard";
-    private string _selectedApplyMode = "allOrNothing";
+    private string _selectedApplyMode = "partial";
     private bool _showPreview; private bool _requireSummary;
     private string _hotkey = string.Empty;
     private string _selectedLogLevel = "info";

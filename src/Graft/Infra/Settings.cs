@@ -21,8 +21,22 @@ public sealed record Settings
     /// </summary>
     public string TooltipDetail { get; init; } = "standard";
 
-    /// <summary>適用モード。"allOrNothing" / "partial" のいずれか。</summary>
-    public string ApplyMode { get; init; } = "allOrNothing";
+    /// <summary>
+    /// 適用モード。"allOrNothing" / "partial" のいずれか。既定は"partial"。
+    /// 実機不具合対応: 既定が"allOrNothing"だった頃は、AIの回答の一部だけがコードに
+    /// 当てはまらない（ごくありふれた）状況で、適用可能なブロックが1件でもあるにもかかわらず
+    /// 適用処理全体がエラー扱いになり、履歴への記録も成功の通知も出なかった。ほとんどの利用者は
+    /// この設定を一度も開かないため、既定値そのものが実質的な不具合として体感されていた。
+    /// 「全件適用（All or Nothing）」は複数ブロックが相互依存するパッチ向けの安全機構として
+    /// 引き続き選択可能にしつつ、既定は「適用できるものは適用し、できなかったものは
+    /// 一覧に残す」（部分適用可）に変更する。
+    /// 移行についての注意: この既定値はSettings.jsonが無い（新規インストール）場合、または
+    /// applyModeキー自体が無い/不正な場合にのみ使われる（SettingsStore.Validate参照）。
+    /// 既に保存済みのsettings.jsonでapplyModeが明示されている（allOrNothing・partialの
+    /// どちらであっても）場合はその値をそのまま尊重し、この既定値変更によって勝手に
+    /// 書き換わることはない。
+    /// </summary>
+    public string ApplyMode { get; init; } = "partial";
 
     /// <summary>適用前にプレビューを表示するか（8.7章）。</summary>
     public bool ShowPreview { get; init; } = true;

@@ -215,7 +215,11 @@ public sealed class SettingsStore
         {
             Theme = NormalizeChoice(safe.Theme, ValidThemes, "system", "theme", issues, context),
             TooltipDetail = NormalizeChoice(safe.TooltipDetail, ValidTooltipDetails, "standard", "tooltipDetail", issues, context),
-            ApplyMode = NormalizeChoice(safe.ApplyMode, ValidApplyModes, "allOrNothing", "applyMode", issues, context),
+            // 実機不具合対応: 既定値をSettings.ApplyModeと揃えて"partial"にする（Settings.csのコメント参照）。
+            // NormalizeChoiceはsafe.ApplyModeが有効な値（allOrNothing/partialのいずれか）なら
+            // その値をそのまま返すため、既に保存済みのsettings.jsonでapplyModeが明示されている
+            // 利用者の設定はこの既定値変更の影響を受けない（fallbackはキーが無い・不正なときだけ使う）。
+            ApplyMode = NormalizeChoice(safe.ApplyMode, ValidApplyModes, "partial", "applyMode", issues, context),
             LogLevel = NormalizeChoice(safe.LogLevel, ValidLogLevels, "info", "logLevel", issues, context),
             CloseBehavior = NormalizeChoice(safe.CloseBehavior, ValidCloseBehaviors, "exit", "closeBehavior", issues, context),
             Hotkey = NormalizeNotEmpty(safe.Hotkey, "Ctrl+Alt+V", "hotkey", issues, context),

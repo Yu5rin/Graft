@@ -94,7 +94,10 @@ public class ApplyEngineTests
 
         var patchText = BuildSrPatch("ok.txt", "hello", "world")
             + "\n" + BuildSrPatch("bad.txt", "見つからない文字列", "置換後");
-        var ctx = harness.MakeContext(1);
+        // 実機不具合対応でApplyModeの既定値は"partial"になったため、ここではallOrNothing自体の
+        // 挙動（1件でも失敗すれば全体を中止する）を検証する目的で明示的に指定する。
+        var settings = new Graft.Infra.Settings { ApplyMode = "allOrNothing" };
+        var ctx = harness.MakeContext(1, settings);
         var dryRun = await harness.DryRunAsync(patchText, ctx);
         dryRun.FailedCount.Should().BeGreaterThan(0, "bad.txt側はSEARCH不一致で失敗するはず");
 
@@ -105,6 +108,14 @@ public class ApplyEngineTests
             "allOrNothingで中止された場合、成功側のファイルも変更されてはならない");
         Directory.Exists(harness.Paths.GetProjectBackupDirectory(harness.ProjectId)).Should().BeFalse(
             "致命的失敗はバックアップ開始前に検出されるため、バックアップフォルダ自体が作られないはず");
+
+        // 実機不具合対応: 以前はE101等の個別ブロックのエラーだけが表示され、「全件適用の設定の
+        // せいで中止された」ことが利用者に伝わらなかった。E304を確認する。
+        apply.Errors.First().Code.Should().Be(ErrorCode.E304,
+            "利用者に最初に見えるエラーは「設定のため中止した」ことを説明するものであるべき");
+        apply.Errors.First().ToDisplayText().Should().Contain("全件適用").And.Contain("部分適用可");
+        apply.Errors.Should().Contain(i => i.Code == ErrorCode.E101,
+            "個々のブロックのエラー（E101等）も従来どおり併記されるはず");
     }
 
     [Fact(DisplayName = "部分適用モードでは失敗したブロックの対象ファイルも含め全件バックアップする")]

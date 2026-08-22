@@ -85,11 +85,13 @@ public class RevisionNumberingScenarioTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(_projectDirectory, "bad.txt"), "存在しない検索対象は含まれていません\n").ConfigureAwait(true);
 
-        var shell = await OpenShellAsync().ConfigureAwait(true);
+        // 実機不具合対応でApplyModeの既定値は"partial"になったため、ここではApplyEngine.ApplyAsync
+        // 自体をFailで終わらせたいので明示的にallOrNothingを指定する。
+        var shell = await OpenShellAsync(new Settings { ApplyMode = "allOrNothing" }).ConfigureAwait(true);
         await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
         var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
 
-        // allOrNothing（既定）でok.txtは適用可能・bad.txtはSEARCH不一致で失敗する組み合わせにし、
+        // allOrNothingでok.txtは適用可能・bad.txtはSEARCH不一致で失敗する組み合わせにし、
         // ApplyEngine.ApplyAsync自体をFailで終わらせる（仕様書6章のallOrNothing）。
         _clipboard.Text = BuildPatch("ok.txt", "hello", "world") + "\n" + BuildPatch("bad.txt", "見つからない文字列", "置換後");
         await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);

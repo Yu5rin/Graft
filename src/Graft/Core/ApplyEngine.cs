@@ -57,10 +57,48 @@ public sealed partial class ApplyEngine
         var dupIssues = await CheckDuplicateAsync(ctx, plan.PatchHash, ct).ConfigureAwait(false);
         if (dupIssues.HardBlock) return GraftResult<RevisionManifest>.Fail(dupIssues.Issues);
 
+        // 実機不具合対応: 適用モードを問わず、実際に書き込むブロック（チェック済みかつ適用可能）が
+        // 1件も無いなら、ここで必ず失敗として返す。これが無いと、部分適用モードでは
+        // 「全ブロック失敗」や「チェックを全部外した」状態でもExecuteAsyncが素通りし、
+        // 何も書き換えていないのに成功扱いの空のリビジョンが記録されてしまう
+        // （MainViewModel.ApplyCoreAsync側にも同種のガードを置いているが、ApplyEngineは
+        // UIを経由しない呼び出し元からも直接使われうるため、ここでも独立して防ぐ）。
+        var eligiblePlans = plan.Plans.Where(p => p.IsSelected && p.CanApply).ToList();
+        if (eligiblePlans.Count == 0)
+        {
+            var noneIssues = plan.Plans.Where(p => !p.CanApply).SelectMany(p => p.Issues).ToList();
+            if (noneIssues.Count == 0)
+            {
+                noneIssues.Add(GraftIssue.Of(ErrorCode.E101, "チェックが付いている、適用可能な変更がありません"));
+            }
+            return GraftResult<RevisionManifest>.Fail(noneIssues);
+        }
+
         if (ctx.Settings.ApplyMode != "partial")
         {
+            // 「全件適用（All or Nothing）」: 選択状態を問わず、パッチ全体に1件でも適用できない
+            // ブロックがあれば何も書き込まず中止する（取扱説明書6.4のとおり）。DryRunPlannerが
+            // 失敗ブロックを自動的にIsSelected=falseへ倒し、UI側でも再選択できない
+            // （BlockItemViewModel.CanToggle）ため、ここでIsSelectedも条件に加えてしまうと
+            // 「選択されている失敗ブロック」は事実上存在しなくなり、allOrNothingが名前だけ残って
+            // 何も中止しないモードになってしまう。「1件でも当てはまらなければ何も書き込まない」
+            // という設定どおりの安全側の既定を守るのが目的のため、あえてIsSelectedは見ない。
             var fatal = plan.Plans.Where(p => !p.CanApply).SelectMany(p => p.Issues).ToList();
-            if (fatal.Count > 0) return GraftResult<RevisionManifest>.Fail(fatal);
+            if (fatal.Count > 0)
+            {
+                // 実機不具合対応: 以前はここでE101等の個別ブロックのエラーだけがそのまま
+                // 利用者へ表示され、「全件適用の設定のせいで中止された」ことが伝わらなかった
+                // （個々のブロックのエラーだけを見ると、そのブロック単体の問題に見えてしまう）。
+                // E304を先頭に加え、設定が原因であることと対処法（部分適用可への切り替え）を
+                // 明示する。個々のブロックのエラー（E101等）はfatalに含めたまま従来どおり併記する。
+                var failedBlockCount = plan.Plans.Count(p => !p.CanApply);
+                var blockDetail = string.Join(" / ", fatal.Take(3).Select(i => i.ToDisplayText()));
+                if (fatal.Count > 3) blockDetail += $" ほか{fatal.Count - 3}件";
+                var modeNotice = GraftIssue.Of(ErrorCode.E304,
+                    detail: $"「全件適用」の設定のため、適用できない変更が{failedBlockCount}件あった時点で中止しました。" +
+                        $"設定の「適用モード」で「部分適用可」に切り替えると、適用できる変更だけを書き込めます。（{blockDetail}）");
+                return GraftResult<RevisionManifest>.Fail(new[] { modeNotice }.Concat(fatal).ToList());
+            }
         }
 
         var initial = BuildInitialManifest(plan, ctx);
