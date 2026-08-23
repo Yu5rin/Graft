@@ -268,6 +268,94 @@ public class PerformanceTests : IDisposable
             + "レキサの計算量が行数に対して線形から外れている可能性がある");
     }
 
+    /// <summary>
+    /// 折り返し（WordWrap）有効時の計測に使うウィンドウ幅。既定の1200pxでは
+    /// <see cref="BuildWrappableSource"/>の1行が折り返らず、折り返し経路を通らないため
+    /// 意図的に狭くする（実測でこの幅なら1行が3〜4段に折り返る）。
+    /// </summary>
+    private const double WrappedWindowWidth = 600;
+
+    /// <summary>
+    /// 【なぜこのテストが要るのか】 本ファイルの他の計測は<c>new TextEditor { ... }</c>で
+    /// エディタを作っており、<see cref="TextEditor.WordWrap"/>の既定は<c>false</c>である。
+    /// 一方Graftの既定は<c>Settings.Editor.WordWrap = true</c>（<c>Infra/Settings.cs</c>）で、
+    /// 利用者の大半は折り返しが有効な状態で使う。つまり<b>利用者が実際に通る経路の性能が、
+    /// これまで一度も自動テストで守られていなかった</b>。折り返しは1つの論理行を複数段へ
+    /// 整形するぶん、素の表示より本質的に重い経路であり、課題#72で
+    /// <see cref="WrapIndentSupport"/>という自前の整形器を挟むようになったこともあって、
+    /// ここを明示的に押さえておく必要がある。
+    ///
+    /// 課題#72の実装を含めた状態で計測する（<see cref="MeasureWrappedOpenAndRender"/>が
+    /// 実アプリと同じく<see cref="WrapIndentSupport"/>を載せる）。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "折り返しを有効にしても10万行のファイルの構築・描画が滞らない")]
+    public void 折り返し有効でも十万行を開ける()
+    {
+        const int baselineLines = LineCount / OpenRenderScaleFactor; // 1万行
+
+        AssertSourceActuallyWraps();
+
+        // ウォームアップ（両方）。
+        MeasureWrappedOpenAndRender(baselineLines);
+        MeasureWrappedOpenAndRender(LineCount);
+
+        // 「開く」と同じ考え方で、基準側を分割して総処理行数を対象と揃える。
+        var (ratio, baselineTimes, targetTimes, ratios) = MeasureAlternatingRatio(
+            () =>
+            {
+                var total = 0.0;
+                for (var j = 0; j < OpenRenderScaleFactor; j++) total += MeasureWrappedOpenAndRender(baselineLines);
+                return total;
+            },
+            () => MeasureWrappedOpenAndRender(LineCount));
+
+        WriteMeasurementLog(
+            "折り返し有効での読み込みと初回描画", $"{baselineLines}行×{OpenRenderScaleFactor}回",
+            $"{LineCount}行×1回", baselineTimes, targetTimes, ratios, ratio);
+        _output.WriteLine($"（総処理行数は基準・対象とも{LineCount}行で同じ。折り返し有効・幅{WrappedWindowWidth}px）");
+
+        ratio.Should().BeLessThan(RelativeCostRatioThreshold,
+            $"折り返し有効時、総処理行数を揃えた基準（{baselineLines}行×{OpenRenderScaleFactor}回）に対し"
+            + $"対象（{LineCount}行×1回）が組ごとの倍率の中央値で{ratio:F2}倍の時間になっている"
+            + $"（基準: 全{MeasurementRuns}組[{string.Join(", ", baselineTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"対象: 全{MeasurementRuns}組[{string.Join(", ", targetTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"組ごとの倍率[{string.Join(", ", ratios.Select(r => r.ToString("F3")))}]）。"
+            + "折り返しの整形が行数に対して線形から外れている可能性がある");
+    }
+
+    /// <summary>
+    /// 折り返し有効時のスクロール。折り返しは論理行と表示行が1対1でなくなるため、
+    /// 仮想化（可視範囲だけを整形する）が壊れると総行数に比例して重くなる。
+    /// 課題#72で挟んだ<see cref="WrapIndentSupport"/>が可視範囲を超えて仕事をしていないか
+    /// （＝1段ぶんの<c>TextLine</c>を包むだけに留まっているか）の回帰ガードでもある。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "折り返しを有効にしても10万行のファイルでスクロールが滞らない")]
+    public void 折り返し有効でも十万行でスクロールできる()
+    {
+        AssertSourceActuallyWraps();
+
+        // ウォームアップ（両方）。
+        MeasureWrappedScroll(SmallLineCount);
+        MeasureWrappedScroll(LineCount);
+
+        // 総処理量について: スクロール（十万行でもスクロールできる）と同じ理由で、
+        // 操作回数が既に揃っているためScaleFactorによる水増しはしない。
+        var (ratio, baselineTimes, targetTimes, ratios) = MeasureAlternatingRatio(
+            () => MeasureWrappedScroll(SmallLineCount), () => MeasureWrappedScroll(LineCount));
+
+        WriteMeasurementLog(
+            "折り返し有効でのスクロール", $"{SmallLineCount}行", $"{LineCount}行",
+            baselineTimes, targetTimes, ratios, ratio);
+
+        ratio.Should().BeLessThan(RelativeCostRatioThreshold,
+            $"折り返し有効時、総行数が{LineCount / SmallLineCount}倍（{SmallLineCount}→{LineCount}）なのに"
+            + $"組ごとの倍率の中央値でスクロール時間も{ratio:F2}倍になっている"
+            + $"（基準: 全{MeasurementRuns}組[{string.Join(", ", baselineTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"対象: 全{MeasurementRuns}組[{string.Join(", ", targetTimes.Select(t => t.ToString("F3")))}]ms → "
+            + $"組ごとの倍率[{string.Join(", ", ratios.Select(r => r.ToString("F3")))}]）。"
+            + "折り返し時の仮想化が効いていない（可視範囲を超えて整形している）可能性がある");
+    }
+
     [AvaloniaFact(DisplayName = "起動からシェルの初回描画までが1秒以内に収まる")]
     public void 起動が一秒以内に収まる()
     {
@@ -517,6 +605,96 @@ public class PerformanceTests : IDisposable
         stopwatch.Stop();
 
         return stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    /// <summary>
+    /// 折り返し有効のエディタを作る。実アプリ（EditorPane）と同じく
+    /// <see cref="WrapIndentSupport"/>（課題#72）を載せた状態で計測する。
+    /// </summary>
+    private (TextEditor Editor, Window Window) CreateWrappedEditor(string text)
+    {
+        var editor = new TextEditor
+        {
+            Document = new TextDocument(text),
+            WordWrap = true,
+            ShowLineNumbers = true,
+        };
+        _ = new WrapIndentSupport(editor);
+        var window = _windows.Track(new Window { Width = WrappedWindowWidth, Height = 800, Content = editor });
+        return (editor, window);
+    }
+
+    /// <summary>
+    /// 計測の前提（＝この計測が本当に折り返し経路を通っていること）を確かめる。
+    /// 幅・フォント・生成する行の長さのどれかが変わって折り返らなくなると、計測は通るのに
+    /// 守りたい経路を一切通らない「空回りのテスト」になってしまう。それを防ぐための番人。
+    /// </summary>
+    private void AssertSourceActuallyWraps()
+    {
+        var (editor, window) = CreateWrappedEditor(BuildWrappableSource(10));
+        window.Show();
+        window.CaptureRenderedFrame().Should().NotBeNull();
+
+        var visualLine = editor.TextArea.TextView.GetOrConstructVisualLine(editor.Document.GetLineByNumber(1));
+        visualLine.TextLines.Count.Should().BeGreaterThan(1,
+            $"幅{WrappedWindowWidth}pxでBuildWrappableSourceの1行は必ず折り返るはず"
+            + "（折り返らないなら、この計測は折り返し経路を通っていない）");
+
+        // 課題#72のぶら下げインデントも実際に働いていること（＝実アプリと同じ経路）。
+        var second = visualLine.TextLines[1];
+        visualLine.GetTextLineVisualXPosition(second, visualLine.GetTextLineVisualStartColumn(second))
+            .Should().BeGreaterThan(0, "折り返しの2段目が字下げされている＝WrapIndentSupportが働いている");
+
+        window.Close();
+    }
+
+    /// <summary>折り返し有効で、指定行数のドキュメントを開いて初回描画するまでの時間（ms）を計測する。</summary>
+    private double MeasureWrappedOpenAndRender(int lines)
+    {
+        var text = BuildWrappableSource(lines);
+        var (editor, window) = CreateWrappedEditor(string.Empty);
+        window.Show();
+        window.CaptureRenderedFrame();
+
+        var stopwatch = Stopwatch.StartNew();
+        editor.Document = new TextDocument(text);
+        window.CaptureRenderedFrame().Should().NotBeNull();
+        stopwatch.Stop();
+
+        return stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    /// <summary>折り返し有効で、先頭・中間・末尾へ3回スクロールする時間（ms）を計測する。</summary>
+    private double MeasureWrappedScroll(int lines)
+    {
+        var (editor, window) = CreateWrappedEditor(BuildWrappableSource(lines));
+        window.Show();
+        window.CaptureRenderedFrame();
+
+        var stopwatch = Stopwatch.StartNew();
+        foreach (var line in new[] { 1, lines / 2, lines })
+        {
+            editor.ScrollToLine(line);
+            window.CaptureRenderedFrame().Should().NotBeNull();
+        }
+        stopwatch.Stop();
+
+        return stopwatch.Elapsed.TotalMilliseconds;
+    }
+
+    /// <summary>
+    /// 折り返しの計測用に、必ず折り返る長さ（<see cref="WrappedWindowWidth"/>px幅で3〜4段）で、
+    /// かつ行頭が字下げされたソースを生成する（課題#72のぶら下げインデントも実際に働かせるため）。
+    /// </summary>
+    private static string BuildWrappableSource(int lines)
+    {
+        var builder = new StringBuilder(lines * 128);
+        for (var i = 0; i < lines; i++)
+        {
+            builder.Append("        var value").Append(i)
+                .Append(" = Compute(alpha, bravo, charlie, delta, echo, foxtrot, golf, hotel, india, juliett, kilo);\n");
+        }
+        return builder.ToString();
     }
 
     /// <summary>コメント・文字列・キーワードが混ざった、実際のコードに近い内容を生成する。</summary>

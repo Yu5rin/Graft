@@ -20,6 +20,8 @@ public partial class EditorPane
         // 課題#82: ApplyDocumentTabと同じ理由でDocument代入の前に外す
         // （FoldingSupport.PrepareForDocumentSwapのクラスコメント【課題#82】節参照）。
         _folding.PrepareForDocumentSwap();
+        // 課題#72: ApplyDocumentTabと同じく、この代入を契機にWrapIndentSupportが自動で
+        // 入れ直す（WrapIndentSupportのクラスコメント参照）。
         Editor.Document = new TextDocument();
         Editor.IsEnabled = false;
         Editor.IsVisible = true;

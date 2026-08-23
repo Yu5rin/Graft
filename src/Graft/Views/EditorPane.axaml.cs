@@ -33,6 +33,11 @@ public partial class EditorPane : UserControl
     // （FoldingSupportクラスコメント参照）ため、_foldingより後に構築する。
     private readonly IndentGuideRenderer _indentGuide;
     private readonly CompletionProvider _completion;
+    // 課題#72（折り返し行のインデント継承）。AvaloniaEdit・Avalonia双方の制約から、
+    // TextViewが握るTextFormatterを包む形で実現している（WrapIndentSupportのクラスコメント参照）。
+    // Documentの差し替えで外れてしまうため、自身でTextView.DocumentChangedを購読して
+    // 入れ直す（ApplyDocumentTab／ApplyEmptyTabの側に呼び出しは要らない）。
+    private readonly WrapIndentSupport _wrapIndent;
     private readonly GitGutterProvider _gitGutter;
     // Markdownプレビュー機能（案B）: 編集モードでのMarkdown控えめ装飾。詳細はMarkdownInlineColorizer参照。
     private readonly MarkdownInlineColorizer _markdownColorizer = new();
@@ -50,7 +55,13 @@ public partial class EditorPane : UserControl
     public Logger? Logger
     {
         get => _indentGuide.Logger;
-        set => _indentGuide.Logger = value;
+        set
+        {
+            _indentGuide.Logger = value;
+            // 課題#72: リフレクション（private API）に依存する機能のため、取得に失敗して
+            // 静かに無効化された事実をログへ残せるようにする（WrapIndentSupport.Logger参照）。
+            _wrapIndent.Logger = value;
+        }
     }
 
     // 現在Editorに読み込まれている（＝Documentを共有している）タブ。切替前にこのタブへ
@@ -104,6 +115,9 @@ public partial class EditorPane : UserControl
         _folding = new FoldingSupport(Editor);
         _indentGuide = new IndentGuideRenderer(Editor, _folding);
         _completion = new CompletionProvider(Editor);
+        // 課題#72。LineTransformersへ番人を差し込むため、_bridge・_markdownColorizerの登録より
+        // 後（順序は結果に影響しない。WrapIndentVisualLineTrackerのクラスコメント参照）に構築する。
+        _wrapIndent = new WrapIndentSupport(Editor);
 
         // 4.7 Gitガター。行番号の左隣に置き、HEADとの差分を色帯で示す。GitGutterProviderの
         // カーソル（矢印固定）はコンストラクタ内で設定済み（実機での指摘2、クラスコメント参照）。
@@ -230,6 +244,10 @@ public partial class EditorPane : UserControl
         // その再入区間のどの瞬間でもFoldingManagerが存在しないため、Invalid documentの
         // 温床そのものが無くなる。
         _folding.PrepareForDocumentSwap();
+        // 課題#72: この代入の「中で最後に」発火するTextView.DocumentChangedを
+        // WrapIndentSupport自身が購読しており、素のTextFormatterで上書きされた直後に
+        // 自動で入れ直す。上のPrepareForDocumentSwap（代入の"前"）とは働く時点が
+        // 異なるため、順序が衝突することはない。
         Editor.Document = tab.Session.Document;
         ApplyWhitespaceOption();
         ApplyWordWrapOption();
