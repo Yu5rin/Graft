@@ -60,9 +60,9 @@ public class PromptTemplateCodeBlockTests
     public void 調査依頼はコードブロックの指示を含まない()
         => Body("builtin-investigate").Should().NotContain(CodeBlockPhrase);
 
-    [Fact(DisplayName = "初回用（完全版）はエスケープ規則も含む（従来欠けていた不整合の是正）")]
+    [Fact(DisplayName = "初回用（Graft独自形式）はエスケープ規則も含む（従来欠けていた不整合の是正）")]
     public void 初回用はエスケープ規則も含む()
-        => Body("builtin-full").Should().Contain("【エスケープ規則】");
+        => Body("builtin-graft-full").Should().Contain("【エスケープ規則】");
 
     // ------------------------------------------------------------------
     // 案件1・2の回帰: 実際の事故（PATCHメタの二重出力・1つ目が未閉鎖）を踏まえ、
@@ -70,21 +70,25 @@ public class PromptTemplateCodeBlockTests
     // 3点が既定テンプレートに含まれることを確認する。
     // ------------------------------------------------------------------
 
-    [Theory(DisplayName = "パッチを出力するテンプレートは「<<<< PATCHは1回だけ」の指示を含む")]
-    [InlineData("builtin-full")]
-    [InlineData("builtin-fix-request")]
-    [InlineData("builtin-new-file")]
+    // 【v1.0.14での付け替え】既定テンプレート（builtin-full 等）の本文は標準SR形式へ切り替えたため、
+    // Graft独自形式に固有の指示（<<<< PATCH メタ・MODE=FULL・エスケープ規則）の検証対象は
+    // Graft独自形式のテンプレート（builtin-graft-*）へ移した。指示文そのものは一字も変えて
+    // いないので、案件1・2で固定した内容は引き続き同じ強さで守られている。
+    [Theory(DisplayName = "パッチを出力するGraft独自形式テンプレートは「<<<< PATCHは1回だけ」の指示を含む")]
+    [InlineData("builtin-graft-full")]
+    [InlineData("builtin-graft-fix-request")]
+    [InlineData("builtin-graft-new-file")]
     public void パッチを出力するテンプレートはPATCHメタ1回だけの指示を含む(string id)
         => Body(id).Should().Contain("<<<< PATCH は出力全体で1回だけ");
 
-    [Fact(DisplayName = "継続用（短縮版）も「<<<< PATCHは1回だけ」の指示を含む（事故が起きやすい場面のため）")]
+    [Fact(DisplayName = "継続用（Graft独自形式）も「<<<< PATCHは1回だけ」の指示を含む（事故が起きやすい場面のため）")]
     public void 継続用もPATCHメタ1回だけの指示を含む()
-        => Body("builtin-continuation").Should().Contain("<<<< PATCH は1回だけ");
+        => Body("builtin-graft-continuation").Should().Contain("<<<< PATCH は1回だけ");
 
-    [Theory(DisplayName = "パッチを出力するテンプレートは終了マーカーの対応と出力前の自己確認を促す")]
-    [InlineData("builtin-full")]
-    [InlineData("builtin-fix-request")]
-    [InlineData("builtin-new-file")]
+    [Theory(DisplayName = "パッチを出力するGraft独自形式テンプレートは終了マーカーの対応と出力前の自己確認を促す")]
+    [InlineData("builtin-graft-full")]
+    [InlineData("builtin-graft-fix-request")]
+    [InlineData("builtin-graft-new-file")]
     public void パッチを出力するテンプレートは終了マーカーの対応と自己確認を促す(string id)
     {
         var body = Body(id);
@@ -105,11 +109,14 @@ public class PromptTemplateCodeBlockTests
     [InlineData("builtin-full")]
     [InlineData("builtin-fix-request")]
     [InlineData("builtin-new-file")]
+    [InlineData("builtin-graft-full")]
+    [InlineData("builtin-graft-fix-request")]
+    [InlineData("builtin-graft-new-file")]
     public void パッチを出力するテンプレートは1行目最終行を具体的に指示する(string id)
     {
         var body = Body(id);
         body.Should().Contain("```text", "言語識別子を明示する具体的な書き方が示されているはず");
-        body.Should().Contain("パッチ本文に ``` が含まれる場合", "本文に```を含む場合の代替指示があるはず");
+        body.Should().Contain(" ``` が含まれる場合", "本文に```を含む場合の代替指示があるはず");
         body.Should().Contain("````text", "本文に```を含む場合はバッククォート4個にするよう具体的に示されているはず");
     }
 
@@ -221,7 +228,11 @@ public class PromptTemplateCodeBlockTests
         // フェンスの外に含むため、段階1がそのまま働く。パスの実在らしさ判定を追加する前は
         // ここが誤検知していた（既定テンプレートのパスは「相対パス」という仮の文字列で、
         // 拡張子も区切りも持たないため）。
-        foreach (var id in new[] { "builtin-full", "builtin-fix-request", "builtin-new-file" })
+        foreach (var id in new[]
+                 {
+                     "builtin-full", "builtin-fix-request", "builtin-new-file",
+                     "builtin-graft-full", "builtin-graft-fix-request", "builtin-graft-new-file",
+                 })
         {
             PatchTextDetector.LooksLikePatch(Body(id)).Should().BeFalse(
                 $"{id} のテンプレート本文は「相対パス」という仮のパスしか持たないため誤検知してはいけない");

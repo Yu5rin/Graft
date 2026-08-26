@@ -70,8 +70,14 @@ public static class PatchTextDetector
         "<<<< MKDIR:",
         "<<<< APPEND:",
         "<<<< PREPEND:",
-        "<<<<<<< SEARCH",
+        SharedSearchMarkerPrefix,
     };
+
+    /// <summary>
+    /// Graft独自形式と標準SEARCH/REPLACE形式（5.2）で共通のSEARCHマーカー。
+    /// <see cref="HasGraftOwnMarker"/> はこれだけを除外して判定する。
+    /// </summary>
+    private const string SharedSearchMarkerPrefix = "<<<<<<< SEARCH";
 
     /// <summary>パス欄を伴うヘッダの接頭辞（パスの実在らしさ判定の対象）。</summary>
     private static readonly string[] PathBearingHeaderPrefixes =
@@ -99,6 +105,12 @@ public static class PatchTextDetector
     {
         if (string.IsNullOrEmpty(text)) return false;
 
+        // AIが情報不足を申告した合図（5.2）。マーカーを1つも含まないため以降の構造判定では
+        // 拾えないが、利用者から見れば「AIの回答をコピーしたのに何も起きない」状態になり、
+        // 何が起きているのか分からない。検知しておけば、貼り付け→解析でE710の説明
+        // （対象ファイルを渡し直してから再依頼する）まで案内できる。
+        if (StandardSearchReplaceAdapter.IsNeedMoreContext(text)) return true;
+
         var visible = StripClosedFencedBlocks(text);
         if (!string.IsNullOrEmpty(visible) && LooksStructurallyValid(visible))
             return true;
@@ -120,8 +132,39 @@ public static class PatchTextDetector
     {
         // 安価な前判定: マーカーもunified diffの手がかりも無ければ、
         // 以降の実解析（PatchParser.Parse）は呼ばずに打ち切る。
-        if (!HasGraftMarker(text) && !UnifiedDiffAdapter.IsUnifiedDiff(text))
+        // 標準SR形式（5.2）のうち <<<<<<< SEARCH は HeaderPrefixes に含まれるため
+        // HasGraftMarker で既に拾えるが、会社ルールの拡張マーカー（NEW_FILE・WHOLE_FILE・
+        // DELETE_FILE）だけで構成されたパッチは拾えないため、明示的に足す。
+        if (!HasGraftMarker(text)
+            && !StandardSearchReplaceAdapter.HasStandardMarker(text)
+            && !UnifiedDiffAdapter.IsUnifiedDiff(text))
+        {
             return false;
+        }
+
+        // 標準SR形式の「パスの実在らしさ」（5.2）。Graft専用ヘッダが1つも無く、標準SR形式の
+        // マーカーだけがある場合は、パスだけの裸の行が少なくとも1つ「実在するファイルパスらしい
+        // 見た目」であることを要求する。
+        //
+        // 【なぜ必要か】Graft形式に対する既存の同種チェック（下の HasAnyPathBearingHeader）と
+        // 全く同じ事故を防ぐため。既定プロンプトテンプレートは仮のパスとして文字どおり
+        // 「相対パス」を使うので、標準SR形式のテンプレートを利用者がコピーしただけで
+        // （AIに何も聞く前から）誤検知してしまう。実解析の結果だけでは弾けない点にも注意が
+        // 必要で、LooksStructurallyValid の合否は「E001以外なら成立とみなす」という
+        // 寛容な基準のため、パスが見つからずE002になった場合でも「検知する」側に倒れてしまう。
+        //
+        // 【Graft形式を巻き込まないよう HasGraftOwnMarker で限定する理由】Graft形式のパッチも
+        // <<<<<<< SEARCH を含むが、そのパスは <<<< FILE: 行の中にあり裸の行としては現れない。
+        // 限定せずにこの条件を課すと、正しいGraft形式のパッチまで一律に非検知になってしまう。
+        // 対象を「閉じたブロックが1つ以上ある」テキストに絞る理由は
+        // StandardSearchReplaceAdapter.HasCompleteStandardBlock のコメントを参照
+        // （開始マーカーが1行あるだけの断片まで弾くと、従来の検知が狭まってしまう）。
+        if (!HasGraftOwnMarker(text)
+            && StandardSearchReplaceAdapter.HasCompleteStandardBlock(text)
+            && !StandardSearchReplaceAdapter.HasPlausiblePathLine(text))
+        {
+            return false;
+        }
 
         // パスを伴うヘッダが1つ以上あるなら、少なくとも1つは実在するパスらしい
         // 見た目であることを要求する（クラスコメント「パスの実在らしさ」参照）。
@@ -208,6 +251,36 @@ public static class PatchTextDetector
         {
             foreach (var prefix in HeaderPrefixes)
             {
+                if (line.StartsWith(prefix, StringComparison.Ordinal)) return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// テキストが「Graft独自形式にしか存在しない」ブロックヘッダを行頭に含むかどうか。
+    /// <see cref="HasGraftMarker"/> との違いは <c>&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH</c> を**含めない**こと。
+    ///
+    /// 【なぜ2つに分けるか】<c>&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH</c> の行は Graft独自形式と標準SEARCH/REPLACE形式
+    /// （5.2）で完全に共通であり、これを手がかりに「Graft形式である」と判断してしまうと、
+    /// 標準SR形式のパッチがすべてGraft形式として解析され、必ず失敗する。両形式を区別できる
+    /// 唯一の手がかりは直前のファイル指定行（Graft: <c>&lt;&lt;&lt;&lt; FILE: パス</c> / 標準: パスだけの行）
+    /// のため、Graft専用のヘッダだけを見るこの判定を <see cref="PatchParser.Parse"/> の
+    /// 振り分けに使う。<see cref="HasGraftMarker"/> の側は unified diff（5.1）の振り分けで
+    /// 従来どおり使い続ける（判定を狭めると5.1の既存挙動が変わってしまうため）。
+    /// </summary>
+    public static bool HasGraftOwnMarker(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+
+        using var reader = new StringReader(text);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            foreach (var prefix in HeaderPrefixes)
+            {
+                if (prefix == SharedSearchMarkerPrefix) continue;
                 if (line.StartsWith(prefix, StringComparison.Ordinal)) return true;
             }
         }

@@ -90,7 +90,9 @@ public sealed class PromptTemplateStore
     /// <summary>
     /// エディタの選択範囲から修正依頼プロンプトを組み立てる（右クリックメニュー
     /// 「選択範囲の修正依頼プロンプトをコピー」）。「修正依頼」テンプレートの形式指示
-    /// （<see cref="FixRequestFormatInstruction"/>）に続けて、対象ファイルのプロジェクト相対パス・
+    /// （v1.0.14で <see cref="FixRequestFormatInstruction"/> から標準SR形式の
+    /// <see cref="StandardFormatInstruction"/> へ切り替えた。既定テンプレートと同じ形式で
+    /// AIに出力させるため）に続けて、対象ファイルのプロジェクト相対パス・
     /// 行範囲・選択コード（``` フェンス。拡張子から言語名を付けられれば付ける）を並べ、末尾に
     /// 依頼内容を書き足すための誘導行を置く。10章のコンテキスト収集を介さない単発の依頼のため、
     /// <c>{{standingContext}}</c>・<c>{{files}}</c> のようなプレースホルダは使わない。
@@ -111,7 +113,7 @@ public sealed class PromptTemplateStore
         var fenceLanguage = FenceLanguageForExtension(fileExtension);
         var code = selectedCode.EndsWith('\n') ? selectedCode : selectedCode + "\n";
 
-        return FixRequestFormatInstruction +
+        return StandardFormatInstruction +
             $"\n\n対象: {relativePath}（{startLine}〜{endLine}行目）\n\n" +
             $"```{fenceLanguage}\n{code}```\n\n" +
             "このコードの修正を依頼します。修正内容: ";
@@ -143,14 +145,182 @@ public sealed class PromptTemplateStore
         };
     }
 
+    /// <summary>
+    /// 既定テンプレートの一覧を組み立てる。
+    ///
+    /// 【v1.0.14での方針転換: 既定を標準SEARCH/REPLACE形式へ切り替えた】
+    /// 形式指示に従わないAIが実際に問題になっており（仕様書5.1の背景と同じ事情）、
+    /// Graft独自形式より、Aiderが広めCline・Roo Code等も採用した標準SR形式の方が、
+    /// マーカーがgitのマージコンフリクトマーカーそのものである分だけLLMが自然に出せる。
+    /// そこでAIに出させる形式そのものを標準へ寄せ、<c>builtin-full</c> 等の既定として
+    /// 選ばれるIDに標準SR形式の本文を割り当てた。
+    ///
+    /// 【従来のGraft独自形式のテンプレートも残す理由】既定を入れ替えるだけにすると、
+    /// これまでGraft独自形式で運用してきた利用者が、慣れた指示文を二度と選べなくなる。
+    /// またGraft独自形式にしかできないこと（RENAME・MKDIR・APPEND/PREPEND・
+    /// パッチ全体のsummary/type・base ハッシュ）が実際に必要になる場面がある。
+    /// そこでIDを分けた別テンプレート（<c>builtin-graft-*</c>）として本文をそのまま残し、
+    /// 設定を増やさずに「一覧から選ぶだけ」で従来どおり使えるようにした。
+    /// 並び順は標準SR形式を先にしてある。継続用の自動選択
+    /// （<c>PromptCopyViewModel</c> は <see cref="PromptTemplate.IsContinuation"/> が
+    /// 一致する最初の要素を選ぶ）で標準SR形式が既定になるようにするため。
+    /// </summary>
     private static IReadOnlyList<PromptTemplate> BuildBuiltIns() => new[]
     {
-        new PromptTemplate { Id = "builtin-full", Name = "初回用（完全版）", Body = FullBody, IsBuiltIn = true },
-        new PromptTemplate { Id = "builtin-continuation", Name = "継続用（短縮版）", Body = ContinuationBody, IsBuiltIn = true, IsContinuation = true },
-        new PromptTemplate { Id = "builtin-fix-request", Name = "修正依頼", Body = FixRequestBody, IsBuiltIn = true },
-        new PromptTemplate { Id = "builtin-new-file", Name = "新規実装", Body = NewFileBody, IsBuiltIn = true },
+        new PromptTemplate { Id = "builtin-full", Name = "初回用（完全版）", Body = StandardFullBody, IsBuiltIn = true },
+        new PromptTemplate { Id = "builtin-continuation", Name = "継続用（短縮版）", Body = StandardContinuationBody, IsBuiltIn = true, IsContinuation = true },
+        new PromptTemplate { Id = "builtin-fix-request", Name = "修正依頼", Body = StandardFixRequestBody, IsBuiltIn = true },
+        new PromptTemplate { Id = "builtin-new-file", Name = "新規実装", Body = StandardNewFileBody, IsBuiltIn = true },
         new PromptTemplate { Id = "builtin-investigate", Name = "調査依頼", Body = InvestigateBody, IsBuiltIn = true },
+
+        new PromptTemplate { Id = "builtin-graft-full", Name = "初回用（Graft独自形式）", Body = FullBody, IsBuiltIn = true },
+        new PromptTemplate { Id = "builtin-graft-continuation", Name = "継続用（Graft独自形式）", Body = ContinuationBody, IsBuiltIn = true, IsContinuation = true },
+        new PromptTemplate { Id = "builtin-graft-fix-request", Name = "修正依頼（Graft独自形式）", Body = FixRequestBody, IsBuiltIn = true },
+        new PromptTemplate { Id = "builtin-graft-new-file", Name = "新規実装（Graft独自形式）", Body = NewFileBody, IsBuiltIn = true },
     };
+
+    // ==================================================================
+    // 標準SEARCH/REPLACE形式（仕様書5.2）の既定テンプレート
+    // ==================================================================
+
+    /// <summary>
+    /// 標準SR形式の4種類の書き方。利用者の会社で運用されている「SRルール」の記述に揃えてある。
+    ///
+    /// 【仮のパスに「相対パス」という文字列を使い続ける理由】クリップボード監視の誤検知対策。
+    /// テンプレート本文をコピーしただけで（AIに何も聞く前から）パッチとして自動検知されると
+    /// 邪魔になるため、<see cref="Graft.Core.PatchTextDetector"/> は「パスらしい見た目
+    /// （"." または "/" を含む）」を検知の条件にしている。標準の書き方の例示で使われがちな
+    /// <c>path/to/file</c> のような文字列をそのまま置くと、この条件を満たしてしまい
+    /// テンプレート自身が検知されてしまう。従来のGraft独自形式のテンプレートと同じく
+    /// 「相対パス」という日本語のプレースホルダにしておけば、その事故が起きない。
+    /// </summary>
+    private const string StandardFormatBlocks =
+        "【1】既存ファイルの部分修正\n" +
+        "相対パス\n" +
+        "<<<<<<< SEARCH\n" +
+        "（現在のファイルに存在する完全一致テキスト）\n" +
+        "=======\n" +
+        "（置換後テキスト）\n" +
+        ">>>>>>> REPLACE\n" +
+        "\n" +
+        "【2】新規ファイルの作成\n" +
+        "相対パス\n" +
+        "<<<<<<< NEW_FILE\n" +
+        "（ファイルの全内容）\n" +
+        ">>>>>>> END_FILE\n" +
+        "\n" +
+        "【3】既存ファイルの全面書き換え\n" +
+        "相対パス\n" +
+        "<<<<<<< WHOLE_FILE\n" +
+        "（ファイルの全内容）\n" +
+        ">>>>>>> END_FILE\n" +
+        "\n" +
+        "【4】ファイルの削除\n" +
+        "相対パス\n" +
+        "<<<<<<< DELETE_FILE\n" +
+        ">>>>>>> END_FILE\n";
+
+    /// <summary>
+    /// 標準SR形式の運用ルール。会社の「SRルール」の運用規定をそのまま反映しつつ、
+    /// Graft側で実際に効く挙動（空SEARCHでも新規作成として受け付ける・親階層へ出るパスは
+    /// 拒否する・NEED_MORE_CONTEXT はE710として利用者へ提示される）と食い違わないようにしてある。
+    /// </summary>
+    private const string StandardRuleNote =
+        "ブロックの直前の行には、対象ファイルのパスだけを単独で書いてください" +
+        "（引用符・太字・行番号・見出し記号は付けない）。\n" +
+        "パスは必ずプロジェクトからの相対パスにし、親階層へ出る記法は使わないでください" +
+        "（安全のためGraft側で拒否します）。\n" +
+        "【2】は、SEARCH 部を空にした【1】の書き方でも構いません（どちらでも新規作成として扱われます）。\n" +
+        "\n" +
+        "【必ず守ること】\n" +
+        "- SEARCH 部は現在のファイルの内容と1文字も違わないこと" +
+        "（インデント・空行・コメントを含めて完全一致させる）。\n" +
+        "- SEARCH 部はファイル内で一意に定まるまで広く取ること。" +
+        "同じ並びが他にもある場合は、前後の行まで含めて一意にしてください。\n" +
+        "- 省略記号（3点リーダや ... など）やプレースホルダを書かないこと。書くと一致しなくなります。\n" +
+        "- 依頼と無関係な整形（インデント・並べ替え・改行位置の変更）はしないこと。\n" +
+        "- SEARCH 部を正確に作れない場合は、推測でブロックを書かず、" +
+        "NEED_MORE_CONTEXT の1行だけを出力してください。\n" +
+        "- 説明文はブロックの外に書いてください。";
+
+    /// <summary>
+    /// Graft独自の拡張記法への導線。「基本は標準SR形式、拡張は必要なときだけ」という位置づけを
+    /// 明示する。マーカーそのもの（<c>&lt;&lt;&lt;&lt; RENAME:</c> 等）を行頭に書くと、この
+    /// テンプレート本文自身がGraft独自形式のパッチとして自動検知されてしまうため、
+    /// 記法名だけを挙げて具体的な書き方は「Graft独自形式」テンプレート側へ委ねる。
+    ///
+    /// 【混在を禁じる理由】<see cref="Graft.Core.PatchParser"/> はGraft専用ヘッダが1つでもあれば
+    /// 全体をGraft独自形式として解析する（後方互換を最優先した設計判断。同クラス参照）。
+    /// 1回の出力に両形式を混ぜると、標準形式で書いたブロックが取り込まれない。
+    /// </summary>
+    private const string StandardExtensionNote =
+        "【必要なときだけ使う追加記法】ファイルの移動・改名（RENAME）、フォルダ作成（MKDIR）、" +
+        "末尾への追記（APPEND）、先頭への挿入（PREPEND）は上の4種では表せません。" +
+        "これらが必要なときだけ、Graft独自形式（テンプレート「初回用（Graft独自形式）」を参照）へ切り替えてください。" +
+        "ただし1回の出力で2つの形式を混ぜないでください。混ぜるとGraft独自形式として解釈され、" +
+        "標準形式で書いたブロックが取り込まれません。\n" +
+        "また、SEARCH 部をどれだけ広げても一意にできない場合に限り、" +
+        "SEARCH マーカーの行末へ OCCURRENCE=2 や OCCURRENCE=ALL と書いて何番目を対象にするか指定できます。";
+
+    /// <summary>
+    /// 標準SR形式版のコードブロック指示。<see cref="CodeBlockWrapNote"/> と役割は同じで、
+    /// 囲む範囲の説明だけを標準SR形式の言い方（最初のパス指定行から最後の終了マーカーまで）に
+    /// 差し替えたもの。会社の「SRルール」も「出力全体を1つの text コードフェンスで囲む」ことを
+    /// 定めており、Graft側の既存の指示と方向が一致している。
+    /// </summary>
+    private const string StandardCodeBlockWrapNote =
+        "出力全体（最初のパス指定行から最後の >>>>>>> REPLACE ・ >>>>>>> END_FILE まで。説明文は含めない）を、" +
+        "1つのコードブロックとして囲んで出力してください（1行目に ```text、最終行に ``` " +
+        "と書きます。チャットのコピー機能で一括コピーできるようにするためです）。" +
+        "本文に ``` が含まれる場合（Markdownファイルの編集など）は、外側をバッククォート4個にし、" +
+        "1行目を ````text、最終行を ```` としてください。";
+
+    /// <summary>標準SR形式の形式指示。初回用・修正依頼・選択範囲の修正依頼で共用する。</summary>
+    private const string StandardFormatInstruction =
+        "コードの修正を提案する際は、必ず次の SEARCH/REPLACE ブロック形式で出力してください。\n" +
+        "\n" +
+        StandardFormatBlocks +
+        "\n" +
+        StandardRuleNote +
+        "\n\n" +
+        StandardExtensionNote +
+        "\n\n" +
+        StandardCodeBlockWrapNote;
+
+    /// <summary>既定の「初回用（完全版）」。標準SR形式。</summary>
+    private const string StandardFullBody = StandardFormatInstruction;
+
+    /// <summary>
+    /// 既定の「継続用（短縮版）」。標準SR形式。トークン消費を抑えるため要点だけに絞るが、
+    /// 実際に事故が起きやすい3点（パスは直前の行に単独で書く・SEARCH は完全一致・
+    /// 出力全体を1つのコードブロックで囲む）は削らない。
+    /// </summary>
+    private const string StandardContinuationBody =
+        "先ほどと同じ SEARCH/REPLACE ブロック形式で出力してください。" +
+        "対象ファイルの相対パスはブロックの直前の行に単独で書き、SEARCH 部は現在のファイルと完全一致させてください。" +
+        "出力全体を1行目```text・最終行```で囲んでください（本文に```を含む場合は````）。";
+
+    /// <summary>既定の「修正依頼」。標準SR形式の形式指示＋standingContext＋files。</summary>
+    private const string StandardFixRequestBody =
+        StandardFormatInstruction + "\n\n# 前提\n{{standingContext}}\n\n# 対象ファイル\n{{files}}";
+
+    /// <summary>
+    /// 既定の「新規実装」。標準SR形式。新規作成が主目的のため【2】NEW_FILE（と空SEARCH）を
+    /// 前面に出すが、既存ファイルへの手当てが同時に必要になることは多いため
+    /// 【1】部分修正の書き方も併記する。
+    /// </summary>
+    private const string StandardNewFileBody =
+        "コードの新規作成を提案する際は、必ず次の SEARCH/REPLACE ブロック形式で出力してください。" +
+        "新規ファイルは【2】を使ってください。\n" +
+        "\n" +
+        StandardFormatBlocks +
+        "\n" +
+        StandardRuleNote +
+        "\n\n" +
+        StandardExtensionNote +
+        "\n\n" +
+        StandardCodeBlockWrapNote +
+        "\n\n# 前提\n{{standingContext}}\n\n# プロジェクト構成\n{{tree}}";
 
     /// <summary>仕様書4.9末尾「プロンプトテンプレートにもこの規則を記載し、AIがエスケープ済みの形で出力するよう指示する。」に対応する追記。</summary>
     private const string EscapeRuleNote =
