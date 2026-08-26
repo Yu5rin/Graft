@@ -1,4 +1,5 @@
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.Document;
@@ -153,6 +154,79 @@ namespace Graft.Editor;
 /// <see cref="Uninstall"/>で必ず<see cref="RemoveCustomMargin"/>を呼び自分で取り除く。
 /// 詳細な理由は<see cref="ReplaceFoldingMarginWithMarkerOnly"/>と<see cref="MarkerOnlyFoldingMargin"/>の
 /// クラスコメントを参照。
+///
+/// 【課題#73: スクロールバーのドラッグがマウスに追い付かない — 折りたたみが最大の原因だった】
+/// 10万行のファイルでつまみを1px動かすと、文書は2,244px（≒128行）進み、可視46行がすべて
+/// 作り直される。このレイアウト1回分の実測は、素のAvaloniaEditが7.1msなのに対しGraftは20.2ms
+/// （2.77倍）で、上乗せ+12.6msのうち<b>+6.90msが折りたたみ</b>（残りは構文強調+3.41ms。
+/// <see cref="SyntaxHighlightBridge"/>参照）だった。HeightTree探索（0.004ms）・Arrange（0.07ms）・
+/// Gitガター・括弧強調・カラープレビュー・折り返しインデント（課題#72、倍率1.02）はいずれも無罪。
+/// <para>
+/// 【真因】 <see cref="FoldingElementGenerator.GetFirstInterestedOffset"/>は可視行を1行作る
+/// たびに<see cref="FoldingManager.GetNextFoldedFoldingStart"/>を呼ぶ。その中身
+/// （AvaloniaEdit 11.1.0 Folding/FoldingManager.cs）は
+/// <code>
+/// var fs = _foldings.FindFirstSegmentWithStartAfter(startOffset);
+/// while (fs != null &amp;&amp; !fs.IsFolded)   // 畳まれた範囲が1つも無ければ末尾まで走査しきる
+///     fs = _foldings.GetNextSegment(fs);
+/// </code>
+/// であり、<b>「どこも畳んでいない」という一番普通の状態が最悪ケース</b>になっている
+/// （10万行の.csでは折りたたみ範囲が20,000個でき、それを1行ごとに末尾まで舐める）。
+/// ドラッグ位置で費用が変わる（＝残りの範囲数に比例する）ことが実測でも裏付けられた:
+/// 文書の2%地点で21.2ms / 25% 17.2 / 50% 13.6 / 75% 11.4 / 98% 8.6ms（装飾＝折りたたみのみ）。
+/// 素のAvaloniaEditは同じ位置で7.04 / 6.93 / 6.79 / 7.38 / 7.01と完全にフラットだった。
+/// </para>
+/// <para>
+/// 【対処】 <b>1つも畳まれていない間は<see cref="FoldingElementGenerator"/>を
+/// <c>TextView.ElementGenerators</c>から外し、1つでも畳まれたら戻す</b>
+/// （<see cref="SyncFoldingGenerator"/>）。等価である根拠は、何も畳まれていないとき
+/// <see cref="FoldingManager.GetNextFoldedFoldingStart"/>は必ず-1を返し、
+/// <see cref="FoldingElementGenerator.ConstructElement"/>も呼ばれない＝生成器は何も生成しない、
+/// という点にある。実際に2,000行のファイルを500行目まで送った状態で描画結果のPNGを比較し、
+/// 付けた場合と外した場合で<b>1バイトも違わない</b>ことを確認済み（調査時の実測で
+/// 188,870バイトどうしが完全一致。tests/Graft.UiTests/FoldingGeneratorDetachTests.csの
+/// 「何も畳んでいない状態の描画結果は、折りたたみ生成器の有無で1バイトも変わらない」で
+/// 自動テストとしても固定した）。
+/// <b>効果の実測</b>（本対処の前後を同一手順・同一環境で交互25組計測。数値は中央値）:
+/// <list type="bullet">
+/// <item>折りたたみの上乗せ（ドラッグ1ステップ、文書50%地点）: <b>+5.06ms → −0.03ms</b></item>
+/// <item>位置依存（同、折りたたみのみ）: 2%地点 +10.84ms → +0.09ms / 25% +8.45 → −0.09 /
+///       50% +5.30 → +0.08 / 75% +1.27 → −0.46（<b>位置依存そのものが消滅</b>）</item>
+/// <item>Graftの装飾すべてでのレイアウト費用: 16.99ms → <b>10.83ms</b>
+///       （素のAvaloniaEdit 8.3ms比で 2.12倍 → <b>1.28倍</b>）</item>
+/// <item>Skia描画まで含めたフレーム全体: 基準比 +13.41ms → <b>+2.68ms</b>（1.71倍 → 1.18倍）</item>
+/// </list>
+/// （調査時は別条件での計測のため絶対値が異なる: 素7.1ms / Graft 20.2ms、折りたたみの上乗せ
+/// +6.90ms。どちらの計測でも「折りたたみの上乗せがほぼ消える」という結論は同じ。）
+/// </para>
+/// <para>
+/// 【付け外しの同期をどこで行うか】 <see cref="Avalonia.Threading.Dispatcher"/>経由の遅延同期は
+/// 採らない（tests/Graft.Tests/DispatcherUIThreadUsageGuardTests.csの許可リストを増やすことに
+/// なるうえ、レイアウトとの前後関係が保証できない）。畳み状態が変わりうる経路をすべて洗い出し、
+/// その場で同期的に付け外しする:
+/// (1) 折りたたみコマンド3種（<see cref="FoldToLevel"/>・<see cref="FoldAllComments"/>・
+///     <see cref="FoldRecursiveAt"/>。キーボードとコマンドパレットはどちらもこの3つを通る）、
+/// (2) ＋/－マーカーのクリック（<see cref="HookFoldingMargin"/>でマージンのPointerPressedを
+///     トンネル・バブルの両方で購読）、
+/// (3) 本文側の展開（畳まれた"..."のクリック・キャレット移動に伴うAvaloniaEditの自動展開。
+///     コンストラクタでTextViewのPointerReleasedを購読）、
+/// (4) デバウンス後の再計算（<see cref="RecalculateNow"/>。UpdateFoldingsで畳まれた範囲が
+///     消えることがある）。
+/// (1)(2)は「畳む」方向を含むため取りこぼすと表示が崩れる（＝必ず同期的に拾う必要がある）。
+/// (3)は「展開」方向のみで、取りこぼしても生成器が付いたまま＝修正前と同じ費用に戻るだけの
+/// 安全側の失敗になる。キーボード操作でのキャレット移動による自動展開だけは購読していないが、
+/// これも(3)と同じ安全側で、次の編集の300ms後（(4)）に必ず回収される。20,000件の走査を
+/// キー入力のたびに行う方が害が大きいと判断した（1回あたり約0.15ms）。
+/// </para>
+/// <para>
+/// 【副次的な安全性】 生成器が外れている間は、課題#82で問題になった
+/// <see cref="FoldingElementGenerator.StartGeneration"/>（AvaloniaEdit全ソース中で
+/// <c>ArgumentException("Invalid document")</c>を投げる唯一の箇所）自体が呼ばれない。
+/// つまり「何も畳んでいない通常状態」では、課題#82の経路そのものが塞がる
+/// （tests/Graft.UiTests/EditorTests.csの「何も畳んでいない通常状態では課題#82の経路自体を
+/// 通らない」で検証）。ただしこれは<see cref="PrepareForDocumentSwap"/>の代わりにはならない
+/// （1つでも畳んでいれば生成器は付いており、従来どおりの窓が開く）ため、対処2はそのまま残す。
+/// </para>
 /// </summary>
 public sealed class FoldingSupport : IDisposable
 {
@@ -184,6 +258,12 @@ public sealed class FoldingSupport : IDisposable
     // 取り除く必要がある（ReplaceFoldingMarginWithMarkerOnlyのコメント参照）。
     private MarkerOnlyFoldingMargin? _customMargin;
 
+    // 課題#73: FoldingManager.Installが作った折りたたみ生成器と、それが現在
+    // TextView.ElementGeneratorsへ入っているかどうか（クラスコメントの【課題#73】節参照）。
+    // 「1つも畳まれていない」間は外しておき、1つでも畳まれたら戻す。
+    private FoldingElementGenerator? _generator;
+    private bool _generatorAttached;
+
     public FoldingSupport(TextEditor editor)
     {
         _editor = editor ?? throw new ArgumentNullException(nameof(editor));
@@ -193,6 +273,19 @@ public sealed class FoldingSupport : IDisposable
         // 不具合1: Editor.Documentが差し替わった瞬間に古いFoldingManagerを同期的に
         // uninstallする（クラスコメントの「対処」参照）。
         _editor.DocumentChanged += OnEditorDocumentChanged;
+
+        // 課題#73: 本文側で畳まれた範囲（"..."の箱）をクリックすると、AvaloniaEditの
+        // FoldingElementGenerator.FoldingLineElement.OnPointerPressedがIsFolded=falseにする。
+        // またクリックによるキャレット移動でも、畳まれた範囲へ入った場合はAvaloniaEdit側
+        // （FoldingManagerInstallation.TextArea_Caret_PositionChanged）が自動で展開する。
+        // どちらも「展開」方向のみのため取りこぼしても表示は壊れない（生成器が付いたまま＝
+        // 修正前と同じ費用に戻るだけ）が、最も普通の操作なのでここで確実に拾って外す。
+        // TextViewはTextEditorに対して不変のインスタンスなので、Install/Uninstallとは無関係に
+        // コンストラクタで1回だけ購読する（マージン側はInstallのたびに作り直されるため
+        // HookFoldingMargin/UnhookFoldingMarginで対にしている）。
+        _editor.TextArea.TextView.AddHandler(
+            InputElement.PointerReleasedEvent, OnTextViewPointerReleased,
+            RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     /// <summary>現在有効な<see cref="FoldingManager"/>（未取り付け・無効化中はnull）。
@@ -288,10 +381,22 @@ public sealed class FoldingSupport : IDisposable
             return;
         }
 
+        // 課題#73: Installが作った折りたたみ生成器（TextView.ElementGeneratorsの先頭へ
+        // 挿入される）をここで捕まえておく。以降、畳み状態に応じて付け外しする対象になる。
+        // FoldingElementGeneratorはpublicな型で、Installが入れる場所も先頭（index 0）と
+        // 決まっているが、将来AvaloniaEdit側で挿入位置が変わっても壊れないよう、型で探す。
+        _generator = _editor.TextArea.TextView.ElementGenerators.OfType<FoldingElementGenerator>().FirstOrDefault();
+        _generatorAttached = _generator is not null;
+
         ReplaceFoldingMarginWithMarkerOnly();
         HookFoldingMargin();
         document.Changed += OnDocumentChanged;
         RecalculateNow();
+
+        // 課題#73: 取り付け直後は（Brace/IndentFoldingStrategyのどちらも DefaultClosed を
+        // 立てないため）必ず「1つも畳まれていない」状態になる。つまりファイルを開いた直後の
+        // 一番普通の状態で生成器が外れ、ドラッグの費用が素のAvaloniaEdit並みに戻る。
+        SyncFoldingGenerator();
     }
 
     /// <summary>
@@ -357,6 +462,31 @@ public sealed class FoldingSupport : IDisposable
         _hookedMargin = margin;
         margin.PointerMoved += OnFoldingMarginPointerMoved;
         margin.PointerExited += OnFoldingMarginPointerExited;
+
+        // 課題#73: ＋/－マーカーのクリックで畳み状態が変わる経路。マーカーの実体
+        // （AvaloniaEdit.Folding.FoldingMarginMarker、internal sealed）はこのマージンの
+        // ビジュアル子で、IsFoldedの反転はそのOnPointerPressed（Avaloniaのクラスハンドラ）の
+        // 中で行われる。イベントは子→親へバブルするため、親であるこのマージンで購読すれば
+        // 「マーカーが反転させた直後」に必ず呼ばれる。handledEventsToo:trueが必要
+        // （マーカーがe.Handled=trueにしてから親へ上がるため）。
+        //
+        // 【押した瞬間に畳まれていなくてよいのか】 押した時点では生成器が外れている
+        // （＝TextViewがFoldingManager.TextViewsに未登録の）ままIsFolded=trueになるため、
+        // FoldingSection.ValidateCollapsedLineSectionsは行を隠すためのCollapsedLineSectionを
+        // 0個しか作らない（TextViews.Countが0）。それでも表示が崩れないのは、直後に本ハンドラが
+        // 生成器を戻し、その際のFoldingManager.AddToTextViewが「CollapsedSectionsが非nullの
+        // 範囲を作り直す」（Array.Resize + ValidateCollapsedLineSections）ためである
+        // （AvaloniaEdit 11.1.0のFolding/FoldingManager.cs・FoldingSection.csで確認）。
+        // ここまでがポインタイベント1回分の同期処理の中で完結し、その途中でレイアウトパスが
+        // 割り込むことはないため、押している間のフレームも正しく畳まれた状態で描かれる
+        // （tests/Graft.UiTests/FoldingGeneratorDetachTests.csの「マーカーを押した時点
+        // （離す前）で、既に本文の折りたたみが表示へ反映されている」で実際に確認している。
+        // トンネル段階で先回りして戻す版も試したが、同テストで違いが出ず、経路が増えるだけ
+        // だったため採らなかった）。
+        margin.AddHandler(InputElement.PointerPressedEvent, OnFoldingMarginPointerPressed,
+            RoutingStrategies.Bubble, handledEventsToo: true);
+        margin.AddHandler(InputElement.PointerReleasedEvent, OnFoldingMarginPointerReleased,
+            RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void UnhookFoldingMargin()
@@ -364,8 +494,103 @@ public sealed class FoldingSupport : IDisposable
         if (_hookedMargin is null) return;
         _hookedMargin.PointerMoved -= OnFoldingMarginPointerMoved;
         _hookedMargin.PointerExited -= OnFoldingMarginPointerExited;
+        _hookedMargin.RemoveHandler(InputElement.PointerPressedEvent, OnFoldingMarginPointerPressed);
+        _hookedMargin.RemoveHandler(InputElement.PointerReleasedEvent, OnFoldingMarginPointerReleased);
         _hookedMargin = null;
         SetHoveredFolding(null);
+    }
+
+    /// <summary>
+    /// 課題#73: マーカーが畳み状態を反転させた直後に同期する（<see cref="HookFoldingMargin"/>の
+    /// コメント参照）。マーカー以外の場所を押した場合も呼ばれるが、同期は「畳まれた範囲が
+    /// 1つでもあるか」を数えて必要なときだけ付け外しする冪等な処理なので、何も起きない。
+    /// </summary>
+    private void OnFoldingMarginPointerPressed(object? sender, PointerPressedEventArgs e)
+        => SyncFoldingGenerator();
+
+    /// <summary>
+    /// 課題#73: 押した瞬間（<see cref="OnFoldingMarginPointerPressed"/>）で足りているが、
+    /// マージン上でのドラッグ等、押下と離上の間に畳み状態が変わる操作が将来加わっても
+    /// 取りこぼさないよう、離した時にも同期しておく（上と同じく冪等）。
+    /// </summary>
+    private void OnFoldingMarginPointerReleased(object? sender, PointerReleasedEventArgs e)
+        => SyncFoldingGenerator();
+
+    /// <summary>
+    /// 課題#73: 本文側での展開（畳まれた"..."の箱のクリック・畳まれた範囲へのキャレット移動に
+    /// 伴うAvaloniaEditの自動展開）を拾って生成器を外す（コンストラクタのコメント参照）。
+    /// </summary>
+    private void OnTextViewPointerReleased(object? sender, PointerReleasedEventArgs e)
+        => SyncFoldingGenerator();
+
+    /// <summary>
+    /// 課題#73の中核（詳細はクラスコメントの【課題#73】節）。畳まれた範囲が1つでもあれば
+    /// <see cref="FoldingElementGenerator"/>を<c>TextView.ElementGenerators</c>へ戻し、
+    /// 1つも無ければ外す。畳み状態が変わりうる操作のたびに呼ぶ（冪等）。
+    ///
+    /// <c>AllFoldings</c>の走査は10万行の.csで20,000件あるが、呼ぶのは「畳み状態が変わりうる
+    /// 操作」（マージンのクリック・折りたたみコマンド・デバウンス後の再計算）に限っているため
+    /// 費用にならない。1回あたりは0.15ms程度（レイアウト1回で46行ぶん繰り返して+6.9msだった、
+    /// という調査時の実測からの逆算）。これに対し外した効果は、可視行を構築するたびに起きて
+    /// いた同じ走査を丸ごと消すこと（ドラッグ1ステップの上乗せ +5.06ms → −0.03ms）。
+    /// キー入力のたびに呼ぶ（キャレット移動による自動展開を追う）ことをしていないのは、
+    /// この0.15msを入力のたびに払う方が害が大きいと判断したため（クラスコメント参照）。
+    /// </summary>
+    private void SyncFoldingGenerator()
+    {
+        if (_manager is null || _generator is null) return;
+
+        var anyFolded = false;
+        foreach (var fs in _manager.AllFoldings)
+        {
+            if (!fs.IsFolded) continue;
+            anyFolded = true;
+            break;
+        }
+
+        if (anyFolded) EnsureFoldingGeneratorAttached();
+        else DetachFoldingGenerator();
+    }
+
+    /// <summary>
+    /// 課題#73: 生成器を<c>TextView.ElementGenerators</c>の先頭へ戻す。先頭であることは
+    /// AvaloniaEdit側の要求（<c>FoldingManagerInstallation</c>のコメント "HACK: folding only
+    /// works correctly when it has highest priority"）で、Graftはカラープレビュー
+    /// （<see cref="ColorPreviewElementGenerator"/>）も同じリストへ入れるため、末尾へ足し直すと
+    /// 優先順位が変わってしまう。
+    /// </summary>
+    private void EnsureFoldingGeneratorAttached()
+    {
+        if (_generator is null || _generatorAttached) return;
+
+        try
+        {
+            _editor.TextArea.TextView.ElementGenerators.Insert(0, _generator);
+            _generatorAttached = true;
+        }
+        catch (Exception ex)
+        {
+            // 万一失敗しても折りたたみの表示が欠けるだけに留め、アプリは継続させる
+            // （附録A.4・設計目標5）。実際の並びから状態を取り直して食い違いを残さない。
+            _generatorAttached = _editor.TextArea.TextView.ElementGenerators.Contains(_generator);
+            SafeHandler.OnUnexpected?.Invoke("折りたたみ生成器の再取り付け", ex);
+        }
+    }
+
+    private void DetachFoldingGenerator()
+    {
+        if (_generator is null || !_generatorAttached) return;
+
+        try
+        {
+            _editor.TextArea.TextView.ElementGenerators.Remove(_generator);
+            _generatorAttached = false;
+        }
+        catch (Exception ex)
+        {
+            _generatorAttached = _editor.TextArea.TextView.ElementGenerators.Contains(_generator);
+            SafeHandler.OnUnexpected?.Invoke("折りたたみ生成器の取り外し", ex);
+        }
     }
 
     /// <summary>
@@ -417,6 +642,7 @@ public sealed class FoldingSupport : IDisposable
         if (_disposed) return;
         _disposed = true;
         _editor.DocumentChanged -= OnEditorDocumentChanged;
+        _editor.TextArea.TextView.RemoveHandler(InputElement.PointerReleasedEvent, OnTextViewPointerReleased);
         _debounceTimer.Stop();
         DetachDocument();
     }
@@ -432,11 +658,19 @@ public sealed class FoldingSupport : IDisposable
     private void Uninstall()
     {
         UnhookFoldingMargin(); // Uninstallでこのマージン自体がLeftMarginsから取り除かれるため先に外す。
-        if (_manager is null) { RemoveCustomMargin(); return; }
+        if (_manager is null) { RemoveCustomMargin(); ForgetFoldingGenerator(); return; }
         var manager = _manager;
         _manager = null;
         try
         {
+            // 課題#73: ここで生成器を戻し直す必要は無い。FoldingManager.Uninstallは
+            // (1) Clear()で全範囲のIsFoldedをfalseにし (2) ElementGenerators.Removeを呼ぶ、
+            // という順序だが、外している間は「1つも畳まれていない」ことが本クラスの不変条件
+            // （SyncFoldingGenerator）であり、(1)は何も変えず、(2)は既にリストに無いので
+            // 空振りするだけで例外にならない（List.Removeはfalseを返すのみ）。
+            // 逆に戻してから呼ぶと、TextView.Documentが既に新しい文書へ切り替わっている
+            // 場面（課題#82の①〜④区間。OnEditorDocumentChanged経由でここへ来る）で
+            // 一瞬だけ生成器が復活することになり、わざわざ塞いだ窓を開け直すことになる。
             FoldingManager.Uninstall(manager);
         }
         catch (Exception ex)
@@ -449,7 +683,20 @@ public sealed class FoldingSupport : IDisposable
             // 差し替え前の標準FoldingMarginインスタンスを取り除こうとするだけで、差し替え後の
             // 自前のマージンはLeftMarginsに残り続けてしまう。ここで確実に自分で取り除く。
             RemoveCustomMargin();
+            ForgetFoldingGenerator();
         }
+    }
+
+    /// <summary>
+    /// 課題#73: <see cref="FoldingManager.Uninstall"/>の後、生成器への参照を捨てる。
+    /// 生成器は<c>Install</c>のたびに新しく作られるため、次の<see cref="Attach"/>で
+    /// 改めて捕まえ直す（古いインスタンスを掴んだままにすると、外れているつもりのフラグと
+    /// 実際のリストが食い違う恐れがある）。
+    /// </summary>
+    private void ForgetFoldingGenerator()
+    {
+        _generator = null;
+        _generatorAttached = false;
     }
 
     /// <summary>
@@ -496,12 +743,29 @@ public sealed class FoldingSupport : IDisposable
         {
             SafeHandler.OnUnexpected?.Invoke("折りたたみの再計算", ex);
         }
+
+        // 課題#73: UpdateFoldingsは畳まれていた範囲が編集で消えれば取り除く（＝畳まれた範囲が
+        // ゼロになりうる）ため、再計算のたびに同期する。編集のたびではなくデバウンス後に
+        // 1回だけ走る経路なので、走査の費用は問題にならない（SyncFoldingGenerator参照）。
+        // 逆に「畳んだままキャレット移動で自動展開された」等でここまで同期が遅れていた場合も、
+        // 次の編集の300ms後には必ず外れるという意味での回収経路になっている。
+        SyncFoldingGenerator();
     }
 
     // ========================================================================
     // 検討書「折りたたみの機能追加」(b) 折りたたみコマンドの追加。
     // AvaloniaEditのFoldingManagerには相当する組み込みコマンドが無いため、公開API
     // （AllFoldings・GetFoldingsContaining・FoldingSection.IsFolded）だけで自前実装する。
+    //
+    // 【課題#73】 3つとも「IsFoldedを立てる前にEnsureFoldingGeneratorAttached、処理後に
+    // SyncFoldingGenerator（finally）」という同じ形にしてある。前者が必要なのは、生成器が
+    // 外れている＝TextViewがFoldingManager.TextViewsに登録されていない状態でIsFolded=trueに
+    // すると、行を隠すためのCollapsedLineSectionが1つも作られないため
+    // （AvaloniaEdit 11.1.0 Folding/FoldingSection.ValidateCollapsedLineSectionsは
+    // TextViews.Count個だけ作る）。先に戻しておけば、以降の処理は本対処を入れる前と
+    // 1バイトも変わらない経路を通る。後者は「レベル指定で結果的に1つも畳まれなかった」
+    // 「全部展開になった」場合に外し直すため（コマンドはキーボード・コマンドパレットからの
+    // 単発操作なので、走査の費用は問題にならない）。
     // ========================================================================
 
     /// <summary>
@@ -514,6 +778,7 @@ public sealed class FoldingSupport : IDisposable
     {
         if (_manager is null) return;
 
+        EnsureFoldingGeneratorAttached(); // 課題#73（上の共通コメント参照）。
         try
         {
             // AllFoldingsはStartOffset昇順で返る（FoldingManagerのドキュメントコメントどおり）
@@ -530,6 +795,10 @@ public sealed class FoldingSupport : IDisposable
         {
             SafeHandler.OnUnexpected?.Invoke("折りたたみレベルの変更", ex);
         }
+        finally
+        {
+            SyncFoldingGenerator();
+        }
     }
 
     /// <summary>
@@ -541,6 +810,7 @@ public sealed class FoldingSupport : IDisposable
     {
         if (_manager is null) return;
 
+        EnsureFoldingGeneratorAttached(); // 課題#73（上の共通コメント参照）。
         try
         {
             var containing = _manager.GetFoldingsContaining(offset);
@@ -564,6 +834,10 @@ public sealed class FoldingSupport : IDisposable
         {
             SafeHandler.OnUnexpected?.Invoke("再帰的な折りたたみ", ex);
         }
+        finally
+        {
+            SyncFoldingGenerator();
+        }
     }
 
     /// <summary>
@@ -584,6 +858,7 @@ public sealed class FoldingSupport : IDisposable
         var rule = SyntaxLexer.RuleForExtension(_extension);
         if (rule is null) return; // 対応言語が無ければコメントかどうかの判定自体ができない。
 
+        EnsureFoldingGeneratorAttached(); // 課題#73（上の共通コメント参照）。
         try
         {
             var lines = TextNormalizer.SplitLines(_document.Text);
@@ -613,6 +888,10 @@ public sealed class FoldingSupport : IDisposable
         catch (Exception ex)
         {
             SafeHandler.OnUnexpected?.Invoke("コメントブロックの折りたたみ", ex);
+        }
+        finally
+        {
+            SyncFoldingGenerator();
         }
     }
 
