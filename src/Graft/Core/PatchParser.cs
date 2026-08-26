@@ -10,10 +10,43 @@ public sealed class PatchParser
     /// <summary>パッチ全文を解析する。</summary>
     public GraftResult<Patch> Parse(string patchText)
     {
+        // AIが「SEARCHを正確に作れない＝情報が足りない」と申告した場合（5.2の運用規定で
+        // NEED_MORE_CONTEXT の1行だけを返す約束になっている）。E001（ブロックが存在しない）
+        // として扱うと状況を取り違えるため、どの形式の判定よりも先に確定させる。
+        if (StandardSearchReplaceAdapter.IsNeedMoreContext(patchText))
+            return GraftResult<Patch>.Fail(GraftIssue.Of(ErrorCode.E710, line: 1));
+
         // Graft形式のマーカーが1つも無く、unified diff として解釈できる場合はアダプタへ委譲する。
         // Graft形式のマーカーが混在する場合は従来どおりこのメソッドで解析する（マーカー優先）。
+        // 【この条件を v1.0.14 でも変えていない理由】ここは HasGraftMarker（<<<<<<< SEARCH を含む
+        // 広い判定）のままにしてある。標準SR形式の対応で判定を狭めると、これまで unified diff
+        // として扱われなかった入力が扱われるようになり、5.1の挙動が変わってしまう。履歴や
+        // パッチキューに残っている既存データの解釈を1ミリも変えないことを最優先する。
         if (!PatchTextDetector.HasGraftMarker(patchText) && UnifiedDiffAdapter.IsUnifiedDiff(patchText))
             return UnifiedDiffAdapter.Parse(patchText);
+
+        // 標準SEARCH/REPLACE形式（5.2）。Graft独自形式にしか無いヘッダ（<<<< FILE: 等）が
+        // 1つも無く、標準SR形式の開始マーカーがある場合にのみアダプタへ委譲する。
+        //
+        // 【判定の要】<<<<<<< SEARCH の行は両形式で完全に共通であり、これだけでは区別できない。
+        // 区別できる唯一の手がかりは「直前のファイル指定行」で、Graft形式は <<<< FILE: パス、
+        // 標準SR形式はパスだけの裸の行である。そこで <<<< FILE: 等のGraft専用ヘッダの有無
+        // （HasGraftOwnMarker）で振り分ける。この判定は行頭一致だけで済み、取り違えの
+        // 余地が無い。
+        //
+        // 【両形式が混在した場合の設計判断: Graft形式を優先する】5.1（unified diff）の接続点が
+        // 「Graft形式のマーカーが1つでもあれば4章の解析を優先する」と定めており、そこに新形式を
+        // 足す以上、同じ規則に揃えるのが一貫している。加えて、混在時に標準SR形式を優先すると、
+        // 既存の <<<< FILE: ブロックが解釈されなくなり、履歴・パッチキューに残る既存データが
+        // 読めなくなる恐れがある（後方互換の破壊は論外）。逆に Graft形式を優先しても、
+        // 標準SR形式は今回追加する新機能のため「これまで動いていたものが動かなくなる」ことは
+        // 起こらない。したがって混在は「Graft形式として解析する」と定め、既定テンプレート側でも
+        // 1回の出力で2つの形式を混ぜないよう明示的に指示する（PromptTemplateStore参照）。
+        if (!PatchTextDetector.HasGraftOwnMarker(patchText)
+            && StandardSearchReplaceAdapter.HasStandardMarker(patchText))
+        {
+            return StandardSearchReplaceAdapter.Parse(patchText);
+        }
 
         var blocks = new List<PatchBlock>();
         var meta = new PatchMeta();

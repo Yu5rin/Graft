@@ -22,14 +22,17 @@ public class PromptTemplateStoreSelectionTests
         prompt.Should().Contain("このコードの修正を依頼します。修正内容: ", "利用者が依頼内容を書き足すための誘導行が必要");
     }
 
-    [Fact(DisplayName = "既存の修正依頼テンプレートの形式指示（SEARCH/REPLACE）を含む")]
+    [Fact(DisplayName = "既定の修正依頼テンプレートの形式指示（標準SEARCH/REPLACE形式）を含む")]
     public void 修正依頼テンプレートの形式指示を含む()
     {
         var prompt = PromptTemplateStore.BuildSelectionFixRequestPrompt(
             "a.cs", 1, 1, "a();", ".cs");
 
-        prompt.Should().Contain("<<<< PATCH", "既存の「修正依頼」テンプレートの形式指示を先頭に含める必要がある");
-        prompt.Should().Contain("SEARCH/REPLACE", "既存の「修正依頼」テンプレートの形式指示を含める必要がある");
+        // v1.0.14で既定テンプレートを標準SR形式へ切り替えたのに合わせ、この選択範囲からの
+        // 依頼も同じ形式指示を共用する（1つのGraftの中でAIへ2種類の形式を要求しないため）。
+        prompt.Should().Contain("<<<<<<< SEARCH", "既定の「修正依頼」テンプレートの形式指示を先頭に含める必要がある");
+        prompt.Should().Contain(">>>>>>> REPLACE", "既定の「修正依頼」テンプレートの形式指示を含める必要がある");
+        prompt.Should().Contain("SEARCH/REPLACE", "既定の「修正依頼」テンプレートの形式指示を含める必要がある");
         prompt.Should().NotContain("{{standingContext}}", "選択範囲からの依頼では前提・対象ファイルのプレースホルダは使わない");
         prompt.Should().NotContain("{{files}}", "選択範囲からの依頼では前提・対象ファイルのプレースホルダは使わない");
     }
