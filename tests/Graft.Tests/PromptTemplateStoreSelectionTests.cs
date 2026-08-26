@@ -28,7 +28,7 @@ public class PromptTemplateStoreSelectionTests
         var prompt = PromptTemplateStore.BuildSelectionFixRequestPrompt(
             "a.cs", 1, 1, "a();", ".cs");
 
-        // v1.0.14で既定テンプレートを標準SR形式へ切り替えたのに合わせ、この選択範囲からの
+        // v1.0.13で既定テンプレートを標準SR形式へ切り替えたのに合わせ、この選択範囲からの
         // 依頼も同じ形式指示を共用する（1つのGraftの中でAIへ2種類の形式を要求しないため）。
         prompt.Should().Contain("<<<<<<< SEARCH", "既定の「修正依頼」テンプレートの形式指示を先頭に含める必要がある");
         prompt.Should().Contain(">>>>>>> REPLACE", "既定の「修正依頼」テンプレートの形式指示を含める必要がある");
