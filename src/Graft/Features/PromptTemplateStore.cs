@@ -90,7 +90,7 @@ public sealed class PromptTemplateStore
     /// <summary>
     /// エディタの選択範囲から修正依頼プロンプトを組み立てる（右クリックメニュー
     /// 「選択範囲の修正依頼プロンプトをコピー」）。「修正依頼」テンプレートの形式指示
-    /// （v1.0.14で <see cref="FixRequestFormatInstruction"/> から標準SR形式の
+    /// （v1.0.13で <see cref="FixRequestFormatInstruction"/> から標準SR形式の
     /// <see cref="StandardFormatInstruction"/> へ切り替えた。既定テンプレートと同じ形式で
     /// AIに出力させるため）に続けて、対象ファイルのプロジェクト相対パス・
     /// 行範囲・選択コード（``` フェンス。拡張子から言語名を付けられれば付ける）を並べ、末尾に
@@ -148,7 +148,7 @@ public sealed class PromptTemplateStore
     /// <summary>
     /// 既定テンプレートの一覧を組み立てる。
     ///
-    /// 【v1.0.14での方針転換: 既定を標準SEARCH/REPLACE形式へ切り替えた】
+    /// 【v1.0.13での方針転換: 既定を標準SEARCH/REPLACE形式へ切り替えた】
     /// 形式指示に従わないAIが実際に問題になっており（仕様書5.1の背景と同じ事情）、
     /// Graft独自形式より、Aiderが広めCline・Roo Code等も採用した標準SR形式の方が、
     /// マーカーがgitのマージコンフリクトマーカーそのものである分だけLLMが自然に出せる。
