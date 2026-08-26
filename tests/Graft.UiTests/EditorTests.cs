@@ -243,8 +243,21 @@ public class EditorTests : IDisposable
     /// では、このテストが実際に<c>System.ArgumentException: Invalid document</c>で失敗する
     /// ことを確認済み（本テストはその機序を固定するため、意図的にPrepareForDocumentSwapを
     /// 呼ばない）。
+    ///
+    /// 【課題#73対応に伴う書き換え】 課題#73（<see cref="FoldingSupport"/>クラスコメントの
+    /// 【課題#73】節）で「1つも畳まれていない間は<c>FoldingElementGenerator</c>を
+    /// <c>TextView.ElementGenerators</c>から外す」ようにしたため、<b>何も畳んでいない状態では
+    /// この再現が成立しなくなった</b>（<c>ArgumentException("Invalid document")</c>の投擲箇所は
+    /// AvaloniaEdit全ソース中で<c>Folding/FoldingElementGenerator.StartGeneration</c>の1箇所
+    /// だけであり、生成器が外れていればそこを通らない）。
+    /// テストの検証力を弱めないため、<b>先に1つ畳んで生成器が付いた状態を作ってから</b>同じ
+    /// 再入を起こす形へ書き換えてある。これにより、課題#82の修正（<see cref="FoldingSupport.
+    /// PrepareForDocumentSwap"/>）が引き続き効いていることを検証する力（下の
+    /// 「PrepareForDocumentSwapを先に呼べば…」との対）はそのまま保たれる。
+    /// 「何も畳んでいない通常状態ではこの経路自体を通らない」という課題#73の副次的な効果は、
+    /// 別テスト（<see cref="何も畳んでいない通常状態では課題82の経路を通らない"/>）で守る。
     /// </summary>
-    [AvaloniaFact(DisplayName = "課題#82入口特定: 文書代入中にキャレットのPositionChanged経由でディスパッチャが再入すると、対処1だけではInvalid documentが出る")]
+    [AvaloniaFact(DisplayName = "課題#82入口特定: 折りたたみ中に文書代入するとキャレットのPositionChanged経由の再入で、対処1だけではInvalid documentが出る")]
     public void 文書代入中のキャレットPositionChanged経由の再入でInvalid_documentが起きる()
     {
         var (window, editor) = CreateEditorWindow();
@@ -256,11 +269,22 @@ public class EditorTests : IDisposable
         folding.Attach(docA, "py");
         using (window.CaptureRenderedFrame()) { }
 
+        // 課題#73: 1つ畳んで、FoldingElementGeneratorが取り付けられた状態にする
+        // （＝Invalid documentを投げうる唯一の箇所を通る状態）。インデントベースの折りたたみ
+        // では「if x:」行の末尾から「    b = 2」行の末尾までが1つの範囲になるため、その内側の
+        // オフセット（2行目の先頭）を指定する。
+        folding.FoldRecursiveAt(docA.GetLineByNumber(2).Offset);
+        folding.Manager!.AllFoldings.Any(fs => fs.IsFolded).Should().BeTrue(
+            "再現には折りたたみ生成器が取り付けられた状態が必要なため、実際に1つ畳めている必要がある");
+        FoldingGeneratorCount(editor).Should().Be(1, "畳んだ以上、生成器は取り付けられているはず");
+
         // Caret.Location = (1,1) の代入がPositionChangedを発火させるには、代入前のキャレット位置が
         // (1,1)以外である必要がある（Caret.PositionのsetterはTextViewPosition比較で早期returnする。
         // AvaloniaEdit 11.1.0のEditing/Caret.csで確認済み）。タブ切替では元のタブのカーソル行が
         // 1行目でない限り、この条件は実際の利用でごく普通に成立する。
-        editor.TextArea.Caret.Line = 3;
+        // 畳んだ範囲（2〜3行目）の内側へ動かすとAvaloniaEditが自動で展開してしまう
+        // （FoldingManagerInstallation.TextArea_Caret_PositionChanged）ため、範囲外の4行目にする。
+        editor.TextArea.Caret.Line = 4;
 
         var docB = new TextDocument("if y:\n    c = 3\n    d = 4\nprint(c)\n");
 
@@ -282,11 +306,69 @@ public class EditorTests : IDisposable
     }
 
     /// <summary>
+    /// 課題#73の副次的な安全性向上を守るテスト。上のテスト（課題#82入口特定）と条件を1つだけ
+    /// 変えて——<b>何も畳まない</b>で——同じ再入を起こし、<c>Invalid document</c>が
+    /// そもそも発生しないことを確認する。
+    ///
+    /// 課題#73の対処により、1つも畳まれていない間は<c>FoldingElementGenerator</c>が
+    /// <c>TextView.ElementGenerators</c>から外れている。<c>ArgumentException("Invalid document")</c>を
+    /// 投げるのはAvaloniaEdit全ソース中で<c>Folding/FoldingElementGenerator.StartGeneration</c>の
+    /// 1箇所だけなので、外れている＝その経路自体を通らない。つまり利用者が実際にどこかを
+    /// 畳んでいない限り（＝ほとんどの時間）、課題#82の窓は開かない。
+    /// <see cref="FoldingSupport.PrepareForDocumentSwap"/>による対処2の代わりにはならない
+    /// （1つでも畳んでいれば従来どおり生成器は付いている）ため、対処2と両方を維持する。
+    /// </summary>
+    [AvaloniaFact(DisplayName = "課題#73副次効果: 何も畳んでいない通常状態では、同じ再入を起こしても課題#82の経路を通らない")]
+    public void 何も畳んでいない通常状態では課題82の経路を通らない()
+    {
+        var (window, editor) = CreateEditorWindow();
+        var docA = new TextDocument("if x:\n    a = 1\n    b = 2\nprint(a)\n");
+        editor.Document = docA;
+        window.Show();
+
+        using var folding = new FoldingSupport(editor);
+        folding.Attach(docA, "py");
+        using (window.CaptureRenderedFrame()) { }
+
+        folding.Manager!.AllFoldings.Should().NotBeEmpty("折りたたみ範囲自体は計算されているはず（畳んでいないだけ）");
+        folding.Manager.AllFoldings.Should().OnlyContain(fs => !fs.IsFolded, "この時点では1つも畳んでいない");
+        FoldingGeneratorCount(editor).Should().Be(0,
+            "1つも畳まれていない間は、Invalid documentを投げうる唯一の経路（FoldingElementGenerator）が外れているはず");
+
+        editor.TextArea.Caret.Line = 4;
+        var docB = new TextDocument("if y:\n    c = 3\n    d = 4\nprint(c)\n");
+
+        void ReentrantRenderViaNestedDispatch(object? s, EventArgs e) => Dispatcher.UIThread.RunJobs();
+        editor.TextArea.Caret.PositionChanged += ReentrantRenderViaNestedDispatch;
+        try
+        {
+            // 上のテストと同じく、意図的にPrepareForDocumentSwapを呼ばない。
+            var act = () => editor.Document = docB;
+            act.Should().NotThrow(
+                "何も畳んでいなければ生成器が外れており、Invalid documentを投げる箇所自体を通らない");
+        }
+        finally
+        {
+            editor.TextArea.Caret.PositionChanged -= ReentrantRenderViaNestedDispatch;
+        }
+    }
+
+    /// <summary>課題#73: <c>TextView.ElementGenerators</c>に折りたたみ生成器がいくつ入っているか
+    /// （0または1）。製品コードへテスト専用のAPIを足さずに、公開されているリストを直接数える。</summary>
+    private static int FoldingGeneratorCount(TextEditor editor)
+        => editor.TextArea.TextView.ElementGenerators.OfType<AvaloniaEdit.Folding.FoldingElementGenerator>().Count();
+
+    /// <summary>
     /// 課題#82の修正確認テスト。上のテストと全く同じ再入（<c>Caret.PositionChanged</c>経由の
     /// ディスパッチャ再入）を起こしても、<see cref="FoldingSupport.PrepareForDocumentSwap"/>を
     /// <c>Editor.Document</c>代入の"前"に呼んでおけば例外が出ないことを確認する
     /// （<see cref="Views.EditorPane.ApplyDocumentTab"/>・<see cref="Views.EditorPane.
     /// ApplyEmptyTab"/>が実際に採用している順序と同じ）。
+    ///
+    /// 課題#73対応後は、上のテストと同じく<b>先に1つ畳んで</b>から検証する。畳まずに実行すると
+    /// 折りたたみ生成器が外れており（課題#73）、<see cref="FoldingSupport.PrepareForDocumentSwap"/>を
+    /// 呼ばなくても例外が出ないため、このテストが「対処2が効いていること」を検証できなくなる
+    /// （常に成功する空のテストになってしまう）。
     /// </summary>
     [AvaloniaFact(DisplayName = "課題#82修正確認: PrepareForDocumentSwapを先に呼べば同じ再入でも例外が出ない")]
     public void PrepareForDocumentSwapを先に呼べば再入があっても例外が出ない()
@@ -300,7 +382,12 @@ public class EditorTests : IDisposable
         folding.Attach(docA, "py");
         using (window.CaptureRenderedFrame()) { }
 
-        editor.TextArea.Caret.Line = 3;
+        // 課題#73: 上のテスト（入口特定）と同じ条件を作る。ここを畳まないと、対処2が無くても
+        // 例外が出ない状態になってしまい、このテストが何も守らなくなる。
+        folding.FoldRecursiveAt(docA.GetLineByNumber(2).Offset);
+        FoldingGeneratorCount(editor).Should().Be(1, "対処2の効果を検証するには生成器が付いた状態が必要");
+
+        editor.TextArea.Caret.Line = 4;
         var docB = new TextDocument("if y:\n    c = 3\n    d = 4\nprint(c)\n");
 
         void ReentrantRenderViaNestedDispatch(object? s, EventArgs e) => Dispatcher.UIThread.RunJobs();
