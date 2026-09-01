@@ -402,4 +402,135 @@ public class PathGuardTests
         Action act = () => PathGuard.NormalizeRoot(null!);
         act.Should().Throw<ArgumentNullException>();
     }
+
+    // ------------------------------------------------------------------
+    // v1.0.14 実機不具合対応: マップ済みネットワークドライブ（Z:\...）上のプロジェクトで
+    // 既存ファイルの変更が全件E210になる不具合。
+    //
+    // 【確定していること（実機ログ）】 projects.jsonの保存値は
+    // "Z:\営業部\...\MAI-History" と正常だったのに、PathGuard.NormalizeRootの戻り値
+    // （environmentログのtargetPath）が
+    // "C:\追加\Graft\UNC\gfs\inaden\営業部\...\MAI-History" になっていた。
+    // Path.GetFullPathはResolveRealPathより手前にしか無いため、カレントディレクトリ
+    // （C:\追加\Graft＝exeのフォルダ）が混ざったのはResolveRealPathの内部である。
+    //
+    // 【確定していること（.NETの実装）】 win-x64ランタイム8.0.29の
+    // System.Private.CoreLib を逆コンパイルしたところ、
+    // System.IO.FileSystem.GetFinalLinkTarget は GetFinalPathNameByHandle の戻り値から
+    // 「呼び出し側のパスが拡張表記でなければ先頭4文字を無条件に切り落とす」実装だった。
+    // ネットワーク対象では戻り値が \\?\UNC\... のため、切り落とすと
+    // "UNC\サーバ名\共有名\..." という相対パスに見える文字列になる。
+    // FileSystemInfo.ToString()（OriginalPath）はこの生の値を返し、FullNameは
+    // Path.GetFullPath済み＝カレントディレクトリと連結済みである。
+    //
+    // 【Linuxでは確認できないこと】 実機でこの経路を通ること自体（ネットワーク上の
+    // ジャンクション／シンボリックリンクの解決、GetFinalPathNameByHandleの戻り値）は
+    // **Windows実機でしか確認できない**。以下のテストは、PathGuard側で文字列処理として
+    // 切り出した判断（SanitizeLinkTarget / ResolveRealPathCore）だけを固定する。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "v1.0.14: リンク解決の生の値が\"UNC\\\\server\\\\share\\\\...\"でも、FullNameではなく生の値からUNC表記へ復元する")]
+    public void 化けたリンク実体は生の値から復元される()
+    {
+        // .NETが返す2つの値をそのまま再現する。
+        // rawTarget: GetFinalPathNameByHandleの \\?\UNC\gfs\inaden\営業部 から先頭4文字が落ちた形
+        // fullName : それをPath.GetFullPathした形（exeフォルダと連結済み＝手遅れの値）
+        const string rawTarget = @"UNC\gfs\inaden\営業部";
+        const string fullName = @"C:\追加\Graft\UNC\gfs\inaden\営業部";
+
+        var sanitized = PathGuard.SanitizeLinkTarget(rawTarget, fullName);
+
+        sanitized.Should().Be(@"\\gfs\inaden\営業部",
+            "カレントディレクトリと連結済みのFullNameではなく、生の値を復元して使うべき");
+    }
+
+    [Fact(DisplayName = "v1.0.14: ローカル対象（\\\\?\\C:\\...から4文字落ちた正常な形）はそのまま使う")]
+    public void ローカル対象のリンク実体はそのまま使われる()
+    {
+        // ローカルなら \\?\C:\real\path から4文字落として C:\real\path となり、.NETの処理は正しい。
+        // 実機でローカルのプロジェクトだけ正常だったことと整合する。
+        PathGuard.SanitizeLinkTarget(@"C:\real\path", @"C:\real\path").Should().Be(@"C:\real\path");
+        PathGuard.SanitizeLinkTarget("/var/real/path", "/var/real/path").Should().Be("/var/real/path");
+    }
+
+    [Fact(DisplayName = "v1.0.14: 拡張表記（\\\\?\\UNC\\・\\\\?\\）が残っていれば通常表記へ戻す")]
+    public void 拡張表記のリンク実体は通常表記へ戻る()
+    {
+        PathGuard.SanitizeLinkTarget(@"\\?\UNC\gfs\inaden\営業部", @"\\?\UNC\gfs\inaden\営業部")
+            .Should().Be(@"\\gfs\inaden\営業部");
+        PathGuard.SanitizeLinkTarget(@"\\?\C:\real\path", @"\\?\C:\real\path")
+            .Should().Be(@"C:\real\path");
+    }
+
+    [Fact(DisplayName = "v1.0.14: 生の値が取れないときはFullNameへ後退し、拡張表記だけは剥がす")]
+    public void 生の値が無ければFullNameへ後退する()
+    {
+        PathGuard.SanitizeLinkTarget(null, @"\\?\UNC\gfs\inaden\営業部").Should().Be(@"\\gfs\inaden\営業部");
+        PathGuard.SanitizeLinkTarget("", @"C:\real\path").Should().Be(@"C:\real\path");
+    }
+
+    [Fact(DisplayName = "v1.0.14: どちらからも絶対パスを得られなければnull（リンクとして解決しない）")]
+    public void 絶対パスを得られなければnull()
+    {
+        PathGuard.SanitizeLinkTarget(null, null).Should().BeNull();
+        PathGuard.SanitizeLinkTarget("", "").Should().BeNull();
+        // "UNC\"でも"\\?\"でもない、ただの相対パス。復元しようがないので採用しない。
+        PathGuard.SanitizeLinkTarget(@"relative\target", @"relative\target").Should().BeNull();
+    }
+
+    [Fact(DisplayName = "v1.0.14: ResolveRealPathCoreはリンク解決が相対パスを返したら元のパスを返す（カレントディレクトリと連結させない）")]
+    public void 相対パスへ転落したら元のパスを返す()
+    {
+        // SanitizeLinkTargetを素通りしてしまった場合の最後の砦。
+        // 区切り文字が両OSで有効な「ルートを持つパス」を使い、Linux上でも組み立て経路を
+        // 実際に通す（Z:\... はLinuxではPath.GetPathRootが空を返し、早期returnで
+        // 素通りしてしまうため、この検証には使えない）。
+        const string input = "/net/営業部/02-国営課/MAI-History";
+        static bool IsFirstSegment(string path) => path.EndsWith("営業部", StringComparison.Ordinal);
+
+        // 対照: リンクの実体が絶対パスなら、従来どおりそこから組み立てが進む
+        // （＝このテストが「早期returnで素通りしただけ」ではないことの担保）。
+        PathGuard.ResolveRealPathCore(input, p => IsFirstSegment(p) ? "/real/営業部" : null)
+            .Should().NotBe(input, "絶対パスの実体からは組み立てが進むはず");
+
+        // 本題: 同じ位置で相対パス（実機で.NETが返していた形）が返ったら元のパスへ後退する。
+        PathGuard.ResolveRealPathCore(input, p => IsFirstSegment(p) ? @"UNC\gfs\inaden\営業部" : null)
+            .Should().Be(input,
+                "相対パスのまま組み立てを続けると、呼び出し元のPath.GetFullPathでカレントディレクトリと連結されてしまう");
+    }
+
+    [Fact(DisplayName = "v1.0.14: ResolveRealPathCoreはルートを持たない入力をそのまま返す")]
+    public void ルートを持たない入力はそのまま返る()
+    {
+        // 従来はcurrentが空文字から始まり、セグメントを連結して相対パスを組み上げていた。
+        const string input = @"UNC\gfs\inaden\営業部";
+
+        PathGuard.ResolveRealPathCore(input, _ => null).Should().Be(input);
+        PathGuard.ResolveRealPathCore("", _ => null).Should().Be("");
+    }
+
+    [Theory(DisplayName = "v1.0.14: リンクが無ければ、マップ済みドライブ・UNC・ローカルのいずれも入力どおりに組み立てる")]
+    [InlineData(@"Z:\営業部\02-国営課\MAI-History")]
+    [InlineData(@"\\gfs\inaden\営業部\02-国営課\MAI-History")]
+    [InlineData(@"C:\Users\name\project")]
+    public void リンクが無ければ入力どおりに組み立てる(string input)
+    {
+        if (!OperatingSystem.IsWindows()) return;   // Path.GetPathRoot / Path.Combine の区切り解釈がOS依存のため
+
+        PathGuard.ResolveRealPathCore(input, _ => null).Should().Be(input);
+    }
+
+    [Fact(DisplayName = "v1.0.14: リンク解決が絶対パスを返した場合は、そこから続きを組み立てる（従来どおり）")]
+    public void 絶対パスのリンク実体からは続きを組み立てる()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        // 1段目（Z:\営業部）がネットワーク上のジャンクションで \\gfs\inaden\営業部 が実体、
+        // という実機で起きていたはずの形。以降のセグメントはその実体の下へ連結される。
+        static string? ResolveFirstSegment(string path)
+            => path == @"Z:\営業部" ? @"\\gfs\inaden\営業部" : null;
+
+        PathGuard.ResolveRealPathCore(@"Z:\営業部\02-国営課\MAI-History", ResolveFirstSegment)
+            .Should().Be(@"\\gfs\inaden\営業部\02-国営課\MAI-History");
+    }
 }
