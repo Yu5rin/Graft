@@ -253,6 +253,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // （ProjectPane.LoadAsyncはMainViewModel.InitializeAsync、ShellWindow.OnLoadedより後）
         // のため、プロジェクトは「未選択」として記録される。実際に選ばれたプロジェクトの
         // 要約は、選択のたびにShellViewModel.OnProjectSelectedから別途記録する。
+        // v1.0.14実機不具合対応: パス解決の途中で拡張表記や相対パスへ転落したことを検知したら
+        // ログへ残す（PathGuard.AnomalyLoggerのコメント参照）。EnvironmentSummaryLoggerは
+        // 内部でPathGuard.NormalizeRootを呼ぶため、それより手前で配線しておく。
+        PathGuard.AnomalyLogger = message => _logger?.Warn("path-guard", message);
+
         EnvironmentSummaryLogger.Log(_logger, _appPaths, _exeDirectory, _settings, projectRoot: null);
 
         // 9.3: 保存しておいたテーマを反映する。App起動時点では設定をまだ読めていないため、
