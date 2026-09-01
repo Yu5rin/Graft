@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Graft</RootNamespace>
     <AssemblyName>Graft</AssemblyName>
-    <Version>1.0.13</Version>
+    <Version>1.0.14</Version>
     <Product>Graft</Product>
     <Authors>YUGO</Authors>
     <Company>YUGO</Company>
