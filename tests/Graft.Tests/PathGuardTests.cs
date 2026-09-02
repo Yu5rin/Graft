@@ -636,6 +636,24 @@ public class PathGuardTests
         PathGuard.ResolveRealPathBelowRootCore("", combined, _ => null).Should().Be(combined);
     }
 
+    [Fact(DisplayName = "v1.0.15（回帰）: 区切り文字を挟まない同名接頭辞（root=/proj, combined=/proj2/...）でも走査を始めない")]
+    public void 同名接頭辞は走査の起点にしない()
+    {
+        // Copilotのレビュー指摘。フォールバック判定が単なるStartsWith(root)だと、
+        // root="/proj" に対して combined="/proj2/a.txt" が素通りしてしまう。
+        var root = P("/proj");
+        var combined = P("/proj2/a.txt");
+
+        var real = PathGuard.ResolveRealPathBelowRootCore(root, combined, _ => null);
+
+        // 修正前の挙動（対照）: remainderが "2/a.txt" になり、走査が
+        // /proj → /proj/2 → /proj/2/a.txt と実在しない別のパスへ組み替わっていた。
+        // しかもその値は呼び出し元のルート内判定を通ってしまう＝ルート外がルート内に見える。
+        real.Should().NotBe(P("/proj/2/a.txt"), "ルート外のパスがルート配下へ組み替わってはならない");
+        real.Should().Be(combined, "ルート配下でない入力は、従来どおり全体を辿った結果になるべき");
+        PathGuard.IsWithin(real, root).Should().BeFalse("組み替わりの結果、ルート内と誤判定されてはならない");
+    }
+
     [Fact(DisplayName = "v1.0.15: 解決の内訳（診断ログ用）に、どの構成要素が何へ解決されたかが記録される")]
     public void 解決の内訳が記録される()
     {

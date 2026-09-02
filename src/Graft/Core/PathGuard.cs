@@ -568,11 +568,19 @@ public sealed class PathGuard
     {
         if (string.IsNullOrEmpty(combined)) return combined;
 
-        if (string.IsNullOrEmpty(root) || !combined.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        // 判定は必ず<see cref="IsWithin"/>と同じ境界条件（完全一致か「root + 区切り文字」で始まるか）
+        // で行う。単なるStartsWith(root)にすると、root="/proj" に対して combined="/proj2/a.txt" のような
+        // 「区切り文字を挟まない同名接頭辞」が素通りしてしまう。その場合remainderが "2/a.txt" になり、
+        // 走査が /proj → /proj/2 → /proj/2/a.txt と<b>実在しない別のパスへ組み替わる</b>。
+        // しかもその値は呼び出し元のルート内判定を通ってしまうため、ルート外のパスがルート内に
+        // 見える形へ化けることになる（Copilotのレビュー指摘。現在の呼び出し経路では手前で
+        // IsWithinRoot(combined)を通しているため到達しないが、防御的に置いたコードが黙って
+        // 誤ったパスを作るのは筋が悪く、internalとして直接テストもされているため塞ぐ）。
+        if (!IsWithin(combined, root))
         {
-            // 想定外（呼び出し元が前方一致を確認済みのはず）。安全側に倒し、従来どおり
+            // 想定外（呼び出し元がルート内判定を済ませているはず）。安全側に倒し、従来どおり
             // 丸ごと辿る経路へ落とす。ここを黙って通すと走査の起点がずれてしまう。
-            ReportAnomaly($"結合後のパスがルートで始まっていません。全体を辿ります: ルート={root} / 結合後={combined}");
+            ReportAnomaly($"結合後のパスがルート配下ではありません。全体を辿ります: ルート={root} / 結合後={combined}");
             return ResolveRealPathCore(combined, resolveIfLink);
         }
 
