@@ -49,6 +49,13 @@ public sealed record FileCheck
 /// <summary>
 /// プロジェクトルート外への書き込みを防ぐ経路検証機構（4.7節/13章）。
 /// 正規化後の絶対パスとシンボリックリンク解決後の実パスの両方でルート内判定を行う。
+/// <para>
+/// v1.0.15: リンクの実体解決は<b>ルートより下の構成要素だけ</b>を対象にする
+/// （<see cref="ResolveRealPathBelowRootCore"/>）。ルート自身の実体解決は
+/// <see cref="NormalizeRoot"/>が構築時に1回だけ行い、以後はその結果を起点にする。
+/// 判定が外れた場合の第二の砦として、ルートの実体（<see cref="IsWithinRealRoot"/>）とも
+/// 突き合わせる。いずれもルート外を指すリンクの拒否は従来どおりで、緩めていない。
+/// </para>
 /// </summary>
 public sealed class PathGuard
 {
@@ -193,9 +200,15 @@ public sealed class PathGuard
         // _rootとの前方一致（IsWithinRoot）が必ず外れ、ルート内のファイルまでE201になってしまう。
         // 拡張表記はファイルAPI呼び出しの直前だけで使う、というLongPath.csの設計方針どおり、
         // ここで通常表記へ戻してから判定する。
-        var real = LongPath.StripExtendedPrefix(ResolveRealPath(combined));
-        if (!IsWithinRoot(real))
+        //
+        // v1.0.15: 実体解決の起点を「ルートそのもの」へ変えた（詳細は
+        // <see cref="ResolveRealPathBelowRootCore"/> のコメント）。ルートより上の構成要素を
+        // ファイル1件ごとに解決し直していたことが、構築時に1回だけ解決した_rootとの間に
+        // 表記の食い違いを生んでいた。
+        var real = LongPath.StripExtendedPrefix(ResolveRealPathBelowRoot(combined, trace: null));
+        if (!IsWithinRoot(real) && !IsWithinRealRoot(real))
         {
+            ReportLinkEscape(relativePath, combined, real);
             return GraftResult<string>.Fail(ErrorCode.E201, "シンボリックリンク経由でルート外を参照しています", path: relativePath);
         }
 
@@ -279,14 +292,120 @@ public sealed class PathGuard
         return GraftResult<bool>.Ok(true);
     }
 
-    private bool IsWithinRoot(string candidate)
+    private bool IsWithinRoot(string candidate) => IsWithin(candidate, _root);
+
+    /// <summary>
+    /// v1.0.15: <paramref name="candidate"/>が<paramref name="root"/>と同じか、その配下かを
+    /// 前方一致で判定する。従来<see cref="IsWithinRoot"/>に直書きしていた判定を、比較相手を
+    /// 差し替えられるよう切り出しただけで、判定基準そのものは変えていない
+    /// （末尾区切りを落としたうえで、大文字小文字を無視した完全一致か
+    /// 「root + 区切り文字」で始まるか）。
+    /// <para>
+    /// <c>internal</c>にしているのは単体テストのため。表記が食い違う組み合わせ
+    /// （<c>Z:</c>表記のルート と UNC表記の実体）で前方一致がどう転ぶかは、
+    /// 実際のネットワークドライブが無いと再現できないが、判定そのものは純粋な文字列比較なので
+    /// ここを直接固定できればLinux上でも表を検証できる。
+    /// </para>
+    /// </summary>
+    internal static bool IsWithin(string candidate, string root)
     {
+        if (string.IsNullOrEmpty(root)) return false;
+
         var normalizedCandidate = candidate.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.Equals(normalizedCandidate, _root, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(normalizedCandidate, root, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
-        return normalizedCandidate.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return normalizedCandidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// v1.0.15 実機不具合対応（E201の第二の砦）: <paramref name="real"/>が「ルートの実体」の
+    /// 配下かどうかを判定する。<see cref="IsWithinRoot"/>（＝<c>_root</c>との前方一致）が
+    /// 外れたときにだけ呼ぶ。
+    /// <para>
+    /// 【なぜ要るか】 実機ログ（20260902）では、同じ<c>Z:</c>ドライブ上の同じプロジェクトが、
+    /// 時刻によって <c>Z:\営業部\...</c> と <c>\\gfs\inaden\営業部\...</c> の2通りに解決されていた
+    /// （14:03 EPSEnhance→UNC / 14:03 MAI-History→Z: / 15:37 MAI-History→UNC）。
+    /// <c>Z:</c>は<c>\\gfs\inaden</c>へのマップなので同じ場所を指すが、文字列としては
+    /// 前方一致しない。<c>_root</c>が<c>Z:</c>表記で<c>real</c>がUNC表記になった瞬間だけ
+    /// E201が出ていた（16:17）。表記が揃っていた時間帯（15:39・15:46・15:51）は適用が
+    /// 成功している。<b>したがって「片方の表記へ寄せる」のではなく、「ルート側も同じ実体解決に
+    /// かけた値」とも突き合わせる</b>のが筋になる。
+    /// </para>
+    /// <para>
+    /// 【安全性】 ここで通すのは「ルートの実体の配下」だけである。本当にルート外を指すリンクは
+    /// <c>_root</c>からも実体ルートからも外れるため、従来どおりE201で拒否される
+    /// （<c>PathGuardTests</c>で固定済み）。判定を緩めているのではなく、<b>同じ場所を指す2つの
+    /// 表記のどちらで返ってきても同じ結論になるようにしている</b>だけである。
+    /// </para>
+    /// <para>
+    /// 【なぜコンストラクタで一度だけ求めないのか】 依頼時の案は「コンストラクタで実体ルートを
+    /// 求めて持っておく」だったが、そうしなかった理由が2つある。(1) 実機ログが示すとおり
+    /// リンク解決の結果自体が時刻によって揺れる。構築時の値を焼き付けると、揺れた側の値を
+    /// 掴んだまま固定されてしまう。(2) 通常は<see cref="IsWithinRoot"/>で通るため、ここへ
+    /// 来るのは失敗経路だけであり、そこで1回だけ余分に解決してもコストが問題にならない
+    /// （逆に、構築時に必ず1回走らせるとネットワーク越しの往復が全PathGuard生成で発生する）。
+    /// </para>
+    /// </summary>
+    private bool IsWithinRealRoot(string real)
+    {
+        string realRoot;
+        try
+        {
+            realRoot = NormalizeTrailingSeparator(LongPath.StripExtendedPrefix(ResolveRealPath(_root)));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            // ルートの実体解決に失敗したら「実体ルートは分からない」＝この砦は使えない、と扱う。
+            // 呼び出し元は_rootとの前方一致が既に外れているため、結果はE201のままになる。
+            return false;
+        }
+
+        // 実体ルートが_rootと同じなら、判定内容は_root側と完全に重複する（無駄な二度手間）。
+        if (string.Equals(realRoot, _root, StringComparison.OrdinalIgnoreCase)) return false;
+
+        return IsWithin(real, realRoot);
+    }
+
+    /// <summary>
+    /// v1.0.15: E201（リンク経由のルート外参照）で拒否したときに、判断材料をそのままログへ残す。
+    /// <para>
+    /// 【なぜ要るか】 v1.0.14で入れた<c>path-guard</c>ログは「絶対パスへ解決できなかった」
+    /// 異常時にしか出ない。実機ログ（20260902）にこのイベントが1件も無かったため、
+    /// 「E201が出たとき<c>_root</c>と<c>real</c>が実際どういう文字列だったのか」は
+    /// <c>environment</c>行から間接的に推定するしかなかった。同じ推定作業を二度としないよう、
+    /// <b>拒否した瞬間の値をすべて</b>記録する。記録するのはパスだけで、ファイルの中身や
+    /// AIの応答は一切含めない（既存のログ方針どおり）。
+    /// </para>
+    /// <para>
+    /// 「解決の内訳」は、どの構成要素がリンクとして解決され、何を返したかの一覧である。
+    /// 失敗経路でのみ実体解決をもう一度走らせて集めるため、成功時のコストは増えない。
+    /// </para>
+    /// </summary>
+    private void ReportLinkEscape(string relativePath, string combined, string real)
+    {
+        if (AnomalyLogger is null) return;
+
+        var trace = new List<string>();
+        string realAgain;
+        try
+        {
+            realAgain = LongPath.StripExtendedPrefix(ResolveRealPathBelowRoot(combined, trace));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            realAgain = $"（再解決に失敗: {ex.GetType().Name}）";
+        }
+
+        var detail = trace.Count == 0
+            ? "リンクとして解決された構成要素は無し"
+            : string.Join(" / ", trace);
+
+        ReportAnomaly(
+            $"ルート外参照として拒否しました（E201）。相対パス={relativePath}" +
+            $" / ルート={_root} / 結合後={combined} / 実体解決後={real}" +
+            $" / 再解決={realAgain} / 解決の内訳: {detail}");
     }
 
     private static bool IsLocked(string ioPath)
@@ -377,6 +496,117 @@ public sealed class PathGuard
                     $"リンクの実体解決が相対パスを返したため、実体解決を打ち切って元のパスを使います。" +
                     $" リンク={current} / 解決結果={resolved} / 採用={fullPath}");
                 return fullPath;
+            }
+
+            current = resolved;
+        }
+
+        return current;
+    }
+
+    /// <summary>
+    /// <see cref="ResolveRealPathBelowRootCore"/>を、実際のファイルシステムを見る
+    /// <see cref="ResolveIfLink"/>で実行する。
+    /// </summary>
+    private string ResolveRealPathBelowRoot(string combined, IList<string>? trace)
+        => ResolveRealPathBelowRootCore(_root, combined, ResolveIfLink, trace);
+
+    /// <summary>
+    /// v1.0.15 実機不具合対応（今回の真因）: リンクの実体解決を<b>ルートより下の構成要素だけ</b>に
+    /// 限定して行う。起点は<paramref name="root"/>そのもの（＝<c>_root</c>）で、
+    /// <paramref name="combined"/>のうちルートを超えた部分のセグメントだけを1つずつ辿る。
+    /// <para>
+    /// 【従来の作りと、それが壊れていた理由】 従来は<see cref="ResolveRealPathCore"/>で
+    /// <paramref name="combined"/>を<b>ドライブルートから丸ごと</b>辿り直していた。つまり
+    /// <c>Z:\営業部</c>・<c>Z:\営業部\02-国営課</c>…といったルート自身の構成要素まで、
+    /// ファイルを1つ解決するたびに毎回リンク判定し直していた。ところが<c>_root</c>の側は
+    /// <see cref="NormalizeRoot"/>が<b>PathGuardを作った時点で1回だけ</b>同じ解決を行った結果である。
+    /// <b>この2回の解決結果が食い違うと、同じ場所を指しているのに前方一致が外れてE201になる。</b>
+    /// </para>
+    /// <para>
+    /// 【食い違いは実在した（実機ログ 20260902）】 マップ済みネットワークドライブ
+    /// <c>Z:</c>（<c>\\gfs\inaden</c> へのマップ）上のプロジェクトで、
+    /// <c>environment</c> ログのプロジェクトルートが時刻によって
+    /// <c>Z:\営業部\...</c> になったり <c>\\gfs\inaden\営業部\...</c> になったりしていた
+    /// （14:03:09 EPSEnhance→UNC表記 / 14:03:57 MAI-History→<c>Z:</c>表記 /
+    /// 15:37:23 同じMAI-History→UNC表記）。入力は同じ<c>projects.json</c>の値である。
+    /// つまり<c>Directory.ResolveLinkTarget</c>が「そこはリンクだ」と報告するかどうか自体が
+    /// 揺れている。かつ v1.0.14 で入れた<c>path-guard</c>ログ（絶対パスへ解決できなかった
+    /// ときだけ出る）はこのログに<b>1件も出ていない</b>ため、揺れは「解決に失敗して後退した」
+    /// のではなく「そもそもリンクとして検出されなかった」側で起きている。
+    /// E201が出たのは<c>_root</c>が<c>Z:</c>表記だった16:17台だけで、両者の表記が
+    /// 揃っていた15:39・15:46・15:51の適用は成功している。
+    /// </para>
+    /// <para>
+    /// 【なぜルートより下だけで安全か】 <paramref name="combined"/>は、呼び出し元が
+    /// 「絶対パスでない」「<c>..</c>を含まない」ことを確認したうえで<c>_root</c>に連結し、
+    /// さらに<c>_root</c>配下であることを確認した値である。したがって<b>ルートより上の構成要素は
+    /// 利用者・AIが与えた相対パスの影響を一切受けない</b>。ルート自身がどこの実体を指すかは
+    /// 「プロジェクトをどこに置いたか」の話であって、脱出の検査対象ではない
+    /// （そこは<see cref="NormalizeRoot"/>が構築時に1回解決済み）。防ぎたいのは
+    /// 「相対パスが指すセグメントのどれかがリンクで、ルート外へ出る」ことであり、それは
+    /// 起点をルートにしたこの走査で従来どおり検出できる（<c>PathGuardTests</c>で固定）。
+    /// </para>
+    /// <para>
+    /// 【副次的な効果】 ネットワーク上のプロジェクトでは、ファイル1件を解決するたびに
+    /// ルートの深さぶん（実機の例では8段）の<c>Directory.Exists</c>／属性照会がSMB越しに
+    /// 発生していた。エクスプローラの一覧はファイル数ぶんこれを繰り返すため、往復回数が
+    /// 「ファイル数×ルートの深さ」から「ファイル数×相対パスの深さ」へ減る。
+    /// </para>
+    /// </summary>
+    /// <param name="root">プロジェクトルート（正規化済み。<c>_root</c>）。走査の起点になる。</param>
+    /// <param name="combined">ルート配下であることを確認済みの結合後の絶対パス。</param>
+    /// <param name="resolveIfLink">リンク解決。テストから差し替えるために引数化している。</param>
+    /// <param name="trace">
+    /// リンクとして解決された構成要素の記録先（診断ログ用）。不要ならnull。
+    /// </param>
+    internal static string ResolveRealPathBelowRootCore(
+        string root,
+        string combined,
+        Func<string, string?> resolveIfLink,
+        IList<string>? trace = null)
+    {
+        if (string.IsNullOrEmpty(combined)) return combined;
+
+        // 判定は必ず<see cref="IsWithin"/>と同じ境界条件（完全一致か「root + 区切り文字」で始まるか）
+        // で行う。単なるStartsWith(root)にすると、root="/proj" に対して combined="/proj2/a.txt" のような
+        // 「区切り文字を挟まない同名接頭辞」が素通りしてしまう。その場合remainderが "2/a.txt" になり、
+        // 走査が /proj → /proj/2 → /proj/2/a.txt と<b>実在しない別のパスへ組み替わる</b>。
+        // しかもその値は呼び出し元のルート内判定を通ってしまうため、ルート外のパスがルート内に
+        // 見える形へ化けることになる（Copilotのレビュー指摘。現在の呼び出し経路では手前で
+        // IsWithinRoot(combined)を通しているため到達しないが、防御的に置いたコードが黙って
+        // 誤ったパスを作るのは筋が悪く、internalとして直接テストもされているため塞ぐ）。
+        if (!IsWithin(combined, root))
+        {
+            // 想定外（呼び出し元がルート内判定を済ませているはず）。安全側に倒し、従来どおり
+            // 丸ごと辿る経路へ落とす。ここを黙って通すと走査の起点がずれてしまう。
+            ReportAnomaly($"結合後のパスがルート配下ではありません。全体を辿ります: ルート={root} / 結合後={combined}");
+            return ResolveRealPathCore(combined, resolveIfLink);
+        }
+
+        var remainder = combined[root.Length..];
+        var parts = remainder.Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries);
+
+        var current = root;
+        foreach (var part in parts)
+        {
+            current = Path.Combine(current, part);
+
+            var resolved = resolveIfLink(current);
+            if (resolved is null) continue;
+
+            trace?.Add($"{current} → {resolved}");
+
+            if (!IsAbsolutePath(resolved))
+            {
+                // v1.0.14と同じ最後の砦。相対パスのまま組み立てを続けると、呼び出し元の
+                // Path.GetFullPathでカレントディレクトリと連結されてしまう。
+                ReportAnomaly(
+                    $"リンクの実体解決が相対パスを返したため、実体解決を打ち切って元のパスを使います。" +
+                    $" リンク={current} / 解決結果={resolved} / 採用={combined}");
+                return combined;
             }
 
             current = resolved;
