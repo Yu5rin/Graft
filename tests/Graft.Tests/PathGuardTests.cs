@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using FluentAssertions;
@@ -533,4 +534,195 @@ public class PathGuardTests
         PathGuard.ResolveRealPathCore(@"Z:\営業部\02-国営課\MAI-History", ResolveFirstSegment)
             .Should().Be(@"\\gfs\inaden\営業部\02-国営課\MAI-History");
     }
+
+    // ------------------------------------------------------------------
+    // v1.0.15 実機不具合対応: マップ済みネットワークドライブ（Z:\...）上のプロジェクトで、
+    // プロジェクト直下の普通のファイル（theme.js / settings.js）が
+    // 「E201 シンボリックリンク経由でルート外を参照しています」で拒否される不具合。
+    //
+    // 【実機ログ 20260902 で確定したこと】
+    //  (1) 同じ projects.json の値に対して、PathGuard.NormalizeRoot の戻り値
+    //      （environmentログ）が時刻によって2通りに揺れていた。
+    //        14:03:09 EPSEnhance   → \\gfs\inaden\営業部\...（UNC共有）
+    //        14:03:57 MAI-History  → Z:\営業部\...（ネットワークドライブ）
+    //        15:37:23 MAI-History  → \\gfs\inaden\営業部\...（UNC共有）
+    //      Z: は \\gfs\inaden へのマップなので、両者は同じ場所を指している。
+    //  (2) v1.0.14で入れた path-guard イベントは、このログに1件も出ていない。つまり
+    //      「実体解決が絶対パスにならず後退した」経路は通っていない。揺れているのは
+    //      Directory.ResolveLinkTarget が「そこはリンクだ」と報告するかどうかそのもの。
+    //  (3) E201 が出たのはルートが Z: 表記だった時間帯（16:17台）だけで、
+    //      両者の表記が揃っていた時間帯（15:39・15:46・15:51）の適用は成功している。
+    //
+    // 【原因】 _root は NormalizeRoot が「PathGuardを作った時点で1回だけ」実体解決した値。
+    // 一方 Resolve は、ファイル1件ごとに結合後のパスを「ドライブルートから丸ごと」
+    // 実体解決し直していた。この2回の解決結果が食い違うと、同じ場所を指しているのに
+    // 前方一致（IsWithinRoot）が外れてE201になる。
+    //
+    // 【対処】 実体解決の起点を _root そのものにし、ルートより下の構成要素だけを辿る
+    // （ResolveRealPathBelowRootCore）。加えて第二の砦として、ルートの実体とも突き合わせる。
+    //
+    // 【Linuxでは確認できないこと】 Z: と \\gfs\inaden が同じ場所を指すこと自体、および
+    // ResolveLinkTarget の報告が揺れることは Windows 実機でしか再現できない。以下のテストは
+    // 「揺れが起きたときに前方一致がどう転ぶか」という判断（純粋な文字列処理・走査ロジック）
+    // だけを固定する。なお .github/workflows/ci.yml は runs-on: ubuntu-latest のため、
+    // OperatingSystem.IsWindows() で守った検証は CI では中身が実行されない
+    // （テスト自体は成功として数えられるが、Windows専用の表明は評価されない）。
+    // ------------------------------------------------------------------
+
+    /// <summary>区切り文字をOSのものへ揃える。判定は前方一致なので、両OSで同じ意味になる。</summary>
+    private static string P(string slashPath) => slashPath.Replace('/', Path.DirectorySeparatorChar);
+
+    [Fact(DisplayName = "v1.0.15（本命）: ルートより上の構成要素は実体解決し直さないので、表記が揺れても前方一致が外れない")]
+    public void ルートより上の構成要素は実体解決しない()
+    {
+        // 実機で起きていた形を、リンク解決だけ差し替えて再現する。
+        // ルートの途中（営業部）が「あるときはリンクとして報告され、あるときは報告されない」。
+        var root = P("/net/営業部/02-国営課/MAI-History");
+        var combined = P("/net/営業部/02-国営課/MAI-History/theme.js");
+        static string? DriftsToOtherNotation(string path)
+            => path == P("/net/営業部") ? P("/gfs/inaden/営業部") : null;
+
+        // 修正前の走査（ドライブルートから丸ごと）。ルートの途中で表記が変わってしまい、
+        // _root（＝Z:表記のまま）との前方一致が外れる＝実機のE201そのもの。
+        var wholeWalk = PathGuard.ResolveRealPathCore(combined, DriftsToOtherNotation);
+        PathGuard.IsWithin(wholeWalk, root).Should().BeFalse(
+            "前提: 丸ごと辿ると表記が入れ替わり、ルートとの前方一致が外れる（これが実機の症状）");
+
+        // 修正後の走査。起点がルートなので、ルートより上の構成要素には触れない。
+        var belowRootWalk = PathGuard.ResolveRealPathBelowRootCore(root, combined, DriftsToOtherNotation);
+
+        belowRootWalk.Should().Be(combined);
+        PathGuard.IsWithin(belowRootWalk, root).Should().BeTrue(
+            "プロジェクト直下の普通のファイルが、リンク解決の揺れだけでルート外扱いされてはならない");
+    }
+
+    [Fact(DisplayName = "v1.0.15（安全機構）: ルートより下のリンクは従来どおり実体解決され、ルート外なら前方一致が外れる")]
+    public void ルートより下のリンクは従来どおり解決される()
+    {
+        var root = P("/proj");
+        var combined = P("/proj/linked/secret.txt");
+        static string? ResolveLinkedToOutside(string path)
+            => path == P("/proj/linked") ? P("/outside/secret-dir") : null;
+
+        var real = PathGuard.ResolveRealPathBelowRootCore(root, combined, ResolveLinkedToOutside);
+
+        real.Should().Be(P("/outside/secret-dir/secret.txt"),
+            "ルート配下のリンクは実体まで解決されるべき（脱出検知はこれが前提）");
+        PathGuard.IsWithin(real, root).Should().BeFalse("ルート外を指すリンクは従来どおり弾かれるべき");
+    }
+
+    [Fact(DisplayName = "v1.0.15: ルート下のリンク解決が相対パスを返したら、組み立てを打ち切って結合後のパスを使う")]
+    public void ルート下のリンクが相対パスを返したら打ち切る()
+    {
+        // v1.0.14と同じ最後の砦。相対パスのまま組み立てると呼び出し元の
+        // Path.GetFullPath でカレントディレクトリと連結されてしまう。
+        var root = P("/proj");
+        var combined = P("/proj/linked/secret.txt");
+        static string? ReturnsRelative(string path)
+            => path == P("/proj/linked") ? @"UNC\gfs\inaden\営業部" : null;
+
+        PathGuard.ResolveRealPathBelowRootCore(root, combined, ReturnsRelative).Should().Be(combined);
+    }
+
+    [Fact(DisplayName = "v1.0.15: 結合後のパスがルートで始まらない想定外の入力は、従来どおり全体を辿る")]
+    public void ルートで始まらない入力は全体を辿る()
+    {
+        var combined = P("/proj/a.txt");
+
+        // 起点がずれた状態で黙って走査を始めると、ルートの下だけを見たつもりが
+        // 何も見ていないことになる。安全側に倒して従来の全体走査へ落とす。
+        PathGuard.ResolveRealPathBelowRootCore(P("/other"), combined, _ => null)
+            .Should().Be(PathGuard.ResolveRealPathCore(combined, _ => null));
+        PathGuard.ResolveRealPathBelowRootCore("", combined, _ => null).Should().Be(combined);
+    }
+
+    [Fact(DisplayName = "v1.0.15: 解決の内訳（診断ログ用）に、どの構成要素が何へ解決されたかが記録される")]
+    public void 解決の内訳が記録される()
+    {
+        var root = P("/proj");
+        var combined = P("/proj/linked/secret.txt");
+        static string? ResolveLinkedToOutside(string path)
+            => path == P("/proj/linked") ? P("/outside/secret-dir") : null;
+        var trace = new List<string>();
+
+        PathGuard.ResolveRealPathBelowRootCore(root, combined, ResolveLinkedToOutside, trace);
+
+        trace.Should().ContainSingle().Which.Should().Be($"{P("/proj/linked")} → {P("/outside/secret-dir")}");
+    }
+
+    [Theory(DisplayName = "v1.0.15: 表記が食い違う組み合わせで前方一致がどう転ぶか（実機の症状の表）")]
+    // ルートと実体の表記が揃っていれば通る（実機で適用が成功していた時間帯）。
+    [InlineData("/gfs/inaden/営業部/MAI-History/theme.js", "/gfs/inaden/営業部/MAI-History", true)]
+    [InlineData("/mapped/MAI-History/theme.js", "/mapped/MAI-History", true)]
+    // ルートと同じ位置そのもの。
+    [InlineData("/mapped/MAI-History", "/mapped/MAI-History", true)]
+    // 表記が食い違うと外れる（16:17台のE201）。だからこそ実体ルートとも突き合わせる必要がある。
+    [InlineData("/gfs/inaden/営業部/MAI-History/theme.js", "/mapped/MAI-History", false)]
+    // 本当にルート外。実体ルート側（UNC表記）から見ても外れる＝従来どおり拒否されるべき。
+    [InlineData("/gfs/inaden/営業部/OTHER-PROJECT/theme.js", "/gfs/inaden/営業部/MAI-History", false)]
+    // 前方一致の落とし穴（区切りを挟まない同名接頭辞）。
+    [InlineData("/mapped/MAI-History2/theme.js", "/mapped/MAI-History", false)]
+    public void 表記の食い違いと前方一致の表(string candidate, string root, bool expected)
+    {
+        PathGuard.IsWithin(P(candidate), P(root)).Should().Be(expected);
+    }
+
+    [Fact(DisplayName = "v1.0.15: 実体ルートとも突き合わせても、本当にルート外を指すリンクは通らない")]
+    public void 実体ルートとの突き合わせでもルート外は通らない()
+    {
+        // IsWithinRealRoot が行う判定を、両方のルートを並べた形でそのまま固定する。
+        // 「_root（マップ済みドライブ表記）」と「実体ルート（UNC表記）」の2つを許すが、
+        // 別プロジェクトを指す実体はそのどちらからも外れる。
+        var mappedRoot = P("/mapped/MAI-History");
+        var realRoot = P("/gfs/inaden/営業部/MAI-History");
+
+        var insideByRealRoot = P("/gfs/inaden/営業部/MAI-History/theme.js");
+        (PathGuard.IsWithin(insideByRealRoot, mappedRoot) || PathGuard.IsWithin(insideByRealRoot, realRoot))
+            .Should().BeTrue("同じ場所を指す別表記は、実体ルート側で拾えるべき");
+
+        var outside = P("/gfs/inaden/営業部/OTHER-PROJECT/theme.js");
+        (PathGuard.IsWithin(outside, mappedRoot) || PathGuard.IsWithin(outside, realRoot))
+            .Should().BeFalse("本当にルート外を指すリンクは、どちらのルートからも外れるべき");
+
+        var farOutside = P("/etc/passwd");
+        (PathGuard.IsWithin(farOutside, mappedRoot) || PathGuard.IsWithin(farOutside, realRoot))
+            .Should().BeFalse();
+    }
+
+    [Fact(DisplayName = "v1.0.15: E201で拒否したとき、ルート・結合後・実体解決後の実際の値がログへ残る")]
+    public void E201のときは判断材料がログへ残る()
+    {
+        using var ws = new TempWorkspace();
+        using var outside = new TempWorkspace();
+        outside.WriteText("secret.txt", "ルート外の内容");
+        if (TryCreateSymlinkOrSkip(ws, "linked", outside.RootPath) is null) return;
+
+        var messages = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var previous = PathGuard.AnomalyLogger;
+        try
+        {
+            PathGuard.AnomalyLogger = messages.Add;
+            var guard = new PathGuard(ws.RootPath, PathGuardOptions.Default);
+
+            var result = guard.Resolve("linked/secret.txt");
+
+            result.IsSuccess.Should().BeFalse();
+            result.Errors.Single().Code.Should().Be(ErrorCode.E201);
+        }
+        finally
+        {
+            PathGuard.AnomalyLogger = previous;
+        }
+
+        // v1.0.14のpath-guardログは「絶対パスへ解決できなかった」異常時にしか出ないため、
+        // 実機ログには1件も残らず、_rootとrealの実際の文字列を推定するしかなかった。
+        // 二度と同じ推定をしなくて済むよう、拒否した瞬間の値をすべて残す。
+        var escape = messages.Should().ContainSingle(m => m.Contains("E201", StringComparison.Ordinal)).Which;
+        escape.Should().Contain("linked/secret.txt");
+        escape.Should().Contain("ルート=");
+        escape.Should().Contain("結合後=");
+        escape.Should().Contain("実体解決後=");
+        escape.Should().Contain(outside.RootPath, "どこへ逃げたのか（実体解決の行き先）が分からないと原因を追えない");
+    }
+
 }
