@@ -536,7 +536,7 @@ public class PathGuardTests
     }
 
     // ------------------------------------------------------------------
-    // v1.0.15 実機不具合対応: マップ済みネットワークドライブ（Z:\...）上のプロジェクトで、
+    // v1.0.14 実機不具合対応: マップ済みネットワークドライブ（Z:\...）上のプロジェクトで、
     // プロジェクト直下の普通のファイル（theme.js / settings.js）が
     // 「E201 シンボリックリンク経由でルート外を参照しています」で拒否される不具合。
     //
@@ -572,7 +572,7 @@ public class PathGuardTests
     /// <summary>区切り文字をOSのものへ揃える。判定は前方一致なので、両OSで同じ意味になる。</summary>
     private static string P(string slashPath) => slashPath.Replace('/', Path.DirectorySeparatorChar);
 
-    [Fact(DisplayName = "v1.0.15（本命）: ルートより上の構成要素は実体解決し直さないので、表記が揺れても前方一致が外れない")]
+    [Fact(DisplayName = "v1.0.14（本命）: ルートより上の構成要素は実体解決し直さないので、表記が揺れても前方一致が外れない")]
     public void ルートより上の構成要素は実体解決しない()
     {
         // 実機で起きていた形を、リンク解決だけ差し替えて再現する。
@@ -596,7 +596,7 @@ public class PathGuardTests
             "プロジェクト直下の普通のファイルが、リンク解決の揺れだけでルート外扱いされてはならない");
     }
 
-    [Fact(DisplayName = "v1.0.15（安全機構）: ルートより下のリンクは従来どおり実体解決され、ルート外なら前方一致が外れる")]
+    [Fact(DisplayName = "v1.0.14（安全機構）: ルートより下のリンクは従来どおり実体解決され、ルート外なら前方一致が外れる")]
     public void ルートより下のリンクは従来どおり解決される()
     {
         var root = P("/proj");
@@ -611,7 +611,7 @@ public class PathGuardTests
         PathGuard.IsWithin(real, root).Should().BeFalse("ルート外を指すリンクは従来どおり弾かれるべき");
     }
 
-    [Fact(DisplayName = "v1.0.15: ルート下のリンク解決が相対パスを返したら、組み立てを打ち切って結合後のパスを使う")]
+    [Fact(DisplayName = "v1.0.14: ルート下のリンク解決が相対パスを返したら、組み立てを打ち切って結合後のパスを使う")]
     public void ルート下のリンクが相対パスを返したら打ち切る()
     {
         // v1.0.14と同じ最後の砦。相対パスのまま組み立てると呼び出し元の
@@ -624,7 +624,7 @@ public class PathGuardTests
         PathGuard.ResolveRealPathBelowRootCore(root, combined, ReturnsRelative).Should().Be(combined);
     }
 
-    [Fact(DisplayName = "v1.0.15: 結合後のパスがルートで始まらない想定外の入力は、従来どおり全体を辿る")]
+    [Fact(DisplayName = "v1.0.14: 結合後のパスがルートで始まらない想定外の入力は、従来どおり全体を辿る")]
     public void ルートで始まらない入力は全体を辿る()
     {
         var combined = P("/proj/a.txt");
@@ -636,7 +636,7 @@ public class PathGuardTests
         PathGuard.ResolveRealPathBelowRootCore("", combined, _ => null).Should().Be(combined);
     }
 
-    [Fact(DisplayName = "v1.0.15（回帰）: 区切り文字を挟まない同名接頭辞（root=/proj, combined=/proj2/...）でも走査を始めない")]
+    [Fact(DisplayName = "v1.0.14（回帰）: 区切り文字を挟まない同名接頭辞（root=/proj, combined=/proj2/...）でも走査を始めない")]
     public void 同名接頭辞は走査の起点にしない()
     {
         // Copilotのレビュー指摘。フォールバック判定が単なるStartsWith(root)だと、
@@ -654,7 +654,7 @@ public class PathGuardTests
         PathGuard.IsWithin(real, root).Should().BeFalse("組み替わりの結果、ルート内と誤判定されてはならない");
     }
 
-    [Fact(DisplayName = "v1.0.15: 解決の内訳（診断ログ用）に、どの構成要素が何へ解決されたかが記録される")]
+    [Fact(DisplayName = "v1.0.14: 解決の内訳（診断ログ用）に、どの構成要素が何へ解決されたかが記録される")]
     public void 解決の内訳が記録される()
     {
         var root = P("/proj");
@@ -668,7 +668,7 @@ public class PathGuardTests
         trace.Should().ContainSingle().Which.Should().Be($"{P("/proj/linked")} → {P("/outside/secret-dir")}");
     }
 
-    [Theory(DisplayName = "v1.0.15: 表記が食い違う組み合わせで前方一致がどう転ぶか（実機の症状の表）")]
+    [Theory(DisplayName = "v1.0.14: 表記が食い違う組み合わせで前方一致がどう転ぶか（実機の症状の表）")]
     // ルートと実体の表記が揃っていれば通る（実機で適用が成功していた時間帯）。
     [InlineData("/gfs/inaden/営業部/MAI-History/theme.js", "/gfs/inaden/営業部/MAI-History", true)]
     [InlineData("/mapped/MAI-History/theme.js", "/mapped/MAI-History", true)]
@@ -685,7 +685,7 @@ public class PathGuardTests
         PathGuard.IsWithin(P(candidate), P(root)).Should().Be(expected);
     }
 
-    [Fact(DisplayName = "v1.0.15: 実体ルートとも突き合わせても、本当にルート外を指すリンクは通らない")]
+    [Fact(DisplayName = "v1.0.14: 実体ルートとも突き合わせても、本当にルート外を指すリンクは通らない")]
     public void 実体ルートとの突き合わせでもルート外は通らない()
     {
         // IsWithinRealRoot が行う判定を、両方のルートを並べた形でそのまま固定する。
@@ -707,7 +707,7 @@ public class PathGuardTests
             .Should().BeFalse();
     }
 
-    [Fact(DisplayName = "v1.0.15: E201で拒否したとき、ルート・結合後・実体解決後の実際の値がログへ残る")]
+    [Fact(DisplayName = "v1.0.14: E201で拒否したとき、ルート・結合後・実体解決後の実際の値がログへ残る")]
     public void E201のときは判断材料がログへ残る()
     {
         using var ws = new TempWorkspace();
