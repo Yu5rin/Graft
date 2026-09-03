@@ -67,8 +67,7 @@ git pull origin main
 powershell -ExecutionPolicy Bypass -File tools\New-Release.ps1
 ```
 
-コードブロックを分けた場合は、**分けたブロックそれぞれに `cd` を書く**（利用者が
-片方だけコピーすることがあるため）。
+コードブロックを分けた場合は、**分けたブロックそれぞれに `cd` を書く**（利用者が片方だけコピーすることがあるため）。
 
 ```powershell
 cd C:\Users\YUGO\Graft
