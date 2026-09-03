@@ -50,7 +50,7 @@ public sealed record FileCheck
 /// プロジェクトルート外への書き込みを防ぐ経路検証機構（4.7節/13章）。
 /// 正規化後の絶対パスとシンボリックリンク解決後の実パスの両方でルート内判定を行う。
 /// <para>
-/// v1.0.15: リンクの実体解決は<b>ルートより下の構成要素だけ</b>を対象にする
+/// v1.0.14: リンクの実体解決は<b>ルートより下の構成要素だけ</b>を対象にする
 /// （<see cref="ResolveRealPathBelowRootCore"/>）。ルート自身の実体解決は
 /// <see cref="NormalizeRoot"/>が構築時に1回だけ行い、以後はその結果を起点にする。
 /// 判定が外れた場合の第二の砦として、ルートの実体（<see cref="IsWithinRealRoot"/>）とも
@@ -201,7 +201,7 @@ public sealed class PathGuard
         // 拡張表記はファイルAPI呼び出しの直前だけで使う、というLongPath.csの設計方針どおり、
         // ここで通常表記へ戻してから判定する。
         //
-        // v1.0.15: 実体解決の起点を「ルートそのもの」へ変えた（詳細は
+        // v1.0.14: 実体解決の起点を「ルートそのもの」へ変えた（詳細は
         // <see cref="ResolveRealPathBelowRootCore"/> のコメント）。ルートより上の構成要素を
         // ファイル1件ごとに解決し直していたことが、構築時に1回だけ解決した_rootとの間に
         // 表記の食い違いを生んでいた。
@@ -295,7 +295,7 @@ public sealed class PathGuard
     private bool IsWithinRoot(string candidate) => IsWithin(candidate, _root);
 
     /// <summary>
-    /// v1.0.15: <paramref name="candidate"/>が<paramref name="root"/>と同じか、その配下かを
+    /// v1.0.14: <paramref name="candidate"/>が<paramref name="root"/>と同じか、その配下かを
     /// 前方一致で判定する。従来<see cref="IsWithinRoot"/>に直書きしていた判定を、比較相手を
     /// 差し替えられるよう切り出しただけで、判定基準そのものは変えていない
     /// （末尾区切りを落としたうえで、大文字小文字を無視した完全一致か
@@ -320,7 +320,7 @@ public sealed class PathGuard
     }
 
     /// <summary>
-    /// v1.0.15 実機不具合対応（E201の第二の砦）: <paramref name="real"/>が「ルートの実体」の
+    /// v1.0.14 実機不具合対応（E201の第二の砦）: <paramref name="real"/>が「ルートの実体」の
     /// 配下かどうかを判定する。<see cref="IsWithinRoot"/>（＝<c>_root</c>との前方一致）が
     /// 外れたときにだけ呼ぶ。
     /// <para>
@@ -369,7 +369,7 @@ public sealed class PathGuard
     }
 
     /// <summary>
-    /// v1.0.15: E201（リンク経由のルート外参照）で拒否したときに、判断材料をそのままログへ残す。
+    /// v1.0.14: E201（リンク経由のルート外参照）で拒否したときに、判断材料をそのままログへ残す。
     /// <para>
     /// 【なぜ要るか】 v1.0.14で入れた<c>path-guard</c>ログは「絶対パスへ解決できなかった」
     /// 異常時にしか出ない。実機ログ（20260902）にこのイベントが1件も無かったため、
@@ -512,7 +512,7 @@ public sealed class PathGuard
         => ResolveRealPathBelowRootCore(_root, combined, ResolveIfLink, trace);
 
     /// <summary>
-    /// v1.0.15 実機不具合対応（今回の真因）: リンクの実体解決を<b>ルートより下の構成要素だけ</b>に
+    /// v1.0.14 実機不具合対応（今回の真因）: リンクの実体解決を<b>ルートより下の構成要素だけ</b>に
     /// 限定して行う。起点は<paramref name="root"/>そのもの（＝<c>_root</c>）で、
     /// <paramref name="combined"/>のうちルートを超えた部分のセグメントだけを1つずつ辿る。
     /// <para>
