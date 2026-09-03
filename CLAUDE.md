@@ -54,3 +54,26 @@ git config user.name && git config user.email
 ## バックグラウンド実行についての注意
 
 この開発環境には**「バックグラウンド完了通知」の仕組みは存在しない**。ビルド・テスト・アプリ起動は必ずフォアグラウンドで実行し、出力を自分で読んで判断すること。通知を待って停止しないこと。
+
+## 利用者へコマンドを提示するときの決まり
+
+Windows実機で実行してもらうコマンドを提示するときは、**必ず先頭に `cd` を書く**こと。
+利用者が別のフォルダにいる状態で貼り付けても、そのまま動くようにするため。
+
+```powershell
+cd C:\Users\YUGO\Graft
+git checkout main
+git pull origin main
+powershell -ExecutionPolicy Bypass -File tools\New-Release.ps1
+```
+
+コードブロックを分けた場合は、**分けたブロックそれぞれに `cd` を書く**（利用者が
+片方だけコピーすることがあるため）。
+
+```powershell
+cd C:\Users\YUGO\Graft
+git tag -a v1.0.0 -m "Graft 1.0.0"
+git push origin v1.0.0
+```
+
+リポジトリの場所は `C:\Users\YUGO\Graft`。
