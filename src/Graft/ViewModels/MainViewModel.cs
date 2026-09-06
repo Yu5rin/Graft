@@ -547,12 +547,33 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void ReplaceBlocks(IReadOnlyList<BlockPlan> plans)
     {
+        // 不具合5対応: StatusSummaryTextが「いま実際にチェックが入っている件数」を都度
+        // 数え直す形に変わったため（MainViewModel.Display.cs参照）、各行のチェック操作
+        // （Space・チェックボックス・右クリックメニュー、いずれもBlockItemViewModel.IsSelectedの
+        // setterを通る）のたびに再評価させる必要がある。入れ替え前の行の購読は必ず解除する
+        // （でないと古いBlockItemViewModelが以後も参照され続け、メモリリークかつ二重発火の
+        // 原因になる）。
+        foreach (var old in Blocks) old.PropertyChanged -= OnAnyBlockPropertyChanged;
         Blocks.Clear();
         foreach (var plan in plans)
         {
-            Blocks.Add(new BlockItemViewModel(plan));
+            var item = new BlockItemViewModel(plan);
+            item.PropertyChanged += OnAnyBlockPropertyChanged;
+            Blocks.Add(item);
         }
         State = Blocks.Count == 0 ? CenterPaneState.Empty : CenterPaneState.Content;
         SelectedBlock = Blocks.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// 不具合5対応: ブロック一覧のどの行でチェックが変わっても、ステータスバーの
+    /// 「N件を適用（M件は対象外）」（StatusSummaryText）を再評価させるための購読先。
+    /// SelectedBlockだけを見ているOnSelectedBlockPropertyChanged（diff側との同期用）とは
+    /// 別に、全行を対象に持つ必要があるため独立させている。
+    /// </summary>
+    private void OnAnyBlockPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(BlockItemViewModel.IsSelected)) return;
+        OnPropertyChanged(nameof(StatusSummaryText));
     }
 }
