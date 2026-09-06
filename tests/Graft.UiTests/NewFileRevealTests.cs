@@ -117,6 +117,37 @@ public class NewFileRevealTests : IDisposable
         explorer.SelectedNode.Should().BeSameAs(created);
     }
 
+    [AvaloniaFact(DisplayName = "v1.0.15: .gitignore もエクスプローラから新規作成できる（Makefileは作れるのに.gitignoreは作れない不整合の解消）")]
+    public async Task ドットで始まる設定ファイルも作成できる()
+    {
+        // 修正前は Path.GetExtension(".gitignore") が ".gitignore" を返すため、拡張子
+        // ホワイトリストから外れて E202 になり、エクスプローラから作成できなかった。
+        // .gitignore は .git フォルダとは別物の普通のファイルなので作成できるべき。
+        var (explorer, dialogs) = await BuildExplorerWithProjectAsync().ConfigureAwait(true);
+
+        dialogs.NextPromptResult = ".gitignore";
+        explorer.NewFileCommand.Execute(null);
+        await WaitForAsync(() => File.Exists(Path.Combine(_root, ".gitignore"))).ConfigureAwait(true);
+
+        File.Exists(Path.Combine(_root, ".gitignore")).Should().BeTrue();
+    }
+
+    [AvaloniaFact(DisplayName = "v1.0.15: 許可リストに無い拡張子なしの名前は作成されず、ファイルもできない")]
+    public async Task 許可リストに無い拡張子なしの名前は作成されない()
+    {
+        // v1.0.15で「拡張子が無ければ無条件に通す」をやめた副作用の確認。任意の拡張子なしの
+        // 名前（script 等）は作成できなくなる。利用者には作成失敗のダイアログが出る。
+        var (explorer, dialogs) = await BuildExplorerWithProjectAsync().ConfigureAwait(true);
+
+        dialogs.NextPromptResult = "script";
+        explorer.NewFileCommand.Execute(null);
+        await WaitForAsync(() => dialogs.LastFailureTitle is not null).ConfigureAwait(true);
+
+        File.Exists(Path.Combine(_root, "script")).Should().BeFalse(
+            "許可リストに無い拡張子なしの名前は PathGuard が拒否するはず");
+        dialogs.LastFailureTitle.Should().Be("ファイルを作成できませんでした");
+    }
+
     [AvaloniaFact(DisplayName = "不具合2: 折りたたまれたフォルダの直下に新規フォルダを作っても同様に自動展開されて選択される")]
     public async Task 折りたたまれたフォルダへの新規フォルダも自動展開されて選択される()
     {
@@ -166,6 +197,13 @@ public class NewFileRevealTests : IDisposable
     {
         public string? NextPromptResult { get; set; }
 
+        /// <summary>
+        /// v1.0.15: 直近に表示された通知ダイアログの見出し。作成を「拒否した」ことを検証するため、
+        /// ファイルが作られないことに加えて利用者へ通知が出たことも確かめられるようにしている
+        /// （黙って何も起きない、という状態と区別するため）。
+        /// </summary>
+        public string? LastFailureTitle { get; private set; }
+
         public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(true);
 
         public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
@@ -182,6 +220,10 @@ public class NewFileRevealTests : IDisposable
         public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null)
             => Task.FromResult((string?)null);
 
-        public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
+        public Task ShowMessageAsync(string title, string message)
+        {
+            LastFailureTitle = title;
+            return Task.CompletedTask;
+        }
     }
 }
