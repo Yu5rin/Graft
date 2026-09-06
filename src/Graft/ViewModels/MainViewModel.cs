@@ -523,6 +523,7 @@ public sealed partial class MainViewModel : ObservableObject
         LogDryRunFileProbes(dryRun.Value, context); // 依頼4対応: MainViewModel.DryRunDiagnostics.cs参照
         ReplaceBlocks(dryRun.Value.Plans);
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
     }
 
@@ -538,6 +539,7 @@ public sealed partial class MainViewModel : ObservableObject
         CenterError = null;
         ReplaceBlocks(Array.Empty<BlockPlan>());
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
     }
 

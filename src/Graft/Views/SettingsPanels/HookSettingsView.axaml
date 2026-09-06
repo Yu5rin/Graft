@@ -28,7 +28,14 @@
                        Classes="fieldHint" TextWrapping="Wrap" Margin="0,4,0,0" />
         </StackPanel>
 
-        <Grid Grid.Row="1" ColumnDefinitions="280,Auto,*">
+        <!--
+            項目1の付随修正: このタブ全体をSettingsWindow.axaml側でScrollViewerに包んだため、
+            このGridの高さは「残り全部」ではなく必要最低限の高さとして測られる
+            （ScrollViewer配下では星指定"*"は高さ無限大の中で評価され、実質Autoと同じに
+            振る舞う）。フック0件・未選択時はListBox/編集フォームの自然な高さがほぼ0になり、
+            下のEmptyStateViewが窮屈に潰れてしまうため、MinHeightで最低限の高さを確保する。
+        -->
+        <Grid Grid.Row="1" MinHeight="320" ColumnDefinitions="280,Auto,*">
 
             <ListBox Grid.Column="0" ItemsSource="{Binding Hooks}" SelectedItem="{Binding SelectedHook}"
                      AutomationProperties.Name="適用後フック一覧"
@@ -73,6 +80,22 @@
                            FontSize="{DynamicResource CaptionFontSize}"
                            Text="コマンドはプロジェクトルートを作業ディレクトリとして実行します。タイムアウト秒は「一般」タブの設定に従います。" />
             </Grid>
+
+            <!--
+                項目6: フックが1件も無いと、左のListBoxは空箱、右の編集フォームは
+                SelectedHookがnullで丸ごと非表示になり、タブのほぼ全面が「何をする画面か
+                分からない空白」になっていた（実機Xvfbで確認済み）。他の一覧
+                （ProjectPane/ExplorerView/HistoryPane等）と同じ共通EmptyStateViewを重ね、
+                「フックを追加」への導線も添える（項目7: 空状態の作り方を1系統へ寄せる）。
+            -->
+            <views:EmptyStateView Grid.Column="0" Grid.ColumnSpan="3"
+                                  AutomationProperties.Name="適用後フック一覧（0件）"
+                                  IconGeometry="{DynamicResource IconHistoryGeometry}"
+                                  Message="適用後フックはまだ登録されていません"
+                                  ActionText="フックを追加"
+                                  ActionCommand="{Binding AddCommand}"
+                                  ActionTooltip="リンターなど、適用が成功した直後に自動実行するコマンドを1件追加します。"
+                                  State="{Binding Hooks.Count, Converter={x:Static views:Converters.CountToEmptyState}}" />
         </Grid>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">

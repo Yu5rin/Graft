@@ -17,7 +17,7 @@
                 <Image Source="{DynamicResource LogoImage}" Width="56" Height="56"
                        AutomationProperties.Name="Graftロゴ" />
                 <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="Graft" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock Text="Graft" FontSize="{DynamicResource TitleFontSize}" FontWeight="{DynamicResource TitleFontWeight}" />
                     <TextBlock x:Name="VersionText" Foreground="{DynamicResource TextSecondary}" />
                     <TextBlock x:Name="BuildDateText" Foreground="{DynamicResource TextSecondary}"
                                FontSize="{DynamicResource CaptionFontSize}" />

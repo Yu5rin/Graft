@@ -141,8 +141,14 @@
                         ToolTip.Tip="クリックすると直前に適用したリビジョンを元に戻します。" />
             </StackPanel>
 
-            <!-- 右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」） -->
+            <!--
+                右: 接ぎ木状態（8.2「2件適用可 / 1件要確認」、項目9で「N件失敗」を追記）。
+                失敗が1件でもあれば既存のStateErrorトークンを参照して目立たせる
+                （下のstatusSummary.failedスタイル参照。トークンの定義値自体は変更しない）。
+            -->
             <TextBlock Grid.Column="1" Text="{Binding Graft.StatusSummaryText}"
+                       Classes.failed="{Binding Graft.HasFailedBlocks}"
+                       Classes="statusSummary"
                        VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
         </Grid>
     </Border>
@@ -160,6 +166,15 @@
         </Style>
         <Style Selector="Button.clipboardWatchToggle.paused">
             <Setter Property="Foreground" Value="{DynamicResource StateWarn}" />
+        </Style>
+
+        <!--
+            項目9: 失敗が1件でもあれば接ぎ木状態の要約をStateError（既存の赤系トークン。
+            ContextCollectWindow.axamlのstatusMessage.warnと同じ「Classesで色クラスだけ切り替える」
+            作法）で目立たせる。トークンの色定義自体はここでは変更しない。
+        -->
+        <Style Selector="TextBlock.statusSummary.failed">
+            <Setter Property="Foreground" Value="{DynamicResource StateError}" />
         </Style>
     </UserControl.Styles>
 </UserControl>

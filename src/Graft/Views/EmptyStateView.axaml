@@ -30,9 +30,18 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     MaxWidth="280">
+            <!--
+                #68担当からの申し送り（配色コントラスト点検）対応: このOpacityは
+                Stroke=TextSecondaryへ乗算されるため、#68で色トークン自体を直したあとも
+                実効コントラストが1.9〜3.0程度にしか届いていなかった（アイコンは
+                「情報を持たない装飾」ではなく空状態の意味を視覚的に示す要素のため、
+                本文と同程度の可読性が要る）。アイコンを薄く見せる意図は保ったまま、
+                0.45→0.65へ引き上げて9テーマ全体で3:1以上になるようにした
+                （#68側のテーマ修正コメントに合わせた目安値）。
+            -->
             <views:IconGlyph Data="{Binding IconGeometry, ElementName=Root}"
                              Width="32" Height="32"
-                             Opacity="0.45"
+                             Opacity="0.65"
                              Stroke="{DynamicResource TextSecondary}"
                              HorizontalAlignment="Center" />
             <TextBlock Text="{Binding Message, ElementName=Root}"

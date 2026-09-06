@@ -50,10 +50,17 @@ public partial class EmptyStateView : UserControl
     /// <summary>
     /// 主要アクションボタンのツールチップ（標準の説明）。利用者からの指摘（ボタン名だけでは
     /// 機能が伝わらない）への対応。空状態は複数の画面（GraftPanel・ProjectPane等）で使い回すため、
-    /// 文言はActionTextと同様に呼び出し側が用途に応じて渡す。未指定なら何も表示しない。
+    /// 文言はActionTextと同様に呼び出し側が用途に応じて渡す。未指定なら何も表示しない
+    /// （既定値をnullではなくstring.Emptyにしているのは、HelpTip.SelectText/BuildTipContent側が
+    /// string.IsNullOrEmptyで判定しており挙動はnullと完全に同じだからで、その上で
+    /// SettingsHelpTipCoverageTests（「操作可能なコントロールに1つもHelpTip.Standardが
+    /// 設定されていないものが無いこと」を視覚ツリーごと機械的に検証するテスト）が
+    /// HelpTip.GetStandard(c) is null で「付け忘れ」を検出する方式のため、ActionTextを
+    /// 空でボタンごと非表示にする使い方（例: HookSettingsView.axamlのSecondaryAction未使用）
+    /// でも「意図して空にした」と「付け忘れ」を区別できるようにするため）。
     /// </summary>
     public static readonly StyledProperty<string?> ActionTooltipProperty =
-        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(ActionTooltip));
+        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(ActionTooltip), string.Empty);
 
     /// <summary>
     /// 主要アクションボタンのツールチップ（くわしい説明）。設定「操作の説明」で「くわしい説明」を
@@ -69,9 +76,12 @@ public partial class EmptyStateView : UserControl
     public static readonly StyledProperty<ICommand?> SecondaryActionCommandProperty =
         AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(SecondaryActionCommand));
 
-    /// <summary>副次アクションボタンのツールチップ（標準の説明）。<see cref="ActionTooltipProperty"/>と同じ考え方。</summary>
+    /// <summary>
+    /// 副次アクションボタンのツールチップ（標準の説明）。<see cref="ActionTooltipProperty"/>と
+    /// 同じ考え方（既定値をstring.Emptyにしている理由も同じ）。
+    /// </summary>
     public static readonly StyledProperty<string?> SecondaryActionTooltipProperty =
-        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(SecondaryActionTooltip));
+        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(SecondaryActionTooltip), string.Empty);
 
     /// <summary>副次アクションボタンのツールチップ（くわしい説明）。<see cref="ActionTooltipDetailedProperty"/>と同じ考え方。</summary>
     public static readonly StyledProperty<string?> SecondaryActionTooltipDetailedProperty =

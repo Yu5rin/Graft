@@ -48,6 +48,13 @@
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
         <Setter Property="Cursor" Value="Hand" />
+        <!-- 下のPART_ContentPresenterはHorizontalAlignment/VerticalAlignmentを
+             TemplateBindingでHorizontalContentAlignment/VerticalContentAlignmentに
+             結び直した（呼び出し側のHCA="Left"指定を反映するため）。ここで両者の
+             既定値を明示的にCenterへ設定しておくことで、指定していない既存の
+             ボタンの見た目は今までどおり中央寄せのまま変わらないようにする。 -->
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Template">
             <ControlTemplate>
                 <Grid>
@@ -55,12 +62,18 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}">
+                        <!-- 修正: HorizontalAlignmentがCenter直値になっており、
+                             呼び出し側がHorizontalContentAlignment="Left"等を指定しても
+                             無視されていた（実測: ManualMarkdownRendererの目次リンクや
+                             ShellWindowのヘルプメニュー項目でLeft指定が効かず中央寄せに
+                             なっていた）。TemplateBindingにして呼び出し側の指定を反映する。
+                             既定値はCenterのままなので、指定なしのボタンの見た目は変わらない。 -->
                         <ContentPresenter Name="PART_ContentPresenter"
                                           Content="{TemplateBinding Content}"
                                           ContentTemplate="{TemplateBinding ContentTemplate}"
                                           Padding="{TemplateBinding Padding}"
-                                          HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                           RecognizesAccessKey="True" />
                     </Border>
                     <!-- 9.1: フォーカスリングはIsFocusedならぬ:focusで反応させ、
