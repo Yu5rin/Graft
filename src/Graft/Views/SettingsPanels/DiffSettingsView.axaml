@@ -78,7 +78,7 @@
             <TextBlock Text="新規ファイル" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="エンコーディング" Classes="fieldLabel" />
-                <TextBox Text="{Binding NewFileEncoding, UpdateSourceTrigger=LostFocus}" Width="160"
+                <TextBox Text="{Binding NewFileEncoding, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="新規ファイルのエンコーディング"
                          views:HelpTip.Minimal="{Binding NewFileEncoding, StringFormat='エンコーディング: {0}'}"

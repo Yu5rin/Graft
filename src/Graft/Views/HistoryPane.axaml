@@ -78,8 +78,13 @@
             </Grid>
         </Border>
 
-        <!-- 全文検索（Ctrl+F） -->
-        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="Auto,*">
+        <!--
+            全文検索（Ctrl+F）。
+            項目8: このボックスだけWatermarkが無く用途不明の空欄になっており、クリアボタン
+            （×）もExplorerViewのファイル名絞り込みには付いているのに無かった（実機Xvfbで
+            確認済み）。ExplorerView.axaml（アイコン＋TextBox＋条件付き×）と同じ構成に揃える。
+        -->
+        <Grid Grid.Row="2" Margin="8,0,8,4" ColumnDefinitions="Auto,*,Auto">
             <local:IconGlyph Grid.Column="0"
                              Data="{DynamicResource IconSearchGeometry}"
                              Width="14" Height="14"
@@ -88,9 +93,20 @@
             <TextBox x:Name="KeywordBox"
                      Grid.Column="1"
                      Text="{Binding Keyword}"
+                     Watermark="要約を検索"
                      AutomationProperties.Name="リビジョンの要約を検索"
                      local:HelpTip.Standard="下の履歴一覧を、summary（変更のひとこと要約）に含まれる文字で絞り込みます。"
                      local:HelpTip.Detailed="適用した変更につけられたひとこと要約（summary）の文字列で、下の履歴一覧を絞り込みます。入力すると即座に一覧が絞られ、空にすると全件表示に戻ります。過去にどんな変更を適用したか、キーワードで思い出しながら探したいときに使います。" />
+            <Button Grid.Column="2"
+                    Content="×"
+                    Command="{Binding ClearKeywordCommand}"
+                    Padding="6,0"
+                    Margin="4,0,0,0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsVisible="{Binding HasKeyword}"
+                    AutomationProperties.Name="検索キーワードを解除"
+                    ToolTip.Tip="検索キーワードを解除します" />
         </Grid>
 
         <!-- type絞り込み -->

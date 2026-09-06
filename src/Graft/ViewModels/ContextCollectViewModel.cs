@@ -22,6 +22,21 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
     /// <summary>3状態の記録・復元に使う保存済み状態の反映を、チェック連打1回にまとめる間隔。</summary>
     private const int PersistDebounceMs = 300;
 
+    /// <summary>
+    /// プレビュー欄に載せる最大行数。これを超えた分は末尾の注記1行へ畳む。
+    ///
+    /// プレビューは「AIへ渡す内容を目視で確かめる」ためのもので、全文を延々とスクロールして
+    /// 読む使い方は想定していない。一方で上限を設けないと、点検で問題になった2400ファイル・
+    /// 66MB級のプロジェクトでは150万行前後の<see cref="PreviewLine"/>を組み立てることになり、
+    /// スレッドプールへ逃がしても数秒とメモリを食う。5万行あれば確認用途には十分で、かつ
+    /// 組み立ては実測で数十ミリ秒に収まる。
+    ///
+    /// 上限が効くのはプレビュー表示だけで、クリップボードへのコピー・ファイルへの保存の
+    /// 内容はここで一切削らない（<see cref="CollectAsync"/>が返す<c>ContextResult.Text</c>は
+    /// 常に全文）。畳んだ場合はその旨を末尾の1行で明示する。
+    /// </summary>
+    private const int MaxPreviewLines = 50_000;
+
     private readonly ContextCollector _collector;
     private readonly RevisionStore _revisionStore;
     private readonly ProjectStore _projectStore;
@@ -40,6 +55,7 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
     private GraftIssue? _errorIssue;
     private string? _statusMessage;
     private string _newExcludePattern = string.Empty;
+    private IReadOnlyList<PreviewLine> _previewLines = Array.Empty<PreviewLine>();
 
     /// <summary>直近のScanAsync結果。トークン数の概算（SizeBytes基準）に使う。</summary>
     private IReadOnlyList<ContextFileNode> _lastScan = Array.Empty<ContextFileNode>();
@@ -68,18 +84,6 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         Revisions = new ObservableCollection<RevisionOption>();
         Files = new ObservableCollection<ContextFileNodeViewModel>();
         ExtraExcludes = new ObservableCollection<string>(project.Overrides.Excludes);
-        PreviewLines = new ObservableCollection<PreviewLine>();
-
-        // ContextCollectWindow.axamlのプレビュー表示・空状態プレースホルダは、IsVisible="{Binding
-        // PreviewLines, Converter=...HasItems}"（および IsEmptyCollection）という、コレクション
-        // 「への参照」を対象にした値バインディングである。SettingsViewModel.ValidationIssuesと
-        // 同じ理由で、UpdatePreviewLines内のClear()/Add()はコレクションの中身だけを書き換え、
-        // プロパティの参照自体は変えない（INotifyCollectionChangedで通知するのみ）ため、この
-        // ままではプレビュー欄が最初の（空の）評価のまま固まり、「プレビュー」を押しても出力
-        // 内容が一切表示されない（実機で確認済みの不具合）。CollectionChangedのたびに
-        // PreviewLines自体のPropertyChangedを代わりに発火させ、バインディングを強制的に
-        // 再評価させる。
-        PreviewLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(PreviewLines));
 
         RefreshCommand = new AsyncRelayCommand(() => RefreshAsync(), context: "コンテキスト対象の再走査");
         PreviewCommand = new AsyncRelayCommand(PreviewAsync, () => !_isScanning, context: "コンテキストのプレビュー");
@@ -100,8 +104,34 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
     public ObservableCollection<RevisionOption> Revisions { get; }
     public ObservableCollection<ContextFileNodeViewModel> Files { get; }
 
-    /// <summary>8.6: 出力プレビューの行（シンタックストークン付き）。プレビュー・コピー実行時に更新する。</summary>
-    public ObservableCollection<PreviewLine> PreviewLines { get; }
+    /// <summary>
+    /// 8.6: 出力プレビューの行（シンタックストークン付き）。プレビュー・コピー実行時に、
+    /// 組み立て済みのリストごと差し替える。
+    ///
+    /// 【ObservableCollectionへ1行ずつAddする方式をやめた理由（実測値つき）】
+    /// 以前は<c>ObservableCollection</c>と「CollectionChangedのたびにPreviewLines自体の
+    /// PropertyChangedを発火させる」仕掛けの組み合わせだった。ContextCollectWindow.axamlの
+    /// プレビュー欄・空状態プレースホルダが IsVisible="{Binding PreviewLines,
+    /// Converter=...HasItems/IsEmptyCollection}" というコレクション「への参照」を対象にした
+    /// 値バインディングで、Clear()/Add()だけでは再評価されず「プレビューを押しても何も出ない」
+    /// 不具合になったための対処だった（SettingsViewModel.ValidationIssuesと同じ事情）。
+    ///
+    /// ところがこの形は「Add 1回ごとにコレクション全体のバインドを再評価させる」ことになり、
+    /// 行数の2乗で効いてくる。点検で、2400ファイル・66MBのプロジェクトで「プレビュー」を
+    /// 押すと2.5〜4.5秒間、画面が1ピクセルも変化しない（マウスを動かしてもホバー強調が
+    /// 一切追従しない）ことが実測されている。
+    ///
+    /// 参照ごと差し替える方式なら、バインドの再評価は差し替えの1回だけで済み、ListBox側の
+    /// 仮想化もそのまま効く。差し替え時にもPropertyChangedは飛ぶため、当初の不具合
+    /// （再評価されず何も出ない）は引き続き塞がれている。
+    /// 型を<c>IReadOnlyList</c>にしているのは、実体（<c>List</c>）が<c>ICollection</c>を
+    /// 実装していれば上記のコンバータ（HasItems/IsEmptyCollection）がそのまま働くため。
+    /// </summary>
+    public IReadOnlyList<PreviewLine> PreviewLines
+    {
+        get => _previewLines;
+        private set => SetProperty(ref _previewLines, value);
+    }
 
     /// <summary>10.2: 既定除外・.gitignore に加え、プロジェクト単位で追加した除外パターン。</summary>
     public ObservableCollection<string> ExtraExcludes { get; }
@@ -166,7 +196,11 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
     public bool IsScanning
     {
         get => _isScanning;
-        private set => SetProperty(ref _isScanning, value);
+        // PreviewCommand/CopyCommand/SaveToFileCommandのCanExecuteは!_isScanningを見ている。
+        // AsyncRelayCommand.Executeは「自分が実行中かどうか」でしか再評価を促さないため、
+        // 押したボタン以外（例: プレビュー中のコピーボタン）は、ここで明示的に再評価を
+        // 促さないと押せる見た目のまま残ってしまう。
+        private set => SetProperty(ref _isScanning, value, () => PreviewCommand.RaiseCanExecuteChanged());
     }
 
     /// <summary>8.8: 空状態。走査対象ファイルが1件もない場合。</summary>
@@ -224,7 +258,11 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         ErrorIssue = null;
         try
         {
-            var scan = await _collector.ScanAsync(_project, _settings, ct).ConfigureAwait(true);
+            // ScanAsyncの中身（GitignoreFilterの構築とディレクトリの全走査）は、.gitignoreが
+            // 無いプロジェクトでは一度もawaitで中断せず最後まで同期に走りきる。呼び出し元が
+            // UIスレッドのため、そのまま呼ぶとフォルダの大きさに比例して画面が止まる。
+            // ExplorerFilterService.FindMatchesAsyncと同じく、明示的にスレッドプールへ逃がす。
+            var scan = await Task.Run(() => _collector.ScanAsync(_project, _settings, ct), ct).ConfigureAwait(true);
             if (!scan.IsSuccess)
             {
                 ErrorIssue = scan.Errors.FirstOrDefault();
@@ -342,63 +380,109 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
             SinceRevision = _selectedRevision?.Revision,
         };
 
-        var result = await _collector.CollectAsync(request).ConfigureAwait(true);
-        if (!result.IsSuccess)
+        // 8.8: 収集本体（プレビュー・コピー・ファイル保存）にも待機表示を出す。従来は
+        // RefreshAsync（再走査）だけがIsScanningを立てており、点検で「プレビューを押すと
+        // 2.5〜4.5秒間まったく反応が無いのに、プログレスバーすら出ない」状態になっていた。
+        IsScanning = true;
+        try
         {
-            ErrorIssue = result.Errors.FirstOrDefault();
-            return null;
-        }
+            // ContextCollector.CollectAsyncは、内部の待機が実I/Oで中断しない限り呼び出し元の
+            // スレッドで走りきる（ScanAsyncのディレクトリ全走査・テキストの組み立てはすべて
+            // 同期処理）。UIスレッドを塞がないよう、まるごとスレッドプールへ逃がす。
+            var result = await Task.Run(() => _collector.CollectAsync(request)).ConfigureAwait(true);
+            if (!result.IsSuccess)
+            {
+                ErrorIssue = result.Errors.FirstOrDefault();
+                return null;
+            }
 
-        ErrorIssue = null;
-        EstimatedTokens = result.Value.EstimatedTokens;
-        ExceedsWarnThreshold = result.Value.ExceedsWarnThreshold;
-        UpdatePreviewLines(result.Value.Text);
-        return result.Value;
+            ErrorIssue = null;
+            EstimatedTokens = result.Value.EstimatedTokens;
+            ExceedsWarnThreshold = result.Value.ExceedsWarnThreshold;
+
+            // 字句解析（SyntaxLexer）は出力全行に対して走るため、これもUIスレッドで回しては
+            // ならない。設定・モードはUIスレッド側でスナップショットしてから渡し、別スレッドから
+            // ViewModelの状態を読まないようにする。
+            var syntaxEnabled = _settings.Syntax.Enabled && _selectedMode != ContextMode.ChangedSince;
+            var text = result.Value.Text;
+            PreviewLines = await Task.Run(() => BuildPreviewLines(text, syntaxEnabled)).ConfigureAwait(true);
+            return result.Value;
+        }
+        finally
+        {
+            IsScanning = false;
+        }
     }
 
     /// <summary>
     /// 8.6: 実際の出力テキストをファイル見出しで区切り、区間ごとに拡張子別の<see cref="SyntaxLexer"/>で
     /// 走査する。syntax.enabled=false・言語ルール無し・差分のみモード（対象解決が煩雑なため）は
     /// プレーン表示へフォールバックする（コピー結果自体には一切影響しない）。
+    ///
+    /// ViewModelの状態を一切触らない純関数にしてあるのは、<see cref="CollectAsync"/>から
+    /// <c>Task.Run</c>でスレッドプール上で呼ぶため。判断に使う設定・モードは呼び出し側が
+    /// UIスレッドで読んで<paramref name="syntaxEnabled"/>へ畳んでから渡す。
     /// </summary>
-    private void UpdatePreviewLines(string text)
+    /// <param name="text">10.3形式の出力テキスト全文。</param>
+    /// <param name="syntaxEnabled">シンタックス着色を行うか（設定と収集モードから決める）。</param>
+    private static IReadOnlyList<PreviewLine> BuildPreviewLines(string text, bool syntaxEnabled)
     {
-        PreviewLines.Clear();
         var rawLines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-        if (!_settings.Syntax.Enabled || _selectedMode == ContextMode.ChangedSince)
+        var shown = Math.Min(rawLines.Length, MaxPreviewLines);
+        var lines = new List<PreviewLine>(shown + 1);
+
+        if (!syntaxEnabled)
         {
-            foreach (var line in rawLines) PreviewLines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
-            return;
+            for (var i = 0; i < shown; i++) lines.Add(new PreviewLine(rawLines[i], Array.Empty<SyntaxToken>()));
+            AppendTruncationNotice(lines, rawLines.Length, shown);
+            return lines;
         }
 
         string? extension = null;
         var buffer = new List<string>();
-        foreach (var line in rawLines)
+        for (var i = 0; i < shown; i++)
         {
+            var line = rawLines[i];
             var match = FileHeaderPattern.Match(line);
             if (match.Success)
             {
-                FlushPreviewSection(extension, buffer);
+                FlushPreviewSection(lines, extension, buffer);
                 extension = Path.GetExtension(match.Groups["path"].Value);
-                PreviewLines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
+                lines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
             }
             else
             {
                 buffer.Add(line);
             }
         }
-        FlushPreviewSection(extension, buffer);
+        FlushPreviewSection(lines, extension, buffer);
+        AppendTruncationNotice(lines, rawLines.Length, shown);
+        return lines;
+    }
+
+    /// <summary>
+    /// <see cref="MaxPreviewLines"/>で畳んだ場合に、その旨を末尾の1行として明示する。
+    /// 「プレビューに出ていない ＝ 出力にも入っていない」と誤解されると、必要なファイルを
+    /// 足そうとして選択をやり直すといった無駄な操作を招くため、コピー・保存の内容には
+    /// 全文が含まれることをはっきり書く。
+    /// </summary>
+    private static void AppendTruncationNotice(List<PreviewLine> lines, int totalLines, int shownLines)
+    {
+        if (totalLines <= shownLines) return;
+        lines.Add(new PreviewLine(
+            $"…（プレビューの表示はここまでの{shownLines:N0}行です。コピー・ファイル保存には残り{totalLines - shownLines:N0}行も含まれます）",
+            Array.Empty<SyntaxToken>()));
     }
 
     /// <summary>直前のファイル見出しから現在行までの区間（1ファイル分の本文＋コードフェンス行）をトークン化して積む。</summary>
-    private void FlushPreviewSection(string? extension, List<string> buffer)
+    private static void FlushPreviewSection(List<PreviewLine> lines, string? extension, List<string> buffer)
     {
         if (buffer.Count == 0) return;
 
         var rule = extension is null ? null : SyntaxLexer.RuleForExtension(extension);
         if (rule is null)
         {
-            foreach (var line in buffer) PreviewLines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
+            foreach (var line in buffer) lines.Add(new PreviewLine(line, Array.Empty<SyntaxToken>()));
             buffer.Clear();
             return;
         }
@@ -408,7 +492,7 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         for (var i = 0; i < buffer.Count; i++)
         {
             var tokens = scanned && !lexer.IsDisabled ? lexer.TokenizeLine(i, buffer[i]) : Array.Empty<SyntaxToken>();
-            PreviewLines.Add(new PreviewLine(buffer[i], tokens));
+            lines.Add(new PreviewLine(buffer[i], tokens));
         }
         buffer.Clear();
     }

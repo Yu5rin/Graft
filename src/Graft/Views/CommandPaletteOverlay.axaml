@@ -38,16 +38,22 @@
                                    Converter={x:Static local:Converters.CountIsZero}}"
                        AutomationProperties.Name="一致する操作がありません" />
 
+            <!--
+                項目11: MaxHeight=320が行の高さの倍数になっておらず、最下段が半分だけ見えていた
+                （実機Xvfbで確認済み）。QuickOpenOverlay（同じListBoxItem Padding="6,4"＋
+                BodyFontSize1行構成）がMaxHeight=280で「最大10件表示」＝1行28pxちょうどに
+                揃えているのと同じ計算で、320に一番近い28の倍数である308（11件分）へ直す。
+            -->
             <ListBox x:Name="ResultsList"
                      ItemsSource="{Binding Results}"
                      SelectedItem="{Binding SelectedResult, Mode=TwoWay}"
                      Margin="0,6,0,0"
-                     MaxHeight="320"
+                     MaxHeight="308"
                      Background="Transparent"
                      BorderThickness="0"
                      IsVisible="{Binding Results.Count,
                                  Converter={x:Static local:Converters.CountIsNotZero}}"
-                     AutomationProperties.Name="コマンドパレットの候補一覧（スクロール可）">
+                     AutomationProperties.Name="コマンドパレットの候補一覧（最大11件表示・スクロール可）">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />

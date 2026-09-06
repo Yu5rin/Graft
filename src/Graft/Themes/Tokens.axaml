@@ -51,6 +51,27 @@
     <FontWeight x:Key="StatusBarFontWeight">Regular</FontWeight>
     <x:Double x:Key="StatusBarLineHeight">16.8</x:Double>
 
+    <!--
+        UI点検（項目13）で追加。仕様書8.4のタイポグラフィ表（上記5種）には無いが、
+        OnboardingWindow・AboutViewの見出しに18px/20pxの直値がそれぞれ複数箇所（実測3+2件）
+        散っており、しかも同じ18pxでもFontWeightだけ書き方が揃っていて値は都度手入力という
+        状態だった。表自体を拡張するのではなく別枠として、大見出し・中見出しの2段だけを
+        トークン化して寄せる（既存のPaneHeadingFontSize=12はペイン見出し専用で
+        ウィンドウ内の大きな見出しには小さすぎるため、これとは別に用意する）。
+    -->
+    <x:Double x:Key="TitleFontSize">20</x:Double>
+    <x:Double x:Key="SubheadingFontSize">18</x:Double>
+    <FontWeight x:Key="TitleFontWeight">SemiBold</FontWeight>
+
+    <!--
+        GeneralSettingsView「本文フォント／等幅フォント」プレビュー行専用。BodyFontSize(13)より
+        気持ち大きく見せたい実物大サンプル表示のためのサイズで、見出しではないため上の
+        Title/Subheadingとは別に切り出す。15という値自体はUI点検前から変えていない
+        （視覚的な見た目を変えないため。フォントプレビューのForegroundは別エージェントが
+        調整中のため、このタブはFontSizeの直値をトークン化するだけに留める）。
+    -->
+    <x:Double x:Key="PreviewSampleFontSize">15</x:Double>
+
     <!-- ========== 余白スケール ========== -->
     <x:Double x:Key="SpacingXs">4</x:Double>
     <x:Double x:Key="SpacingSm">8</x:Double>
@@ -68,12 +89,20 @@
 
     <!-- ========== 9.2 / 附録A レイアウト寸法 ========== -->
     <x:Double x:Key="CommandBarHeight">40</x:Double>
-    <x:Double x:Key="StatusBarHeight">48</x:Double>
+    <!--
+        項目13: 以前はここが48だったが、実際のステータスバーはShellWindow.axamlが
+        Height="24"の直値で描画しており（同ファイルのコメントも「ステータスバー(24px)」と
+        明記）、このトークンはどこからも参照されず実態と食い違ったまま放置されていた
+        （実測: grep -rn StatusBarHeight src/Graft で参照0件を確認済み）。値を実態の24へ
+        合わせ、下のStatusBarRowHeightと合わせてShellWindow.axaml側から参照させる
+        （CommandBarRowHeightが同ファイル:36で正しく参照されているのに倣う）。
+    -->
+    <x:Double x:Key="StatusBarHeight">24</x:Double>
 
     <!-- RowDefinition.Height は GridLength 型のため、Double を割り当てると
          実行時に例外になる。同じ値の GridLength 版を用意する。 -->
     <GridLength x:Key="CommandBarRowHeight">40</GridLength>
-    <GridLength x:Key="StatusBarRowHeight">48</GridLength>
+    <GridLength x:Key="StatusBarRowHeight">24</GridLength>
     <x:Double x:Key="MinWindowWidth">960</x:Double>
     <x:Double x:Key="MinWindowHeight">600</x:Double>
 

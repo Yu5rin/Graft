@@ -35,7 +35,9 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="{DynamicResource CommandBarRowHeight}" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="24" />
+            <!-- 項目13: 直値24pxをStatusBarRowHeightトークン参照へ直した
+                 （CommandBarRowHeightと同じ作法。トークン側もこの24に合わせて修正済み）。 -->
+            <RowDefinition Height="{DynamicResource StatusBarRowHeight}" />
         </Grid.RowDefinitions>
 
         <!-- ============== コマンドバー（40px、メニュー・ツールバーなし） ============== -->
@@ -478,6 +480,30 @@
 
         <!-- ============== ステータスバー（24px） ============== -->
         <views:StatusBarView Grid.Row="2" />
+
+        <!--
+            点検指摘A-2: プロジェクト切り替え中の待機表示。
+            ShellViewModel.IsProjectSwitchBusy は従来 ShellWindow.ProjectComboBox.cs の
+            ホイール操作ガード（切り替え中の入力を捨てる）にしか使われておらず、どの
+            .axaml にもバインドされていなかった。切り替え1件は Editor.CloseAllAsync
+            （未保存の確認ダイアログを含みうる）・Explorer.SetProjectAsync（ツリーの
+            作り直しとファイル監視の張り直し）を伴い、SMB越しのプロジェクトでは数秒
+            かかる。その間まったくの無表示だと、利用者は「効かなかった」と思って
+            ComboBoxを連打する。
+
+            見せ方は他のペイン（ExplorerView・ContextCollectWindow）と揃えて、
+            アクセント色の高さ2pxの不確定プログレスバーにする。本体行（Grid.Row=1）の
+            上端へ重ねることで、コマンドバーのすぐ下＝視線が最後に置かれていた
+            ComboBoxの真下に出る。TutorialOverlayより前に置いているのは、
+            コーチマーク表示中はそちらを最前面にしたいため（Avaloniaは子の描画順=Z順）。
+        -->
+        <ProgressBar x:Name="ProjectSwitchProgressBar"
+                     Grid.Row="1" VerticalAlignment="Top"
+                     Height="2" IsIndeterminate="True"
+                     Background="Transparent" BorderThickness="0"
+                     Foreground="{DynamicResource Accent}"
+                     IsVisible="{Binding IsProjectSwitchBusy}"
+                     AutomationProperties.Name="プロジェクトを切り替え中" />
 
         <!--
             画面上のチュートリアル（コーチマーク）のオーバーレイ。コマンドバー・本体・
