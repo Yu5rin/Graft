@@ -105,8 +105,13 @@
                               views:HelpTip.Detailed="オンにすると、検索文字列が単語として独立している箇所だけを探します（例: 「cat」で検索したとき「category」の一部には一致しません）。他の単語の一部を誤ってヒットさせたくないときに使います。"
                               AutomationProperties.Name="単語単位で検索" />
 
+                <!-- StatusTextは通常「3 / 12」のような短い件数だが、正規表現・置換文字列が不正な
+                     ときはその説明文もここへ出る（SearchOverlayViewModel.UpdateStatus）。この行は
+                     ボタンが並ぶ1行のツールバーで、折り返すと入力欄ごと高さが動いてしまうため、
+                     折り返しではなくToolTipで全文を読めるようにする。 -->
                 <TextBlock Grid.Column="6"
                            Text="{Binding StatusText}"
+                           ToolTip.Tip="{Binding StatusText}"
                            VerticalAlignment="Center"
                            HorizontalAlignment="Right"
                            Margin="6,0"
