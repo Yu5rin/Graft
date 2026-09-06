@@ -15,6 +15,13 @@ public sealed class FileNodeViewModel : ObservableObject
     private bool _isSelected;
     private bool _isDropTarget;
 
+    /// <summary>
+    /// 実列挙を既に依頼済みかどうか（<see cref="ExpandRequested"/>を二重に発火させないための目印）。
+    /// <see cref="IsLoaded"/>（＝実際に列挙が終わったか）とは別に持つ。
+    /// 分けた理由は<see cref="IsLoaded"/>のコメント参照。
+    /// </summary>
+    private bool _loadRequested;
+
     public FileNodeViewModel(FileTreeEntry entry, FileNodeViewModel? parent)
     {
         _entry = entry;
@@ -34,7 +41,24 @@ public sealed class FileNodeViewModel : ObservableObject
     /// <summary>子ノード。ディレクトリは初期状態でプレースホルダ1件のみを持つ。</summary>
     public ObservableCollection<FileNodeViewModel> Children { get; } = new();
 
-    /// <summary>実際の子要素を読み込み済みかどうか（監視イベントによる再列挙の要否判定に使う）。</summary>
+    /// <summary>
+    /// 実際の子要素を読み込み「終えた」かどうか（監視イベントによる再列挙の要否判定・
+    /// <see cref="ExplorerViewModel.ExpandPathAsync"/>の待ち合わせに使う）。
+    ///
+    /// 【依頼済み（_loadRequested）と分けている理由】
+    /// 以前は<see cref="IsExpanded"/>のsetterがExpandRequestedを発火する「直前」に
+    /// このフラグを立てていた。当時は<c>FileTreeService.ListChildrenAsync</c>が中身まで
+    /// 同期処理で、購読側（ExplorerViewModel.OnNodeExpandRequested）がイベントの中で
+    /// 列挙を完了させていたため、「発火した＝もう読み終わっている」が事実上成り立っていた。
+    /// 列挙をスレッドプールへ逃がした（FileTreeService.ListChildrenAsyncのコメント参照）
+    /// ことでこの前提が崩れ、IsLoadedがtrueなのに子はまだプレースホルダ1件、という
+    /// 状態が生まれるようになった。実際、絞り込みの自動展開（ExpandPathAsync →
+    /// WaitForLoadAsync）がこのフラグで待ち合わせており、多段フォルダの経路をたどれなく
+    /// なる不具合をテストで検出した。
+    /// そこで「依頼済み」は<see cref="_loadRequested"/>で持ち、このフラグは
+    /// <see cref="MarkChildrenListed"/>（列挙の完了時にExplorerViewModelが呼ぶ）で
+    /// 初めて立てる、という本来の意味へ戻している。
+    /// </summary>
     public bool IsLoaded { get; private set; }
 
     /// <summary>ツリー表示専用の「読み込み中...」ダミー項目かどうか。</summary>
@@ -66,9 +90,9 @@ public sealed class FileNodeViewModel : ObservableObject
         set
         {
             if (!SetProperty(ref _isExpanded, value)) return;
-            if (value && IsDirectory && !IsLoaded)
+            if (value && IsDirectory && !_loadRequested)
             {
-                IsLoaded = true;
+                _loadRequested = true;
                 ExpandRequested?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -132,17 +156,29 @@ public sealed class FileNodeViewModel : ObservableObject
     /// </summary>
     public void MarkExpanded()
     {
+        _loadRequested = true;
         IsLoaded = true;
         if (!_isExpanded) SetProperty(ref _isExpanded, true, nameof(IsExpanded));
+    }
+
+    /// <summary>
+    /// 子要素の実列挙が完了したことを記録する（<see cref="ExplorerViewModel"/>が
+    /// ReconcileDirectoryAsyncの最後に呼ぶ）。<see cref="IsLoaded"/>のコメント参照。
+    /// </summary>
+    internal void MarkChildrenListed()
+    {
+        _loadRequested = true;
+        IsLoaded = true;
     }
 
     /// <summary>次に展開されたとき改めて実列挙させる（監視イベント・更新ボタンで使う）。</summary>
     public void ResetLoadState()
     {
         IsLoaded = false;
+        _loadRequested = false;
         if (IsExpanded)
         {
-            IsLoaded = true;
+            _loadRequested = true;
             ExpandRequested?.Invoke(this, EventArgs.Empty);
         }
         else if (IsDirectory && Children.Count == 0)

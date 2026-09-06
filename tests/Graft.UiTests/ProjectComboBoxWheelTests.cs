@@ -256,6 +256,14 @@ public class ProjectComboBoxWheelTests : IDisposable
 
         shell.IsProjectSwitchBusy.Should().BeTrue("未保存確認ダイアログの応答待ちで切り替え中のはず");
         dialogs.ThreeWayCallCount.Should().Be(1);
+
+        // 点検指摘A-2: IsProjectSwitchBusyは従来このホイールガード専用で、どの.axamlにも
+        // バインドされておらず、SMB越しで数秒かかる切り替えが完全な無表示だった。
+        // ShellWindow.axamlへ待機表示（ProjectSwitchProgressBar）を足したので、
+        // 実際に「切り替え中」の状態で見えるようになっていることをここで併せて固定する
+        // （この場面はIsProjectSwitchBusyがtrueで止まっている唯一の再現手段のため）。
+        var switchProgress = FindProjectSwitchProgressBar(window);
+        switchProgress.IsVisible.Should().BeTrue("切り替え中は待機表示（プログレスバー）が出ている必要がある");
         shell.Graft.ProjectPane.SelectedItem.Should().Be(items[1], "1回目のホイールで直ちにBへ動くはず（表示のずれは無い）");
 
         // 応答待ちの間にさらに2回ホイールを回しても、切り替え中なら無視される（案B）。
@@ -274,6 +282,7 @@ public class ProjectComboBoxWheelTests : IDisposable
 
         shell.IsProjectSwitchBusy.Should().BeFalse();
         shell.Graft.ProjectPane.SelectedItem.Should().Be(items[1], "Bへの切り替えが完了しているはず");
+        FindProjectSwitchProgressBar(window).IsVisible.Should().BeFalse("切り替えが終われば待機表示は消える必要がある");
 
         // busyが解けた後のホイールは通常どおり効く。
         window.MouseWheel(pos, new Vector(0, -3));
@@ -296,6 +305,10 @@ public class ProjectComboBoxWheelTests : IDisposable
 
     private static ComboBox FindProjectComboBox(Window window)
         => window.GetVisualDescendants().OfType<ComboBox>().Single(c => c.Name == "ProjectComboBox");
+
+    /// <summary>点検指摘A-2で追加した、プロジェクト切り替え中の待機表示（ShellWindow.axaml）。</summary>
+    private static ProgressBar FindProjectSwitchProgressBar(Window window)
+        => window.GetVisualDescendants().OfType<ProgressBar>().Single(p => p.Name == "ProjectSwitchProgressBar");
 
     private static Point ComboBoxCenter(ComboBox comboBox, Window window)
         => comboBox.TranslatePoint(new Point(comboBox.Bounds.Width / 2, comboBox.Bounds.Height / 2), window)!.Value;

@@ -65,37 +65,64 @@ public sealed class FileTreeService
     /// <summary>
     /// 指定ディレクトリ（プロジェクトルートからの相対パス。ルート自身は空文字列）直下の子要素を
     /// 列挙する。フォルダ優先・名前順（仕様書4.2）。子孫は列挙しない（遅延読み込み）。
+    ///
+    /// 【スレッドプールへ逃がしている理由（実測値つき）】
+    /// 中身（<see cref="Directory.EnumerateDirectories(string)"/>／
+    /// <see cref="Directory.EnumerateFiles(string)"/>→並べ替え→除外判定）はすべて同期処理で、
+    /// 以前は<c>Task.FromResult</c>で「非同期のふり」をしていた。呼び出し元
+    /// （<c>ExplorerViewModel</c>のツリー展開・監視イベント経由の更新・削除やリネーム後の
+    /// 再読み込み）はすべてUIスレッドのため、結果としてフォルダの大きさに比例して画面が止まる。
+    /// 点検では、ローカルSSDでもルート直下4000ファイルで0.4〜0.6秒の停止が3回起きることが
+    /// 実測されている（SMB越しやアンチウイルス常駐下ではさらに伸びる）。
+    ///
+    /// 同じリポジトリの<see cref="ExplorerFilterService.FindMatchesAsync"/>は
+    /// 「同期処理を<c>Task.Run</c>で流す／UIスレッドを塞がない」方針を明記して実際に逃がして
+    /// おり、ツリー読み込み側だけが方針から外れていた。ここを同じ形へ揃える。
+    ///
+    /// なお、UIスレッドが塞がると<see cref="Graft.Views.EmptyStateView"/>の読み込み中表示
+    /// （200msの<c>DispatcherTimer</c>で出す）はそもそも動けず表示されない。つまり
+    /// 「表示は出るが実際には固まる」ではなく「固まるので表示も出ない」状態だった。
+    /// ここを逃がすことで、待機表示が出る前提そのものが初めて成立する。
     /// </summary>
-    public Task<GraftResult<IReadOnlyList<FileTreeEntry>>> ListChildrenAsync(
+    public async Task<GraftResult<IReadOnlyList<FileTreeEntry>>> ListChildrenAsync(
         Project project, string relativeDir, GitignoreFilter filter, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(project);
         ct.ThrowIfCancellationRequested();
         var dirFullPath = string.IsNullOrEmpty(relativeDir)
             ? project.Root
             : Path.Combine(project.Root, relativeDir.Replace('/', Path.DirectorySeparatorChar));
+        var root = project.Root;
 
-        if (!Directory.Exists(dirFullPath))
-        {
-            return Task.FromResult(GraftResult<IReadOnlyList<FileTreeEntry>>.Fail(
-                ErrorCode.E201, "フォルダが見つかりません", path: relativeDir));
-        }
+        return await Task.Run(
+            () =>
+            {
+                // Directory.Existsもネットワークドライブでは往復が発生しうるため、
+                // 判定ごとスレッドプール側で行う。
+                if (!Directory.Exists(dirFullPath))
+                {
+                    return GraftResult<IReadOnlyList<FileTreeEntry>>.Fail(
+                        ErrorCode.E201, "フォルダが見つかりません", path: relativeDir);
+                }
 
-        try
-        {
-            var dirs = Directory.EnumerateDirectories(dirFullPath)
-                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                .Select(d => BuildEntry(project.Root, d, isDirectory: true, filter));
-            var files = Directory.EnumerateFiles(dirFullPath)
-                .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                .Select(f => BuildEntry(project.Root, f, isDirectory: false, filter));
-            IReadOnlyList<FileTreeEntry> entries = dirs.Concat(files).ToList();
-            return Task.FromResult(GraftResult<IReadOnlyList<FileTreeEntry>>.Ok(entries));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return Task.FromResult(GraftResult<IReadOnlyList<FileTreeEntry>>.Fail(
-                ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativeDir));
-        }
+                try
+                {
+                    var dirs = Directory.EnumerateDirectories(dirFullPath)
+                        .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                        .Select(d => BuildEntry(root, d, isDirectory: true, filter));
+                    var files = Directory.EnumerateFiles(dirFullPath)
+                        .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                        .Select(f => BuildEntry(root, f, isDirectory: false, filter));
+                    IReadOnlyList<FileTreeEntry> entries = dirs.Concat(files).ToList();
+                    return GraftResult<IReadOnlyList<FileTreeEntry>>.Ok(entries);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return GraftResult<IReadOnlyList<FileTreeEntry>>.Fail(
+                        ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativeDir);
+                }
+            },
+            ct).ConfigureAwait(false);
     }
 
     /// <summary>新規ファイルを作成する（空の内容）。プロジェクトの既定エンコーディングを反映する。</summary>
@@ -186,34 +213,48 @@ public sealed class FileTreeService
         }, oldRelativePath));
     }
 
-    /// <summary>ファイルまたはフォルダを削除する。常にごみ箱経由（未対応環境は通常削除、仕様書14章）。</summary>
-    public Task<GraftResult<bool>> DeleteAsync(
+    /// <summary>
+    /// ファイルまたはフォルダを削除する。常にごみ箱経由（未対応環境は通常削除、仕様書14章）。
+    ///
+    /// 【スレッドプールへ逃がしている理由】
+    /// 実体はOSのごみ箱APIの呼び出し（Windowsは<c>SHFileOperationW</c>、Linuxは
+    /// XDGごみ箱への移動＋trashinfoの書き出し）で、いずれも同期呼び出しである。
+    /// フォルダ配下が多い場合やネットワークドライブ上のファイルでは秒単位で戻らないことが
+    /// あり、<c>Task.FromResult</c>のままUIスレッドで呼ぶとその間ずっと画面が止まる。
+    /// <see cref="ListChildrenAsync"/>と同じ理由でスレッドプールへ逃がす。
+    /// </summary>
+    public async Task<GraftResult<bool>> DeleteAsync(
         Project project, string relativePath, bool isDirectory, PathGuardOptions guardOptions)
     {
+        ArgumentNullException.ThrowIfNull(project);
         var guard = new PathGuard(project.Root, guardOptions);
         var resolved = isDirectory ? guard.ResolveDirectory(relativePath) : guard.Resolve(relativePath);
-        if (!resolved.IsSuccess) return Task.FromResult(GraftResult<bool>.Fail(resolved.Issues));
+        if (!resolved.IsSuccess) return GraftResult<bool>.Fail(resolved.Issues);
 
         var fullPath = resolved.Value;
-        var exists = isDirectory ? Directory.Exists(fullPath) : File.Exists(fullPath);
-        if (!exists) return Task.FromResult(GraftResult<bool>.Ok(true));
-
-        try
-        {
-            // 10件目の不具合修正: 従来はWindows専用のRecycleBinを直呼びしており、Linuxでは
-            // 常に通常削除（完全削除）にフォールバックしていた。ITrashService経由に揃え、
-            // ごみ箱へ送れない・未対応（_trashがnullまたはSendが失敗）の場合のみ通常削除する。
-            if (_trash is null || !_trash.Send(fullPath))
+        return await Task.Run(
+            () =>
             {
-                if (isDirectory) Directory.Delete(LongPath.Extended(fullPath), recursive: true);
-                else File.Delete(LongPath.Extended(fullPath));
-            }
-            return Task.FromResult(GraftResult<bool>.Ok(true));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativePath));
-        }
+                var exists = isDirectory ? Directory.Exists(fullPath) : File.Exists(fullPath);
+                if (!exists) return GraftResult<bool>.Ok(true);
+
+                try
+                {
+                    // 10件目の不具合修正: 従来はWindows専用のRecycleBinを直呼びしており、Linuxでは
+                    // 常に通常削除（完全削除）にフォールバックしていた。ITrashService経由に揃え、
+                    // ごみ箱へ送れない・未対応（_trashがnullまたはSendが失敗）の場合のみ通常削除する。
+                    if (_trash is null || !_trash.Send(fullPath))
+                    {
+                        if (isDirectory) Directory.Delete(LongPath.Extended(fullPath), recursive: true);
+                        else File.Delete(LongPath.Extended(fullPath));
+                    }
+                    return GraftResult<bool>.Ok(true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return GraftResult<bool>.Fail(ErrorCode.E204, ExceptionMessages.Describe(ex), path: relativePath);
+                }
+            }).ConfigureAwait(false);
     }
 
     /// <summary>設定からPathGuardの検証オプションを組み立てる。</summary>

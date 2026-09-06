@@ -437,13 +437,27 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private async Task ParseTextAndLoadAsync(string text)
     {
-        var parsed = _parser.Parse(text);
+        // 点検指摘A-6: 解析そのものの間が無表示だった。従来 State=Loading が立つのは
+        // RunDryRunAsync のドライラン直前で、その手前にある _parser.Parse（全文の字句解析。
+        // 大きなパッチほど時間がかかり、しかも完全に同期処理）の間は何も出ていなかった。
+        // ここで待機表示を出しつつ、解析自体もスレッドプールへ逃がしてUIスレッドを空ける
+        // （PatchParserは状態を持たない純粋な解析器のため、別スレッドで呼んで差し支えない）。
+        var stateBeforeParse = State;
+        State = CenterPaneState.Loading;
+        var parsed = await Task.Run(() => _parser.Parse(text)).ConfigureAwait(true);
         if (!parsed.IsSuccess)
         {
             CenterError = parsed.Errors.FirstOrDefault();
             State = CenterPaneState.Error;
             return;
         }
+
+        // 解析が終わったら、いったん元の表示へ戻す。この先の HandleTruncatedPatchAsync・
+        // RunDryRunAsync は途中で確認ダイアログ（プロジェクト自動判定・未保存の保存確認）を
+        // 挟むことがあり、その間まで「読み込み中」を出し続けると、利用者が判断材料にしたい
+        // 中央ペインの内容が消えたままになる。ドライラン本体の待機表示は
+        // RunDryRunAsync が自分で立て直す。
+        State = stateBeforeParse;
 
         // 4.10: パッチが途中で切れている場合は直接適用フローへ乗せず、キューへ積んで続きを依頼する。
         if (parsed.Value.IsTruncated)
