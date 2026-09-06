@@ -54,7 +54,14 @@ internal static class PatchTextUtil
         return null;
     }
 
-    /// <summary>OCCURRENCE 属性の値（"2" や "ALL"）を解釈する。不正な値は既定（Single）とする。</summary>
+    /// <summary>
+    /// OCCURRENCE 属性の値（"2" や "ALL"）を解釈する。不正な値は既定（Single＝未指定扱い）とする。
+    /// <para>
+    /// 実機不具合対応: <c>OCCURRENCE=1</c> も、他の数値とまったく同じく「明示指定」として
+    /// <see cref="OccurrenceSpec.Index"/> に値を入れて返す（以前は既定値1と区別できず、
+    /// 書いても書かなくても同じ扱いになってE102から抜け出せなかった。<see cref="OccurrenceSpec"/>参照）。
+    /// </para>
+    /// </summary>
     public static OccurrenceSpec ParseOccurrence(string value)
     {
         if (string.Equals(value, "ALL", StringComparison.OrdinalIgnoreCase))

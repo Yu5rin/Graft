@@ -42,6 +42,7 @@ public sealed partial class SettingsViewModel
     private double _updateProgressPercent;
     private bool _isUpdateDownloading;
     private DateTimeOffset? _updateLastCheckedAt;
+    private bool? _updateLastCheckSucceeded;
 
     /// <summary>
     /// 更新の再起動前に未保存の編集を確認するための差し替え口。<see cref="SettingsViewModel"/>は
@@ -80,13 +81,37 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
+    /// 直前の確認が成功したかどうか（<see cref="UpdateCheckState.LastCheckSucceeded"/>と同じ値。
+    /// null は不明＝この項目が無かった頃のupdate-check.jsonを読んだ場合）。
+    /// </summary>
+    public bool? UpdateLastCheckSucceeded
+    {
+        get => _updateLastCheckSucceeded;
+        private set => SetProperty(ref _updateLastCheckSucceeded, value, () => OnPropertyChanged(nameof(UpdateLastCheckedText)));
+    }
+
+    /// <summary>
     /// 「バージョン情報」タブに常時表示する「最終確認: yyyy/MM/dd HH:mm」文言（未確認なら
     /// 「未確認」）。指示書どおり、確認したのに何も起きない（＝最新だった）のか、そもそも
     /// 確認していないのかを利用者が区別できるようにするための表示。
+    ///
+    /// 【実機不具合対応: 失敗した確認が成功と同じに見えていた】 確認が3回連続で失敗しても
+    /// 「最終確認: 2026/09/06 06:26」とだけ表示され、「確認した＝最新だった」と読めていた
+    /// （起動時の失敗は<see cref="CheckForUpdateAsync"/>が画面に何も出さない方針のため、
+    /// この行が唯一の手がかりになる）。オフラインが続けば利用者は何日でも気づけないため、
+    /// 成否を必ず併記する。成功時にわざわざ「（確認できました）」とは書かない——通常はこちらで、
+    /// 毎回書くと注意を引く力が弱まるうえ、直後に出る「最新版です」等の文言と重複するため、
+    /// 失敗したときだけ添える。
     /// </summary>
-    public string UpdateLastCheckedText => _updateLastCheckedAt is { } at
-        ? $"最終確認: {at.LocalDateTime:yyyy/MM/dd HH:mm}"
-        : "最終確認: 未確認";
+    public string UpdateLastCheckedText
+    {
+        get
+        {
+            if (_updateLastCheckedAt is not { } at) return "最終確認: 未確認";
+            var stamp = $"最終確認: {at.LocalDateTime:yyyy/MM/dd HH:mm}";
+            return _updateLastCheckSucceeded == false ? $"{stamp}（確認できませんでした）" : stamp;
+        }
+    }
 
     private void InitializeUpdateFeature(
         AppPaths appPaths, IExternalLinkLauncher? externalLinks,
@@ -378,6 +403,7 @@ public sealed partial class SettingsViewModel
     {
         var state = await _updateCheckStateStore.LoadAsync(ct).ConfigureAwait(true);
         UpdateLastCheckedAt = state.LastCheckedAt;
+        UpdateLastCheckSucceeded = state.LastCheckSucceeded;
     }
 
     private static string DescribeInstallFailure(UpdateInstallResult result) => result.Status switch

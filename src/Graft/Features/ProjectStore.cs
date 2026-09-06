@@ -503,9 +503,23 @@ public sealed class ProjectStore
             validated.Add(project with { IsDisconnected = !exists });
             if (!exists)
             {
+                // 実機不具合対応（表示文言）:
+                // 1. 以前はE404（設定・履歴データの破損）を使っており、フォルダを移動しただけで
+                //    「設定・履歴データの破損」「退避のうえ再生成しました」と告げていた。何も
+                //    壊れていないのに設定や履歴が失われたと誤解させるため、専用のE213へ分けた
+                //    （判断の経緯はErrorCode.E213の宣言側コメント参照）。
+                // 2. detailにもRootを書いていたため、GraftIssue.ToDisplayTextがPathを
+                //    「（…）」として前置した結果、同じ長いパスが1行に2回出て読みづらかった
+                //    （「E213 …（/path/to/x）：プロジェクト「x」のルート（/path/to/x）が…」）。
+                //    パスはPath側だけに任せ、detailからは外す。
+                // 3. 起動時レポート（StartupReport）が画面に出すのは GraftIssue.ToDisplayText、
+                //    すなわち「コード＋要約＋パス＋detail」だけで、ErrorCatalogの対処文は
+                //    「詳細をコピー」の中にしか入らない。つまり detail に書かない限り
+                //    「次に何をすればよいか」は画面に出ない。実画面で確認したうえで、
+                //    対処をdetailへ持たせている（要約と同じ文を繰り返さないのもこのため）。
                 issues.Add(GraftIssue.Of(
-                    ErrorCode.E404,
-                    detail: $"プロジェクト「{project.DisplayName}」のルート（{project.Root}）が見つからないため未接続にしました。",
+                    ErrorCode.E213,
+                    detail: $"プロジェクト「{project.DisplayName}」。移動した場合は、プロジェクトペインで右クリック→「場所を変更」から選び直してください。ネットワークドライブの場合は接続を確認してください。",
                     path: project.Root,
                     severity: Severity.Warning));
             }

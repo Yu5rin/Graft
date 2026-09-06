@@ -162,8 +162,13 @@ public sealed partial class MainViewModel
         // 適用したとき）は、失敗の存在自体はエラーではなく正常系として扱う。ただし「失敗した
         // ブロックがあったこと」自体は利用者に伝わるべき情報のため、成功の完了メッセージに
         // 併記する（既存の「N件を適用します」等の文言と同じ「◯件」の言い回しに揃える）。
+        //
+        // 追加対応（実機点検）: 「（1件は適用できませんでした）」だけでは理由がどこにも書いて
+        // おらず、利用者は次に何を見ればよいか分からなかった。失敗したブロックの理由（赤字）は
+        // 接ぎ木パネルにそのまま残っているので、そこへ誘導する一言を必ず添える。
         var completionMessage = updatedDryRun.FailedCount > 0
-            ? $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）"
+            ? $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
+              $"{Environment.NewLine}適用できなかった理由は、接ぎ木パネルの各ブロックに赤字で残っています。"
             : $"r{result.Value.Revision} として記録しました。";
         await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
 
