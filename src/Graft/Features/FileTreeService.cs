@@ -102,6 +102,9 @@ public sealed class FileTreeService
     public async Task<GraftResult<string>> CreateFileAsync(
         Project project, string relativeDir, string fileName, PathGuardOptions guardOptions, CancellationToken ct = default)
     {
+        var nameIssue = ValidateEntryName(fileName);
+        if (nameIssue is not null) return GraftResult<string>.Fail(nameIssue);
+
         var guard = new PathGuard(project.Root, guardOptions);
         var relativePath = CombineRelative(relativeDir, fileName);
         var resolved = guard.Resolve(relativePath);
@@ -123,6 +126,9 @@ public sealed class FileTreeService
     public Task<GraftResult<string>> CreateFolderAsync(
         Project project, string relativeDir, string folderName, PathGuardOptions guardOptions)
     {
+        var nameIssue = ValidateEntryName(folderName);
+        if (nameIssue is not null) return Task.FromResult(GraftResult<string>.Fail(nameIssue));
+
         var guard = new PathGuard(project.Root, guardOptions);
         var relativePath = CombineRelative(relativeDir, folderName);
         var resolved = guard.ResolveDirectory(relativePath);
@@ -140,10 +146,25 @@ public sealed class FileTreeService
         }, relativePath));
     }
 
-    /// <summary>ファイルまたはフォルダをリネームする（同じ親フォルダ内での名前変更のみ、仕様書4.2）。</summary>
+    /// <summary>
+    /// ファイルまたはフォルダをリネームする（同じ親フォルダ内での名前変更のみ）。
+    ///
+    /// 異常系点検「低」4件目の対応: <paramref name="newName"/>は「新しい親フォルダを含む
+    /// パス」ではなく、常に「今の親フォルダ内でのファイル名/フォルダ名1つ分」として扱う。
+    /// 以前はこのdocコメントが実装と食い違っており、<paramref name="newName"/>に
+    /// <c>"dir/moved.txt"</c>のようなパス区切りを含む文字列を渡すと、<see cref="PathGuard.Resolve"/>
+    /// 自体は「妥当な相対パス」として素通しするため、実際に別フォルダ（dir/）へ移動できて
+    /// しまっていた（実測で確認済み）。<see cref="ValidateEntryName"/>で
+    /// <paramref name="newName"/>自体にパス区切りを含められないよう検証することで、
+    /// このメソッドが「同じ親フォルダ内での名前変更のみ」であることをdocコメントどおり
+    /// 実装でも保証する。
+    /// </summary>
     public Task<GraftResult<string>> RenameAsync(
         Project project, string oldRelativePath, string newName, bool isDirectory, PathGuardOptions guardOptions)
     {
+        var nameIssue = ValidateEntryName(newName);
+        if (nameIssue is not null) return Task.FromResult(GraftResult<string>.Fail(nameIssue));
+
         var guard = new PathGuard(project.Root, guardOptions);
         var oldResolved = isDirectory ? guard.ResolveDirectory(oldRelativePath) : guard.Resolve(oldRelativePath);
         if (!oldResolved.IsSuccess) return Task.FromResult(GraftResult<string>.Fail(oldResolved.Issues));
@@ -255,6 +276,95 @@ public sealed class FileTreeService
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         return Encoding.GetEncoding(932);
+    }
+
+    /// <summary>
+    /// 異常系点検「低」4件目の対応: 実行時のOSが返す不許可文字一覧
+    /// （<see cref="Path.GetInvalidFileNameChars"/>）。Windows実機ではコロン・アスタリスク等
+    /// 多数を返すが、Linux上ではNUL文字と'/'（本メソッドでは別途<see cref="PathSeparators"/>で
+    /// 検証済み）程度しか返らない（実機・開発機の違いにより検証範囲が変わる点は
+    /// クラスコメント末尾の実測メモ参照）。staticフィールドとして1回だけ取得する
+    /// （実行中にOSが変わることはないため）。
+    /// </summary>
+    private static readonly char[] InvalidNameChars = Path.GetInvalidFileNameChars();
+
+    private static readonly char[] PathSeparators = { '/', '\\' };
+
+    /// <summary>
+    /// 新規作成（<see cref="CreateFileAsync"/>・<see cref="CreateFolderAsync"/>）・名前の変更
+    /// （<see cref="RenameAsync"/>）で渡される「ファイル名/フォルダ名1つ分」（ちょうど1階層の
+    /// 名前で、パスであってはならない）を検証する。
+    ///
+    /// 【なぜここでも検証するのか】<see cref="PathGuard.Resolve(string)"/>は「相対パス全体」の
+    /// 検証（ルート外参照・上位ディレクトリ参照(..)・絶対パス・拡張子ホワイトリスト等）を
+    /// 担うが、name自体にパス区切り（"/" "\"）が混じっていても、それ自体は「妥当な相対パス」
+    /// として素通ししてしまう。実測で確認した2つの不具合はどちらもこれが原因だった:
+    /// <list type="bullet">
+    /// <item>名前の変更で<c>newName="dir/moved.txt"</c>を渡すと、<see cref="RenameAsync"/>の
+    /// docコメント（「同じ親フォルダ内での名前変更のみ」）に反してdir/へ実際に移動できた。</item>
+    /// <item>新規ファイル作成で<c>fileName="sub/child.txt"</c>（subが存在しない）を渡すと、
+    /// <see cref="PathGuard"/>までは通過し、<see cref="FileTextIO.WriteAsync"/>の一時ファイル
+    /// 書き込みが「フォルダが見つかりません」で失敗する際、そのエラーメッセージに内部の
+    /// 一時ファイル名（<c>*.graft-tmp-&lt;guid&gt;</c>）がそのまま利用者に見えていた。</item>
+    /// </list>
+    /// ここで1階層の名前として弾くことで、両方を「そもそも1階層の名前としては使えません」
+    /// という、原因を正しく言い当てた日本語メッセージへ統一する。
+    /// </summary>
+    private static GraftIssue? ValidateEntryName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return GraftIssue.Of(ErrorCode.E211, "名前を入力してください。");
+        }
+
+        if (name.IndexOfAny(PathSeparators) >= 0)
+        {
+            return GraftIssue.Of(ErrorCode.E211,
+                "名前に \"/\" や \"\\\" を含めることはできません（サブフォルダの指定はできません）。", path: name);
+        }
+
+        // 実測: Linux上では"a\nb.txt"・"a\tb.txt"のような制御文字混じりの名前がそのまま
+        // 作成でき、ツリー表示が改行で崩れる不具合を確認した。改行・タブ・NUL等の制御文字は
+        // どのプラットフォームでも「見た目のファイル名」として意味を成さないため一律に拒否する
+        // （char.IsControlはNUL・タブ・改行等のC0/C1制御文字をすべて対象にする）。
+        if (name.Any(char.IsControl))
+        {
+            return GraftIssue.Of(ErrorCode.E211, "名前に改行やタブなどの制御文字を含めることはできません。", path: name);
+        }
+
+        if (name.IndexOfAny(InvalidNameChars) >= 0)
+        {
+            return GraftIssue.Of(ErrorCode.E211, "名前に使用できない文字が含まれています。", path: name);
+        }
+
+        // 実測: "a.txt "（末尾に半角空白）を新規作成すると、実際の問題（末尾の空白）とは
+        // 無関係に「拡張子 '.txt ' は許可されていません」という誤解を招くメッセージに
+        // なっていた（Path.GetExtensionが空白込みの".txt "を拡張子として切り出すため）。
+        // 拡張子ホワイトリストの判定（PathGuard.Resolve）より前にここで検出し、実際の問題
+        // （末尾の空白）を言い当てる。
+        if (name.Length != name.TrimEnd().Length)
+        {
+            return GraftIssue.Of(ErrorCode.E211, "名前の末尾に空白を含めることはできません。", path: name);
+        }
+
+        // Windowsのエクスプローラ自体が末尾ピリオドの名前を拒否する（NTFSの制約に由来）。
+        // Linux上では作成できてしまうため、クロスプラットフォームで「一方の環境でだけ
+        // 開けない名前」を作ってしまわないよう、ここで事前に弾く。
+        if (name.EndsWith('.'))
+        {
+            return GraftIssue.Of(ErrorCode.E211, "名前の末尾にピリオド(.)を含めることはできません。", path: name);
+        }
+
+        // 実測: 300文字の名前で「予期しないエラーが発生しました…（詳細: The path '…' is too
+        // long...）」という英語の生の例外メッセージがそのまま利用者に表示されていた。
+        // 255は主要なファイルシステム（NTFS・大半のLinuxファイルシステム）に共通する
+        // 1コンポーネントあたりの上限に合わせた値で、OS例外に到達する前に日本語で理由を伝える。
+        if (name.Length > 255)
+        {
+            return GraftIssue.Of(ErrorCode.E211, $"名前が長すぎます（{name.Length}文字）。255文字以内にしてください。", path: name);
+        }
+
+        return null;
     }
 
     private static string CombineRelative(string relativeDir, string name)

@@ -482,6 +482,156 @@ public class SettingsStoreTests
         regenerated.Should().Contain("\"system\"", "再生成されたファイルは既定値のJSONであるはず");
     }
 
+    // ------------------------------------------------------------------
+    // 異常系点検「中」2件目の対応: 上限が無かった項目に上限を設ける、update.checkUrlを検証する
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "実測で警告なく採用されていたeditor.tabSize=100000は既定値4へフォールバックする")]
+    public async Task 巨大なtabSizeはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "editor": { "tabSize": 100000 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Editor.TabSize.Should().Be(4);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null && i.Detail.Contains("editor.tabSize"));
+    }
+
+    [Fact(DisplayName = "実測で警告なく採用されていたsafety.maxFileSizeMB=int.MaxValueは既定値10へフォールバックする")]
+    public async Task 巨大なmaxFileSizeMBはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "safety": { "maxFileSizeMB": 2147483647 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Safety.MaxFileSizeMB.Should().Be(10);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null && i.Detail.Contains("safety.maxFileSizeMB"));
+    }
+
+    [Fact(DisplayName = "実測で警告なく採用されていたbackup.maxTotalMB=int.MaxValueは既定値500へフォールバックする")]
+    public async Task 巨大なmaxTotalMBはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "backup": { "maxTotalMB": 2147483647 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Backup.MaxTotalMB.Should().Be(500);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null && i.Detail.Contains("backup.maxTotalMB"));
+    }
+
+    [Fact(DisplayName = "実測で警告なく採用されていたhooks.timeoutSec=int.MaxValueは既定値120へフォールバックする")]
+    public async Task 巨大なtimeoutSecはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "hooks": { "timeoutSec": 2147483647 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Hooks.TimeoutSec.Should().Be(120);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null && i.Detail.Contains("hooks.timeoutSec"));
+    }
+
+    [Fact(DisplayName = "実測で警告なく採用されていたdiff.contextLines=int.MaxValueは既定値3へフォールバックする")]
+    public async Task 巨大なcontextLinesはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "diff": { "contextLines": 2147483647 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Diff.ContextLines.Should().Be(3);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null && i.Detail.Contains("diff.contextLines"));
+    }
+
+    [Fact(DisplayName = "極端に小さいcontext.tokenRatioは既定値2.5へフォールバックする（不具合3との関連: トークン概算のint桁あふれを誘発する値）")]
+    public async Task 極端に小さいtokenRatioはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "context": { "tokenRatio": 0.00001 } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Context.TokenRatio.Should().Be(2.5);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null && i.Detail.Contains("tokenRatio"));
+    }
+
+    [Fact(DisplayName = "空のupdate.checkUrlは既定値へフォールバックし、理由（空である旨）を含む警告が返る")]
+    public async Task 空のcheckUrlはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "update": { "checkUrl": "" } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Update.CheckUrl.Should().Be(new UpdateSettings().CheckUrl);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null
+            && i.Detail.Contains("checkUrl") && i.Detail.Contains("空"));
+    }
+
+    [Fact(DisplayName = "相対パスのupdate.checkUrlは既定値へフォールバックし、絶対URLでない旨の警告が返る")]
+    public async Task 相対パスのcheckUrlはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        // 先頭"/"を付けると.NETのUriクラスがWindows風のfile URIとして解釈してしまう
+        // （UriKind.Absoluteでも成功してしまう）ため、確実に絶対URLとして構築できない
+        // 形（スキームもホストも無い相対参照）をテストデータに使う。
+        WriteRawSettings(paths, """{ "update": { "checkUrl": "releases/latest" } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Update.CheckUrl.Should().Be(new UpdateSettings().CheckUrl);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null
+            && i.Detail.Contains("checkUrl") && i.Detail.Contains("絶対URL"));
+    }
+
+    [Fact(DisplayName = "httpのupdate.checkUrlは既定値へフォールバックし、httpsが必要である旨の警告が返る")]
+    public async Task httpのcheckUrlはフォールバックする()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "update": { "checkUrl": "http://example.com/releases" } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Update.CheckUrl.Should().Be(new UpdateSettings().CheckUrl);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail != null
+            && i.Detail.Contains("checkUrl") && i.Detail.Contains("https"));
+    }
+
+    [Fact(DisplayName = "httpsの妥当なupdate.checkUrlはそのまま読み込める")]
+    public async Task 妥当なcheckUrlはそのまま読み込める()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        WriteRawSettings(paths, """{ "update": { "checkUrl": "https://example.com/releases/latest" } }""");
+        var store = new SettingsStore(paths);
+
+        var result = await store.LoadAsync();
+
+        result.Value.Update.CheckUrl.Should().Be("https://example.com/releases/latest");
+        result.Issues.Should().NotContain(i => i.Detail != null && i.Detail.Contains("checkUrl"));
+    }
+
     private static void WriteRawSettings(AppPaths paths, string json)
     {
         var directory = Path.GetDirectoryName(paths.SettingsFilePath)!;

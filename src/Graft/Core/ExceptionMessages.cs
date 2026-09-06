@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.IO;
+using System.Net.Http;
+using System.Net.Sockets;
 
 namespace Graft.Core;
 
@@ -42,6 +44,17 @@ public static class ExceptionMessages
             Win32Exception => "コマンドを実行できませんでした。実行ファイルが見つからないか、PATHが通っていない可能性があります。",
             IOException when IsSharingViolation(ex)
                 => "他のアプリがファイルを使用中の可能性があります。閉じてから再試行してください。",
+            // 異常系点検「低」5件目の対応: 更新ダウンロード（HttpUpdateDownloader）で
+            // 「The proxy tunnel request to proxy '...' failed...」のような、プロキシ到達不能・
+            // DNS名前解決不能を示す英語の生の例外メッセージがダイアログにそのまま出ていた。
+            // SocketExceptionはHttpRequestException.InnerExceptionとして包まれて届くことが
+            // 多い（名前解決不能はSocketError.HostNotFound、接続拒否はConnectionRefused等）ため、
+            // まずInnerExceptionを見て「名前解決」特有の理由を判定し、それ以外は
+            // HttpRequestException共通の一般的な理由（プロキシ・DNS・接続そのもの）を返す。
+            HttpRequestException when IsNameResolutionFailure(ex)
+                => "サーバーの名前を解決できませんでした。インターネット接続やDNS設定を確認してください。",
+            HttpRequestException
+                => "サーバーへの接続に失敗しました。プロキシ設定やインターネット接続を確認してください。",
             _ => "予期しないエラーが発生しました。解決しない場合は時間をおいて再試行するか、ログを確認してください。",
         };
 
@@ -59,4 +72,15 @@ public static class ExceptionMessages
     private static bool IsSharingViolation(Exception ex)
         => ex.HResult == unchecked((int)0x80070020)
            || ex.Message.Contains("being used by another process", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// DNS名前解決に失敗したことを示す<see cref="SocketException"/>（<see cref="SocketError.HostNotFound"/>）が
+    /// 直接の内部例外として包まれているかどうかを判定する。<see cref="HttpRequestException"/>は
+    /// プロキシ経由・直接接続いずれの失敗もこの型で表すため、InnerExceptionまで見ないと
+    /// 「名前解決に失敗した」のか「（名前は解決できたが）接続やプロキシで失敗した」のかを
+    /// 区別できない。判定できない場合（InnerExceptionが無い・別の型）は名前解決以外の
+    /// 一般的な接続失敗として扱う（呼び出し元のswitch式のフォールスルー）。
+    /// </summary>
+    private static bool IsNameResolutionFailure(Exception ex)
+        => ex.InnerException is SocketException { SocketErrorCode: SocketError.HostNotFound or SocketError.TryAgain };
 }

@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.IO;
+using System.Net.Http;
+using System.Net.Sockets;
 using FluentAssertions;
 using Graft.Core;
 using Xunit;
@@ -96,6 +98,31 @@ public class ExceptionMessagesTests
         var ex = new DirectoryNotFoundException("The directory name 'X' does not exist. (Parameter 'path')");
 
         ExceptionMessages.Describe(ex).Should().Contain(ex.Message);
+    }
+
+    [Fact(DisplayName = "異常系点検「低」5件目回帰: 名前解決不能(SocketError.HostNotFound)を内包するHttpRequestExceptionは「名前を解決できません」に変換される")]
+    public void 名前解決不能のHttpRequestExceptionは名前解決失敗の旨になる()
+    {
+        var socketEx = new SocketException((int)SocketError.HostNotFound);
+        var ex = new HttpRequestException("Name or service not known", socketEx);
+
+        var described = ExceptionMessages.Describe(ex);
+
+        described.Should().StartWith("サーバーの名前を解決できませんでした。");
+        described.Should().Contain(ex.Message, "原文は詳細として残す既存方針を維持する");
+    }
+
+    [Fact(DisplayName = "異常系点検「低」5件目回帰: 名前解決以外のHttpRequestException（プロキシ到達不能等）は接続失敗の一般的な旨になる")]
+    public void プロキシ到達不能等のHttpRequestExceptionは接続失敗の旨になる()
+    {
+        // 実測で報告された「The proxy tunnel request to proxy '...' failed...」のような
+        // メッセージを想定。InnerExceptionがSocketException(HostNotFound)ではないケース。
+        var ex = new HttpRequestException("The proxy tunnel request to proxy 'http://proxy.example:8080/' failed.");
+
+        var described = ExceptionMessages.Describe(ex);
+
+        described.Should().StartWith("サーバーへの接続に失敗しました。");
+        described.Should().Contain(ex.Message, "原文は詳細として残す既存方針を維持する");
     }
 
     [Fact(DisplayName = "nullを渡すと例外になる")]
