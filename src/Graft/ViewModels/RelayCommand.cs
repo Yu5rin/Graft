@@ -26,7 +26,26 @@ public sealed class RelayCommand : ICommand
 
     public bool CanExecute(object? parameter) => _canExecute?.Invoke() ?? true;
 
-    public void Execute(object? parameter) => _execute();
+    /// <summary>
+    /// 同期処理を実行する。
+    ///
+    /// 【<see cref="AsyncRelayCommand"/>と同じ自己ガードを入れた理由】 同期版には
+    /// 「実行中フラグ」が無く、<c>_execute()</c>は呼び出しが戻るまでに完了するため、
+    /// 非同期版で実測した「多重に走る」不具合そのものは起こらない。ただし
+    /// <see cref="CanExecute"/>がfalse（＝利用側が実行不可と判断している状態）でも
+    /// <c>command.Execute(null)</c>の直呼びが素通しになる点は同じで、キーボード経路は
+    /// 実際にこの直呼びをしている。押せないボタンと同じ条件で弾くほうが呼び出し側の
+    /// 意図に沿うため、ここでも同じ形のガードを置く。
+    /// </summary>
+    public void Execute(object? parameter)
+    {
+        if (!CanExecute(parameter))
+        {
+            return;
+        }
+
+        _execute();
+    }
 
     /// <summary>自動再評価だけでは不十分な場合に明示的に呼び出す。</summary>
     public void RaiseCanExecuteChanged() => CommandRequery.Invalidate();
@@ -52,7 +71,19 @@ public sealed class RelayCommand<T> : ICommand
 
     public bool CanExecute(object? parameter) => _canExecute?.Invoke(ConvertParameter(parameter)) ?? true;
 
-    public void Execute(object? parameter) => _execute(ConvertParameter(parameter));
+    /// <summary>
+    /// 同期処理を実行する。パラメータなし版の<see cref="RelayCommand.Execute"/>と同じく、
+    /// <see cref="CanExecute"/>がfalseの呼び出し（キーボード経路からの直呼び等）は弾く。
+    /// </summary>
+    public void Execute(object? parameter)
+    {
+        if (!CanExecute(parameter))
+        {
+            return;
+        }
+
+        _execute(ConvertParameter(parameter));
+    }
 
     public void RaiseCanExecuteChanged() => CommandRequery.Invalidate();
 
@@ -121,8 +152,34 @@ public sealed class AsyncRelayCommand : ICommand
 
     public bool CanExecute(object? parameter) => !_isExecuting && (_canExecute?.Invoke() ?? true);
 
+    /// <summary>
+    /// 非同期処理を実行する。
+    ///
+    /// 【自己ガードの経緯（実測したデータ不整合）】 修正前は<see cref="CanExecute"/>を一切見ずに
+    /// 実行していた。ボタン経由ではAvalonia側が<see cref="CanExecute"/>を見てくれるため守られて
+    /// いたが、キーボード経路（ShellWindow.Keyboard.csのCtrl+Enter＝適用、Ctrl+Alt+Z＝取り消し、
+    /// Ctrl+Shift+V＝貼り付けて解析ほか、StartupCoordinatorのグローバルホットキー）は
+    /// <c>command.Execute(null)</c>を直呼びしているため、素通しで多重起動できてしまった。
+    /// 実測では<c>Execute(null)</c>を3回連続で呼ぶと、<see cref="CanExecute"/>がfalseを返す一方で
+    /// デリゲートは3回とも走った。さらにProjectStore側に排他が無かった当時は、
+    /// 適用が3本同時に走った結果、確認ダイアログが3回出て、3本すべてが同じr1の
+    /// バックアップフォルダを読み書きするという実害（履歴と実体の対応が壊れる）につながった。
+    ///
+    /// 【対処】 呼び出し側48箇所を1つずつ直すのではなく、ここ1箇所で塞ぐ。
+    /// <see cref="CanExecute"/>と同じ条件（実行中でない、かつ利用側のcanExecuteがtrue）を
+    /// 満たさない呼び出しは、何もせず静かに戻る。ボタン経由はもともとAvalonia側で
+    /// 弾かれているため挙動は変わらず、キーボード経路だけが新たに守られる。
+    ///
+    /// 「1回目が終わってから2回目」という通常の連続操作は、<c>_isExecuting</c>が
+    /// finallyでfalseへ戻ったあとの呼び出しになるため、従来どおり通る。
+    /// </summary>
     public async void Execute(object? parameter)
     {
+        if (!CanExecute(parameter))
+        {
+            return;
+        }
+
         _isExecuting = true;
         RaiseCanExecuteChanged();
         try

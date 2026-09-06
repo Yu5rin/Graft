@@ -228,6 +228,29 @@ public class MatchEngineTests
         result.Errors.Single().Code.Should().Be(ErrorCode.E101);
     }
 
+    [Fact(DisplayName = "段階5: 枝刈りが効かない病的なファイルでは打ち切り、E101に理由を添える")]
+    public void 段階5_打ち切り時は理由つきのE101になる()
+    {
+        // 「どの窓もSEARCH部の並べ替えになっている」ファイルは、行の多重集合による事前枝刈りが
+        // 全く効かない（上限が常に1.0になる）。段階5にはDPの予算による安全網があり、
+        // 使い切ったら探索を打ち切る。そのとき利用者へ「大きすぎて調べきれなかった」ことが
+        // 伝わらないと、Graftが見落としたようにしか見えないため、理由を必ず添える
+        // （SimilarityScorerのクラスコメントとMatchEngine.MatchPlain参照）。
+        var searchLines = Enumerable.Range(0, 100).Select(i => $"line {i}").ToArray();
+        // 37は100と互いに素なので、i→(i*37)%100 は100行の並べ替えになる（実行ごとに変わらない）。
+        var shuffled = Enumerable.Range(0, 100).Select(i => searchLines[i * 37 % 100]).ToArray();
+        var original = string.Join("\n", Enumerable.Range(0, 20_000).Select(i => shuffled[i % shuffled.Length]));
+        var pair = Pair(string.Join("\n", searchLines), "    pass");
+
+        var engine = new MatchEngine(new MatchOptions { SimilarityThreshold = 0.85, AllowSimilarityMatch = true });
+        var result = engine.Match(original, pair, OccurrenceSpec.Single);
+
+        result.IsSuccess.Should().BeFalse();
+        var error = result.Errors.Single();
+        error.Code.Should().Be(ErrorCode.E101);
+        error.Detail.Should().Contain("打ち切りました");
+    }
+
     // ---- 段階6: 該当なし ----
 
     [Fact(DisplayName = "段階6: どの段階にも該当しない場合はE101になる")]
