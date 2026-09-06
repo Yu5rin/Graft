@@ -557,9 +557,20 @@ public sealed class HistoryPaneViewModel : ObservableObject
             return false;
         }
 
+        // 点検指摘A-5: 復元中の待機表示。LoadAsync（一覧の読み込み）はState=Loadingを立てて
+        // いたのに、実際にファイルを書き戻す復元は立てておらず、ボタンが無効になるだけで
+        // 一覧は前のまま静止していた。復元はバックアップからの実ファイル書き戻しで、
+        // 件数やネットワークドライブ次第で数秒かかる。
+        // Loadingを立てるのは確認ダイアログを抜けた後（実際に処理が始まる時点）にする。
+        // ダイアログ表示中から立ててしまうと、利用者が読んでいる間じゅう履歴一覧が
+        // 「読み込み中」で消えてしまい、何を復元しようとしているのか確認できなくなる。
+        // E301の再確認ダイアログを出す前後でも同じ理由でいったん元へ戻す。
+        var stateBeforeRestore = State;
+        State = HistoryPaneState.Loading;
         var result = await _restorer.RestoreAsync(_projectId, _projectRoot, target.Revision, force: false, ct).ConfigureAwait(true);
         if (!result.IsSuccess && result.HasIssue(ErrorCode.E301))
         {
+            State = stateBeforeRestore;
             var force = await _dialogs
                 .ConfirmAsync("適用後の変更を検出", BuildAppliedAfterChangeMessage(target.RevisionLabel, result.Issues, "復元すると"))
                 .ConfigureAwait(true);
@@ -567,11 +578,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
             {
                 return false;
             }
+            State = HistoryPaneState.Loading;
             result = await _restorer.RestoreAsync(_projectId, _projectRoot, target.Revision, force: true, ct).ConfigureAwait(true);
         }
 
         if (!result.IsSuccess)
         {
+            State = stateBeforeRestore;
             // 実機不具合対応: ここは「失敗しました」と伝えるだけの通知なのに、以前は
             // ConfirmAsync（OK＋キャンセルの2ボタン）を使っていた。何も選べないのに
             // 「キャンセル」が並び、押しても何も起きない（戻り値を捨てているため、
@@ -658,6 +671,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
         }
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        // 点検指摘A-5: 「ここまで戻す」も復元中の待機表示を出す（RestoreAsyncのコメント参照）。
+        // こちらは複数リビジョンを順に巻き戻すため単発復元よりさらに時間がかかる。
+        var stateBeforeRestore = State;
+        State = HistoryPaneState.Loading;
         var result = await _restorer
             .RestoreThroughAsync(
                 _projectId, _projectRoot, target.Revision.Manifest.Revision, preview.RevisionsToUndo, newRevision.Value, force: false, ct)
@@ -671,6 +688,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // 同一リビジョン番号のフォルダが衝突する。
         if (!result.IsSuccess && result.HasIssue(ErrorCode.E301))
         {
+            State = stateBeforeRestore; // 確認ダイアログを読む間は一覧を元の表示へ戻す。
             var newestLabel = $"r{preview.RevisionsToUndo[0].Manifest.Revision}";
             var force = await _dialogs
                 .ConfirmAsync(
@@ -681,6 +699,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
             {
                 return false;
             }
+            State = HistoryPaneState.Loading;
             result = await _restorer
                 .RestoreThroughAsync(
                     _projectId, _projectRoot, target.Revision.Manifest.Revision, preview.RevisionsToUndo, newRevision.Value, force: true, ct)
@@ -706,6 +725,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
             // 記録が一切残っていないことが保証されているため、その場合に限り返却してよい。
             Logger?.Error("restore-through", string.Join(" / ", result.Errors.Select(i => i.ToDisplayText())),
                 revision: newRevision.Value, durationMs: stopwatch.ElapsedMilliseconds);
+            State = stateBeforeRestore; // 失敗を伝えるダイアログを読む間は一覧を元の表示へ戻す。
             await _dialogs
                 .ShowMessageAsync("ここまで戻せませんでした", string.Join(Environment.NewLine, result.Errors.Select(i => i.ToDisplayText())))
                 .ConfigureAwait(true);
@@ -737,6 +757,8 @@ public sealed class HistoryPaneViewModel : ObservableObject
             Logger?.Info("restore-through",
                 $"{target.RevisionLabel}まで戻す操作を行いましたが、ファイルは既にこの状態のため変更はありませんでした（リビジョンは記録していません）",
                 durationMs: stopwatch.ElapsedMilliseconds);
+            // 一覧の再読み込みを行わない経路のため、ここで待機表示を明示的に下ろす。
+            State = stateBeforeRestore;
             await _dialogs
                 .ShowMessageAsync("変更はありませんでした",
                     $"ファイルは既に {target.RevisionLabel} を適用した直後の状態のため、変更はありませんでした。リビジョンは記録していません。")
