@@ -209,6 +209,7 @@ public sealed class SettingsStore
             Hooks = raw.Hooks ?? new HookSettings(),
             Git = raw.Git ?? new GitSettings(),
             Editor = raw.Editor ?? new EditorSettings(),
+            Update = raw.Update ?? new UpdateSettings(),
         };
 
         return safe with
@@ -231,6 +232,7 @@ public sealed class SettingsStore
             Context = ValidateContext(safe.Context, issues, context),
             Hooks = ValidateHooks(safe.Hooks, issues, context),
             Editor = ValidateEditor(safe.Editor, issues, context),
+            Update = ValidateUpdate(safe.Update, issues, context),
         };
     }
 
@@ -238,7 +240,10 @@ public sealed class SettingsStore
         => s with
         {
             FontSize = NormalizeRange(s.FontSize, 6.0, 72.0, 13.0, "editor.fontSize", issues, context),
-            TabSize = NormalizeMin(s.TabSize, 1, 4, "editor.tabSize", issues, context),
+            // 上限16: タブ幅は「見た目のインデント量」であり、実測でtabSize=100000を入れると
+            // 1階層のインデントだけで画面幅を埋め尽くし編集不能になる。一般的なエディタ
+            // （VS Code既定8・多くのスタイルガイドは2〜8）を大きく超える実用上の余裕を見て16とした。
+            TabSize = NormalizeIntRange(s.TabSize, 1, 16, 4, "editor.tabSize", issues, context),
             IndentGuideMode = NormalizeChoice(
                 s.IndentGuideMode, ValidIndentGuideModes, "foldable", "editor.indentGuideMode", issues, context),
         };
@@ -253,8 +258,15 @@ public sealed class SettingsStore
     private static BackupSettings ValidateBackup(BackupSettings s, List<GraftIssue> issues, ValidationContext context)
         => s with
         {
-            MaxRevisions = NormalizeMin(s.MaxRevisions, 0, 100, "backup.maxRevisions", issues, context),
-            MaxTotalMB = NormalizeMin(s.MaxTotalMB, 0, 500, "backup.maxTotalMB", issues, context),
+            // 上限100000: 1リビジョン=back/配下に1フォルダを作る設計（AppPaths.GetRevisionDirectory）
+            // のため、桁違いに大きい値は世代整理（Prune）のたびに大量のフォルダを列挙・削除する
+            // コストに直結する。実務で必要になる保持数（数十〜数百）に対して十分な余裕を見た
+            // 上限として100000とした。
+            MaxRevisions = NormalizeIntRange(s.MaxRevisions, 0, 100000, 100, "backup.maxRevisions", issues, context),
+            // 上限1048576（=1024MB×1024＝1TB相当）: 実測でmaxTotalMB=2147483647（≒2000TB相当）が
+            // 警告なく採用されていた。ディスク容量として非現実的な値を弾きつつ、大規模プロジェクトの
+            // バックアップ用途でも余裕がある値として1TBを上限にした。
+            MaxTotalMB = NormalizeIntRange(s.MaxTotalMB, 0, 1_048_576, 500, "backup.maxTotalMB", issues, context),
         };
 
     private static MatchingSettings ValidateMatching(MatchingSettings s, List<GraftIssue> issues, ValidationContext context)
@@ -262,11 +274,16 @@ public sealed class SettingsStore
         {
             SimilarityThreshold =
                 NormalizeRange(s.SimilarityThreshold, 0.0, 1.0, 0.85, "matching.similarityThreshold", issues, context),
-            RangeWarningLines = NormalizeMin(s.RangeWarningLines, 1, 300, "matching.rangeWarningLines", issues, context),
+            // 上限100000: アンカー省略記法の警告閾値（行数）。実務上の警告対象範囲を大きく
+            // 超える値を弾くための余裕を見た上限で、極端な値（int.MaxValue等）は「警告が
+            // 事実上絶対に出ない」設定になってしまい安全機構の意味が薄れる。
+            RangeWarningLines = NormalizeIntRange(s.RangeWarningLines, 1, 100000, 300, "matching.rangeWarningLines", issues, context),
         };
 
     private static DiffSettings ValidateDiff(DiffSettings s, List<GraftIssue> issues, ValidationContext context)
-        => s with { ContextLines = NormalizeMin(s.ContextLines, 0, 3, "diff.contextLines", issues, context) };
+        // 上限999: diffの前後コンテキスト行数。実測でcontextLines=2147483647が警告なく採用され、
+        // 実質「diff全体を常に展開表示する」設定と同義になっていた（差分表示が意味を成さなくなる）。
+        => s with { ContextLines = NormalizeIntRange(s.ContextLines, 0, 999, 3, "diff.contextLines", issues, context) };
 
     private static SafetySettings ValidateSafety(SafetySettings s, List<GraftIssue> issues, ValidationContext context)
     {
@@ -280,8 +297,14 @@ public sealed class SettingsStore
 
         return s with
         {
-            MaxFileSizeMB = NormalizeMin(s.MaxFileSizeMB, 1, 10, "safety.maxFileSizeMB", issues, context),
-            MaxFilesPerRevision = NormalizeMin(s.MaxFilesPerRevision, 1, 200, "safety.maxFilesPerRevision", issues, context),
+            // 上限1024（=1GB相当）: 実測でmaxFileSizeMB=2147483647（≒2000TB相当）が警告なく
+            // 採用されていた。1ファイルの安全機構としての意味を保つため、通常の開発用途で
+            // 扱うテキストファイルとして十分すぎる余裕（1GB）を上限にした。
+            MaxFileSizeMB = NormalizeIntRange(s.MaxFileSizeMB, 1, 1024, 10, "safety.maxFileSizeMB", issues, context),
+            // 上限100000: 1リビジョンに含めるファイル数の上限。極端な値は取り込み処理・
+            // 一覧表示のいずれもUIをフリーズさせかねないため、実務上のプロジェクト規模を
+            // 大きく超える余裕を見た値とした。
+            MaxFilesPerRevision = NormalizeIntRange(s.MaxFilesPerRevision, 1, 100000, 200, "safety.maxFilesPerRevision", issues, context),
             AllowedExtensions = hasExtensions ? s.AllowedExtensions : new SafetySettings().AllowedExtensions,
         };
     }
@@ -289,12 +312,69 @@ public sealed class SettingsStore
     private static ContextSettings ValidateContext(ContextSettings s, List<GraftIssue> issues, ValidationContext context)
         => s with
         {
-            TokenRatio = NormalizePositive(s.TokenRatio, 2.5, "context.tokenRatio", issues, context),
-            TokenWarnThreshold = NormalizeMin(s.TokenWarnThreshold, 1, 50000, "context.tokenWarnThreshold", issues, context),
+            // 範囲0.1〜100: 「文字数 / この値」でトークン数を概算する比率（TokenEstimator）。
+            // 実測でtokenRatio=0.00001のような極端に小さい値を入れると、数MB程度の選択でも
+            // 概算トークン数がint桁あふれで負数になり（不具合3）、上限警告（ExceedsWarnThreshold）
+            // が常にfalseになって効かなくなることを確認した。下限0.1は「1文字＝10トークン」
+            // 相当（実在のトークナイザでは起こりえないほど非効率な側）、上限100は
+            // 「100文字＝1トークン」相当（同じく非現実的な側）に余裕を持たせて挟んだもので、
+            // 現実のどのトークナイザ・言語の比率もこの範囲に収まる。
+            TokenRatio = NormalizeRange(s.TokenRatio, 0.1, 100.0, 2.5, "context.tokenRatio", issues, context),
+            // 上限10000000（1000万トークン）: 現行の主要LLMのコンテキスト長を大きく超える
+            // 余裕を見た上限。int.MaxValue系の値は「警告が事実上絶対に出ない」設定と
+            // 同義になり、安全機構の意味が薄れるため弾く。
+            TokenWarnThreshold = NormalizeIntRange(s.TokenWarnThreshold, 1, 10_000_000, 50000, "context.tokenWarnThreshold", issues, context),
         };
 
     private static HookSettings ValidateHooks(HookSettings s, List<GraftIssue> issues, ValidationContext context)
-        => s with { TimeoutSec = NormalizeMin(s.TimeoutSec, 1, 120, "hooks.timeoutSec", issues, context) };
+        // 上限3600（1時間）: 実測でtimeoutSec=2147483647（約68年）が警告なく採用されていた。
+        // フックがハングした場合にアプリが延々応答不能になるのを防ぐタイムアウト機構
+        // としての意味を保つため、通常のビルド・テスト系フックとして十分すぎる1時間を上限にした。
+        => s with { TimeoutSec = NormalizeIntRange(s.TimeoutSec, 1, 3600, 120, "hooks.timeoutSec", issues, context) };
+
+    /// <summary>
+    /// 異常系点検「中」2件目の対応: 自動更新の確認先URL（<see cref="UpdateSettings.CheckUrl"/>）は
+    /// 従来検証対象に入っておらず、実測で空文字を設定しても警告0件でそのまま採用され、
+    /// 実際に更新確認を行うと<see cref="Graft.Core.Update.GitHubReleaseFeed.GetLatestReleaseAsync"/>が
+    /// 空URLで黙ってnullを返すため「更新の確認に失敗しました」としか出ず、原因（URLが空である
+    /// こと）が利用者に伝わらなかった。ここで「空でない」「絶対URL」「スキームがhttps」を
+    /// 検証し、どれに違反したかが分かる日本語のDetailを出す。https以外（http等）を弾くのは、
+    /// 更新確認の応答（ダウンロードURLを含む）が平文でやり取りされる経路を設定画面から
+    /// 作れてしまうことを防ぐため（実行ファイルの差し替えに繋がりうる通信のため、
+    /// 他の設定項目より厳しく見る）。
+    /// </summary>
+    private static UpdateSettings ValidateUpdate(UpdateSettings s, List<GraftIssue> issues, ValidationContext context)
+        => s with { CheckUrl = NormalizeCheckUrl(s.CheckUrl, new UpdateSettings().CheckUrl, issues, context) };
+
+    private static string NormalizeCheckUrl(
+        string? value, string fallback, List<GraftIssue> issues, ValidationContext context)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            issues.Add(GraftIssue.Of(ErrorCode.E404,
+                detail: DescribeInvalid("update.checkUrl が空です。", context, $"既定値 \"{fallback}\" を使用します。"),
+                severity: Severity.Warning));
+            return fallback;
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+        {
+            issues.Add(GraftIssue.Of(ErrorCode.E404,
+                detail: DescribeInvalid($"update.checkUrl の値 \"{value}\" は絶対URLではありません。", context, $"既定値 \"{fallback}\" を使用します。"),
+                severity: Severity.Warning));
+            return fallback;
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttps)
+        {
+            issues.Add(GraftIssue.Of(ErrorCode.E404,
+                detail: DescribeInvalid($"update.checkUrl のスキーム \"{uri.Scheme}\" はhttpsである必要があります。", context, $"既定値 \"{fallback}\" を使用します。"),
+                severity: Severity.Warning));
+            return fallback;
+        }
+
+        return value;
+    }
 
     /// <summary>
     /// バグ2の対応: Normalize*ヘルパー共通の「不正値をどう説明するか」の出し分け。
@@ -341,16 +421,27 @@ public sealed class SettingsStore
         return fallback;
     }
 
-    private static int NormalizeMin(
-        int value, int min, int fallback, string key, List<GraftIssue> issues, ValidationContext context)
+    /// <summary>
+    /// 異常系点検「中」2件目の対応: 下限のみを見る<c>NormalizeMin</c>だった頃は、
+    /// <c>editor.tabSize=100000</c>・<c>safety.maxFileSizeMB=2147483647</c>・
+    /// <c>backup.maxTotalMB=2147483647</c>・<c>hooks.timeoutSec=2147483647</c>・
+    /// <c>diff.contextLines=2147483647</c>のような、下限は満たすが実用上あり得ない値が
+    /// 警告0件のまま採用されていた（settings.jsonを手で書いてLoadAsyncする実測で確認済み）。
+    /// tabSize=100000は表示そのものが破綻し、maxFileSizeMB等のint.MaxValue系は「上限が
+    /// 無いのと実質同じ」で安全機構（13章）の意味が薄れる。すべての呼び出し元に
+    /// <paramref name="max"/>を必須で持たせ、値の妥当な範囲を1箇所（このメソッド）で
+    /// 強制する形にした。各上限の根拠は呼び出し元のコメントを参照。
+    /// </summary>
+    private static int NormalizeIntRange(
+        int value, int min, int max, int fallback, string key, List<GraftIssue> issues, ValidationContext context)
     {
-        if (value >= min)
+        if (value >= min && value <= max)
         {
             return value;
         }
 
         issues.Add(GraftIssue.Of(ErrorCode.E404,
-            detail: DescribeInvalid($"{key} の値 {value} は {min} 以上である必要があります。", context, $"既定値 {fallback} を使用します。"),
+            detail: DescribeInvalid($"{key} の値 {value} は {min}〜{max} の範囲外です。", context, $"既定値 {fallback} を使用します。"),
             severity: Severity.Warning));
         return fallback;
     }
@@ -365,20 +456,6 @@ public sealed class SettingsStore
 
         issues.Add(GraftIssue.Of(ErrorCode.E404,
             detail: DescribeInvalid($"{key} の値 {value} は {min}〜{max} の範囲外です。", context, $"既定値 {fallback} を使用します。"),
-            severity: Severity.Warning));
-        return fallback;
-    }
-
-    private static double NormalizePositive(
-        double value, double fallback, string key, List<GraftIssue> issues, ValidationContext context)
-    {
-        if (value > 0)
-        {
-            return value;
-        }
-
-        issues.Add(GraftIssue.Of(ErrorCode.E404,
-            detail: DescribeInvalid($"{key} の値 {value} は正の数である必要があります。", context, $"既定値 {fallback} を使用します。"),
             severity: Severity.Warning));
         return fallback;
     }

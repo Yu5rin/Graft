@@ -125,9 +125,33 @@ public sealed class AppPaths
     public string GetManifestFilePath(string projectId, string revisionFolderName)
         => Path.Combine(GetRevisionDirectory(projectId, revisionFolderName), "manifest.json");
 
-    /// <summary>指定日のログファイルの絶対パス（logs/yyyyMMdd.log）。</summary>
-    public string GetLogFilePath(DateOnly date)
-        => Path.Combine(LogsDirectory, $"{date:yyyyMMdd}.log");
+    /// <summary>
+    /// 指定日・指定プロセスのログファイルの絶対パス（logs/yyyyMMdd-&lt;pid&gt;.log）。
+    ///
+    /// 【多重起動・自己再起動でログが欠落・破損する不具合の修正】以前は日付単位の1ファイル
+    /// （logs/yyyyMMdd.log）へ全プロセスが<c>FileMode.Append</c>で追記していた。多重起動検出
+    /// （<see cref="Views.StartupCoordinator"/>）やアプリの自己再起動（<c>App.axaml.cs</c>の
+    /// <c>_restartLogger</c>）では2プロセスが同じファイルへ短時間だけ同時に書き込む窓が生じ、
+    /// 実測で600行中234行が失われ、うち4行がJSONとして壊れる（他プロセスの書き込みが割り込んで
+    /// 上書きする）ことを確認した。<see cref="FileShare.Read"/>指定のため、Windowsの強制排他
+    /// ロック規則では2つ目のプロセスがそもそも<see cref="FileMode.Append"/>で開けず（実機未検証）、
+    /// この場合はログが丸ごと欠落するとみられる。
+    ///
+    /// ファイル名にプロセスID（<see cref="Environment.ProcessId"/>）を含めることで、同時に
+    /// 動いている複数のGraftプロセスが物理的に別ファイルへ書き込むようにし、OS側の排他制御に
+    /// 依存せず競合そのものを無くす。1プロセスが1日に複数のログファイルを持つ形になるが、
+    /// 「最新のログを表示」（<see cref="Infra.LogTailReader.FindLatestDateLogFiles"/>）と
+    /// ログビューア（<see cref="Views.LogViewerWindow"/>）側で同じ日付の複数ファイルを
+    /// 時刻順にまとめて表示するよう対応済み。
+    /// </summary>
+    /// <param name="date">対象の日付。</param>
+    /// <param name="processId">
+    /// 書き込み元のプロセスID。省略時は現在のプロセス（<see cref="Environment.ProcessId"/>）。
+    /// テストは同一プロセス内で<see cref="Logger"/>を生成して書き込むため、既定値のままで
+    /// Loggerが実際に書き込んだファイルと同じパスが得られる。
+    /// </param>
+    public string GetLogFilePath(DateOnly date, int? processId = null)
+        => Path.Combine(LogsDirectory, $"{date:yyyyMMdd}-{processId ?? Environment.ProcessId}.log");
 
     /// <summary>back/ と logs/ ディレクトリが存在することを保証する。</summary>
     public void EnsureCoreDirectoriesExist()

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 
@@ -41,14 +42,27 @@ public static class ExceptionMessages
             ArgumentException when LooksLikeMissingPath(ex)
                 => "フォルダが見つかりません。移動または削除された可能性があります。",
             UnauthorizedAccessException => "アクセスが拒否されました。権限を確認してください。",
-            // 更新の確認・ダウンロード（Core.Update）。以前は通信断のときHttpRequestExceptionの
-            // 原文（英語の内部メッセージ）がそのままダイアログへ出る経路があった
-            // （HttpUpdateDownloader）。ここで日本語の一言に落とす。
-            HttpRequestException => "ネットワークに接続できませんでした。接続状態を確認してから、もう一度お試しください。",
             // フック実行（Process.Start）で実行ファイルが見つからない・起動できない場合。
             Win32Exception => "コマンドを実行できませんでした。実行ファイルが見つからないか、PATHが通っていない可能性があります。",
             IOException when IsSharingViolation(ex)
                 => "他のアプリがファイルを使用中の可能性があります。閉じてから再試行してください。",
+            // 更新の確認・ダウンロード（Core.Update）で使う。以前は通信断のとき
+            // HttpRequestExceptionの原文（英語の内部メッセージ。異常系点検「低」5件目の実測では
+            // 「The proxy tunnel request to proxy '...' failed...」）がそのままダイアログへ
+            // 出る経路があった（HttpUpdateDownloader）。
+            // SocketExceptionはHttpRequestException.InnerExceptionとして包まれて届くことが
+            // 多い（名前解決不能はSocketError.HostNotFound、接続拒否はConnectionRefused等）ため、
+            // まずInnerExceptionを見て「名前解決」特有の理由を判定し、それ以外は
+            // HttpRequestException共通の一般的な理由（プロキシ・DNS・接続そのもの）を返す。
+            // 【1本化した経緯】 元々このswitch式には「HttpRequestException => 一般的な接続失敗」
+            // という無条件の分岐が別途あったが、それをこの2分岐より前に置くとC#のswitch式は
+            // 型が一致した時点で確定するため、後段のwhen句付きの分岐（名前解決の特定）へ
+            // 絶対に到達できず死んだコードになっていた。同じ例外型に対する重複した判定を
+            // 1箇所（ここ）へ統合し、より詳しい理由（名前解決かどうか）を優先して返す。
+            HttpRequestException when IsNameResolutionFailure(ex)
+                => "サーバーの名前を解決できませんでした。インターネット接続やDNS設定を確認してください。",
+            HttpRequestException
+                => "サーバーへの接続に失敗しました。プロキシ設定やインターネット接続を確認してください。",
             _ => "予期しないエラーが発生しました。解決しない場合は時間をおいて再試行するか、ログを確認してください。",
         };
 
@@ -173,4 +187,15 @@ public static class ExceptionMessages
     private static bool IsSharingViolation(Exception ex)
         => ex.HResult == unchecked((int)0x80070020)
            || ex.Message.Contains("being used by another process", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// DNS名前解決に失敗したことを示す<see cref="SocketException"/>（<see cref="SocketError.HostNotFound"/>）が
+    /// 直接の内部例外として包まれているかどうかを判定する。<see cref="HttpRequestException"/>は
+    /// プロキシ経由・直接接続いずれの失敗もこの型で表すため、InnerExceptionまで見ないと
+    /// 「名前解決に失敗した」のか「（名前は解決できたが）接続やプロキシで失敗した」のかを
+    /// 区別できない。判定できない場合（InnerExceptionが無い・別の型）は名前解決以外の
+    /// 一般的な接続失敗として扱う（呼び出し元のswitch式のフォールスルー）。
+    /// </summary>
+    private static bool IsNameResolutionFailure(Exception ex)
+        => ex.InnerException is SocketException { SocketErrorCode: SocketError.HostNotFound or SocketError.TryAgain };
 }

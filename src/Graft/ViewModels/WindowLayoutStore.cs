@@ -105,6 +105,18 @@ public sealed class WindowLayoutState
 /// </summary>
 public sealed class WindowLayoutStore
 {
+    // 異常系点検「低」7件目の対応: EditorPaneViewModel・DiffViewModelが通常操作
+    // （Ctrl+マウスホイールでのフォントサイズ変更）で使っている範囲と同じ値に揃える。
+    // 別々の場所に定数を持たせているのは、両ViewModelがUIの単位（コントロールごとの
+    // フォントサイズ）としてこの範囲を持つのに対し、こちらは「保存データの妥当性」という
+    // 別の関心事のためであり、依存を増やしてまで1箇所へ集約するほどの重複ではないと判断した。
+    private const double MinCodeFontSize = 8;
+    private const double MaxCodeFontSize = 32;
+
+    private const string DefaultGraftPanelPlacement = "bottom";
+    private static readonly HashSet<string> ValidGraftPanelPlacements =
+        new(StringComparer.Ordinal) { "bottom", "right" };
+
     private readonly string _filePath;
     private readonly JsonFileStore _store = new();
 
@@ -120,7 +132,62 @@ public sealed class WindowLayoutStore
         var result = await _store
             .ReadWithRecoveryAsync(_filePath, static () => new WindowLayoutState(), JsonFileStore.DefaultOptions, ct)
             .ConfigureAwait(false);
-        return result.Value;
+        var state = result.Value;
+        Normalize(state);
+        return state;
+    }
+
+    /// <summary>
+    /// 異常系点検「低」7件目の対応: layout.jsonを手で書き換える・外部要因で壊れることを
+    /// 想定し、「アプリが落ちはしないが表示・操作が壊れる」値を読み込み直後に補正する。
+    ///
+    /// ウィンドウ位置・サイズは<see cref="ResolveWindowBounds"/>が、<c>SideViewWidth</c>は
+    /// <c>Views.ShellWindow.axaml.cs</c>の<c>SafeLength</c>が、それぞれ実際に使う時点で
+    /// 個別に防御している。一方<see cref="ProjectPaneLayout.CodeFontSize"/>・
+    /// <see cref="WindowLayoutState.LeftPaneSplitRatio"/>・<see cref="OpenTabState.CaretLine"/>
+    /// （・同じ理由でCaretColumnも）・<see cref="ProjectPaneLayout.GraftPanelPlacement"/>には
+    /// そうした防御が無く、実測で<c>codeFontSize=100000</c>（表示が破綻する巨大文字）・
+    /// <c>leftPaneSplitRatio=5.0</c>（比率が0〜1の範囲外でペイン分割が破綻しうる）・
+    /// <c>caretLine=-5</c>（存在しない行への復元）・<c>graftPanelPlacement="??"</c>
+    /// （<see cref="Views.ShellViewModel.ParseGraftPanelPlacement"/>自体は未知の値を下配置として
+    /// 扱う防御を個別に持つが、保存データそのものは不正な文字列のまま残ってしまう）が
+    /// そのまま読み込まれることを確認した。<see cref="ResolveWindowBounds"/>と同じ
+    /// 「壊れていたら既定値へ静かに丸める」流儀（ログは残さない。ウィンドウ位置補正も
+    /// ログを残していない）に揃える。
+    /// </summary>
+    private static void Normalize(WindowLayoutState state)
+    {
+        if (!double.IsFinite(state.LeftPaneSplitRatio) || state.LeftPaneSplitRatio is < 0 or > 1)
+        {
+            state.LeftPaneSplitRatio = 0.55;
+        }
+
+        foreach (var layout in state.ProjectPaneWidths.Values)
+        {
+            NormalizePaneLayout(layout);
+        }
+    }
+
+    private static void NormalizePaneLayout(ProjectPaneLayout layout)
+    {
+        // Math.Clampはvalueに（NaN等の）非数を渡すとNaNをそのまま返してしまう（比較が
+        // すべてfalseになるため）ため、Clampより先にIsFiniteで弾いておく。
+        layout.CodeFontSize = double.IsFinite(layout.CodeFontSize)
+            ? Math.Clamp(layout.CodeFontSize, MinCodeFontSize, MaxCodeFontSize)
+            : 13;
+
+        if (!ValidGraftPanelPlacements.Contains(layout.GraftPanelPlacement))
+        {
+            layout.GraftPanelPlacement = DefaultGraftPanelPlacement;
+        }
+
+        foreach (var tab in layout.OpenTabs)
+        {
+            // 1始まりの行・列番号。0以下（layout.jsonの手編集で混入しうる）は
+            // 「復元先が存在しない」ことになるため、先頭（1行目・1列目）へ倒す。
+            if (tab.CaretLine < 1) tab.CaretLine = 1;
+            if (tab.CaretColumn < 1) tab.CaretColumn = 1;
+        }
     }
 
     /// <summary>layout.json を書き込む。</summary>

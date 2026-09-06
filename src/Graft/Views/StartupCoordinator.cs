@@ -301,6 +301,18 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         var revisionStore = new RevisionStore(_appPaths, _platform.Trash);
         var revisionRestorer = new RevisionRestorer(_appPaths);
 
+        // 異常系点検「低」6件目の対応: JsonFileStore.WriteAsyncの一時ファイル（*.tmp.*）・
+        // SafeFileWriterの退避ファイル（*.graft-bak-*）のうち、電源断・強制終了で
+        // 取り残されて一定時間（既定24時間）以上経過したものを掃除する
+        // （TempFileCleanupクラスコメント参照）。PendingUpdateWorkDirCleanup等と同じ
+        // 「次回起動時に後始末する」流儀だが、こちらはプロジェクトルート配下（利用者の
+        // ファイルツリー）まで走査するため、たとえ件数上限で打ち切ってもディスクI/Oが
+        // 起動をブロックしないよう、awaitせずバックグラウンドへ逃がす
+        // （Logger.SafeCleanupAsyncと同じfire-and-forgetの流儀）。プロジェクト一覧の読み込みを
+        // 含め、このタスク自体が起動シーケンス（ウィンドウ表示・操作可能になるまで）に
+        // 影響しないことを最優先する。
+        _ = RunTempFileCleanupInBackgroundAsync(_appPaths, projectStore, _logger);
+
         // 課題2: 「閉じたときの動作」は即時反映のため、設定画面での変更を実行中のShellWindowへ
         // その場で反映するコールバックを渡す。常駐インスタンスにする理由は_settingsViewModel
         // フィールドのコメント参照。設定画面を一度も開かないままCtrl+マウスホイールが使われても

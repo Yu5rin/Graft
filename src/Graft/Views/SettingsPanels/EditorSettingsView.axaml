@@ -16,12 +16,19 @@
         Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
         下端で見切れる（実機で確認済みの不具合。GeneralSettingsView参照）。
     -->
+    <!--
+        項目10: 「短い値を入れる欄」のWidthが画面ごとにバラバラだった
+        （フォントサイズ／タブ幅80px、MatchingSettingsViewの類似度閾値・DiffSettingsViewの
+        トークン概算比率等は120px、DiffSettingsViewのエンコーディングは160px。実機Xvfbで
+        左端は揃うのに右端がガタガタになることを確認済み）。同じ性質の入力欄なので、
+        最多だった120pxへ統一する。
+    -->
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="16,8,16,16">
             <TextBlock Text="表示" Classes="sectionHeading first" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="フォントサイズ" Classes="fieldLabel" />
-                <TextBox Text="{Binding EditorFontSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
+                <TextBox Text="{Binding EditorFontSizeText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="エディタのフォントサイズ"
                          views:HelpTip.Minimal="{Binding EditorFontSizeText, StringFormat='フォントサイズ: {0}'}"
@@ -52,7 +59,7 @@
             <TextBlock Text="インデント" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="タブ幅（検出不能時の既定値）" Classes="fieldLabel" />
-                <TextBox Text="{Binding EditorTabSizeText, UpdateSourceTrigger=LostFocus}" Width="80"
+                <TextBox Text="{Binding EditorTabSizeText, UpdateSourceTrigger=LostFocus}" Width="120"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="タブ幅"
                          views:HelpTip.Minimal="{Binding EditorTabSizeText, StringFormat='タブ幅: {0}'}"

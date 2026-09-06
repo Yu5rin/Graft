@@ -123,4 +123,84 @@ public class LogTailReaderTests
         act.Should().NotThrow("Graft自身が書き込み中のログファイルを開けなければならない（実機のIOException不具合の再現）");
         LogTailReader.ReadTail(path).Should().Contain("startup");
     }
+
+    /// <summary>
+    /// 不具合1の修正: ログファイル名がプロセスID別（<c>yyyyMMdd-&lt;pid&gt;.log</c>）に
+    /// 分かれるようになったため、「最新のログを表示」は最新日付の全ファイルを対象にする必要がある。
+    /// </summary>
+    [Fact(DisplayName = "同じ最新日付の複数プロセス分ファイルをすべて返す（新形式）")]
+    public void 最新日付の全ファイルを返す()
+    {
+        using var ws = new TempWorkspace();
+        ws.WriteText("logs/20260101.log", "{\"a\":1}");
+        ws.WriteText("logs/20260215-111.log", "{\"a\":2}");
+        ws.WriteText("logs/20260215-222.log", "{\"a\":3}");
+        var logsDir = ws.Combine("logs");
+
+        var files = LogTailReader.FindLatestDateLogFiles(logsDir);
+
+        files.Should().HaveCount(2);
+        files.Should().Contain(Path.Combine(logsDir, "20260215-111.log"));
+        files.Should().Contain(Path.Combine(logsDir, "20260215-222.log"));
+    }
+
+    [Fact(DisplayName = "ディレクトリが無ければ空配列を返す（複数ファイル版）")]
+    public void 複数ファイル版_ディレクトリが無ければ空()
+    {
+        using var ws = new TempWorkspace();
+        var missing = ws.Combine("no-such-logs");
+
+        LogTailReader.FindLatestDateLogFiles(missing).Should().BeEmpty();
+    }
+
+    [Fact(DisplayName = "複数ファイルの内容をtimestampで時刻順にまとめ、末尾maxLines行だけ返す")]
+    public void 複数ファイルを時刻順にまとめる()
+    {
+        using var ws = new TempWorkspace();
+        // fileAには奇数分、fileBには偶数分を書き、時刻順に並べ替えられるかを確認する。
+        var linesA = string.Join(Environment.NewLine, new[]
+        {
+            "{\"timestamp\":\"2026-02-15T10:00:01+09:00\",\"result\":\"a1\"}",
+            "{\"timestamp\":\"2026-02-15T10:00:03+09:00\",\"result\":\"a2\"}",
+        });
+        var linesB = string.Join(Environment.NewLine, new[]
+        {
+            "{\"timestamp\":\"2026-02-15T10:00:00+09:00\",\"result\":\"b1\"}",
+            "{\"timestamp\":\"2026-02-15T10:00:02+09:00\",\"result\":\"b2\"}",
+        });
+        var pathA = ws.WriteText("logs/20260215-111.log", linesA);
+        var pathB = ws.WriteText("logs/20260215-222.log", linesB);
+
+        var merged = LogTailReader.ReadTailMerged(new[] { pathA, pathB }, maxLines: 200);
+        var mergedLines = merged.Split(Environment.NewLine);
+
+        // 各行の"result"の値だけを取り出し、timestamp順（b1→a1→b2→a2）になっているかを確認する。
+        var results = mergedLines.Select(l => l.Split("\"result\":\"")[1].TrimEnd('}', '"')).ToArray();
+        results.Should().Equal("b1", "a1", "b2", "a2");
+    }
+
+    [Fact(DisplayName = "壊れた行（JSONとして解析不能）が混じっても例外にならず、先頭側に残る")]
+    public void 壊れた行が混じっても例外にならない()
+    {
+        using var ws = new TempWorkspace();
+        var pathA = ws.WriteText("logs/20260215-111.log",
+            "{\"timestamp\":\"2026-02-15T10:00:01+09:00\",\"result\":\"ok\"}");
+        var pathB = ws.WriteText("logs/20260215-222.log",
+            "{\"timestamp\":\"2026-02-15T broken");
+
+        Action act = () => LogTailReader.ReadTailMerged(new[] { pathA, pathB });
+
+        act.Should().NotThrow();
+        var merged = LogTailReader.ReadTailMerged(new[] { pathA, pathB });
+        merged.Should().Contain("ok").And.Contain("broken");
+    }
+
+    [Fact(DisplayName = "ファイルが1件だけならReadTailと同じ結果になる")]
+    public void 単一ファイルはReadTailと同じ()
+    {
+        using var ws = new TempWorkspace();
+        var path = ws.WriteText("logs/20260215-111.log", "line1" + Environment.NewLine + "line2");
+
+        LogTailReader.ReadTailMerged(new[] { path }).Should().Be(LogTailReader.ReadTail(path));
+    }
 }

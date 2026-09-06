@@ -35,7 +35,9 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="{DynamicResource CommandBarRowHeight}" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="24" />
+            <!-- 項目13: 直値24pxをStatusBarRowHeightトークン参照へ直した
+                 （CommandBarRowHeightと同じ作法。トークン側もこの24に合わせて修正済み）。 -->
+            <RowDefinition Height="{DynamicResource StatusBarRowHeight}" />
         </Grid.RowDefinitions>
 
         <!-- ============== コマンドバー（40px、メニュー・ツールバーなし） ============== -->

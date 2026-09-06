@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Graft.Core;
 using Graft.Infra;
 using Graft.Platform;
@@ -211,28 +212,40 @@ public sealed partial class SettingsViewModel
     });
 
     /// <summary>
-    /// 機能2: 最新のログファイルの末尾（<see cref="LogTailReader.DefaultMaxLines"/>行）を
-    /// 表示するウィンドウを開く。探索・読み取りは<see cref="LogTailReader"/>（純粋関数・
-    /// 単体テスト対象）に委ね、ここではファイルが1つも無い場合の案内と、
-    /// ウィンドウの起動（コードビハインド側のイベントへ委譲）のみを担う。
+    /// 機能2: 最新の日付に属するログファイル（不具合1の修正でプロセスID別に分かれている
+    /// ため、同じ日付でも複数ありうる）をすべて集め、時刻順にまとめた末尾
+    /// （<see cref="LogTailReader.DefaultMaxLines"/>行）を表示するウィンドウを開く。
+    /// 探索・読み取りは<see cref="LogTailReader"/>（純粋関数・単体テスト対象）に委ね、
+    /// ここではファイルが1つも無い場合の案内と、ウィンドウの起動
+    /// （コードビハインド側のイベントへ委譲）のみを担う。
     /// </summary>
     private async Task ShowLatestLogAsync()
     {
-        var (path, tail) = await Task.Run(() =>
+        var (displayPath, tail) = await Task.Run(() =>
         {
-            var latest = LogTailReader.FindLatestLogFile(_appPaths.LogsDirectory);
-            return latest is null
-                ? (Path: (string?)null, Tail: (string?)null)
-                : (Path: latest, Tail: LogTailReader.ReadTail(latest, LogTailReader.DefaultMaxLines));
+            var files = LogTailReader.FindLatestDateLogFiles(_appPaths.LogsDirectory);
+            if (files.Length == 0)
+            {
+                return (Path: (string?)null, Tail: (string?)null);
+            }
+
+            // 表示欄には、同じ日付の全ファイルをまとめて読んでいることが分かるよう、
+            // ファイル名（フルパスではなく）をカンマ区切りで並べる。1件だけなら従来どおり
+            // フルパス1本のみの表示になる。
+            var displayPath = files.Length == 1
+                ? files[0]
+                : string.Join(", ", files.Select(Path.GetFileName));
+            var tail = LogTailReader.ReadTailMerged(files, LogTailReader.DefaultMaxLines);
+            return (Path: displayPath, Tail: tail);
         }).ConfigureAwait(true);
 
-        if (path is null)
+        if (displayPath is null)
         {
             await _dialogService.ShowMessageAsync("最新のログ", "ログファイルがまだありません。").ConfigureAwait(true);
             return;
         }
 
-        LogViewerRequested?.Invoke(this, new LogViewerRequestEventArgs(path, tail ?? string.Empty));
+        LogViewerRequested?.Invoke(this, new LogViewerRequestEventArgs(displayPath, tail ?? string.Empty));
     }
 
     /// <summary>
