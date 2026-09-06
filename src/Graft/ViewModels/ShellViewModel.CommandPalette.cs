@@ -59,6 +59,12 @@ public sealed partial class ShellViewModel
         {
             new("プロジェクトのファイル一覧とコンテキスト収集を開く", Graft.OpenContextCollectCommand, null, Gesture("OpenContextCollect")),
             new("クリップボードのパッチを解析", Graft.PasteAndParseCommand, null, Gesture("PasteAndParse")),
+            // 実機で確認された指摘2: 「ファイルから解析」への到達手段が接ぎ木パネルの空状態
+            // ボタンしか無く、ショートカットも無かった（解析がエラーで失敗しボタンごと隠れる
+            // ケースでは事実上到達不能だった。EmptyStateView.axamlのErrorPanel対応も参照）。
+            // 専用のショートカットは既存の割り当てとぶつかる恐れがあるため新設せず、パレット
+            // 登録のみで到達手段を確保する（Gestureはnull＝バッジ非表示）。
+            new("ファイルから解析", Graft.ParseFromFileCommand, null, Gesture("ParseFromFile")),
             new("現在の解析結果をパッチキューへ追加", Graft.AddCurrentPatchToQueueCommand, null, Gesture("AddToQueue")),
             new("パッチキューを開く", Graft.OpenQueueCommand, null, Gesture("OpenQueue")),
             new("適用を実行", Graft.ApplyCommand, null, Gesture("Apply")),
@@ -68,6 +74,15 @@ public sealed partial class ShellViewModel
             new("失敗ブロックの再依頼プロンプトをコピー", Graft.CopyRecoveryPromptCommand, null, Gesture("CopyRecoveryPrompt")),
             new("履歴ビューを開く", Graft.ShowHistoryCommand, null, Gesture("ShowHistory")),
             new("直前に適用したリビジョンを元に戻す", Graft.UndoCommand, null, Gesture("Undo")),
+            // 実機で確認された指摘8: 履歴の「このリビジョンを取り消す」「ここまで戻す」は、
+            // ショートカットが無く右クリックメニューかラベルの無いアイコンボタンのみが到達手段で、
+            // キーボードだけでは実行できなかった。ショートカットの新設は既存の割り当てと
+            // ぶつかる恐れがあるため見送り、パレット登録を優先する（Gestureはnull＝バッジ非表示）。
+            // どちらも履歴ペインで選択中のリビジョン（HistoryPaneViewModel.SelectedItem）に対して
+            // 動くコマンドで、パラメータは不要（CanExecuteは選択の有無で決まる。選択が無ければ
+            // パレット上は「実行できません」と表示される。CommandPaletteItem.AutomationName参照）。
+            new("選択中のリビジョンを取り消す（単発復元）", Graft.History.RestoreCommand, null, Gesture("RestoreRevision")),
+            new("選択中のリビジョンまでまとめて戻す", Graft.History.RestoreThroughCommand, null, Gesture("RestoreThrough")),
             new("解析結果を破棄", Graft.DiscardCommand, null, Gesture("Discard")),
             new("設定を開く", Graft.OpenSettingsCommand, null, Gesture("OpenSettings")),
             new("キーボードショートカット一覧を開く", OpenShortcutsCommand, null, Gesture("OpenShortcuts")),

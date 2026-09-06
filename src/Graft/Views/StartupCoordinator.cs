@@ -363,6 +363,9 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 機能改善（差分の左右並列表示）: diff表示ヘッダーでの並列／統合表示の切り替えを、
         // 同じ経路で常駐のSettingsViewModelへ橋渡しする（SettingsViewModel.SetSideBySideLive参照）。
         shellViewModel.DiffSideBySideChangeRequested += (_, v) => _settingsViewModel!.SetSideBySideLive(v);
+        // 指摘4: 適用前プレビュー窓の「今後は表示しない」チェックも、同じ経路で常駐の
+        // SettingsViewModelへ橋渡しする（SettingsViewModel.SetShowPreviewLive参照）。
+        shellViewModel.ApplyPreviewDisableRequested += (_, _) => _settingsViewModel!.SetShowPreviewLive(false);
 
         // 課題3: Git自動コミットの失敗理由をlogs/<日付>.logへ記録できるよう、window.Loggerと
         // 同じ流儀（生成後に設定するnullableプロパティ）でロガーを渡す。

@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Graft.Infra;
 using Graft.ViewModels;
 
@@ -112,6 +113,11 @@ public partial class ShellWindow : Window
         InitializeComponent();
         AddHandler(KeyDownEvent, OnTunnelKeyDown, RoutingStrategies.Tunnel);
         InitializeProjectComboBoxWheel(); // ShellWindow.ProjectComboBox.cs参照。
+        // 実機で確認された指摘3: プロンプトテンプレートの選択に必ず3クリックかかっていた
+        // （開く→項目を選ぶ→「コピー」を押す）。ダブルタップとEnterで「選んで即コピーして
+        // 閉じる」を追加する（ProjectPane.axaml.csのOnDoubleTappedと同じ作法）。
+        PromptTemplateListBox.DoubleTapped += OnPromptTemplateDoubleTapped;
+        PromptTemplateListBox.KeyDown += OnPromptTemplateKeyDown;
     }
 
     public ShellWindow(ShellViewModel viewModel) : this()
@@ -158,6 +164,10 @@ public partial class ShellWindow : Window
         var previewViewModel = new ApplyPreviewViewModel(e.PlansToApply, e.Settings, e.Ui);
         var window = new ApplyPreviewWindow(previewViewModel);
         var confirmed = await window.ShowAndConfirmAsync(this).ConfigureAwait(true);
+        // 指摘4: 「今後は表示しない」がチェックされていれば、適用・キャンセルいずれで閉じても
+        // 設定側（Settings.ShowPreview）をオフにする（ViewModel.ApplyPreviewDisableRequestedの
+        // コメント参照）。
+        if (window.DontShowAgainRequested) ViewModel.NotifyApplyPreviewDisableRequested();
         e.Completion.TrySetResult(confirmed);
     }
 
@@ -170,11 +180,33 @@ public partial class ShellWindow : Window
         _ = window.ShowDialog(this);
     }
 
+    // 実機で確認された指摘6: F1で説明書を開くと、説明されている画面をモーダルに阻まれて
+    // 触れず、「手順を読みながら操作する」という一番自然な読み方ができなかった
+    // （ショートカット一覧も同様、開いている間はエディタ側を一切操作できない）。
+    // 両方とも「見ながら他の操作をする」ことが前提の閲覧用ウィンドウで、本体の状態を
+    // 変更する入力欄も持たないため非モーダル（Show）化の副作用が無く、この2つに限って
+    // ShowDialogからShowへ切り替える。設定・コンテキスト収集は本体の状態（設定・
+    // プロジェクト選択）と絡むため対象外とした（判断理由はタスク報告に記載）。
+    // 同じものを二重に開けないよう、既に開いていればActivate()するだけに留め、
+    // Closedで参照を外す。親（このShellWindow）を閉じると、Avaloniaの既定の複数ウィンドウ
+    // シャットダウン動作（App.axaml.cs参照）によりOwnerを介して連動して閉じることを
+    // 実機（Xvfb）で確認済み。
+    private ShortcutsWindow? _shortcutsWindow;
+    private ManualWindow? _manualWindow;
+
     /// <summary>Ctrl+/・ツールバーの「?」メニュー「キーボードショートカット一覧」。静的な内容のため専用ViewModelは持たない。</summary>
     private void OnRequestOpenShortcuts(object? sender, EventArgs e)
     {
+        if (_shortcutsWindow is { } existing)
+        {
+            existing.Activate();
+            return;
+        }
+
         var window = new ShortcutsWindow();
-        _ = window.ShowDialog(this);
+        _shortcutsWindow = window;
+        window.Closed += (_, _) => _shortcutsWindow = null;
+        window.Show(this);
     }
 
     /// <summary>
@@ -183,8 +215,16 @@ public partial class ShellWindow : Window
     /// </summary>
     private void OnRequestOpenManual(object? sender, EventArgs e)
     {
+        if (_manualWindow is { } existing)
+        {
+            existing.Activate();
+            return;
+        }
+
         var window = new ManualWindow();
-        _ = window.ShowDialog(this);
+        _manualWindow = window;
+        window.Closed += (_, _) => _manualWindow = null;
+        window.Show(this);
     }
 
     /// <summary>9.2: 「履歴」ボタン・Ctrl+Shift+H。サイドバーの履歴ビューを開いて一覧へフォーカスする。</summary>
@@ -221,6 +261,44 @@ public partial class ShellWindow : Window
     private void OnCommandPaletteOpened(object? sender, EventArgs e)
     {
         Dispatcher.UIThread.Post(() => CommandPaletteOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// 指摘3: プロンプトテンプレート一覧のダブルタップ。単クリック相当の選択
+    /// （PromptTemplateListBox.SelectedItemバインド）はダブルタップの前段で既に届いているはずだが、
+    /// ProjectPane.axaml.csのOnDoubleTappedと同じ理由で念のため明示的に選択を揃えてからコピーする。
+    /// </summary>
+    private void OnPromptTemplateDoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (DataContext is not ShellViewModel || FindAncestor<ListBoxItem>(e.Source as Visual) is not
+            { DataContext: PromptTemplateOptionViewModel item }) return;
+
+        PromptTemplateListBox.SelectedItem = item;
+        ExecutePromptCopy();
+    }
+
+    /// <summary>指摘3: プロンプトテンプレート一覧でのEnter確定。矢印キーでの選択移動はListBox既定の挙動のまま変えない。</summary>
+    private void OnPromptTemplateKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        ExecutePromptCopy();
+    }
+
+    private void ExecutePromptCopy()
+    {
+        if (DataContext is not ShellViewModel viewModel) return;
+        var copyCommand = viewModel.Graft.PromptCopy?.CopyCommand;
+        if (copyCommand is not null && copyCommand.CanExecute(null)) copyCommand.Execute(null);
+    }
+
+    private static T? FindAncestor<T>(Visual? node) where T : Visual
+    {
+        while (node is not null and not T)
+        {
+            node = node.GetVisualParent();
+        }
+        return node as T;
     }
 
     /// <summary>
@@ -456,6 +534,14 @@ public partial class ShellWindow : Window
             Logger?.Info("shutdown", "×で閉じましたが、タスクトレイに常駐する設定のため終了せず非表示にしました。");
             return;
         }
+
+        // 指摘6: 非モーダル化したショートカット一覧・取扱説明書（Owner=thisで開いている）は、
+        // Avaloniaの既定動作でもOwnerが閉じれば連動して閉じるが、上のトレイ分岐で「隠すだけ」を
+        // 選んだ場合はここへ到達しない（＝子ウィンドウは開いたまま残る想定どおり）。実際に
+        // ウィンドウを閉じる経路に限り、開いていれば確実に片付ける（Closedイベントで
+        // _shortcutsWindow/_manualWindowの参照自体はnullへ戻る）。
+        _shortcutsWindow?.Close();
+        _manualWindow?.Close();
 
         // 課題1: 終了処理の開始と、どの経路から来たかを記録する。トレイメニューの「終了」は
         // StartupCoordinator.ForceExitがIsForceClosingを立ててからClose()を呼ぶため、
