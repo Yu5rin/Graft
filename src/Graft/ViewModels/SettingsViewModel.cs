@@ -586,6 +586,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     public void SetSideBySideLive(bool value) => SideBySide = value;
 
+    /// <summary>
+    /// 実機で確認された指摘4: 適用前プレビュー窓（<see cref="Views.ApplyPreviewWindow"/>）の
+    /// 「今後は表示しない」チェックボックスから、設定「適用前にプレビューを表示する」を
+    /// オフにする。<see cref="SetSideBySideLive"/>・<see cref="SetEditorFontSizeLive"/>と
+    /// 全く同じ考え方（画面内の別のトリガーから、設定画面と同じ保存・即時反映経路にそのまま乗せる）。
+    /// 既定（オン）は変えない仕様のため、trueへ戻す経路はここでは用意しない
+    /// （設定画面からのみオンに戻せる）。
+    /// </summary>
+    public void SetShowPreviewLive(bool value) => ShowPreview = value;
+
     private async Task LoadAsync(CancellationToken ct)
     {
         await RunBusyAsync(async () =>

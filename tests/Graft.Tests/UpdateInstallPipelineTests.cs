@@ -24,7 +24,7 @@ public class UpdateInstallPipelineTests
         var pipeline = new UpdateInstallPipeline(new FakeDownloader(zipBytes));
         var asset = new GitHubReleaseAsset { Name = "Graft-1.0.8-win-x64.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = null };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.ChecksumUnavailable);
         scenario.AssertInstallDirUntouched();
@@ -43,7 +43,7 @@ public class UpdateInstallPipelineTests
             Name = "Graft-1.0.8-win-x64.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = $"sha256:{wrongHash}",
         };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.ChecksumMismatch);
         scenario.AssertInstallDirUntouched();
@@ -69,7 +69,7 @@ public class UpdateInstallPipelineTests
         var progressReports = new List<double>();
         var progress = new Progress<double>(p => progressReports.Add(p));
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, progress, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", progress, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.Success, result.ErrorMessage);
         foreach (var fileName in UpdateFiles.RequiredFileNames)
@@ -99,7 +99,7 @@ public class UpdateInstallPipelineTests
             Digest = $"sha256:{ComputeSha256Hex(zipBytes)}",
         };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.UnexpectedZipContents);
         scenario.AssertInstallDirUntouched();
@@ -113,7 +113,7 @@ public class UpdateInstallPipelineTests
         var pipeline = new UpdateInstallPipeline(new FakeDownloader(new UpdateDownloadOutcome(UpdateDownloadStatus.Failed, "接続できませんでした。")));
         var asset = new GitHubReleaseAsset { Name = "x.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = $"sha256:{new string('a', 64)}" };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.DownloadFailed);
         scenario.AssertInstallDirUntouched();
@@ -127,10 +127,41 @@ public class UpdateInstallPipelineTests
         var pipeline = new UpdateInstallPipeline(new FakeDownloader(new UpdateDownloadOutcome(UpdateDownloadStatus.Cancelled, "中断しました。")));
         var asset = new GitHubReleaseAsset { Name = "x.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = $"sha256:{new string('a', 64)}" };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.Cancelled);
         scenario.AssertInstallDirUntouched();
+    }
+
+    [Fact(DisplayName = "ダウンロードURLのホストが信頼できない場合はダウンロード自体を行わずUntrustedDownloadHostで中止する")]
+    public async Task ダウンロード元ホストが信頼できなければ中止する()
+    {
+        // セキュリティ点検の指摘事項「更新のダウンロード元ホストが未検証／SHA256が悪意ある
+        // checkUrlに無力」への回帰テスト。期待ハッシュが実際に一致する（＝checkUrlを握った
+        // 攻撃者が両方を自分の都合の良い値に揃えた状況を模す）場合でも、ダウンロードURLの
+        // ホストが既定の許可ホストと一致しなければ、ダウンロードそのものへ進まないことを
+        // 確認する。
+        using var ws = new TempWorkspace();
+        var zipBytes = BuildValidZip();
+        var scenario = new Scenario(ws);
+        var downloader = new FakeDownloader(zipBytes);
+        var pipeline = new UpdateInstallPipeline(downloader);
+        var asset = new GitHubReleaseAsset
+        {
+            Name = "Graft-1.0.8-win-x64.zip",
+            BrowserDownloadUrl = "https://evil.example.com/Graft-1.0.8-win-x64.zip",
+            Digest = $"sha256:{ComputeSha256Hex(zipBytes)}", // 攻撃者が握っていれば一致させられる値。
+        };
+
+        var result = await pipeline.RunAsync(
+            asset, scenario.InstallDir, scenario.WorkDir, UpdateHostPolicy.DefaultCheckUrl, downloadProgress: null, CancellationToken.None);
+
+        result.Status.Should().Be(UpdateInstallStatus.UntrustedDownloadHost);
+        result.ErrorMessage.Should().Contain("evil.example.com");
+        scenario.AssertInstallDirUntouched();
+        downloader.CallCount.Should().Be(0, "信頼できないホストへは一度も接続してはならない");
+        // 作業フォルダの作成自体を行わない（ホスト検証で早期returnするため、掃除対象も無い）。
+        Directory.Exists(scenario.WorkDir).Should().BeFalse();
     }
 
     private static byte[] BuildValidZip()
@@ -173,6 +204,9 @@ public class UpdateInstallPipelineTests
         private readonly byte[]? _zipBytes;
         private readonly UpdateDownloadOutcome _forcedOutcome;
 
+        /// <summary>DownloadAsyncが呼ばれた回数。ホスト検証で早期returnした場合に0のままであることの確認用。</summary>
+        public int CallCount { get; private set; }
+
         public FakeDownloader(byte[] zipBytes)
         {
             _zipBytes = zipBytes;
@@ -188,6 +222,7 @@ public class UpdateInstallPipelineTests
         public async Task<UpdateDownloadOutcome> DownloadAsync(
             string url, string destinationPath, IProgress<double>? progress, CancellationToken ct)
         {
+            CallCount++;
             if (_forcedOutcome.Status != UpdateDownloadStatus.Success || _zipBytes is null)
             {
                 return _forcedOutcome;

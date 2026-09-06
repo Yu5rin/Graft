@@ -158,24 +158,30 @@ public sealed partial class MainViewModel
             await TryAutoCommitAfterApplyAsync(project, result.Value).ConfigureAwait(true);
         }
 
-        // 実機不具合対応: 部分適用（一部のブロックが失敗している状態で、成功したブロックだけを
-        // 適用したとき）は、失敗の存在自体はエラーではなく正常系として扱う。ただし「失敗した
-        // ブロックがあったこと」自体は利用者に伝わるべき情報のため、成功の完了メッセージに
-        // 併記する（既存の「N件を適用します」等の文言と同じ「◯件」の言い回しに揃える）。
+        // 実機で確認された指摘1: 既定のマウス操作だと「解析」→「適用」→プレビュー窓の「適用」→
+        // 完了ダイアログの「OK」で4クリックかかり、しかもOKを押した瞬間にステータスバーへ
+        // 「rN として適用しました — 元に戻す」（ShowApplyUndoNotice、下記）が出る。同じ「適用が
+        // 完了した」という情報を、押しても何も増えないモーダルとステータスバーの二重で見せて
+        // いたことになる。失敗ブロックが0件（＝完全に成功）のときはダイアログを省略し、
+        // ステータスバー通知1本に一本化する。一方、失敗ブロックが1件以上残っているときは
+        // 「何が適用できなかったか」を伝える価値があるため、従来どおりダイアログで案内する
+        // （通知の文言はrNのみで、失敗件数までは含められないため）。
         //
         // 追加対応（実機点検）: 「（1件は適用できませんでした）」だけでは理由がどこにも書いて
         // おらず、利用者は次に何を見ればよいか分からなかった。失敗したブロックの理由（赤字）は
         // 接ぎ木パネルにそのまま残っているので、そこへ誘導する一言を必ず添える。
-        var completionMessage = updatedDryRun.FailedCount > 0
-            ? $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
-              $"{Environment.NewLine}適用できなかった理由は、接ぎ木パネルの各ブロックに赤字で残っています。"
-            : $"r{result.Value.Revision} として記録しました。";
-        await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
+        if (updatedDryRun.FailedCount > 0)
+        {
+            var completionMessage =
+                $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
+                $"{Environment.NewLine}適用できなかった理由は、接ぎ木パネルの各ブロックに赤字で残っています。";
+            await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
+        }
 
-        // 機能2: 適用直後の「元に戻す」通知（MainViewModel.ApplyUndoNotice.cs）。確認ダイアログを
-        // 閉じた後に出す（ダイアログ表示中はステータスバーが見えず、閉じるまでの間に数秒の
-        // 表示時間を消費してしまうため）。「適用が失敗した場合や、リビジョンが記録されなかった
-        // 場合には出さない」仕様のため、ここまで到達している時点で成功は確定しているが、
+        // 機能2: 適用直後の「元に戻す」通知（MainViewModel.ApplyUndoNotice.cs）。完了ダイアログを
+        // 出す場合は、それを閉じた後に出す（ダイアログ表示中はステータスバーが見えず、閉じるまでの
+        // 間に数秒の表示時間を消費してしまうため）。「適用が失敗した場合や、リビジョンが記録され
+        // なかった場合には出さない」仕様のため、ここまで到達している時点で成功は確定しているが、
         // 念のためentriesが1件も無い（実質的に何も変更されなかった）ケースは対象外にする。
         if (result.Value.Entries.Count > 0) ShowApplyUndoNotice(result.Value.Revision);
     }

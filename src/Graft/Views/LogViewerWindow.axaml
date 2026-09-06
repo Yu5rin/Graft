@@ -23,7 +23,7 @@
         入れているのは、ボタンでのコピーに加えてマウスでの範囲選択・部分コピーもできる
         ようにするため（不具合報告で該当行だけ貼り付けたい場合を考慮）。
     -->
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
 
         <StackPanel Grid.Row="0" Margin="16,16,16,8">
             <TextBlock Text="最新のログ"
@@ -53,7 +53,23 @@
                      AutomationProperties.Name="ログの内容" />
         </Border>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">
+        <!--
+            セキュリティ点検の指摘事項対応（「ログを不具合報告に貼る導線に注意書きが無い」）:
+            ログにAIの応答本文やファイルの中身は含まれないが、絶対パス（Windowsのユーザー名・
+            社内フォルダ名・サーバ名を含む）は調査上必要なため記録している（LogTailReaderの
+            クラスコメント参照）。「コピー」ボタンを押す前に気付ける導線が今まで1つも無く、
+            取扱説明書の「ファイルの中身そのものは記録されません。」という記載がむしろ
+            安全だという誤解を与えていたため、コピーボタンのすぐ上に常時表示の注意書きを置く
+            （非表示にできる設定は設けない。不具合報告に貼る直前に必ず目に入ることを優先する）。
+        -->
+        <TextBlock Grid.Row="2" Margin="16,0,16,8"
+                   Foreground="{DynamicResource TextSecondary}"
+                   FontSize="{DynamicResource CaptionFontSize}"
+                   TextWrapping="Wrap"
+                   Text="この内容にはWindowsのユーザー名・フォルダ名・サーバ名が含まれます。公開の場に貼る前にご確認ください。"
+                   AutomationProperties.Name="ログに含まれる情報についての注意" />
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="16,0,16,16">
             <Button Content="コピー" Click="OnCopyClicked" Margin="0,0,8,0"
                     AutomationProperties.Name="ログの内容をコピー"
                     local:HelpTip.Standard="表示している内容をすべてクリップボードへコピーします。"

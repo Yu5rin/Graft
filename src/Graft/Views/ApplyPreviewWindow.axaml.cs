@@ -34,6 +34,13 @@ public partial class ApplyPreviewWindow : Window
     }
 
     /// <summary>
+    /// 指摘4: 「今後は表示しない」チェックの有無。適用・キャンセルいずれで閉じても、
+    /// チェックされていれば設定側をオフにする（ShellWindow.OnApplyPreviewRequestedが
+    /// <see cref="ShowAndConfirmAsync"/>の戻り値を待った後に参照する）。
+    /// </summary>
+    public bool DontShowAgainRequested { get; private set; }
+
+    /// <summary>
     /// モーダル表示し、閉じるまで待ってから「適用」が押されたかどうかを返す。
     /// Escや×で閉じた場合はキャンセル扱い（false）とする。
     /// </summary>
@@ -41,6 +48,7 @@ public partial class ApplyPreviewWindow : Window
     {
         ArgumentNullException.ThrowIfNull(owner);
         await ShowDialog(owner).ConfigureAwait(true);
+        if (DataContext is ApplyPreviewViewModel viewModel) DontShowAgainRequested = viewModel.DontShowAgain;
         return _confirmed;
     }
 
