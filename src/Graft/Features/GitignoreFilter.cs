@@ -90,7 +90,22 @@ public sealed class GitignoreFilter
             {
                 continue;
             }
-            if (rule.Matcher.IsMatch(pathInBase))
+            // タイムアウトした規則は「このパスには一致しなかった」として読み飛ばす。
+            // 例外をそのまま投げると、呼び出し元は検索の走査中（CrossFileSearchEngine.WalkAsync）
+            // やコンテキスト収集中であり、除外規則1行の書き方のせいで機能全体が
+            // 落ちてしまう。1行だけが効かなくなるほうが被害が小さく、利用者は
+            // .gitignore を書き直せば復旧できる。
+            bool matched;
+            try
+            {
+                matched = rule.Matcher.IsMatch(pathInBase);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                continue;
+            }
+
+            if (matched)
             {
                 ignored = !rule.Negate;
                 label = rule.Negate ? null : rule.Label;
@@ -153,7 +168,14 @@ public sealed class GitignoreFilter
 
         var core = TranslateGlobToRegex(line);
         var pattern = anchored ? $"^{core}$" : $"(^|.*/){core}$";
-        var regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        // MatchTimeout を付ける理由: このパターンは開発者が書いた固定文字列ではなく、
+        // 利用者のプロジェクトにある .gitignore（およびプロジェクト設定の追加除外）から
+        // 組み立てられる。例えば "**/**/**/**/**/**/x" のような行は
+        // "(?:.*/)?" が何段も連なった正規表現になり、一致しない深いパスに対して
+        // 破滅的バックトラックを起こしうる。タイムアウトが無いと、検索や
+        // コンテキスト収集の途中でUIスレッドが永久に固まる（＝アプリが応答しなくなる）。
+        // 検索欄の正規表現と同じ 2 秒を上限とし、値の定義は SearchPatternBuilder に集約する。
+        var regex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled, SearchPatternBuilder.MatchTimeout);
         return new Rule(baseDir, negate, directoryOnly, regex, label);
     }
 
