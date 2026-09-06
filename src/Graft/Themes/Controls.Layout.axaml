@@ -33,7 +33,7 @@
                             HorizontalAlignment="Stretch"
                             Background="{DynamicResource Accent}" IsVisible="False" />
                     <Border Name="PART_FocusRing"
-                            BorderBrush="{DynamicResource Accent}"
+                            BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
                             IsHitTestVisible="False"
                             Opacity="0" />

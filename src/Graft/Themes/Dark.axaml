@@ -38,7 +38,11 @@
     <Color x:Key="TextPrimaryColor">#E6E8EB</Color>
     <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}" />
 
-    <Color x:Key="TextSecondaryColor">#9BA1A9</Color>
+    <!-- UI点検（項目2）対応: 旧値#9BA1A9はBgSelected（選択行の上）に対し実測4.41:1と、
+         基準4.5:1にわずかに届いていなかった（BgBase比6.95:1・BgSurface比6.41:1は元々
+         余裕があった）。同じ色相・彩度のまま明度をごくわずかに上げ、新値#9EA3ABは
+         BgSelected比4.53:1（BgBase比7.13:1・BgSurface比6.58:1はほぼ変わらず）。 -->
+    <Color x:Key="TextSecondaryColor">#9EA3AB</Color>
     <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
 
     <Color x:Key="TextDisabledColor">#5A6069</Color>
@@ -48,8 +52,17 @@
     <Color x:Key="AccentColor">#4C8DFF</Color>
     <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
 
+    <!-- ========== フォーカスリング（UI点検項目4対応） ========== -->
+    <!-- Accent自体がBgBase比5.65:1・BgSurface比5.21:1・BgSelected比3.59:1といずれも
+         UI部品の基準3:1を満たすため、独立したFocusRingColorは持たずAccentへそのまま乗せる。 -->
+    <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
-    <Color x:Key="BorderSubtleColor">#2A2E34</Color>
+    <!-- UI点検（項目5）対応: 旧値#2A2E34はBgBaseに対し実測1.33:1で、区切り線がほぼ視認
+         できなかった。同じ色相・彩度のまま明度を上げ（暗い背景なので明るくする方向）、
+         新値#3B4049はBgBaseに対し1.74:1（Light.axaml側のコメント参照。3:1まで上げると
+         「主張しない区切り」の意図を超えるため1.5〜2.0を狙った）。 -->
+    <Color x:Key="BorderSubtleColor">#3B4049</Color>
     <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
 
     <!-- ========== diff ========== -->
@@ -182,5 +195,12 @@
 
     <Color x:Key="SearchCurrentMatchBorderColor">#F98824</Color>
     <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
+    <!-- ========== チュートリアルの覆い（UI点検項目9対応） ========== -->
+    <!-- TutorialOverlay.axaml ScrimPath.Fill用。ダーク系テーマは元々の固定値
+         #8A000000（不透明度約54%）のままで違和感が無いとの指摘のため、値は変えず
+         トークン化のみ行う（詳細な経緯はLight.axaml側の同見出しコメント参照）。 -->
+    <Color x:Key="TutorialScrimColor">#8A000000</Color>
+    <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
 </ResourceDictionary>

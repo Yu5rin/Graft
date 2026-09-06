@@ -21,6 +21,18 @@
     （9.1: 常時可視の要件のため）。
   - WPFのStrokeStartLineCap/StrokeEndLineCapはAvaloniaではStrokeLineCap 1つに、
     StrokeLineJoinはStrokeJoinという名前になる（値は変えていない）。
+
+  【UI点検（項目4）対応: フォーカスリング色をAccentから独立させた】
+  従来フォーカスリング（PART_FocusRing）はBorderBrushに直接{DynamicResource Accent}を
+  使っていたが、Solarized Light/Sepiaの2テーマはAccent単体だと本文背景に対し3:1未満
+  （実測はSolarizedLight.axaml/Sepia.axaml側の該当コメント参照）で、9.1「フォーカスは
+  常時可視」の要件を満たせなかった。Accent自体を濃くする案は、ToggleButtonのオン表示・
+  TabItemの選択帯・GridSplitterのホバー・ProgressBar・ハイパーリンク色など他の意味にも
+  一括で波及してしまうため見送り、フォーカスリング専用の新トークンFocusRing
+  （Color版FocusRingColorは値がAccentと異なるテーマのみ持つ。IndentGuideHoverと同じ
+  「差分が無ければ新規キーを増やさない」規則）を9テーマ全てに追加し、この
+  PART_FocusRingのBorderBrushだけをFocusRingへ差し替えた。値の由来・実測値は
+  各テーマファイルの「フォーカスリング」見出しコメントを参照。
 -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -54,7 +66,7 @@
                     <!-- 9.1: フォーカスリングはIsFocusedならぬ:focusで反応させ、
                          マウスクリックによるフォーカスでも消さない。 -->
                     <Border Name="PART_FocusRing"
-                            BorderBrush="{DynamicResource Accent}"
+                            BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
                             IsHitTestVisible="False"
                             Opacity="0" />
@@ -107,7 +119,7 @@
                                           RecognizesAccessKey="True" />
                     </Border>
                     <Border Name="PART_FocusRing"
-                            BorderBrush="{DynamicResource Accent}"
+                            BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
                             IsHitTestVisible="False"
                             Opacity="0" />
@@ -186,7 +198,7 @@
                         </ScrollViewer>
                     </Border>
                     <Border Name="PART_FocusRing"
-                            BorderBrush="{DynamicResource Accent}"
+                            BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
                             IsHitTestVisible="False"
                             Opacity="0" />

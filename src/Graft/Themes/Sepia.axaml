@@ -72,18 +72,43 @@
     <Color x:Key="TextPrimaryColor">#3B2F22</Color>
     <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}" />
 
-    <Color x:Key="TextSecondaryColor">#7A6A55</Color>
+    <!-- UI点検（項目2）対応: 旧値#7A6A55（Paneのink-sub）はBgBase比3.75:1・BgSurface比
+         4.44:1・BgSelected比3.99:1のいずれも基準4.5:1に届いていなかった。同じ色相・
+         彩度を保ったまま明度を下げ、新値#6C5D4BはBgBase比4.57:1・BgSurface比5.40:1・
+         BgSelected比4.85:1といずれも基準を満たす（TextPrimaryのBgSelected比9.92:1には
+         十分な差があり、本文との濃さの違いも保たれている）。 -->
+    <Color x:Key="TextSecondaryColor">#6C5D4B</Color>
     <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
 
-    <Color x:Key="TextDisabledColor">#B1A490</Color>
+    <!-- UI点検（項目1）対応: 旧値#B1A490はBgBaseに対し実測1.76:1しか無く、コマンドバーの
+         無効ボタンや接ぎ木パネルの「失敗を再依頼／破棄／プレビュー／適用」が判読不能
+         だった。同じ色相・彩度を保ったまま明度を下げ、新値#86765EはBgBase比3.17:1・
+         BgSurface比3.74:1（いずれもUI部品の基準3:1以上）。上のTextSecondary
+         （BgBase比4.57:1）よりは明らかに薄く、「無効に見える」印象は保たれる。 -->
+    <Color x:Key="TextDisabledColor">#86765E</Color>
     <SolidColorBrush x:Key="TextDisabled" Color="{StaticResource TextDisabledColor}" />
 
     <!-- ========== アクセント（1色のみ） ========== -->
     <Color x:Key="AccentColor">#A9762C</Color>
     <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
 
+    <!-- ========== フォーカスリング（UI点検項目4対応） ========== -->
+    <!-- Accent（#A9762C）はBgBaseに対し実測2.84:1しか無く、UI部品の基準3:1未満。
+         9.1「フォーカスは常時可視」を満たせないため、Accent自体は他の意味（強調・選択・
+         リンク色）にも波及するので変更せず、独立したFocusRingColorトークンを新設する。
+         値はこのファイル内で既にAccent不足問題を解決済みのIndentGuideHoverColor
+         （#8B3A2B、深いテラコッタ＝SyntaxKeywordColorと同値）をそのまま再利用した
+         （同じ根拠・同じ色で「アクセントの代役」を統一する）。実測: BgBase比5.51:1・
+         BgSurface比6.51:1・BgSelected（選択行の上）比5.85:1、いずれも基準3:1を
+         大きく上回る。 -->
+    <Color x:Key="FocusRingColor">#8B3A2B</Color>
+    <SolidColorBrush x:Key="FocusRing" Color="{StaticResource FocusRingColor}" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
-    <Color x:Key="BorderSubtleColor">#E3D5B8</Color>
+    <!-- UI点検（項目5）対応: 旧値#E3D5B8（Paneのrule変数）はBgBaseに対し実測1.04:1で、
+         区切り線がほぼ視認できなかった。同じ色相・彩度を保ったまま明度だけ下げ、
+         新値#C1A262はBgBase比1.75:1（詳細な狙いはLight.axaml側の同見出しコメント参照）。 -->
+    <Color x:Key="BorderSubtleColor">#C1A262</Color>
     <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
 
     <!-- ========== diff（Pane非対応のため独自算出。ファイル冒頭コメント参照） ========== -->
@@ -181,5 +206,11 @@
 
     <Color x:Key="SearchCurrentMatchBorderColor">#914604</Color>
     <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
+    <!-- ========== チュートリアルの覆い（UI点検項目9対応） ========== -->
+    <!-- 明るいテーマなので不透明度を約40%（#66）に落とす（詳細な経緯はLight.axaml側の
+         同見出しコメント参照）。 -->
+    <Color x:Key="TutorialScrimColor">#66000000</Color>
+    <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
 </ResourceDictionary>

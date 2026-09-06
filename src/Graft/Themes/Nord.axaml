@@ -82,6 +82,11 @@
     <Color x:Key="AccentColor">#88C0D0</Color>
     <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
 
+    <!-- ========== フォーカスリング（UI点検項目4対応） ========== -->
+    <!-- Accent自体がBgBase比7.30:1・BgSurface比6.24:1・BgSelected比4.59:1といずれも
+         UI部品の基準3:1を満たすため、独立したFocusRingColorは持たずAccentへそのまま乗せる。 -->
+    <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
     <Color x:Key="BorderSubtleColor">#434C5E</Color>
     <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
@@ -180,5 +185,11 @@
 
     <Color x:Key="SearchCurrentMatchBorderColor">#FA8B2B</Color>
     <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
+    <!-- ========== チュートリアルの覆い（UI点検項目9対応） ========== -->
+    <!-- ダーク系テーマなので値は変えずトークン化のみ行う（詳細な経緯はLight.axaml側の
+         同見出しコメント参照）。 -->
+    <Color x:Key="TutorialScrimColor">#8A000000</Color>
+    <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
 </ResourceDictionary>
