@@ -164,7 +164,7 @@ public sealed class PathGuard
     /// settings.json・projects.json・back/（バックアップ・履歴の実体）・logs/等が置かれる場所）の
     /// 絶対パス。設定されていれば、<see cref="Resolve"/>は「プロジェクトルート自身がデータ保存先と
     /// 同じか、データ保存先を配下に含んでいる」場合に、そのプロジェクトへのあらゆる書き込みを
-    /// 拒否する（<see cref="ErrorCode.E214"/>）。
+    /// 拒否する（<see cref="ErrorCode.E215"/>）。
     /// <para>
     /// 【判定基準はプロジェクトルート単位であり、個々のファイルパスではない】 危険なのは
     /// 「settings.json・projects.json（データ保存先の直下）が、あるプロジェクトの<see cref="Resolve"/>で
@@ -310,7 +310,7 @@ public sealed class PathGuard
         // （ProtectedDataDirectory・RootOverlapsProtectedDataDirectoryのコメント参照）。
         if (RootOverlapsProtectedDataDirectory())
         {
-            return GraftResult<string>.Fail(ErrorCode.E214, "プロジェクトルートがデータ保存先と重なっています", path: relativePath);
+            return GraftResult<string>.Fail(ErrorCode.E215, "プロジェクトルートがデータ保存先と重なっています", path: relativePath);
         }
 
         if (string.IsNullOrWhiteSpace(relativePath))
