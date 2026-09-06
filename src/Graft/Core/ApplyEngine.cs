@@ -120,7 +120,29 @@ public sealed partial class ApplyEngine
             return GraftResult<RevisionManifest>.Fail(executed.Issues);
         }
 
-        var finalManifest = initial with { Status = RevisionStatus.Success, Entries = executed.Value };
+        // 実機不具合対応（履歴の「Nファイル」が実際の変更件数と食い違う）:
+        // BuildInitialManifestが載せるplan.Stats（DryRunPlanner.ComputeStats）は、ドライラン時点の
+        // 全ブロックを対象にした見積もりであり、「適用できなかったブロック」「利用者がチェックを
+        // 外したブロック」まで数に入れている。1ファイルだけ適用したリビジョンのmanifest.jsonが
+        // "stats": { "files": 2 } なのにentriesは1件、履歴ペインは「2ファイル +1 -1」と表示する、
+        // という食い違いが実機で確認された。履歴を後から見た利用者は「2ファイル変えた」と誤解し、
+        // 復元の影響範囲の判断まで誤る。
+        //
+        // そこで確定時に、実際に書き込んだ結果から数え直す。
+        // ・Files: 実際に記録されたentries（＝本当に書き換えた対象）の相異なるパス数。
+        // ・Added/Removed: entriesは行数を持たないため、実行対象そのものであるeligiblePlans
+        //   （IsSelected && CanApply。ExecuteAsyncが実行する集合と同一の条件）から数える。
+        //   ここまで到達している時点でExecuteAsyncは成功しており（失敗時は上でロールバックして
+        //   returnする）、eligiblePlansと実際に適用された内容は一致する。
+        // ・EstimatedTokens/EstimatedSavedTokens はパッチ本文そのものの見積もりで、
+        //   どのブロックを適用したかとは無関係のため、plan.Statsの値をそのまま引き継ぐ。
+        var appliedStats = initial.Stats with
+        {
+            Files = executed.Value.Select(e => e.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            Added = eligiblePlans.Sum(p => p.Added),
+            Removed = eligiblePlans.Sum(p => p.Removed),
+        };
+        var finalManifest = initial with { Status = RevisionStatus.Success, Entries = executed.Value, Stats = appliedStats };
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
         if (!completed.IsSuccess) return GraftResult<RevisionManifest>.Fail(completed.Issues);
 

@@ -112,7 +112,12 @@
 
         <!-- ========== 状態表示 ========== -->
         <StackPanel Grid.Row="3" Margin="12,0,8,4">
+            <!-- 実機不具合対応: StatusTextには件数だけでなく「正規表現が不正です…」のような
+                 エラー文言も入る（SearchViewModel.UpdateStatus）。TextWrapping指定が無かった
+                 ため、右端で見切れて肝心の説明が読めなかった。すぐ下のTruncatedMessageには
+                 最初からWrapが付いているので、それに合わせる。 -->
             <TextBlock Text="{Binding StatusText}"
+                       TextWrapping="Wrap"
                        FontSize="{DynamicResource CaptionFontSize}"
                        Foreground="{DynamicResource TextSecondary}"
                        AutomationProperties.Name="検索結果件数"

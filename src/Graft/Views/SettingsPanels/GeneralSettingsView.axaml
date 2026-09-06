@@ -77,7 +77,14 @@
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
             </StackPanel>
+            <!-- UI点検（項目7）対応: fieldHintクラスのForeground（TextSecondary）のままだと
+                 「フォントの見え方を確かめる」ためのプレビュー文字列が画面で一番薄い色になり、
+                 ライト系テーマでは判断しづらかった。Classesは残したまま、Foregroundだけを
+                 明示的にTextPrimaryへ上書きする（色担当の修正）。
+                 UI点検（項目13）対応: FontSize直値15pxをPreviewSampleFontSizeトークンへ
+                 切り出した（レイアウト担当の修正。見た目のサイズは変えていない）。 -->
             <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="{DynamicResource PreviewSampleFontSize}"
+                       Foreground="{DynamicResource TextPrimary}"
                        FontFamily="{Binding SelectedFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
                        AutomationProperties.Name="本文フォントのプレビュー" />
             <StackPanel Classes="fieldRow">
@@ -98,7 +105,12 @@
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
             </StackPanel>
+            <!-- UI点検（項目7）対応: 上の本文フォントのプレビューと同じ理由で
+                 ForegroundをTextPrimaryへ明示的に上書きする（色担当の修正）。
+                 UI点検（項目13）対応: FontSize直値15pxをPreviewSampleFontSizeトークンへ
+                 切り出した（レイアウト担当の修正。見た目のサイズは変えていない）。 -->
             <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,8" FontSize="{DynamicResource PreviewSampleFontSize}"
+                       Foreground="{DynamicResource TextPrimary}"
                        FontFamily="{Binding SelectedMonospaceFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
                        AutomationProperties.Name="等幅フォントのプレビュー" />
 
