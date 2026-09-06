@@ -14,8 +14,75 @@ public sealed record PathGuardOptions
         ".md", ".sql", ".xml", ".txt",
     };
 
+    /// <summary>
+    /// v1.0.15 セキュリティ対応: 拡張子を持たないファイル名のうち、書き込みを許可するものの一覧。
+    /// <para>
+    /// 【なぜ必要か】 従来は「<c>Path.GetExtension</c> が空文字なら拡張子ホワイトリストの判定
+    /// そのものを飛ばす」という作りだった（<c>Dockerfile</c> や <c>LICENSE</c> を通すための対応）。
+    /// しかしこれは「拡張子が無い名前は<b>すべて</b>無条件に通る」という意味になり、
+    /// <c>.git/hooks/pre-commit</c>・<c>Makefile</c>・<c>script</c>・<c>CON</c> といった名前が
+    /// そのまま書き込めることを実測で確認した。拡張子が無いこと自体は「安全である根拠」に
+    /// まったくならない（実行権限を付ければ動く）。そこで<b>飛ばす</b>のをやめ、
+    /// <b>名前そのものの許可リスト</b>で判定する。
+    /// </para>
+    /// <para>
+    /// 【何を入れて、何を入れないか】 入れているのは「利用者が明示的にビルド／実行コマンドを
+    /// 叩いたときだけ読まれる」ファイルである（<c>make</c>・<c>docker build</c>・<c>rake</c> 等）。
+    /// これは既に許可している <c>.py</c> や <c>.js</c> と同じ性質で、書けること自体が
+    /// 直ちに実行を意味しない。逆に<b>入れていない</b>のは、利用者が何も指示しなくても
+    /// 勝手に走る種類のもの——<c>.git/hooks/*</c>（Gitの操作で自動実行。そもそも
+    /// <see cref="PathGuard"/>が<c>.git</c>配下ごと拒否する）や、
+    /// <c>.bashrc</c>・<c>.profile</c>・<c>.envrc</c>（シェルやdirenvが起動時に自動で読み込む）
+    /// である。この線引きが、今回のセキュリティ点検で見つかった問題の再発を防ぐ基準になる。
+    /// </para>
+    /// <para>
+    /// 【ドットで始まる名前を同じ一覧に入れている理由】 <c>Path.GetExtension(".gitignore")</c> は
+    /// <c>".gitignore"</c>（＝名前全体）を返すため、拡張子ホワイトリストで判定すると必ず外れる。
+    /// 実際、修正前は <c>Makefile</c> が通るのに <c>.gitignore</c> が E202 で拒否されるという
+    /// 不整合が起きていた。<c>.gitignore</c> は<b>プロジェクト直下の普通のファイル</b>であり、
+    /// <c>.git</c> フォルダとは別物なので許可されるべきである。ドットで始まり他にドットを
+    /// 含まない名前は「実質的に拡張子を持たない名前」として、同じ許可リストで判定する
+    /// （<see cref="PathGuard"/>の判定コード参照）。
+    /// </para>
+    /// </summary>
+    private static readonly IReadOnlyList<string> DefaultAllowedExtensionlessNames = new[]
+    {
+        // ビルド・実行の定義ファイル（利用者が明示的にコマンドを叩いたときだけ読まれる）
+        "Dockerfile", "Containerfile", "Makefile", "GNUmakefile",
+        "Rakefile", "Gemfile", "Procfile", "Jenkinsfile", "Vagrantfile", "Brewfile", "Justfile",
+        // 説明・法務系のテキスト（拡張子を付けない慣習が強いもの）
+        "LICENSE", "LICENCE", "COPYING", "NOTICE", "README", "CHANGELOG", "HISTORY",
+        "AUTHORS", "CONTRIBUTORS", "CONTRIBUTING", "TODO", "VERSION", "CODEOWNERS",
+        // ドットで始まる設定ファイル（自動実行されない、宣言的な設定のみ）
+        ".gitignore", ".gitattributes", ".gitmodules", ".gitkeep",
+        ".editorconfig", ".dockerignore", ".npmignore", ".npmrc",
+        ".prettierrc", ".prettierignore", ".eslintrc", ".eslintignore",
+        ".env",
+    };
+
     /// <summary>許可する拡張子（先頭ドット付き）。既定は.exe/.dll/.bat/.ps1等を含まないテキスト系のみ。</summary>
     public IReadOnlyList<string> AllowedExtensions { get; init; } = DefaultAllowedExtensions;
+
+    /// <summary>
+    /// 拡張子を持たないファイル名のうち書き込みを許可するもの（<c>Dockerfile</c>・<c>Makefile</c>・
+    /// <c>.gitignore</c> 等）。判定は大文字小文字を無視する。既定値の選定理由は
+    /// <see cref="DefaultAllowedExtensionlessNames"/> のコメント参照。
+    /// <para>
+    /// 設定画面には出していない（<see cref="Infra.SafetySettings"/>に対応する項目を作っていない）。
+    /// 拡張子と違って利用者が増やしたくなる場面がまだ見えておらず、増やせる口を先に作ると
+    /// 「安全側の既定」を素通りさせる手段だけが残るため。プロジェクト個別の要求が出てきたら、
+    /// <see cref="AllowedExtensions"/>と同じ経路（<see cref="Features.ProjectOverrideResolver"/>）で
+    /// 足せるように、ここは<c>init</c>で差し替え可能にしてある。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> AllowedExtensionlessNames { get; init; } = DefaultAllowedExtensionlessNames;
+
+    /// <summary>
+    /// v1.0.15 セキュリティ対応: 配下への書き込みを常に拒否する、バージョン管理システムの
+    /// 内部フォルダ名。判定は大文字小文字を無視する（Windowsでは <c>.GIT</c> も同じ場所を指す）。
+    /// 理由は<see cref="PathGuard"/>の該当判定のコメント参照。
+    /// </summary>
+    public IReadOnlyList<string> DeniedDirectorySegments { get; init; } = new[] { ".git", ".hg", ".svn" };
 
     /// <summary>1ファイルあたりの最大サイズ（MB）。</summary>
     public int MaxFileSizeMB { get; init; } = 10;
@@ -181,6 +248,84 @@ public sealed class PathGuard
             return GraftResult<string>.Fail(ErrorCode.E201, "上位ディレクトリの参照(..)は許可されていません", path: relativePath);
         }
 
+        // v1.0.15 セキュリティ対応（穴3）: セグメントに ':' を含むパスを、パスを組み立てる前に拒否する。
+        //
+        // 【なぜ要るか】 Windowsの代替データストリーム（NTFSのADS）の記法 <ファイル名>:<ストリーム名>
+        // により、拡張子ホワイトリストを回避できることを実測で確認した。
+        //   evil.exe:payload.txt → Path.GetExtension は ".txt" を返す → 許可拡張子として通過
+        //   payload.txt:hidden   → ".txt:hidden"                      → E202（たまたま拒否）
+        //   a.txt::$DATA         → ".txt::$DATA"                      → E202（たまたま拒否）
+        // つまり「危険な拡張子の実体を書き込みたい」側から見れば、ストリーム名の末尾を
+        // 許可拡張子で終わらせるだけでホワイトリストを素通りできる。ホワイトリストの側を
+        // いくら整えても、拡張子の切り出し規則そのものを悪用されるため塞げない。
+        //
+        // 【なぜ正常な用途を壊さないか】 Windowsではファイル名に ':' を使えない（予約文字）。
+        // Linux/macOSでは使えるが、Graftが対象とするプロジェクト（Windowsとの往復を前提とした
+        // ソースツリー）でファイル名に ':' を使うことは実質的に無い。両OSで同じ結論になる方が
+        // 「Windows実機だけ挙動が違う」事故を生まないため、プラットフォームで分岐せず一律で拒否する。
+        //
+        // 【なぜ絶対パス判定より後か】 絶対パス（"C:\..."）はドライブ文字のところで ':' を含む。
+        // 先にこの判定を置くと、絶対パスが E201（ルート外）ではなく E212 になってしまい、
+        // 従来のエラー表示と食い違う。絶対パスは手前の IsAbsolutePath で既に弾いてある。
+        //
+        // 【実機確認の限界（正直な報告）】 Windows実機で Path.GetFullPath(@"C:\proj\evil.exe:payload.txt")
+        // が何を返し、実際にADSとして書き込まれるかまでは未確認である（開発環境がLinuxのため）。
+        // ただし「拡張子の切り出しがホワイトリストを回避する」ことはLinux上でも実測済みで、
+        // 塞ぐこと自体に正常な用途への害が無いため、実機確認を待たずに塞ぐ。
+        var colonSegment = segments.FirstOrDefault(s => s.Contains(':'));
+        if (colonSegment is not null)
+        {
+            return GraftResult<string>.Fail(
+                ErrorCode.E212,
+                $"パスの構成要素 '{colonSegment}' に使用できない文字 ':' が含まれています",
+                path: relativePath);
+        }
+
+        // v1.0.15 セキュリティ対応（穴1・最優先）: バージョン管理システムの内部フォルダ配下への
+        // 書き込みを常に拒否する。
+        //
+        // 【なぜ最優先か】 .git 配下へ書けることは、実質的に「利用者の環境での任意コード実行」である。
+        //   - git は対象リポジトリの .git/config を読む。core.fsmonitor 等の設定値はコマンドとして
+        //     実行されるため、config を書き換えられた時点で、以後の任意の git 実行が乗っ取られる。
+        //     Graftは editor.gitGutter が既定オンで（Infra/Settings.cs）、GitIntegration が
+        //     プロジェクトルートを作業ディレクトリに git を起動する。つまり利用者が何もしなくても
+        //     この経路は踏まれる。
+        //   - .git/hooks/pre-commit 等のフックは、git commit のたびに実行される。git.autoCommit が
+        //     オンなら適用直後に、オフでも利用者自身の次のコミットで走る。
+        // 実測では、AIの出力に混ぜた <<<< FILE: .git/hooks/pre-commit の1ブロックが、
+        // 解析（canApply=True）から適用（applySuccess=True）まで通り、実際にフックが書き込まれた。
+        //
+        // 【なぜ拡張子検査より手前か / なぜ checkExtension に関係なく効くか】 上記のとおり
+        // .git/hooks/pre-commit や .git/config は拡張子を持たない、あるいは許可拡張子を持つ名前で
+        // あり、拡張子の判定では止まらない。またフォルダ作成（ResolveDirectory）や取り込み
+        // （ResolveImportTarget）は拡張子検査を通さない設計のため、拡張子検査の中に置くと
+        // それらの経路が素通りしてしまう。「どの経路であっても .git の中身は書き換えない」という
+        // 一本の規則にするため、経路によらず必ず通るこの位置に置く。
+        //
+        // 【なぜ E201 ではないか】 E201 は「パスがルート外」であり、.git はルートの「内側」に
+        // ある。E201 を流用すると利用者には「ルート外だと言われたが、どう見てもルート内にある」と
+        // しか読めず、何が起きたのか伝わらない。専用の E211 を新設した（E707 は仕様書17章で
+        // 「欠番」と明記されているため使わない。ErrorCodes.cs の E709/E710 と同じ判断）。
+        //
+        // 【先頭セグメントに限定しない理由】 依頼は「先頭セグメントが .git のパス」だったが、
+        // 判定はすべてのセグメントに対して行う。サブモジュールや vendor/ に取り込んだ
+        // 入れ子のリポジトリ（vendor/lib/.git/hooks/pre-commit）も、利用者がそのフォルダで
+        // git を操作すれば同じようにフックが走るため、危険度は先頭と変わらない。一方で
+        // 「.git という名前のフォルダの中に置きたい正当なファイル」は存在しないため、
+        // 広げても正常な用途を壊さない。
+        //
+        // 【前方一致にしない理由】 .github（GitHub Actions のワークフロー等）・.gitignore は
+        // まったくの別物で、書けなくなると実用上困る。比較は必ずセグメント全体の一致で行う。
+        var deniedSegment = segments.FirstOrDefault(
+            s => _options.DeniedDirectorySegments.Any(d => string.Equals(d, s, StringComparison.OrdinalIgnoreCase)));
+        if (deniedSegment is not null)
+        {
+            return GraftResult<string>.Fail(
+                ErrorCode.E211,
+                $"バージョン管理の内部フォルダ '{deniedSegment}' の配下は書き換えられません",
+                path: relativePath);
+        }
+
         string combined;
         try
         {
@@ -214,15 +359,52 @@ public sealed class PathGuard
 
         if (checkExtension)
         {
-            var extension = Path.GetExtension(combined);
-            // 不具合2対応: 拡張子ホワイトリストは「.exe/.bat等の危険な拡張子を遮断する」ことが
-            // 目的であり、"Dockerfile"やLICENSEのような拡張子そのものが無いファイル名は
-            // 遮断対象の想定外だった（エクスプローラで拡張子なしのファイルを新規作成できない
-            // 不具合の原因）。拡張子が付いている場合のみホワイトリストで判定する。
-            if (extension.Length > 0 &&
-                !_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
+            var fileName = Path.GetFileName(combined);
+
+            // v1.0.15 セキュリティ対応（穴2・穴4）: 「拡張子が無ければ無条件に通す」のをやめた。
+            //
+            // 【従来の作りと、それが穴だった理由】 不具合2対応として入れた
+            // 「extension.Length > 0 のときだけホワイトリストで判定する」は、"Dockerfile" や
+            // LICENSE を通すための対応だったが、実際には「拡張子の無い名前をすべて素通りさせる」
+            // 判定になっていた。実測で .git/hooks/pre-commit・Makefile・script・CON・NUL・COM1 が
+            // すべて通過し、適用エンジン経由で実際に書き込めることを確認している。
+            // 拡張子ホワイトリストは「AIやGraft自身がテキストとして新規に書き込む内容」に対する
+            // 安全策（ResolveImportTargetのコメント参照）であり、拡張子の有無はその判断材料に
+            // ならない。そこで拡張子が無い場合は「名前そのものの許可リスト」で判定する。
+            //
+            // 【ドットで始まる名前をどう扱うか】 Path.GetExtension(".gitignore") は名前全体
+            // （".gitignore"）を返すため、これを拡張子として扱うと必ずホワイトリストから外れる。
+            // 実測でも .gitignore・.gitattributes・.editorconfig・.dockerignore はすべて E202 に
+            // なっていた（Makefile は通るのに .gitignore は通らないという不整合）。これらは
+            // .git フォルダとは別物の、プロジェクト直下の普通のファイルであり、許可されるべきである。
+            // 「先頭がドットで、それ以外にドットを含まない」名前は実質的に拡張子を持たない名前と
+            // みなし、拡張子ではなく名前の許可リストで判定する。
+            //   .gitignore   → 名前の許可リスト（許可）
+            //   .hidden.exe  → 2つ目のドットがあるので拡張子 ".exe" として判定（拒否）
+            //   .env.sh      → 拡張子 ".sh" として判定（拒否）
+            //
+            // 【Windowsの予約デバイス名（CON/NUL/COM1 等）について】 これらも拡張子を持たないため
+            // 従来は素通りしていたが、名前の許可リストに入れていないので自動的に拒否される。
+            // Windows実機で Path.GetFullPath(@"C:\proj\CON") が何を返すか（\\.\CON を返すなら
+            // IsWithinRoot で既に外れる）は未確認だが、どちらに転んでも拒否されるため追加対応は不要。
+            var isDotOnlyName = fileName.StartsWith('.') && fileName.IndexOf('.', 1) < 0;
+            var extension = isDotOnlyName ? string.Empty : Path.GetExtension(combined);
+
+            if (extension.Length > 0)
             {
-                return GraftResult<string>.Fail(ErrorCode.E202, $"拡張子 '{extension}' は許可されていません", path: relativePath);
+                if (!_options.AllowedExtensions.Any(a => string.Equals(a, extension, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return GraftResult<string>.Fail(ErrorCode.E202, $"拡張子 '{extension}' は許可されていません", path: relativePath);
+                }
+            }
+            else if (!_options.AllowedExtensionlessNames.Any(
+                         n => string.Equals(n, fileName, StringComparison.OrdinalIgnoreCase)))
+            {
+                return GraftResult<string>.Fail(
+                    ErrorCode.E202,
+                    $"拡張子の無いファイル名 '{fileName}' は許可されていません" +
+                    "（Dockerfile・Makefile・LICENSE・.gitignore などの決まった名前のみ許可しています）",
+                    path: relativePath);
             }
         }
 

@@ -280,13 +280,24 @@ public sealed class FileTreeService
 
     /// <summary>
     /// 異常系点検「低」4件目の対応: 実行時のOSが返す不許可文字一覧
-    /// （<see cref="Path.GetInvalidFileNameChars"/>）。Windows実機ではコロン・アスタリスク等
-    /// 多数を返すが、Linux上ではNUL文字と'/'（本メソッドでは別途<see cref="PathSeparators"/>で
-    /// 検証済み）程度しか返らない（実機・開発機の違いにより検証範囲が変わる点は
-    /// クラスコメント末尾の実測メモ参照）。staticフィールドとして1回だけ取得する
-    /// （実行中にOSが変わることはないため）。
+    /// （<see cref="Path.GetInvalidFileNameChars"/>）から ':' を除いたもの。Windows実機では
+    /// コロン・アスタリスク等多数を返すが、Linux上ではNUL文字と'/'（本メソッドでは別途
+    /// <see cref="PathSeparators"/>で検証済み）程度しか返らない（実機・開発機の違いにより
+    /// 検証範囲が変わる点はクラスコメント末尾の実測メモ参照）。
+    ///
+    /// 【':' を除く理由（PathGuardとのメッセージ重複解消）】 v1.0.15セキュリティ対応
+    /// （<see cref="PathGuard"/>の穴3対応・<see cref="Core.ErrorCode.E212"/>）で、代替データ
+    /// ストリーム記法（<c>evil.exe:payload.txt</c>）による拡張子ホワイトリスト回避を防ぐため、
+    /// パスのセグメントに ':' を含む場合を専用のE212（「Windowsの予約文字で、代替データ
+    /// ストリームの指定と解釈されます」という具体的な理由付き）で拒否する経路が追加された。
+    /// もしここでも ':' を「使用できない文字」として一緒くたに拒否してしまうと、Windows実機
+    /// では常にこちら（E213、一般的な文言）が先に発火してPathGuard側のE212（より具体的な
+    /// 理由）へ絶対に到達しなくなり、Linux開発機とWindows実機とで表示される理由が食い違う
+    /// （実機だけ情報量の少ないメッセージになる）事故になる。':' の判定はPathGuard側の
+    /// 専用チェックに委ね、ここでは残りの文字（Windowsでは<c>&lt; &gt; " | ? *</c>等）だけを見る。
+    /// staticフィールドとして1回だけ取得する（実行中にOSが変わることはないため）。
     /// </summary>
-    private static readonly char[] InvalidNameChars = Path.GetInvalidFileNameChars();
+    private static readonly char[] InvalidNameChars = Path.GetInvalidFileNameChars().Where(c => c != ':').ToArray();
 
     private static readonly char[] PathSeparators = { '/', '\\' };
 
@@ -314,12 +325,12 @@ public sealed class FileTreeService
     {
         if (string.IsNullOrWhiteSpace(name))
         {
-            return GraftIssue.Of(ErrorCode.E211, "名前を入力してください。");
+            return GraftIssue.Of(ErrorCode.E213, "名前を入力してください。");
         }
 
         if (name.IndexOfAny(PathSeparators) >= 0)
         {
-            return GraftIssue.Of(ErrorCode.E211,
+            return GraftIssue.Of(ErrorCode.E213,
                 "名前に \"/\" や \"\\\" を含めることはできません（サブフォルダの指定はできません）。", path: name);
         }
 
@@ -329,12 +340,12 @@ public sealed class FileTreeService
         // （char.IsControlはNUL・タブ・改行等のC0/C1制御文字をすべて対象にする）。
         if (name.Any(char.IsControl))
         {
-            return GraftIssue.Of(ErrorCode.E211, "名前に改行やタブなどの制御文字を含めることはできません。", path: name);
+            return GraftIssue.Of(ErrorCode.E213, "名前に改行やタブなどの制御文字を含めることはできません。", path: name);
         }
 
         if (name.IndexOfAny(InvalidNameChars) >= 0)
         {
-            return GraftIssue.Of(ErrorCode.E211, "名前に使用できない文字が含まれています。", path: name);
+            return GraftIssue.Of(ErrorCode.E213, "名前に使用できない文字が含まれています。", path: name);
         }
 
         // 実測: "a.txt "（末尾に半角空白）を新規作成すると、実際の問題（末尾の空白）とは
@@ -344,7 +355,7 @@ public sealed class FileTreeService
         // （末尾の空白）を言い当てる。
         if (name.Length != name.TrimEnd().Length)
         {
-            return GraftIssue.Of(ErrorCode.E211, "名前の末尾に空白を含めることはできません。", path: name);
+            return GraftIssue.Of(ErrorCode.E213, "名前の末尾に空白を含めることはできません。", path: name);
         }
 
         // Windowsのエクスプローラ自体が末尾ピリオドの名前を拒否する（NTFSの制約に由来）。
@@ -352,7 +363,7 @@ public sealed class FileTreeService
         // 開けない名前」を作ってしまわないよう、ここで事前に弾く。
         if (name.EndsWith('.'))
         {
-            return GraftIssue.Of(ErrorCode.E211, "名前の末尾にピリオド(.)を含めることはできません。", path: name);
+            return GraftIssue.Of(ErrorCode.E213, "名前の末尾にピリオド(.)を含めることはできません。", path: name);
         }
 
         // 実測: 300文字の名前で「予期しないエラーが発生しました…（詳細: The path '…' is too
@@ -361,7 +372,7 @@ public sealed class FileTreeService
         // 1コンポーネントあたりの上限に合わせた値で、OS例外に到達する前に日本語で理由を伝える。
         if (name.Length > 255)
         {
-            return GraftIssue.Of(ErrorCode.E211, $"名前が長すぎます（{name.Length}文字）。255文字以内にしてください。", path: name);
+            return GraftIssue.Of(ErrorCode.E213, $"名前が長すぎます（{name.Length}文字）。255文字以内にしてください。", path: name);
         }
 
         return null;
