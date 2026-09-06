@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,11 +16,87 @@ public sealed class ProjectStore
     private readonly AppPaths _paths;
     private readonly JsonFileStore _store;
 
+    /// <summary>
+    /// projects.json 1ファイルにつき1本の排他ゲート。
+    ///
+    /// 【なぜ必要か（実測した不具合）】 このクラスの更新系メソッドはいずれも
+    /// 「LoadAsync → 加工 → SaveAsync」という読み書き分離の形をしている。この間に排他が
+    /// 無かったため、同一プロセス内で並行して呼ばれると後勝ちの全件上書きが起き、実際に次の
+    /// データ不整合を計測できた。
+    /// ・<see cref="ConsumeNextRevisionAsync"/> を20並行 → 20件すべてが同じ 1 を返し、
+    ///   nextRevision は 21 ではなく 2 にしかならなかった（＝同じリビジョン番号の
+    ///   バックアップフォルダを複数の適用が同時に読み書きする。履歴と実体の対応が壊れ、
+    ///   「ここまで戻す」で戻せない世代ができる）。
+    /// ・<see cref="RegisterAsync"/> を（別々のフォルダで）10並行 → projects.json に
+    ///   10件中2件しか残らなかった（＝登録したはずのフォルダが一覧から消える）。
+    ///
+    /// 【なぜインスタンスのフィールドではなく静的な辞書か】 <c>ProjectStore</c> は
+    /// アプリ内で1個ではない（StartupCoordinator・SettingsViewModel・OnboardingWindow が
+    /// それぞれ <c>new ProjectStore(appPaths)</c> している）。インスタンスごとの
+    /// <see cref="SemaphoreSlim"/> では、別インスタンス同士が同じ projects.json を
+    /// 同時に書く経路を塞げない。そのため「対象ファイルのパス」をキーにした静的な辞書で
+    /// ゲートを共有する。テストは互いに別の一時フォルダを使うため、キーが異なり
+    /// テスト同士が不要に直列化されることもない。
+    ///
+    /// 【どこまで守るか】 守るのは<b>同一プロセス内</b>の並行実行だけで、プロセスをまたぐ
+    /// 排他（別プロセスのGraftが同じprojects.jsonを書く）は対象外。多重起動は
+    /// <c>SingleInstanceGuard.TryAcquireSingleInstanceAsync</c> が別途防いでいるため、
+    /// ここではプロセス内で十分と判断した（ファイルロックを持ち込むと、異常終了時に
+    /// ロックが残って起動不能になる副作用のほうが実害が大きい）。
+    ///
+    /// 【破棄しない理由】 このゲートはプロセスの寿命いっぱい生き、複数の
+    /// <c>ProjectStore</c> インスタンスで共有される。したがって <c>ProjectStore</c> は
+    /// <see cref="IDisposable"/> を実装しない。もし実装して1つのインスタンスの破棄で
+    /// ゲートを Dispose すると、同じファイルを見ている他のインスタンスが
+    /// <see cref="ObjectDisposedException"/> で壊れる。エントリ数はデータフォルダの数
+    /// （実質1〜数個）にとどまるため、解放しなくても問題にならない。
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileGates = new(StringComparer.Ordinal);
+
+    private readonly SemaphoreSlim _gate;
+
     public ProjectStore(AppPaths paths)
     {
         ArgumentNullException.ThrowIfNull(paths);
         _paths = paths;
         _store = new JsonFileStore();
+        _gate = FileGates.GetOrAdd(NormalizeGateKey(_paths.ProjectsFilePath), static _ => new SemaphoreSlim(1, 1));
+    }
+
+    /// <summary>
+    /// ゲート辞書のキーを作る。パスの比較規則は<see cref="NormalizeRootForHash"/>と同じ方針で
+    /// プラットフォームへ委ねる（Windowsは大文字小文字を区別しないため小文字化し、区別する
+    /// Linuxではそのまま使う）。キーが割れると同じファイルに別々のゲートが割り当たり、
+    /// 排他の意味が無くなるため、必ずここを通す。
+    /// </summary>
+    private static string NormalizeGateKey(string projectsFilePath)
+    {
+        var full = Path.GetFullPath(projectsFilePath);
+        return OperatingSystem.IsWindows() ? full.ToLowerInvariant() : full;
+    }
+
+    /// <summary>
+    /// 「読み込み〜加工〜保存」をひとつの臨界区間として実行する。待ち受けは必ず
+    /// <c>await</c>（<see cref="SemaphoreSlim.WaitAsync(CancellationToken)"/>）で行い、
+    /// UIスレッドを塞がないようにする（<c>Wait()</c>で同期的に待つとUIが固まる）。
+    ///
+    /// 【デッドロックを避けるための約束】 <paramref name="action"/> の中から、ゲートを取る
+    /// 公開メソッド（<see cref="LoadAsync"/>・<see cref="SaveAsync"/>など）を呼んではいけない。
+    /// <see cref="SemaphoreSlim"/> は再入可能ではないため、自分が握っているゲートを自分で
+    /// 待ってしまい永久に戻ってこない。臨界区間の中では必ず、ゲートを取らない
+    /// <c>*Core</c> 版（<see cref="LoadCoreAsync"/>・<see cref="SaveCoreAsync"/>）を使うこと。
+    /// </summary>
+    private async Task<T> WithGateAsync<T>(Func<Task<T>> action, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>
@@ -27,7 +104,14 @@ public sealed class ProjectStore
     /// <see cref="JsonFileStore"/> の共通復旧手順（13.1章）に従い、既定値
     /// （空一覧）から再生成する。
     /// </summary>
-    public async Task<GraftResult<IReadOnlyList<Project>>> LoadAsync(CancellationToken ct = default)
+    public Task<GraftResult<IReadOnlyList<Project>>> LoadAsync(CancellationToken ct = default)
+        => WithGateAsync(() => LoadCoreAsync(ct), ct);
+
+    /// <summary>
+    /// <see cref="LoadAsync"/>の実体。<b>ゲートを取らない</b>ため、既に臨界区間の中にいる
+    /// 更新系メソッドからはこちらを呼ぶ（<see cref="WithGateAsync"/>のコメント参照）。
+    /// </summary>
+    private async Task<GraftResult<IReadOnlyList<Project>>> LoadCoreAsync(CancellationToken ct)
     {
         var result = await _store
             .ReadWithRecoveryAsync(_paths.ProjectsFilePath, static () => new ProjectCatalog(), JsonFileStore.DefaultOptions, ct)
@@ -40,7 +124,9 @@ public sealed class ProjectStore
         var recovered = RecoverCorruptedRoots(result.Value.Projects);
         if (recovered.Changed)
         {
-            await SaveAsync(recovered.Projects, ct).ConfigureAwait(false);
+            // ここは既に臨界区間の中なので、ゲートを取り直すSaveAsyncではなくSaveCoreAsyncを呼ぶ
+            // （SaveAsyncを呼ぶと自分が握っているゲートを自分で待ってしまいデッドロックする）。
+            await SaveCoreAsync(recovered.Projects, ct).ConfigureAwait(false);
         }
 
         return GraftResult<IReadOnlyList<Project>>.Ok(recovered.Projects, result.Issues);
@@ -76,9 +162,18 @@ public sealed class ProjectStore
     /// projects.json を書き込む。<see cref="Project.IsDisconnected"/> は起動時の検証で
     /// 都度算出する実行時のみの値であるため、保存前に常に false へ戻してから書き出す。
     /// </summary>
-    public async Task<GraftResult<bool>> SaveAsync(IReadOnlyList<Project> projects, CancellationToken ct = default)
+    public Task<GraftResult<bool>> SaveAsync(IReadOnlyList<Project> projects, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(projects);
+        return WithGateAsync(() => SaveCoreAsync(projects, ct), ct);
+    }
+
+    /// <summary>
+    /// <see cref="SaveAsync"/>の実体。<b>ゲートを取らない</b>ため、既に臨界区間の中にいる
+    /// 更新系メソッドからはこちらを呼ぶ（<see cref="WithGateAsync"/>のコメント参照）。
+    /// </summary>
+    private async Task<GraftResult<bool>> SaveCoreAsync(IReadOnlyList<Project> projects, CancellationToken ct)
+    {
         var persisted = projects.Select(p => p.IsDisconnected ? p with { IsDisconnected = false } : p).ToList();
         var catalog = new ProjectCatalog { Projects = persisted };
         await _store.WriteAsync(_paths.ProjectsFilePath, catalog, JsonFileStore.DefaultOptions, ct).ConfigureAwait(false);
@@ -122,11 +217,16 @@ public sealed class ProjectStore
             return GraftResult<Project>.Fail(ErrorCode.E201, $"不正なパスです: {ex.Message}", path: root);
         }
 
-        var loaded = await LoadAsync(ct).ConfigureAwait(false);
-        var projects = loaded.Value.ToList();
-        var project = BuildOrUpdateProject(projects, fullRoot, name);
-        await SaveAsync(projects, ct).ConfigureAwait(false);
-        return GraftResult<Project>.Ok(project, loaded.Issues);
+        // 読み込みから保存までを1つの臨界区間にまとめる。分離していた頃は、10個のフォルダを
+        // 並行登録すると10件中2件しかprojects.jsonに残らなかった（後勝ちの全件上書き）。
+        return await WithGateAsync(async () =>
+        {
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            var projects = loaded.Value.ToList();
+            var project = BuildOrUpdateProject(projects, fullRoot, name);
+            await SaveCoreAsync(projects, ct).ConfigureAwait(false);
+            return GraftResult<Project>.Ok(project, loaded.Issues);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -137,24 +237,33 @@ public sealed class ProjectStore
     /// 想定する（Rootの変更でIdまで変える必要がある「場所を変更」だけは、back/配下の履歴フォルダの
     /// 移動が別途必要なため<see cref="RelocateAsync"/>という専用メソッドに分けている）。
     /// </summary>
-    public async Task<GraftResult<Project>> UpdateAsync(
+    /// <remarks>
+    /// <paramref name="mutate"/> は臨界区間の中（ゲートを握ったまま）で呼ばれる。したがって
+    /// ここへ渡すデリゲートから <c>ProjectStore</c> の公開メソッドを呼んではいけない
+    /// （デッドロックする）。現在の呼び出し元はすべて record の <c>with</c> 式だけを行う
+    /// 純粋な関数であり、この約束を満たしている。
+    /// </remarks>
+    public Task<GraftResult<Project>> UpdateAsync(
         string projectId, Func<Project, Project> mutate, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
         ArgumentNullException.ThrowIfNull(mutate);
 
-        var loaded = await LoadAsync(ct).ConfigureAwait(false);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == projectId);
-        if (index < 0)
+        return WithGateAsync(async () =>
         {
-            return GraftResult<Project>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
-        }
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            var projects = loaded.Value.ToList();
+            var index = projects.FindIndex(p => p.Id == projectId);
+            if (index < 0)
+            {
+                return GraftResult<Project>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+            }
 
-        var updated = mutate(projects[index]);
-        projects[index] = updated;
-        await SaveAsync(projects, ct).ConfigureAwait(false);
-        return GraftResult<Project>.Ok(updated, loaded.Issues);
+            var updated = mutate(projects[index]);
+            projects[index] = updated;
+            await SaveCoreAsync(projects, ct).ConfigureAwait(false);
+            return GraftResult<Project>.Ok(updated, loaded.Issues);
+        }, ct);
     }
 
     /// <summary>
@@ -173,29 +282,36 @@ public sealed class ProjectStore
     /// falseなら履歴フォルダはそのまま残す（同じフォルダを後で再登録すると、CreateIdがパスから
     /// 決定的に決まるため同じIdになり、履歴が自動的に復活する。<see cref="CreateId"/>参照）。
     /// </param>
-    public async Task<GraftResult<bool>> RemoveAsync(string projectId, bool deleteHistory, CancellationToken ct = default)
+    public Task<GraftResult<bool>> RemoveAsync(string projectId, bool deleteHistory, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
 
-        var loaded = await LoadAsync(ct).ConfigureAwait(false);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == projectId);
-        if (index < 0)
+        return WithGateAsync(async () =>
         {
-            return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
-        }
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            var projects = loaded.Value.ToList();
+            var index = projects.FindIndex(p => p.Id == projectId);
+            if (index < 0)
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+            }
 
-        projects.RemoveAt(index);
-        await SaveAsync(projects, ct).ConfigureAwait(false);
+            projects.RemoveAt(index);
+            await SaveCoreAsync(projects, ct).ConfigureAwait(false);
 
-        var issues = new List<GraftIssue>(loaded.Issues);
-        if (deleteHistory)
-        {
-            var backupDir = _paths.GetProjectBackupDirectory(projectId);
-            TryDeleteDirectory(backupDir, issues);
-        }
+            var issues = new List<GraftIssue>(loaded.Issues);
+            if (deleteHistory)
+            {
+                // 履歴フォルダの削除もゲートの中で行う。back/<projectId>/ は
+                // RelocateAsyncのDirectory.Moveとも競合しうるため、projects.jsonの更新と
+                // 同じ臨界区間に含めて「一覧から消えたのにフォルダだけ移動していた」といった
+                // 中途半端な状態を作らないようにする。
+                var backupDir = _paths.GetProjectBackupDirectory(projectId);
+                TryDeleteDirectory(backupDir, issues);
+            }
 
-        return GraftResult<bool>.Ok(true, issues);
+            return GraftResult<bool>.Ok(true, issues);
+        }, ct);
     }
 
     /// <summary>
@@ -236,39 +352,45 @@ public sealed class ProjectStore
             return GraftResult<Project>.Fail(ErrorCode.E201, "指定したフォルダが見つかりません。", path: fullRoot);
         }
 
-        var loaded = await LoadAsync(ct).ConfigureAwait(false);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == projectId);
-        if (index < 0)
+        // 重複チェック・履歴フォルダの移動・projects.jsonの書き換えをまとめて臨界区間に入れる。
+        // ここを分離すると、重複チェックを通った直後に別の操作が同じIdを登録し、
+        // back/<新Id>/ の移動先が既に存在する（＝履歴が旧Idに取り残される）状況を作れてしまう。
+        return await WithGateAsync(async () =>
         {
-            return GraftResult<Project>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
-        }
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            var projects = loaded.Value.ToList();
+            var index = projects.FindIndex(p => p.Id == projectId);
+            if (index < 0)
+            {
+                return GraftResult<Project>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+            }
 
-        var newId = CreateId(fullRoot);
-        // 選んだフォルダが既に別プロジェクトとして登録されている場合は重複登録にしない
-        // （選んだフォルダ＝自分自身の現在のRootを選び直しただけの場合はnewId==projectIdになり、
-        // この条件には該当しない）。
-        if (newId != projectId && projects.Any(p => p.Id == newId))
-        {
-            return GraftResult<Project>.Fail(ErrorCode.E209, "選んだフォルダは既に別のプロジェクトとして登録されています。", path: fullRoot);
-        }
+            var newId = CreateId(fullRoot);
+            // 選んだフォルダが既に別プロジェクトとして登録されている場合は重複登録にしない
+            // （選んだフォルダ＝自分自身の現在のRootを選び直しただけの場合はnewId==projectIdになり、
+            // この条件には該当しない）。
+            if (newId != projectId && projects.Any(p => p.Id == newId))
+            {
+                return GraftResult<Project>.Fail(ErrorCode.E209, "選んだフォルダは既に別のプロジェクトとして登録されています。", path: fullRoot);
+            }
 
-        var issues = new List<GraftIssue>(loaded.Issues);
-        if (newId != projectId)
-        {
-            MoveBackupDirectory(projectId, newId, issues);
-        }
+            var issues = new List<GraftIssue>(loaded.Issues);
+            if (newId != projectId)
+            {
+                MoveBackupDirectory(projectId, newId, issues);
+            }
 
-        var updated = projects[index] with
-        {
-            Id = newId,
-            Root = fullRoot,
-            LastUsedAt = DateTimeOffset.Now,
-            IsDisconnected = false,
-        };
-        projects[index] = updated;
-        await SaveAsync(projects, ct).ConfigureAwait(false);
-        return GraftResult<Project>.Ok(updated, issues);
+            var updated = projects[index] with
+            {
+                Id = newId,
+                Root = fullRoot,
+                LastUsedAt = DateTimeOffset.Now,
+                IsDisconnected = false,
+            };
+            projects[index] = updated;
+            await SaveCoreAsync(projects, ct).ConfigureAwait(false);
+            return GraftResult<Project>.Ok(updated, issues);
+        }, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -420,22 +542,25 @@ public sealed class ProjectStore
     /// 対象プロジェクトが見つからない場合は何もせず失敗を返す（呼び出し元は既に適用/復元
     /// そのものは成功しているため、ここでの失敗はログのみに留め、利用者へは伝えない想定）。
     /// </summary>
-    public async Task<GraftResult<bool>> MarkAppliedAsync(
+    public Task<GraftResult<bool>> MarkAppliedAsync(
         string projectId, DateTimeOffset appliedAt, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
 
-        var loaded = await LoadAsync(ct).ConfigureAwait(false);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == projectId);
-        if (index < 0)
+        return WithGateAsync(async () =>
         {
-            return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
-        }
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            var projects = loaded.Value.ToList();
+            var index = projects.FindIndex(p => p.Id == projectId);
+            if (index < 0)
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+            }
 
-        projects[index] = projects[index] with { LastAppliedAt = appliedAt };
-        await SaveAsync(projects, ct).ConfigureAwait(false);
-        return GraftResult<bool>.Ok(true, loaded.Issues);
+            projects[index] = projects[index] with { LastAppliedAt = appliedAt };
+            await SaveCoreAsync(projects, ct).ConfigureAwait(false);
+            return GraftResult<bool>.Ok(true, loaded.Issues);
+        }, ct);
     }
 
     /// <summary>
@@ -471,22 +596,28 @@ public sealed class ProjectStore
     /// 対象プロジェクトが見つからない場合（並行してプロジェクトが削除された等）は
     /// 何もせず、渡されたプロジェクトの現在値をそのまま返す。
     /// </summary>
-    public async Task<GraftResult<int>> ConsumeNextRevisionAsync(string projectId, CancellationToken ct = default)
+    public Task<GraftResult<int>> ConsumeNextRevisionAsync(string projectId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
 
-        var loaded = await LoadAsync(ct).ConfigureAwait(false);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == projectId);
-        if (index < 0)
+        // 番号の払い出しは、このクラスの中で最も競合に弱い操作。読み書きを分離していた頃は
+        // 20並行で呼ぶと20件すべてが同じ 1 を返した（nextRevisionは21ではなく2）。
+        // 「読み取り→+1→保存」をゲートの中で不可分に行うことで、番号が重複しないことを保証する。
+        return WithGateAsync(async () =>
         {
-            return GraftResult<int>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
-        }
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            var projects = loaded.Value.ToList();
+            var index = projects.FindIndex(p => p.Id == projectId);
+            if (index < 0)
+            {
+                return GraftResult<int>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+            }
 
-        var consumed = projects[index].NextRevision;
-        projects[index] = projects[index] with { NextRevision = consumed + 1 };
-        await SaveAsync(projects, ct).ConfigureAwait(false);
-        return GraftResult<int>.Ok(consumed, loaded.Issues);
+            var consumed = projects[index].NextRevision;
+            projects[index] = projects[index] with { NextRevision = consumed + 1 };
+            await SaveCoreAsync(projects, ct).ConfigureAwait(false);
+            return GraftResult<int>.Ok(consumed, loaded.Issues);
+        }, ct);
     }
 
     /// <summary>
@@ -512,28 +643,33 @@ public sealed class ProjectStore
     /// 戻り値: 実際に巻き戻せた場合は true、安全条件を満たさず何もしなかった場合は false を返す
     /// （どちらも失敗ではないため IsSuccess=true）。対象プロジェクトが見つからない場合のみ失敗を返す。
     /// </summary>
-    public async Task<GraftResult<bool>> ReleaseRevisionAsync(string projectId, int revision, CancellationToken ct = default)
+    public Task<GraftResult<bool>> ReleaseRevisionAsync(string projectId, int revision, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
 
-        var loaded = await LoadAsync(ct).ConfigureAwait(false);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == projectId);
-        if (index < 0)
+        // 安全条件（NextRevision == revision + 1）の判定と書き戻しは、間に他の操作が
+        // 割り込むと意味を失う。判定から保存までをゲートの中で不可分に行う。
+        return WithGateAsync(async () =>
         {
-            return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
-        }
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            var projects = loaded.Value.ToList();
+            var index = projects.FindIndex(p => p.Id == projectId);
+            if (index < 0)
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+            }
 
-        if (projects[index].NextRevision != revision + 1)
-        {
-            // 既に他の操作がnextRevisionを進めている（＝revision+1から動いている）ため、
-            // ここで戻すと番号の重複を招く。何もせず、返却しなかったことをfalseで伝える。
-            return GraftResult<bool>.Ok(false, loaded.Issues);
-        }
+            if (projects[index].NextRevision != revision + 1)
+            {
+                // 既に他の操作がnextRevisionを進めている（＝revision+1から動いている）ため、
+                // ここで戻すと番号の重複を招く。何もせず、返却しなかったことをfalseで伝える。
+                return GraftResult<bool>.Ok(false, loaded.Issues);
+            }
 
-        projects[index] = projects[index] with { NextRevision = revision };
-        await SaveAsync(projects, ct).ConfigureAwait(false);
-        return GraftResult<bool>.Ok(true, loaded.Issues);
+            projects[index] = projects[index] with { NextRevision = revision };
+            await SaveCoreAsync(projects, ct).ConfigureAwait(false);
+            return GraftResult<bool>.Ok(true, loaded.Issues);
+        }, ct);
     }
 
     private static Project BuildOrUpdateProject(List<Project> projects, string fullRoot, string? name)
