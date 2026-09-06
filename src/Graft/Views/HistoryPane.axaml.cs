@@ -47,7 +47,7 @@ public partial class HistoryPane : UserControl
     public ListBox ListBoxElement => RevisionListBox;
 
     /// <summary>
-    /// 画面上のチュートリアル（コーチマーク）が「復元を体験」ステップで指す対象として、
+    /// 画面上のチュートリアル（コーチマーク）が「取り消しを体験」ステップで指す対象として、
     /// 外部（ShellWindow.Tutorial.cs）から参照する単発復元（「このリビジョンを取り消す」）ボタン。
     /// </summary>
     public Button RestoreButtonElement => RestoreButton;

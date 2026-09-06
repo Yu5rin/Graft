@@ -38,7 +38,7 @@ public static class StandardSearchReplaceAdapter
 {
     // パッチメタ（4.2）に相当する情報が標準SR形式には無いため、UnifiedDiffAdapter の前例に
     // 倣って固定文言を補い、requireSummary 設定（15章）の必須チェックに引っかからないようにする。
-    private const string ImportSummary = "標準SEARCH/REPLACE形式からの取り込み";
+    private const string ImportSummary = "標準SEARCH/REPLACE形式の適用";
     private const string ImportType = "chore";
 
     /// <summary>SEARCHブロックの開始マーカー（標準・Graft共通）。</summary>

@@ -19,13 +19,13 @@ using Graft.Views;
 namespace Graft.UiTests;
 
 /// <summary>
-/// 利用者からの指摘対応: 「失敗を再依頼」ボタンは無効時にグレーアウトして押せないと
+/// 利用者からの指摘対応: 「修正を依頼」ボタンは無効時にグレーアウトして押せないと
 /// 分かるのに、接ぎ木パネルの「破棄」「プレビュー」「適用」等、他のボタンは無効でも
 /// 見た目が変わらなかった。
 ///
 /// 【原因】Button/ToggleButton/CheckBox/ComboBoxのControlTheme（Controls.axaml・
 /// Controls.Input.axaml）はいずれも:disabledで自分自身のForegroundをtext.disabledへ
-/// 変えるだけだった。「失敗を再依頼」はContentへ文字列をそのまま渡しているため
+/// 変えるだけだった。「修正を依頼」はContentへ文字列をそのまま渡しているため
 /// ContentPresenterが暗黙に作るTextBlockがボタンのForegroundをそのまま受け取り正しく
 /// 灰色になっていたが、「破棄」「プレビュー」「適用」はContentへ
 /// StackPanel（IconGlyph＋TextBlock）を組んでおり、内側のTextBlockはControls.Base.axaml側の
@@ -112,7 +112,7 @@ public class DisabledAppearanceTests : IDisposable
             .GetVisualDescendants().OfType<Button>()
             .Single(b => AutomationProperties.GetName(b) == automationName);
 
-    [AvaloniaFact(DisplayName = "起動直後（パッチ未解析）は「破棄」「プレビュー」「適用」「失敗を再依頼」がいずれも無効である")]
+    [AvaloniaFact(DisplayName = "起動直後（パッチ未解析）は「破棄」「プレビュー」「適用」「修正を依頼」がいずれも無効である")]
     public void 起動直後は接ぎ木ツールバーのボタンがいずれも無効である()
     {
         // MainViewModelの既定状態（_currentPatch is null・_dryRun is null・Blocks空）では
@@ -125,7 +125,7 @@ public class DisabledAppearanceTests : IDisposable
         IsEffectivelyDisabled(FindButtonByName(window, "解析結果を破棄")).Should().BeTrue();
         IsEffectivelyDisabled(FindButtonByName(window, "プレビューを再実行")).Should().BeTrue();
         IsEffectivelyDisabled(FindButtonByName(window, "適用を実行")).Should().BeTrue();
-        IsEffectivelyDisabled(FindButtonByName(window, "失敗ブロックの再依頼プロンプトをコピー")).Should().BeTrue();
+        IsEffectivelyDisabled(FindButtonByName(window, "失敗ブロックの修正依頼プロンプトをコピー")).Should().BeTrue();
     }
 
     [AvaloniaFact(DisplayName = "「破棄」ボタン（アイコン＋文字）は無効時にアイコンと文字の両方がtext.disabledへ変わる")]
@@ -145,18 +145,18 @@ public class DisabledAppearanceTests : IDisposable
             "アイコンもボタンが無効なら灰色になる必要がある");
     }
 
-    [AvaloniaFact(DisplayName = "「破棄」の無効時の文字色は「失敗を再依頼」の無効時の文字色と一致する（利用者が基準に挙げた見た目に揃っている）")]
-    public void 破棄と失敗を再依頼の無効時の色が一致する()
+    [AvaloniaFact(DisplayName = "「破棄」の無効時の文字色は「修正を依頼」の無効時の文字色と一致する（利用者が基準に挙げた見た目に揃っている）")]
+    public void 破棄と修正を依頼の無効時の色が一致する()
     {
         var window = OpenFreshShellWindow();
 
         var discard = FindButtonByName(window, "解析結果を破棄");
         var discardLabel = discard.GetVisualDescendants().OfType<TextBlock>().Single(t => Equals(t.Text, "破棄"));
 
-        var recovery = FindButtonByName(window, "失敗ブロックの再依頼プロンプトをコピー");
-        // Content="失敗を再依頼"（文字列）はContentPresenterが暗黙にTextBlockを生成する。
+        var recovery = FindButtonByName(window, "失敗ブロックの修正依頼プロンプトをコピー");
+        // Content="修正を依頼"（文字列）はContentPresenterが暗黙にTextBlockを生成する。
         var recoveryLabel = recovery.GetVisualDescendants().OfType<TextBlock>()
-            .Single(t => Equals(t.Text, "失敗を再依頼"));
+            .Single(t => Equals(t.Text, "修正を依頼"));
 
         ((ISolidColorBrush)discardLabel.Foreground!).Color.Should().Be(
             ((ISolidColorBrush)recoveryLabel.Foreground!).Color,

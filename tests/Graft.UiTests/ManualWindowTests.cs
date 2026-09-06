@@ -108,7 +108,7 @@ public class ManualWindowTests : IDisposable
         var level2 = window.GetVisualDescendants().OfType<SelectableTextBlock>()
             .Single(t => (t.Inlines?.Text ?? t.Text) == "1. Graftとは何か");
         var level3 = window.GetVisualDescendants().OfType<SelectableTextBlock>()
-            .Single(t => (t.Inlines?.Text ?? t.Text) == "2.1 自分のプロジェクトを使わずに試したいとき（サンプルで試す）");
+            .Single(t => (t.Inlines?.Text ?? t.Text) == "2.1 自分のプロジェクトを使わずに試したいとき（使い方を学ぶ）");
 
         level2.FontSize.Should().BeGreaterThan(level3.FontSize, "上位の見出しほど大きく表示され階層が視覚的に分かる必要がある");
         level2.FontWeight.Should().Be(FontWeight.SemiBold);

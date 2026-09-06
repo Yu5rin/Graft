@@ -34,7 +34,7 @@
         利用者からの指摘対応（無効なボタンの見た目）: Button/ToggleButton/CheckBox/ComboBoxの
         ControlTheme（Controls.axaml・Controls.Input.axaml）はいずれも:disabledで自分自身の
         Foregroundをtext.disabledへ変えているが、これは「文字列をそのままContentへ渡した
-        ボタン」（例: 接ぎ木パネルの「失敗を再依頼」）でしか効いていなかった。「破棄」
+        ボタン」（例: 接ぎ木パネルの「修正を依頼」）でしか効いていなかった。「破棄」
         「プレビュー」「適用」のようにContentへ StackPanel＋アイコン＋TextBlock を組んで
         いるボタンは、内側のTextBlockがこのファイル冒頭の暗黙スタイル（Foreground:
         text.primary固定）を持つため、ボタン側のForeground変更を受け取れず無効時も

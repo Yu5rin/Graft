@@ -165,7 +165,7 @@
             <local:EmptyStateView State="{Binding State,
                                           Converter={x:Static local:Converters.ProjectPaneStateToEmptyState}}"
                                   IconGeometry="{DynamicResource IconLayersGeometry}"
-                                  Message="プロジェクトがありません。フォルダをドラッグ＆ドロップ、または追加ボタンで登録してください"
+                                  Message="プロジェクトがありません。フォルダをドラッグ＆ドロップ、または「フォルダを追加」で登録してください"
                                   ActionText="フォルダを追加"
                                   ActionCommand="{Binding AddProjectCommand}"
                                   ActionTooltip="プロジェクトとして管理するフォルダをダイアログで選び、一覧に登録します。ドラッグ＆ドロップでも追加できます。"

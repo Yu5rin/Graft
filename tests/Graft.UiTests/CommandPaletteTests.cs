@@ -117,7 +117,7 @@ public class CommandPaletteTests : IDisposable
         shell.CommandPalette.Open();
         shell.CommandPalette.Query = "解析結果を破棄";
 
-        var item = shell.CommandPalette.Results.Should().ContainSingle(r => r.Title == "解析結果を破棄").Which;
+        var item = shell.CommandPalette.Results.Should().ContainSingle(r => r.Title == "破棄（解析結果を破棄）").Which;
         item.IsEnabled.Should().BeFalse("実行できない状態のコマンドは選べないことが分かるよう区別される必要がある");
 
         shell.CommandPalette.SelectedResult = item;

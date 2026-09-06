@@ -173,7 +173,7 @@ public sealed partial class MainViewModel
         if (updatedDryRun.FailedCount > 0)
         {
             var completionMessage =
-                $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
+                $"r{result.Value.Revision} として適用しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
                 $"{Environment.NewLine}適用できなかった理由は、接ぎ木パネルの各ブロックに赤字で残っています。";
             await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
         }
@@ -194,7 +194,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private void LogApplySuccess(RevisionManifest manifest, IReadOnlyList<GraftIssue> issues, long durationMs)
     {
-        Logger?.Info("apply", $"r{manifest.Revision} として記録しました（{manifest.Entries.Count}件）",
+        Logger?.Info("apply", $"r{manifest.Revision} として適用しました（{manifest.Entries.Count}件）",
             revision: manifest.Revision, durationMs: durationMs);
 
         foreach (var issue in issues)
@@ -255,7 +255,7 @@ public sealed partial class MainViewModel
     {
         DismissApplyUndoNotice();
         var undone = await History.UndoLatestAsync().ConfigureAwait(true);
-        if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
+        if (!undone) await _dialogs.ShowMessageAsync("元に戻せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
     }
 
     /// <summary>RunDryRunAsyncの冒頭から呼ぶ。フック未設定時は常にtrue。</summary>

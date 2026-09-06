@@ -93,8 +93,8 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Button Content="使い方を学ぶ" Click="OnStartTutorialClicked" Margin="0,0,8,0" IsDefault="True"
                         AutomationProperties.Name="使い方を学ぶ（画面上のチュートリアルを開始する）"
-                        views:HelpTip.Standard="実際の画面上でコントロールを指しながら、サンプルを使って接ぎ木の一連の流れ（解析→差分確認→適用→履歴→復元）を体験します。"
-                        views:HelpTip.Detailed="解析→差分確認→適用→履歴確認→復元までを、実際のGraftの画面上で1つずつコントロールを指しながら体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断でき、中断してもGraftの状態が壊れることはありません。あとから「？」メニューやコマンドパレットの「使い方を学ぶ」でも再実行できます。" />
+                        views:HelpTip.Standard="実際の画面上でコントロールを指しながら、サンプルを使って接ぎ木の一連の流れ（解析→差分確認→適用→履歴→取り消し）を体験します。"
+                        views:HelpTip.Detailed="解析→差分確認→適用→履歴確認→取り消しまでを、実際のGraftの画面上で1つずつコントロールを指しながら体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断でき、中断してもGraftの状態が壊れることはありません。あとから「？」メニューやコマンドパレットの「使い方を学ぶ」でも再実行できます。" />
                 <Button Content="チュートリアルを終了" Click="OnFinishOnboardingClicked"
                         AutomationProperties.Name="チュートリアルを開始せずいつものGraftの画面へ進む"
                         views:HelpTip.Standard="画面上のチュートリアルは開始せず、いつものGraftの画面へ進みます。あとから「？」メニューでいつでも開始できます。" />
