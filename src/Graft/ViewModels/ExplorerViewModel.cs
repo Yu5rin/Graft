@@ -707,7 +707,13 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (_project is null) return;
         var (dirNode, relativeDir) = ResolveTargetDirectory(contextNode);
         var name = await _dialogs
-            .PromptAsync("新規ファイル", "ファイル名を入力してください（拡張子を含めてください。例: memo.md。拡張子なしのファイル名も作成できます）。", null)
+            // v1.0.15 セキュリティ対応: 「拡張子なしのファイル名も作成できます」は、拡張子が
+            // 無ければ無条件に通していた頃の案内だった。拡張子なしで作れるのは決まった名前
+            // （Dockerfile・Makefile・LICENSE・.gitignore 等。PathGuardOptions.
+            // AllowedExtensionlessNames）だけになったため、案内文も実際の挙動へ合わせる。
+            // 出来ないことを「出来ます」と書いたままにすると、拒否された利用者が原因を
+            // 自分の入力ミスだと誤解して何度もやり直すことになる。
+            .PromptAsync("新規ファイル", "ファイル名を入力してください（拡張子を含めてください。例: memo.md。Dockerfile・Makefile・LICENSE・.gitignore など決まった名前は拡張子なしでも作成できます）。", null)
             .ConfigureAwait(true);
         if (string.IsNullOrWhiteSpace(name)) return;
 

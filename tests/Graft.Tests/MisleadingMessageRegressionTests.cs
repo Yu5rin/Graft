@@ -126,7 +126,7 @@ public class MisleadingMessageRegressionTests
     /// この状況にまったく当てはまらない。しかも同じ長いパスが1行に2回出て読みづらく、
     /// 何をすればいいのか（フォルダを戻す／場所を変更する／削除する）がどこにも書かれていなかった。
     /// </summary>
-    [Fact(DisplayName = "B-1: ルートが無いプロジェクトはE404（破損）ではなくE211として報告される")]
+    [Fact(DisplayName = "B-1: ルートが無いプロジェクトはE404（破損）ではなくE213として報告される")]
     public async Task ルート不明はE404ではなくE211になる()
     {
         using var ws = new TempWorkspace();
@@ -141,7 +141,7 @@ public class MisleadingMessageRegressionTests
 
         validated.Issues.Should().NotContain(i => i.Code == ErrorCode.E404,
             "フォルダが無いだけで「設定・履歴データの破損」と告げてはならない（B-1）");
-        var issue = validated.Issues.Single(i => i.Code == ErrorCode.E211);
+        var issue = validated.Issues.Single(i => i.Code == ErrorCode.E213);
         issue.Severity.Should().Be(Severity.Warning);
     }
 
@@ -158,18 +158,18 @@ public class MisleadingMessageRegressionTests
             new Project { Id = "p_gone", Name = "missingproj", Root = missingRoot },
         });
 
-        var text = validated.Issues.Single(i => i.Code == ErrorCode.E211).ToDisplayText();
+        var text = validated.Issues.Single(i => i.Code == ErrorCode.E213).ToDisplayText();
         var occurrences = text.Split(missingRoot).Length - 1;
         occurrences.Should().Be(1, "GraftIssue.ToDisplayTextがPathを前置するため、detailにも書くと同じ長いパスが2回出る（B-1）");
     }
 
-    [Fact(DisplayName = "B-1: E211の対処文は「場所を変更」「ネットワークドライブの接続」を案内する")]
-    public void E211の対処文が行動を示す()
+    [Fact(DisplayName = "B-1: E213の対処文は「場所を変更」「ネットワークドライブの接続」を案内する")]
+    public void E213の対処文が行動を示す()
     {
-        ErrorCatalog.SummaryOf(ErrorCode.E211).Should().NotContain("破損",
+        ErrorCatalog.SummaryOf(ErrorCode.E213).Should().NotContain("破損",
             "何も壊れていないのに「破損」と告げてはならない（B-1）");
 
-        var remedy = ErrorCatalog.RemedyOf(ErrorCode.E211);
+        var remedy = ErrorCatalog.RemedyOf(ErrorCode.E213);
         remedy.Should().Contain("場所を変更", "フォルダを移した場合に取れる行動を示すこと");
         remedy.Should().Contain("ネットワークドライブ", "未接続のネットワークドライブという典型例に触れること");
         remedy.Should().NotContain("再生成", "E404の「退避のうえ再生成しました」を引きずってはならない");
