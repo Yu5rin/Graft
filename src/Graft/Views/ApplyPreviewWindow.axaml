@@ -29,7 +29,17 @@
                    FontWeight="{DynamicResource PaneHeadingFontWeight}"
                    Foreground="{DynamicResource TextPrimary}" />
 
-        <Grid Grid.Row="1" ColumnDefinitions="240,4,*">
+        <!--
+            項目3: 左列を240固定にした上でPathText（フルパス）を末尾から
+            CharacterEllipsisで省略していたため、「src/機能モジュール群/…」のように先頭が
+            共通する長い日本語パスは、区別できるはずのファイル名（末尾）から真っ先に消え、
+            2件の対象が完全に同じ表示になっていた（実機Xvfbで確認済み）。これから実際に
+            ファイルを書き換える直前の最終確認画面という性質上、何を書き換えるか区別できない
+            のは致命的なため、1行目にファイル名（省略されにくいよう優先表示）・2行目に
+            ディレクトリを置く2段組みへ直し、ToolTipで完全なパスも確認できるようにする。
+            左列も240→280へ広げ、ファイル名が多少長くても崩れにくくした。
+        -->
+        <Grid Grid.Row="1" ColumnDefinitions="280,4,*">
 
             <!-- 左: 書き込み対象の一覧。選択すると右側に差分が出る。 -->
             <ListBox Grid.Column="0"
@@ -47,10 +57,15 @@
                 </ListBox.Styles>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Margin="0,4">
-                            <TextBlock Text="{Binding PathText}"
+                        <StackPanel Margin="0,4" ToolTip.Tip="{Binding PathText}">
+                            <TextBlock Text="{Binding FileNameText}"
                                        FontSize="{DynamicResource BodyFontSize}"
                                        TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding DirectoryText}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis"
+                                       IsVisible="{Binding DirectoryText, Converter={x:Static views:Converters.NotEmptyString}}" />
                             <TextBlock Text="{Binding DescriptionText}"
                                        FontSize="{DynamicResource CaptionFontSize}"
                                        Foreground="{DynamicResource TextSecondary}"

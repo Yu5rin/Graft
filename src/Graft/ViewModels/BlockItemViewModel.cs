@@ -34,8 +34,32 @@ public sealed class BlockItemViewModel : ObservableObject
     /// <summary>元のドライラン結果。</summary>
     public BlockPlan Plan { get; private set; }
 
-    /// <summary>1行目: ファイルパス。</summary>
+    /// <summary>フルパス（読み上げ用のAutomationName等に使う。表示上の1行目にはしない）。</summary>
     public string PathText => Plan.Path;
+
+    /// <summary>
+    /// UI点検（項目3）: 適用前プレビュー（ApplyPreviewWindow）向けのファイル名部分。
+    /// 従来はPathText（例:「src/機能モジュール群/…/長いパス/foo.cs」）をそのまま
+    /// TextTrimming="CharacterEllipsis"で末尾から省略していたため、区別できる部分（ファイル名）
+    /// が末尾にあるのに真っ先に消え、長い日本語パスを持つ複数対象が「全部同じ表示」に
+    /// 見えてしまっていた（実機Xvfbで確認済みの不具合）。区別の要である末尾のファイル名だけを
+    /// 独立させ、常に見える1行目に置く。System.IO.Path.GetFileNameは'/'区切りのパスに対しても
+    /// 動作する（SearchFileGroupViewModel.FileNameと同じ使い方）。
+    /// </summary>
+    public string FileNameText => Path.GetFileName(Plan.Path);
+
+    /// <summary>
+    /// UI点検（項目3）: ファイル名を除いたディレクトリ部分（2行目）。ルート直下でディレクトリが
+    /// 無い場合は空文字（TextBlockごとIsVisibleを畳むかは呼び出し側次第）。
+    /// </summary>
+    public string DirectoryText
+    {
+        get
+        {
+            var directory = Path.GetDirectoryName(Plan.Path);
+            return string.IsNullOrEmpty(directory) ? string.Empty : directory.Replace('\\', '/');
+        }
+    }
 
     /// <summary>2行目: 変更説明。未指定時は操作種別から機械的に補う。</summary>
     public string DescriptionText => string.IsNullOrWhiteSpace(Plan.Description) ? OperationFallbackText : Plan.Description!;

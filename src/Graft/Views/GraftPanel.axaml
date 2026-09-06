@@ -136,8 +136,11 @@
               IsVisible="{Binding DataContext.IsGraftPanelOpen, ElementName=Root}"
               RowDefinitions="Auto,*">
 
+            <!-- 項目8: パネルヘッダー直下に用途が書かれていない空欄が1本あった（実機Xvfbで
+                 確認済み）。他の検索欄と同じくWatermarkで用途を示す。 -->
             <TextBox Grid.Row="0" Margin="8,6"
                      Text="{Binding FilterText}"
+                     Watermark="パス・変更説明で絞り込み"
                      AutomationProperties.Name="ブロック一覧を検索" />
 
             <Grid Grid.Row="1">
@@ -210,7 +213,11 @@
                                                      IsVisible="{Binding IsError}" />
                                 </Panel>
 
-                                <StackPanel Grid.Column="2">
+                                <!-- 項目3の同種の問題: このパネルはApplyPreviewWindowより横幅に余裕があり
+                                     実害は小さいが、長い日本語パスでは末尾のファイル名が省略され得るため、
+                                     完全なパスをToolTipで確認できるようにしておく（実測: 幅広なので通常は
+                                     省略されないが、パネルを狭めた場合の保険）。 -->
+                                <StackPanel Grid.Column="2" ToolTip.Tip="{Binding PathText}">
                                     <TextBlock Text="{Binding PathText}" FontSize="{DynamicResource BodyFontSize}"
                                                TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{Binding DescriptionText}"

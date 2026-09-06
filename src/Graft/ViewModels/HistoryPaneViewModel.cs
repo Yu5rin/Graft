@@ -160,6 +160,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
         OpenBackupFolderCommand = new RelayCommand(
             () => { if (SelectedItem is { } item) PlatformServices.Current.FileManager.Reveal(item.Revision.FolderPath); },
             () => SelectedItem is not null && Directory.Exists(SelectedItem.Revision.FolderPath));
+        // UI点検（項目8）: 全文検索欄にクリアボタン（×）が無く、ExplorerViewのファイル名絞り込み
+        // （ClearFilterCommand）と見た目・操作感が揃っていなかった（実機Xvfbで確認済み）。
+        // 同じ「入力があるときだけ×で解除できる」作法に合わせる。
+        ClearKeywordCommand = new RelayCommand(() => Keyword = string.Empty, () => HasKeyword);
     }
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
@@ -217,8 +221,16 @@ public sealed class HistoryPaneViewModel : ObservableObject
     public string Keyword
     {
         get => _keyword;
-        set => SetProperty(ref _keyword, value, ApplyFilter);
+        set
+        {
+            if (!SetProperty(ref _keyword, value, ApplyFilter)) return;
+            OnPropertyChanged(nameof(HasKeyword));
+            ((RelayCommand)ClearKeywordCommand).RaiseCanExecuteChanged();
+        }
     }
+
+    /// <summary>絞り込み中かどうか（「×」ボタンの表示用。ExplorerViewModel.HasFilterTextと同じ考え方）。</summary>
+    public bool HasKeyword => _keyword.Length > 0;
 
     public string? TypeFilter
     {
@@ -481,6 +493,9 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// ディスク上に存在する限り開けるようにする（存在しない場合のみ無効化する）。
     /// </summary>
     public ICommand OpenBackupFolderCommand { get; }
+
+    /// <summary>UI点検（項目8）: 全文検索欄の「×」ボタン用。<see cref="HasKeyword"/>参照。</summary>
+    public ICommand ClearKeywordCommand { get; }
 
     /// <summary>選択中のリビジョンより新しいリビジョンが1件でもあるか（＝取り消す対象があるか）。
     /// 最新リビジョンを選んでいるときは対象が無いため false（RestoreThroughCommandを無効化する）。

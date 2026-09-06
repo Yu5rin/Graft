@@ -138,9 +138,19 @@
                     local:HelpTip.Detailed="大きなプロジェクトで検索に時間がかかっているときに、途中で処理を打ち切ります。打ち切るまでに見つかっていた結果はそのまま一覧に残ります。ファイルへの書き込みは行わないため、中止しても安全です。" />
         </StackPanel>
 
-        <!-- ========== 結果ツリー（ファイル→行） ========== -->
+        <!--
+            ========== 結果ツリー（ファイル→行） ==========
+            項目7: 検索前の結果領域が完全な空白で案内が無く、また「一致なし」だけ他の一覧
+            （履歴・キュー・接ぎ木パネル）と違って小さな左寄せ文字（Grid.Row=3のStatusText）
+            止まりで、中央にアイコン＋説明文が出る他画面と扱いが揃っていなかった
+            （実機Xvfbで確認済み）。ここへ他画面と同じ共通EmptyStateViewを2つ重ね、
+            「まだ検索していない」案内と「検索したが0件」案内を出し分ける
+            （判定はSearchNotStartedToEmptyState/SearchNoResultsToEmptyState参照）。
+            StatusTextの「一致なし」表示自体は互換のため残す（読み上げ用のLiveRegionとしても
+            機能しているため）。
+        -->
+        <Grid Grid.Row="4">
         <TreeView x:Name="ResultTree"
-                  Grid.Row="4"
                   ItemsSource="{Binding Groups}"
                   ItemContainerTheme="{StaticResource SearchTreeItemTheme}"
                   Background="Transparent" BorderThickness="0"
@@ -200,5 +210,29 @@
                 </DataTemplate>
             </TreeView.DataTemplates>
         </TreeView>
+
+        <local:EmptyStateView AutomationProperties.Name="検索結果（未検索）"
+                              IconGeometry="{DynamicResource IconSearchGeometry}"
+                              Message="プロジェクト全体から文字列を検索します">
+            <local:EmptyStateView.State>
+                <MultiBinding Converter="{x:Static local:Converters.SearchNotStartedToEmptyState}">
+                    <Binding Path="Groups.Count" />
+                    <Binding Path="StatusText" />
+                </MultiBinding>
+            </local:EmptyStateView.State>
+        </local:EmptyStateView>
+
+        <local:EmptyStateView AutomationProperties.Name="検索結果（0件）"
+                              IconGeometry="{DynamicResource IconSearchGeometry}"
+                              Message="一致する結果がありません">
+            <local:EmptyStateView.State>
+                <MultiBinding Converter="{x:Static local:Converters.SearchNoResultsToEmptyState}">
+                    <Binding Path="Groups.Count" />
+                    <Binding Path="StatusText" />
+                    <Binding Path="IsSearching" />
+                </MultiBinding>
+            </local:EmptyStateView.State>
+        </local:EmptyStateView>
+        </Grid>
     </Grid>
 </UserControl>
