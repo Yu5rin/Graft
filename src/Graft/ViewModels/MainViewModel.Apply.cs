@@ -166,10 +166,15 @@ public sealed partial class MainViewModel
         // ステータスバー通知1本に一本化する。一方、失敗ブロックが1件以上残っているときは
         // 「何が適用できなかったか」を伝える価値があるため、従来どおりダイアログで案内する
         // （通知の文言はrNのみで、失敗件数までは含められないため）。
+        //
+        // 追加対応（実機点検）: 「（1件は適用できませんでした）」だけでは理由がどこにも書いて
+        // おらず、利用者は次に何を見ればよいか分からなかった。失敗したブロックの理由（赤字）は
+        // 接ぎ木パネルにそのまま残っているので、そこへ誘導する一言を必ず添える。
         if (updatedDryRun.FailedCount > 0)
         {
             var completionMessage =
-                $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）";
+                $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
+                $"{Environment.NewLine}適用できなかった理由は、接ぎ木パネルの各ブロックに赤字で残っています。";
             await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
         }
 

@@ -24,19 +24,23 @@
                            どの置き場所でも画面外にはみ出さないよう最終的に必ずクランプする
                            （TutorialOverlay.axaml.cs ShowStep/PositionBubble参照）。
 
-        暗幕の色（ScrimPath.Fill）だけは既存のテーマトークンを使わず、固定の半透明黒
-        （#8A000000）にしている。理由: 「対象だけを明るく見せる」ための下地はライト・ダーク
-        どちらのテーマでもコントラストが必要で、TextPrimary等の色トークンをそのまま使うと
-        ダークテーマでは明色（#E6E8EB系）になってしまい、逆に対象以外が明るく浮いてしまう
-        （狙いと逆の見た目になる）。ハイライト枠・吹き出し・文字色は通常どおり
-        DynamicResourceの既存トークン（Accent/BgElevated/BorderSubtle/TextPrimary/
-        TextSecondary）を使い、ライト・ダーク両テーマで読めることを保証する
-        （多くのアプリのモーダル背景・スポットライト演出が採用する、テーマに依存しない
-        暗幕という一般的な作法にならった）。
+        暗幕の色（ScrimPath.Fill）は、TextPrimary等の意味を持つ色トークンを流用せず
+        黒固定にしている。理由: 「対象だけを明るく見せる」ための下地はライト・ダーク
+        どちらのテーマでも黒方向のコントラストが必要で、TextPrimary等の色トークンを
+        そのまま使うとダークテーマでは明色（#E6E8EB系）になってしまい、逆に対象以外が
+        明るく浮いてしまう（狙いと逆の見た目になる）。
+        UI点検（項目9）対応: 以前はこの黒に加えて不透明度（アルファ値）も#8A固定の直値
+        だったため、明るいテーマでは画面全体が「意図より重く」沈んで見えるとの指摘が
+        あった。9テーマ側にTutorialScrimColor/TutorialScrimトークンを新設し、明るいテーマは
+        不透明度を約40%（#66）まで落とし、暗いテーマは元の約54%（#8A）のまま据え置いた
+        （黒という色相自体は理由どおり変えていない。各テーマの実測・判断理由はLight.axaml/
+        Dark.axaml側の「チュートリアルの覆い」見出しコメント参照）。ハイライト枠・吹き出し・
+        文字色は通常どおりDynamicResourceの既存トークン（Accent/BgElevated/BorderSubtle/
+        TextPrimary/TextSecondary）を使い、ライト・ダーク両テーマで読めることを保証する。
     -->
     <Grid>
         <Path x:Name="ScrimPath"
-              Fill="#8A000000"
+              Fill="{DynamicResource TutorialScrim}"
               IsHitTestVisible="True"
               AutomationProperties.Name="チュートリアルの背景（クリックはできません）" />
 

@@ -220,6 +220,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// SelectedIndexを進めてしまわないようにするための目印として公開する。切り替え1件は
     /// Editor.CloseAllAsync（未保存の確認ダイアログを含みうる）等の重い処理を伴うため、
     /// ホイールの1回転で数十件分キューされる事故を防ぐ（連続切り替え対策）。
+    /// <para>
+    /// 点検指摘A-2の対応で、待機表示の目印としても使うようになった。ShellWindow.axamlの
+    /// ProjectSwitchProgressBar（本体行の上端に重ねた高さ2pxの不確定プログレスバー）が
+    /// このプロパティへ直接バインドしている。従来は上記のホイールガード専用で、どの
+    /// .axamlにもバインドされておらず、SMB越しで数秒かかる切り替えが完全な無表示だった。
+    /// </para>
     /// </summary>
     public bool IsProjectSwitchBusy
     {
@@ -570,9 +576,19 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
                 await Editor.CloseAllAsync().ConfigureAwait(true);
                 Editor.SetProject(project.Root);
-                await Explorer.SetProjectAsync(project).ConfigureAwait(true);
+
+                // 横断検索・クイックオープンへの文脈の受け渡しは、参照を持たせるだけの
+                // 同期処理である。一方 Explorer.SetProjectAsync はツリーの作り直しと
+                // ファイル監視の張り直しを伴い、ディレクトリ列挙をスレッドプールへ逃がした
+                // （FileTreeService.ListChildrenAsyncのコメント参照）ことで、確実に一度は
+                // 中断するようになった。
+                // 順序をこのままにしておくと、切り替えを始めてから検索・クイックオープンが
+                // 新しいプロジェクトを知るまでの間に隙間ができ、その隙間に Ctrl+P を押すと
+                // 「プロジェクト未選択」とみなされて何も起きない（自動テストで実際に再現した）。
+                // 安い代入を先に済ませ、時間のかかるツリーの読み込みを後ろへ回す。
                 Search.SetContext(project, _settings);
                 QuickOpen.SetContext(project, _settings);
+                await Explorer.SetProjectAsync(project).ConfigureAwait(true);
                 await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
                 _currentProjectId = project.Id;

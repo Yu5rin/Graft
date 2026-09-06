@@ -742,13 +742,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (JsonException ex)
         {
-            JsonParseError = $"JSONを解析できませんでした: {ex.Message}";
+            // 実機不具合対応: 以前は ex.Message をそのまま出しており、画面には
+            // 「JSONを解析できませんでした: '@' is an invalid start of a value. Path: $ | LineNumb…」
+            // と英語で出たうえ、唯一役に立つ行番号が右端で見切れていた。日本語の位置つき文言へ
+            // 変換する（変換規則と、原文を正規表現で読まない理由はExceptionMessages側のコメント参照）。
+            // _jsonText を渡すと「その位置に実際にあった文字」まで示せる。
+            JsonParseError = ExceptionMessages.DescribeJsonParseFailure(ex, _jsonText);
             return;
         }
 
         if (parsed is null)
         {
-            JsonParseError = "JSONを解析できませんでした。";
+            // JSONとしては正しいが null（本文が "null" だけ等）だった場合。位置は無いので一言だけ。
+            JsonParseError = "E406 JSONとして読み取れません。設定の内容が空です。波かっこ（{}）で囲まれた設定を入力してください。";
             return;
         }
 

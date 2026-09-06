@@ -72,7 +72,13 @@
     <Color x:Key="TextPrimaryColor">#B8BFC6</Color>
     <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}" />
 
-    <Color x:Key="TextSecondaryColor">#838A92</Color>
+    <!-- UI点検（項目2）対応: 旧値#838A92（Paneのink-sub）はBgBase比4.23:1・BgSurface比
+         3.24:1・BgSelected（選択行の上）比2.69:1のいずれも基準4.5:1に届いていなかった。
+         同じ色相・彩度を保ったまま明度を上げ（暗い背景なので明るくする方向）、
+         新値#B1B5BAはBgBase比7.17:1・BgSurface比5.49:1・BgSelected比4.55:1と
+         いずれも基準を満たす（TextPrimaryの明度0.515に対しTextSecondaryは0.459と
+         まだ約11%暗く、本文との濃さの違いも保たれている）。 -->
+    <Color x:Key="TextSecondaryColor">#B1B5BA</Color>
     <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
 
     <Color x:Key="TextDisabledColor">#6A7280</Color>
@@ -81,6 +87,11 @@
     <!-- ========== アクセント（1色のみ） ========== -->
     <Color x:Key="AccentColor">#6DC1E7</Color>
     <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
+
+    <!-- ========== フォーカスリング（UI点検項目4対応） ========== -->
+    <!-- Accent自体がBgBase比7.34:1・BgSurface比5.62:1・BgSelected比4.66:1といずれも
+         UI部品の基準3:1を満たすため、独立したFocusRingColorは持たずAccentへそのまま乗せる。 -->
+    <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
 
     <!-- ========== 境界線（必要最小限） ========== -->
     <Color x:Key="BorderSubtleColor">#555555</Color>
@@ -181,5 +192,11 @@
 
     <Color x:Key="SearchCurrentMatchBorderColor">#EB7106</Color>
     <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
+    <!-- ========== チュートリアルの覆い（UI点検項目9対応） ========== -->
+    <!-- ダーク系テーマなので値は変えずトークン化のみ行う（詳細な経緯はLight.axaml側の
+         同見出しコメント参照）。 -->
+    <Color x:Key="TutorialScrimColor">#8A000000</Color>
+    <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
 </ResourceDictionary>

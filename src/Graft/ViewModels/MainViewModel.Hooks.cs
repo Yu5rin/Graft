@@ -100,11 +100,70 @@ public sealed partial class MainViewModel
         return true;
     }
 
+    /// <summary>ダイアログへ載せるフック出力の行数。</summary>
+    private const int HookOutputTailLines = 5;
+
+    /// <summary>ダイアログへ載せるフック出力の1行あたりの上限文字数。</summary>
+    private const int HookOutputLineMaxChars = 200;
+
+    /// <summary>
+    /// フック失敗ダイアログの本文を組み立てる。
+    ///
+    /// 【実機不具合対応】 以前は「・ビルド: 終了コード 1」のように<b>終了コードしか</b>出して
+    /// いなかった。<see cref="HookRunner"/>は標準出力・標準エラーを
+    /// <see cref="HookResult.Output"/>へちゃんと集めているのに、画面には一切出しておらず、
+    /// 利用者は「何が失敗したのか」を知る手段が無かった（ログにも出力そのものは残らない）。
+    /// 出力の末尾数行を併記する。コンパイルエラーやテストの失敗は末尾に出るのが普通で、
+    /// 「次に何を直せばよいか」はたいていこの数行で分かる。
+    ///
+    /// 【全文を出さない理由】 ビルド出力は数千行になりうる。ダイアログへ全文を載せると
+    /// 読めないうえ、画面外へあふれてボタンにも届かなくなる。行数（<see cref="HookOutputTailLines"/>）と
+    /// 1行の長さ（<see cref="HookOutputLineMaxChars"/>）の両方で必ず抑える。全文が必要な場合は
+    /// フックのコマンド側でログファイルへ書き出してもらう想定
+    /// （manifest.jsonへは保存しない。理由は<see cref="HookResult.Output"/>のコメント参照）。
+    /// </summary>
     private static string BuildHookFailureMessage(IReadOnlyList<HookResult> failed)
     {
-        var lines = failed.Select(f => f.TimedOut
-            ? $"・{f.Name}: タイムアウトしました"
-            : $"・{f.Name}: 終了コード {f.ExitCode}");
-        return string.Join(Environment.NewLine, lines);
+        var blocks = failed.Select(f =>
+        {
+            var head = f.TimedOut
+                ? $"・{f.Name}: タイムアウトしました"
+                : $"・{f.Name}: 終了コード {f.ExitCode}";
+            var tail = SummarizeHookOutput(f.Output);
+            return tail is null ? head : $"{head}{Environment.NewLine}{tail}";
+        });
+        return string.Join(Environment.NewLine, blocks);
+    }
+
+    /// <summary>
+    /// フックの出力から末尾の数行を取り出し、字下げして返す。出力が空なら null
+    /// （「出力はありません」と書いても利用者にできることは無く、行数を食うだけのため）。
+    /// </summary>
+    private static string? SummarizeHookOutput(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output)) return null;
+
+        var lines = output
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n')
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .ToList();
+        if (lines.Count == 0) return null;
+
+        var tail = lines.Skip(Math.Max(0, lines.Count - HookOutputTailLines)).ToList();
+        var body = tail.Select(l =>
+        {
+            var trimmed = l.TrimEnd();
+            if (trimmed.Length > HookOutputLineMaxChars) trimmed = trimmed[..HookOutputLineMaxChars] + "…";
+            return $"    {trimmed}";
+        });
+
+        // 何行のうちの何行かを明示する。これが無いと、抜粋なのか出力の全部なのかが分からず、
+        // 「これで全部のはずなのに原因が書いていない」という誤解を招く。
+        var header = lines.Count > tail.Count
+            ? $"  出力の末尾{tail.Count}行（全{lines.Count}行）:"
+            : "  出力:";
+        return header + Environment.NewLine + string.Join(Environment.NewLine, body);
     }
 }

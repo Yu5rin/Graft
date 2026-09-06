@@ -29,15 +29,35 @@
     <Color x:Key="TextSecondaryColor">#5C6269</Color>
     <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
 
-    <Color x:Key="TextDisabledColor">#A0A5AC</Color>
+    <!--
+        UI点検（項目1）対応: 旧値#A0A5ACはBgBaseに対し実測2.37:1、実際に文字が乗る
+        BgSurfaceに対しても2.19:1しかなく、コマンドバーの無効ボタン（「キューへ追加」
+        「適用」等）や設定画面のチェックボックスが判読不能だった。同じ色相・彩度を保ったまま
+        明度だけを下げ、新値#828892はBgBaseに対し3.41:1・BgSurfaceに対し3.15:1
+        （いずれもUI部品の基準3:1以上）。TextSecondary（BgBase比5.90:1）よりは明らかに
+        薄いままなので「押せない」印象は保たれる。 -->
+    <Color x:Key="TextDisabledColor">#828892</Color>
     <SolidColorBrush x:Key="TextDisabled" Color="{StaticResource TextDisabledColor}" />
 
     <!-- ========== アクセント（1色のみ） ========== -->
     <Color x:Key="AccentColor">#2563EB</Color>
     <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
 
+    <!-- ========== フォーカスリング（UI点検項目4対応） ========== -->
+    <!-- このテーマはAccent自体がBgBase比4.95:1・BgSurface比4.57:1・BgSelected比4.38:1と
+         いずれもUI部品の基準3:1を十分満たすため、独立したFocusRingColorは持たずAccentへ
+         そのまま乗せる（Dark.axamlのIndentGuideHoverと同じ「差分が無い場合は新規キーを
+         増やさない」規則を踏襲）。 -->
+    <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
-    <Color x:Key="BorderSubtleColor">#E3E2DC</Color>
+    <!-- UI点検（項目5）対応: 旧値#E3E2DCはBgBaseに対し実測1.24:1で、サイドバー・サイドビュー・
+         エディタの区切り線やコマンドバー下端の線がほぼ視認できなかった。「主張しない区切り」
+         という役割上3:1（UI部品の基準）まで上げると強すぎるため、1.5〜2.0程度を狙って
+         同じ色相・彩度のまま明度だけ下げた。新値#C2C0B3はBgBaseに対し1.75:1
+         （Nord1.69・Dracula1.85と同程度で、この2テーマは今回未修正でも「存在は分かる」と
+         判断された水準）。 -->
+    <Color x:Key="BorderSubtleColor">#C2C0B3</Color>
     <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
 
     <!-- ========== diff ========== -->
@@ -54,14 +74,23 @@
     <SolidColorBrush x:Key="DiffDelBar" Color="{StaticResource DiffDelBarColor}" />
 
     <!-- ========== 状態 ========== -->
-    <Color x:Key="StateWarnColor">#B77E14</Color>
+    <!-- UI点検（項目6）対応: 旧値#B77E14はBgSurfaceに対し実測3.09:1で、プロジェクト一覧の
+         「未接続」ラベルやステータスバーの警告文（文字として使う）には4.5:1の基準に届いて
+         いなかった。色相は変えず明度だけ下げた。新値#926410はBgSurfaceに対し4.58:1。 -->
+    <Color x:Key="StateWarnColor">#926410</Color>
     <SolidColorBrush x:Key="StateWarn" Color="{StaticResource StateWarnColor}" />
 
     <Color x:Key="StateErrorColor">#D14350</Color>
     <SolidColorBrush x:Key="StateError" Color="{StaticResource StateErrorColor}" />
 
-    <!-- diff.add.barと同値で定義する（v2.0のWPF版8.5サンプルの規則を踏襲）。 -->
-    <Color x:Key="StateOkColor">#2E9E68</Color>
+    <!--
+        UI点検（項目6）対応: 旧値#2E9E68（diff.add.barと同値）はBgSurfaceに対し実測2.99:1で、
+        アイコンとして使う場合の基準3:1にわずかに届いていなかった（適用可ブロックのチェック
+        アイコン）。diff.add.bar/gutter.add側は今回指摘が無く、diff表示の見た目を変えたくない
+        ため、この2箇所とは意図的に値を分離した（今後は「diff.add.barと同値」の規則から
+        StateOkColorだけ例外）。新値#2E9D67（色相はそのまま、Gにわずか-1の誤差レベルの調整）は
+        BgSurfaceに対し3.02:1。 -->
+    <Color x:Key="StateOkColor">#2E9D67</Color>
     <SolidColorBrush x:Key="StateOk" Color="{StaticResource StateOkColor}" />
 
     <!-- ========== シンタックスハイライト配色（ライト） ========== -->
@@ -129,5 +158,16 @@
 
     <Color x:Key="SearchCurrentMatchBorderColor">#793A03</Color>
     <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
+    <!-- ========== チュートリアルの覆い（UI点検項目9対応） ========== -->
+    <!-- TutorialOverlay.axaml ScrimPath.Fill用。旧実装は全テーマ共通で固定の半透明黒
+         #8A000000（不透明度約54%）を直値で使っていたが、明るいテーマではその分だけ画面全体が
+         暗く沈み「意図より重く見える」という指摘があった。ライト系テーマは地の背景が元々
+         明るいため、不透明度を約40%（#66）へ落としても「対象だけが明るく見える」という
+         コーチマークの狙いは保たれる（暗幕の下に沈む背景が既に明るいぶん、同じ相対的な
+         暗さの差を作るのに必要な不透明度が低くて済む）。ダーク系テーマ（Dark.axaml等）は
+         元の#8A000000のまま据え置く。 -->
+    <Color x:Key="TutorialScrimColor">#66000000</Color>
+    <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
 </ResourceDictionary>
