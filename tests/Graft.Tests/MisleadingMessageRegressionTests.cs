@@ -163,6 +163,26 @@ public class MisleadingMessageRegressionTests
         occurrences.Should().Be(1, "GraftIssue.ToDisplayTextがPathを前置するため、detailにも書くと同じ長いパスが2回出る（B-1）");
     }
 
+    [Fact(DisplayName = "B-1: 起動時レポートに出る文言だけで「次に何をすればよいか」が分かる")]
+    public async Task ルート不明の文言に対処が含まれる()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var store = new ProjectStore(paths);
+
+        var validated = await store.ValidateAsync(new[]
+        {
+            new Project { Id = "p_gone", Name = "missingproj", Root = Path.Combine(ws.RootPath, "missingproj") },
+        });
+
+        // 起動時レポート（StartupReport）が画面へ出すのはToDisplayTextだけで、ErrorCatalogの
+        // 対処文は「詳細をコピー」の中にしか入らない。detailに対処を持たせていないと、
+        // 画面には「見つからないため未接続にしました」としか出ず、何をすればよいか分からない。
+        var text = validated.Issues.Single(i => i.Code == ErrorCode.E213).ToDisplayText();
+        text.Should().Contain("場所を変更", "画面に出る文言だけで取れる行動が分かること（B-1）");
+        text.Should().Contain("ネットワークドライブ");
+    }
+
     [Fact(DisplayName = "B-1: E213の対処文は「場所を変更」「ネットワークドライブの接続」を案内する")]
     public void E213の対処文が行動を示す()
     {
