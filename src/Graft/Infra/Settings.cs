@@ -126,7 +126,7 @@ public sealed record UpdateSettings
     /// 追従できるようにするためと、「どこへ通信するのか」を利用者が設定画面から確認・変更できる
     /// ようにするため。
     /// </summary>
-    public string CheckUrl { get; init; } = "https://api.github.com/repos/Yu5rin/Graft/releases/latest";
+    public string CheckUrl { get; init; } = Graft.Core.Update.UpdateHostPolicy.DefaultCheckUrl;
 }
 
 /// <summary>コードエディタ設定（v2.0 仕様書15章・4章）。</summary>
