@@ -464,8 +464,31 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (!ReferenceEquals(tab, _diffTab)) return;
 
         var wasActive = ReferenceEquals(tab, ActiveTab);
-        var returnTo = wasActive ? ResolveReturnTab(tab) : null;
+
+        // 不具合4対応（実機点検）: 「適用完了後、差分タブが閉じても差分ツールバーだけが
+        // 画面に残り続ける」不具合の実際の原因はここだった。以前はResolveReturnTab（先頭タブへの
+        // フォールバックを含む）を _tabs.Remove(tab) より前に呼んでいたため、この差分タブが
+        // Tabs内の唯一のタブだった場合（＝他に開いているファイルタブが無い、典型的には
+        // 「ブロックを選んで差分を見て、そのまま適用した」という単純な操作）、
+        // ResolveReturnTabの最終フォールバック「Tabs.Count > 0 ? Tabs[0] : null」が、
+        // まだ削除されていない自分自身（この差分タブ）を返してしまっていた。
+        // ActiveTabはこの時点で既にこの差分タブと同じ参照（wasActive判定の前提）なので、
+        // 「ActiveTab = 自分自身」という代入はSetProperty（参照の等値比較）に変化なしと
+        // 判定され、PropertyChangedが一切発火しない。結果、EditorPane.ApplyActiveTabが
+        // 呼ばれずDiffHost.IsVisibleがtrueのまま取り残され、しかもActiveTabは既に
+        // _tabsから削除・DetachEvents済みの「幽霊」タブを指し続ける（実機点検の再現テスト
+        // tests/Graft.UiTests/DiffToolbarCleanupTests.csで、修正前はこの状態
+        // （Tabs.Count==0なのにActiveTabが非null）を実際に検出した）。
+        //
+        // 対処: ResolveReturnTabを呼ぶ前に、この差分タブ自身を_tabsから取り除いておく。
+        // こうすればTabs[0]フォールバックが自分自身を候補に含むことは無くなり、他に
+        // タブが無ければ正しくnull（先頭タブが無い）が返る。DocumentTabs検索・
+        // _tabBeforeDiff判定はどちらも「この差分タブそのもの」を返すことは無い
+        // （DocumentTabsはKind==Documentだけが対象、_tabBeforeDiffは
+        // !ReferenceEquals(_tabBeforeDiff, closedDiffTab)で自己参照を除外済み）ため、
+        // 削除の前後を入れ替えてもそれらの判定結果は変わらない。
         _tabs.Remove(tab);
+        var returnTo = wasActive ? ResolveReturnTab(tab) : null;
         _diffTab = null;
         _tabBeforeDiff = null;
         tab.PropertyChanged -= OnTabPropertyChanged;

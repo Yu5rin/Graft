@@ -142,6 +142,28 @@ public sealed partial class DiffViewModel : ObservableObject
     /// <summary>マッチ失敗（適用不可）ブロックかどうか。</summary>
     public bool IsFailed => _plan is { CanApply: false };
 
+    /// <summary>
+    /// 不具合3対応（実機点検）: 対象ファイルが存在しない・読み取れない（E210）ブロックかどうか。
+    /// 【何が問題だったか】 E210は「そもそもファイルが無い」ことが原因なのに、修正前は
+    /// このケースでも通常のマッチ失敗と同じ扱いでインライン編集パネル（SEARCH部を書き換えて
+    /// 再判定できる案内）を出していた。ファイルが無い以上SEARCH部をどう書き換えても
+    /// 一致しようがなく（<see cref="BuildInlineEdits"/>は空文字列の「実際のファイル内容」に
+    /// 対してマッチを試み、当然E101「SEARCH部が見つからない」になる）、利用者から見ると
+    /// 「編集すれば直ります」という誘導と「E210 ファイルが見つからない」という矛盾する
+    /// 2つの診断が同時に表示される状態だった（点検で実測）。
+    /// 【対処】 このプロパティで区別し、DiffView.axaml側でインライン編集パネルの代わりに
+    /// 「対象ファイルがありません」という専用の案内を出す（BuildInlineEdits参照）。
+    /// </summary>
+    public bool IsMissingFile => _plan is { CanApply: false } p && p.Issues.Any(i => i.Code == ErrorCode.E210);
+
+    /// <summary>
+    /// <see cref="IsMissingFile"/>がtrueのときに表示する、Graftが実際に確認した絶対パスを
+    /// 含む説明文（E210のGraftIssue.ToDisplayText()。DryRunPlanner.PlanFileTextBlocksAsync参照）。
+    /// falseのときは空文字列。
+    /// </summary>
+    public string MissingFileDetailText
+        => _plan?.Issues.FirstOrDefault(i => i.Code == ErrorCode.E210)?.ToDisplayText() ?? string.Empty;
+
     /// <summary>表示中のファイルパス。未読み込み時は null。</summary>
     public string? FilePath => _plan?.Path;
 
@@ -203,6 +225,8 @@ public sealed partial class DiffViewModel : ObservableObject
         OnPropertyChanged(nameof(NeedsConfirmation));
         OnPropertyChanged(nameof(CanToggleInclusion));
         OnPropertyChanged(nameof(IsFailed));
+        OnPropertyChanged(nameof(IsMissingFile));
+        OnPropertyChanged(nameof(MissingFileDetailText));
         OnPropertyChanged(nameof(FilePath));
         OnPropertyChanged(nameof(Description));
         OnPropertyChanged(nameof(HasInlineEdits));
@@ -262,6 +286,10 @@ public sealed partial class DiffViewModel : ObservableObject
     private void BuildInlineEdits(BlockPlan plan)
     {
         if (plan.CanApply || plan.Block is not SearchReplaceBlock srBlock) return;
+        // 不具合3対応: ファイルが存在しない（E210）場合はインライン編集パネルを出さない
+        // （IsMissingFileのXMLコメント参照）。SEARCH部を編集しても対象ファイルが無い限り
+        // 永久にマッチしようがなく、「編集すれば直せる」という誤った誘導になるため。
+        if (plan.Issues.Any(i => i.Code == ErrorCode.E210)) return;
 
         var options = new MatchOptions
         {

@@ -105,11 +105,11 @@
 
         <!-- ツールバー -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="{DynamicResource SpacingSmThickness}">
-            <RadioButton GroupName="DiffMode" Content="並列" Margin="0,0,8,0" VerticalAlignment="Center"
+            <RadioButton x:Name="SideBySideRadio" Content="並列" Margin="0,0,8,0" VerticalAlignment="Center"
                          IsChecked="{Binding IsSideBySide}" AutomationProperties.Name="並列表示に切り替え"
                          views:HelpTip.Standard="変更前と変更後を左右に並べて表示します。"
                          views:HelpTip.Detailed="変更前のコードを左、変更後のコードを右に並べて表示します。何がどう変わったかを左右見比べながら確認したいときに向いています。" />
-            <RadioButton GroupName="DiffMode" Content="統合" Margin="0,0,16,0" VerticalAlignment="Center"
+            <RadioButton x:Name="UnifiedRadio" Content="統合" Margin="0,0,16,0" VerticalAlignment="Center"
                          IsChecked="{Binding !IsSideBySide}"
                          AutomationProperties.Name="統合表示に切り替え"
                          views:HelpTip.Standard="削除された行と追加された行を、1つの流れの中に上下に並べて表示します。"
@@ -191,7 +191,10 @@
             </ListBox.Styles>
         </ListBox>
 
-        <!-- 8.7: マッチ失敗ブロックのインライン編集（SEARCH/REPLACEペア単位） -->
+        <!-- 8.7: マッチ失敗ブロックのインライン編集（SEARCH/REPLACEペア単位）。
+             対象ファイルが存在しない（E210）場合はここではなく下のMissingFilePanelを出す
+             （DiffViewModel.IsMissingFile・BuildInlineEditsのコメント参照。E210のときは
+             InlineEditsが常に空になるため、この2つが同時に表示されることはない）。 -->
         <ItemsControl Grid.Row="3" ItemsSource="{Binding InlineEdits}"
                       IsVisible="{Binding HasInlineEdits}">
             <ItemsControl.ItemTemplate>
@@ -200,5 +203,29 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
+
+        <!--
+            不具合3対応（実機点検）: 対象ファイルが存在しない（E210）ブロックの案内。
+            以前はここにもインライン編集パネルが出て「SEARCH部を編集して再判定できます」と
+            誘導していたが、原因はSEARCH部の内容ではなく「ファイルそのものが無い」ことなので、
+            編集しても永久にマッチしない（右側の「実際のファイル内容」も常に空欄になる）。
+            ここでは編集を促さず、事実（ファイルが無いこと・確認した絶対パス）と、次に取れる
+            現実的な行動（パスの確認／新規作成として作り直してもらう）だけを案内する。
+        -->
+        <Border Grid.Row="3" IsVisible="{Binding IsMissingFile}"
+                Background="{DynamicResource BgElevated}" BorderBrush="{DynamicResource StateError}"
+                BorderThickness="0,1,0,0" Padding="{DynamicResource SpacingMdThickness}">
+            <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <views:IconGlyph Data="{DynamicResource IconFileGeometry}"
+                                     Stroke="{DynamicResource StateError}" VerticalAlignment="Center" />
+                    <TextBlock Text="対象ファイルがありません" FontWeight="Bold" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Text="{Binding MissingFileDetailText}" TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextSecondary}" />
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
+                           Text="SEARCH部を書き換えても、ファイルが無い限り一致しようがないため直りません。次のいずれかをお試しください: ①パスの綴り・大文字小文字・プロジェクトルートからの相対位置に誤りが無いか確認する。②このファイルが新規作成であるべきなら、AIにSEARCH/REPLACE形式ではなくFULL形式（ファイル全体を書く形式）でパッチを作り直すよう依頼する。" />
+            </StackPanel>
+        </Border>
     </Grid>
 </UserControl>
