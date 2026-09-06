@@ -218,7 +218,7 @@
             </TabItem>
         </TabControl>
 
-        <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto,Auto">
+        <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"
                            Classes="statusMessage"
@@ -236,9 +236,21 @@
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、AIへ渡す文章としてクリップボードへコピーします。コピーしたら、そのままChatGPTやClaudeなどのAIとの会話に貼り付けて質問してください。推定トークン数が設定の上限を超えている場合は、コピーされずに警告だけが表示されます（内容が大きすぎるため、除外パターンでファイルを減らすなどの調整が必要です）。"
                     AutomationProperties.Name="コンテキストをクリップボードへコピー" TabIndex="7" />
             <Button Grid.Column="3" Content="ファイルへ保存" Command="{Binding SaveToFileCommand}"
+                    Margin="0,0,8,0"
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、名前を付けてMarkdownファイルへ保存します。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、Markdown形式のテキストファイルとして好きな場所へ保存します。既定のファイル名はプロジェクト名と保存日時から自動で組み立てます（例: デモ_20260808_1530.md）。保存したファイルはそのままAIチャットへ添付・貼り付けして使えます。推定トークン数が上限を超えている場合でも保存自体は行いますが、内容が大きすぎる可能性があるため見直しを促す表示が出ます。"
                     AutomationProperties.Name="コンテキストをファイルへ保存" TabIndex="8" />
+            <!--
+                実機で確認された指摘7: 設定・キュー・取扱説明書にはある「閉じる」ボタンが
+                このウィンドウにだけ無く、マウスだけの利用者にはタイトルバーの×しか無かった
+                （Escapeでは閉じられる。ContextCollectWindow.axaml.cs参照）。他の3つの
+                「プレビュー」「コピー」「ファイルへ保存」と対等に並べると押し間違えを誘発する
+                （上のコメント参照）ため、Margin区切りを空けてGrid.Column="4"へ独立させる。
+            -->
+            <Button Grid.Column="4" Content="閉じる" Click="OnCloseClicked"
+                    AutomationProperties.Name="コンテキスト収集を閉じる"
+                    local:HelpTip.Standard="このウィンドウを閉じます。"
+                    local:HelpTip.Detailed="コンテキスト収集のウィンドウを閉じます。Escapeキーでも閉じられます。" />
         </Grid>
     </Grid>
 

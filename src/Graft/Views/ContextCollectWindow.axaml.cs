@@ -36,4 +36,10 @@ public partial class ContextCollectWindow : Window
     {
         if (e.Key == Key.Escape) Close();
     }
+
+    /// <summary>
+    /// 実機で確認された指摘7: 設定・キュー・取扱説明書にはある「閉じる」ボタンがこのウィンドウ
+    /// にだけ無く、マウスだけの利用者にはタイトルバーの×しか到達手段が無かった。
+    /// </summary>
+    private void OnCloseClicked(object? sender, RoutedEventArgs e) => Close();
 }

@@ -178,31 +178,44 @@ public sealed class QuickOpenViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 仕様: 「空入力時は何も出さない」を採用する（もう一方の選択肢である全件表示は、
-    /// プロジェクトの規模によっては初期表示が重くなるため見送った）。
+    /// 実機で確認された指摘5: 空入力を「0件ヒット」と表示すると、機能が壊れているように
+    /// 見えてしまう（VS Code等は最近開いたファイルを即座に並べる）。Graftには「最近開いた
+    /// ファイル」を記録する仕組みがまだ無いため代替として、パスの浅い（＝プロジェクト直下に
+    /// 近い）ファイルから順に並べて見せる。全くの新規プロジェクトで直下にファイルが1つも
+    /// 無い場合は結果的に0件のままだが、それは絞り込みではなく実態（見せるものが無い）を
+    /// 反映しているだけなので許容する。
     /// </summary>
     private void UpdateResults()
     {
         Results.Clear();
-        if (_query.Length == 0 || _project is null)
+        if (_project is null)
         {
             SelectedResult = null;
             return;
         }
 
-        var ordered = _allFiles
-            .Select(rel => (RelativePath: rel, Match: FuzzyMatcher.TryMatch(_query, rel)))
-            .Where(x => x.Match.IsMatch)
-            .OrderBy(x => x.Match.Tier)
-            .ThenBy(x => x.Match.RelativePathLength)
-            .ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase)
-            .Take(MaxResults);
+        var ordered = _query.Length == 0
+            ? _allFiles
+                .OrderBy(CountPathSeparators)
+                .ThenBy(rel => rel, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxResults)
+            : _allFiles
+                .Select(rel => (RelativePath: rel, Match: FuzzyMatcher.TryMatch(_query, rel)))
+                .Where(x => x.Match.IsMatch)
+                .OrderBy(x => x.Match.Tier)
+                .ThenBy(x => x.Match.RelativePathLength)
+                .ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxResults)
+                .Select(x => x.RelativePath);
 
-        foreach (var (relativePath, _) in ordered)
+        foreach (var relativePath in ordered)
         {
             Results.Add(new QuickOpenResultItem(_project.Root, relativePath));
         }
 
         SelectedResult = Results.Count > 0 ? Results[0] : null;
     }
+
+    /// <summary>相対パスの階層の深さ（区切り"/"の個数）。浅いファイルほどプロジェクト直下に近い。</summary>
+    private static int CountPathSeparators(string relativePath) => relativePath.Count(c => c == '/');
 }

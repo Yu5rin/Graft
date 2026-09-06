@@ -89,6 +89,52 @@
                        TextWrapping="Wrap"
                        Foreground="{DynamicResource TextSecondary}"
                        FontSize="{DynamicResource CaptionFontSize}" />
+
+            <!--
+                実機で確認された指摘2: 解析がエラーで失敗すると、直前まであったEmptyPanelの
+                「解析」「ファイルから解析」ボタンごと隠れてしまい、Escapeで空状態へ戻す以外に
+                復旧手段が無かった（Escapeが破棄コマンドだと知っている必要がある）。EmptyPanelと
+                同じActionText/ActionCommand等をここでも参照することで、呼び出し側
+                （GraftPanel.axaml）を変更せずにエラー状態でも同じ2つのボタンを出す。
+                ActionText/SecondaryActionTextが未指定（空文字）の呼び出し元（HistoryPane等）では
+                従来どおりEmptyStateView.axaml.csのApplyActionText/ApplySecondaryActionTextが
+                非表示にする。
+            -->
+            <Button x:Name="ErrorActionButton"
+                    Content="{Binding ActionText, ElementName=Root}"
+                    AutomationProperties.Name="{Binding ActionText, ElementName=Root}"
+                    Command="{Binding ActionCommand, ElementName=Root}"
+                    views:HelpTip.Standard="{Binding ActionTooltip, ElementName=Root}"
+                    views:HelpTip.Detailed="{Binding ActionTooltipDetailed, ElementName=Root}"
+                    Margin="0,16,0,0"
+                    HorizontalAlignment="Center"
+                    IsVisible="False" />
+            <Button x:Name="ErrorSecondaryActionButton"
+                    Content="{Binding SecondaryActionText, ElementName=Root}"
+                    AutomationProperties.Name="{Binding SecondaryActionText, ElementName=Root}"
+                    Command="{Binding SecondaryActionCommand, ElementName=Root}"
+                    views:HelpTip.Standard="{Binding SecondaryActionTooltip, ElementName=Root}"
+                    views:HelpTip.Detailed="{Binding SecondaryActionTooltipDetailed, ElementName=Root}"
+                    Background="Transparent"
+                    Margin="0,8,0,0"
+                    HorizontalAlignment="Center"
+                    IsVisible="False" />
+
+            <!--
+                取扱説明書§9が案内する「詳細をコピー」（AvaloniaDialogServiceのエラーダイアログと
+                同じ文面）を、モーダルではないこのインラインエラーにも出す。IssueがnullのままErrorPanel
+                だけが表示されることは無い（呼び出し側は必ずIssueと同時にState=Errorへ切り替える）ため、
+                表示可否はApplyIssue（コードビハインド）でIssueの有無から判定する。
+            -->
+            <Button x:Name="ErrorCopyDetailsButton"
+                    Content="詳細をコピー"
+                    Click="OnCopyErrorDetailsClicked"
+                    AutomationProperties.Name="エラーの詳細をコピー"
+                    views:HelpTip.Standard="エラーコード・内容・対処方法をまとめてクリップボードへコピーします。不具合報告時に貼り付けてください。"
+                    Background="Transparent"
+                    Margin="0,8,0,0"
+                    HorizontalAlignment="Center"
+                    IsVisible="False" />
         </StackPanel>
     </Grid>
 </UserControl>

@@ -292,7 +292,17 @@
                                        FontSize="{DynamicResource PaneHeadingFontSize}"
                                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                                        Foreground="{DynamicResource TextSecondary}" />
-                            <ListBox ItemsSource="{Binding Templates}"
+                            <!--
+                                実機で確認された指摘3: 項目をダブルクリックしても何も起きず、
+                                「コピー」ボタンまでたどり着くのに必ず3クリックかかっていた
+                                （項目選択→コピー押下の2クリックでは済まず、開く操作を含めると3）。
+                                ダブルタップとEnterで「選んで即コピーして閉じる」を追加する
+                                （コードビハインドはShellWindow.axaml.csのOnPromptTemplate系参照）。
+                                「コピー」ボタン自体は変更しない（マウスで1件ずつ選んで内容を
+                                確認してからコピーしたい場合の経路として残す）。
+                            -->
+                            <ListBox x:Name="PromptTemplateListBox"
+                                     ItemsSource="{Binding Templates}"
                                      SelectedItem="{Binding SelectedTemplate, Mode=TwoWay}"
                                      MaxHeight="220"
                                      Margin="0,8,0,0"

@@ -76,10 +76,23 @@
                             AutomationProperties.Name="適用前の差分表示" />
         </Grid>
 
-        <StackPanel Grid.Row="2"
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+            <!--
+                指摘4: 適用前プレビューは既定オンとして妥当だが、完了ダイアログ（指摘1）と
+                合わせて確認画面が2枚になっていた。既定（オン）は変えず、能動的にオフへ
+                切り替える経路だけをここに置く（ApplyPreviewViewModel.DontShowAgain参照）。
+                左詰めにして、右詰めの主要ボタン列（適用／キャンセル）と混同しないようにする。
+            -->
+            <CheckBox Grid.Column="0"
+                      Content="今後は表示しない"
+                      IsChecked="{Binding DontShowAgain, Mode=TwoWay}"
+                      VerticalAlignment="Center"
+                      views:HelpTip.Standard="次回からは、このプレビューを飛ばして直接適用します（設定「適用前にプレビューを表示する」をオフにします）。"
+                      AutomationProperties.Name="今後はこのプレビューを表示しない" />
+
+        <StackPanel Grid.Column="1"
                     Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,12,0,0">
+                    HorizontalAlignment="Right">
             <!--
                 細かいユーザビリティ改善5（ダイアログのキー操作総点検）: 「適用」をEnterで実行できる
                 既定ボタンにし（IsDefault）、「キャンセル」をIsCancel="True"にする（機能的には
@@ -105,5 +118,6 @@
                     views:HelpTip.Standard="適用を取りやめ、接ぎ木パネルに戻ります。まだ何も書き込まれていません（Esc）。"
                     AutomationProperties.Name="適用をキャンセル" />
         </StackPanel>
+        </Grid>
     </Grid>
 </Window>

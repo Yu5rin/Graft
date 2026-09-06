@@ -1,10 +1,14 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Graft.Core;
+using Graft.Platform;
 
 namespace Graft.Views;
 
@@ -194,20 +198,49 @@ public partial class EmptyStateView : UserControl
 
     private void ApplyActionText(string text)
     {
-        ActionButton.IsVisible = !string.IsNullOrEmpty(text);
+        var isVisible = !string.IsNullOrEmpty(text);
+        ActionButton.IsVisible = isVisible;
         AutomationProperties.SetName(ActionButton, text);
+        // 指摘2: ErrorPanel側にも同じ主要アクションを複製している（EmptyStateView.axaml参照）。
+        // ActionText自体はEmpty/Errorどちらの状態でも共通の値のため、同じ判定をそのまま流用する。
+        ErrorActionButton.IsVisible = isVisible;
+        AutomationProperties.SetName(ErrorActionButton, text);
     }
 
     private void ApplySecondaryActionText(string text)
     {
-        SecondaryActionButton.IsVisible = !string.IsNullOrEmpty(text);
+        var isVisible = !string.IsNullOrEmpty(text);
+        SecondaryActionButton.IsVisible = isVisible;
         AutomationProperties.SetName(SecondaryActionButton, text);
+        ErrorSecondaryActionButton.IsVisible = isVisible;
+        AutomationProperties.SetName(ErrorSecondaryActionButton, text);
     }
 
     private void ApplyIssue(GraftIssue? issue)
     {
         ErrorSummaryText.Text = issue?.ToDisplayText() ?? string.Empty;
         ErrorRemedyText.Text = issue is null ? string.Empty : $"対処: {issue.Remedy}";
+        // 指摘2: 取扱説明書§9が案内する「詳細をコピー」を、モーダルダイアログだけでなく
+        // このインラインエラー表示にも出す（AvaloniaDialogService.AddButtonRowと同じ判定基準。
+        // Issueが無ければコピーする内容も無いため非表示にする）。
+        ErrorCopyDetailsButton.IsVisible = issue is not null;
+    }
+
+    /// <summary>
+    /// 指摘2: 「詳細をコピー」。文面組み立てはAvaloniaDialogService.CopyIssueDetailsと全く同じ
+    /// 経路（ErrorDetailFormatter＋実行環境固有値）を通すことで、モーダルダイアログ側の
+    /// 「詳細をコピー」とここで文面がずれないようにする。書き込み先もAvaloniaUiServices.
+    /// SharedClipboard（Linuxでは自前のX11実装を優先する既存経路）を再利用し、専用の
+    /// 書き込み経路を新設しない。
+    /// </summary>
+    private void OnCopyErrorDetailsClicked(object? sender, RoutedEventArgs e)
+    {
+        if (Issue is not { } issue) return;
+
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "不明";
+        var message = issue.ToDisplayText();
+        var text = ErrorDetailFormatter.BuildCopyText("エラーが発生しました", message, version, RuntimeInformation.OSDescription);
+        AvaloniaUiServices.SharedClipboard.SetText(text);
     }
 
     private void ApplyState(EmptyStateMode mode)
