@@ -191,13 +191,12 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
-                                    IsVisible="{Binding IsEmpty}">
-                            <local:IconGlyph Data="{DynamicResource IconHistoryGeometry}"
-                                             Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
-                            <TextBlock Text="このプロジェクトのリビジョンがまだありません" Margin="0,8,0,0"
-                                       Foreground="{DynamicResource TextSecondary}" />
-                        </StackPanel>
+                        <!-- 項目7: ここも手書きのアイコン＋文言（Opacity 0.4）だった空状態を
+                             共通EmptyStateViewへ寄せる。 -->
+                        <local:EmptyStateView AutomationProperties.Name="期間別トークン統計（0件）"
+                                              IconGeometry="{DynamicResource IconHistoryGeometry}"
+                                              Message="このプロジェクトのリビジョンがまだありません"
+                                              State="{Binding IsEmpty, Converter={x:Static local:Converters.IsEmptyToEmptyState}}" />
                         <Border BorderBrush="{DynamicResource StateError}" BorderThickness="1" Padding="8"
                                 VerticalAlignment="Top"
                                 IsVisible="{Binding ErrorIssue, Converter={x:Static local:Converters.NotNull}}">
