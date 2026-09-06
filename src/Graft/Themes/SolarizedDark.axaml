@@ -65,14 +65,34 @@
     <Color x:Key="BgHoverColor">#0C343F</Color>
     <SolidColorBrush x:Key="BgHover" Color="{StaticResource BgHoverColor}" />
 
-    <Color x:Key="BgSelectedColor">#0E4B5E</Color>
+    <!-- UI点検（項目8）対応: 旧値#0E4B5E（Paneのaccent-soft）は本文色TextPrimary
+         （#93A1A1）に対し実測3.59:1しか無く、選択したリスト項目の主文字が基準4.5:1に
+         届いていなかった。TextPrimary自体は本文（TextPrimary÷BgBase）が9テーマ共通で
+         今回対象外のため変更したくなく、代わりに選択面の色を同じ色相・彩度のまま
+         明度を下げた。新値#0B3A49はTextPrimary比4.58:1（副次効果として項目2の
+         TextSecondary÷BgSelectedや項目4のAccent÷BgSelectedも同時に改善する。下記
+         コメント・item2/4対応箇所参照）。BgSurface（#002B36）に対する見た目の差
+         （選択行としての主張の強さ）は1.23:1で、旧値の1.56:1から大きく変わらず
+         「選択に見えなくなるほど薄い」水準ではない（同じ規則を使う既定ライト/ダークの
+         Sel÷Surfも1.04〜1.45程度）。 -->
+    <Color x:Key="BgSelectedColor">#0B3A49</Color>
     <SolidColorBrush x:Key="BgSelected" Color="{StaticResource BgSelectedColor}" />
 
     <!-- ========== 文字 ========== -->
     <Color x:Key="TextPrimaryColor">#93A1A1</Color>
     <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}" />
 
-    <Color x:Key="TextSecondaryColor">#839496</Color>
+    <!-- UI点検（項目2）対応: 旧値#839496（Paneのink-sub）はBgBase比5.09:1・BgSurface比
+         4.75:1と単体では基準4.5:1を満たすが、選択行の上（BgSelected、上のitem8対応で
+         #0B3A49へ変更済み）に対しては3.87:1までしか届かない。同じ色相・彩度のまま
+         明度を上げて4.5:1へ寄せようとすると、TextPrimary（#93A1A1、BgSelected比4.58:1）と
+         ほぼ同じ明るさになってしまい「本文より薄い」という階層が崩れる（例えばBgSelected比
+         4.56:1を狙うとTextPrimaryとの明度差が1.5%まで縮む）。このテーマに限り本文との
+         見分けやすさを優先し、4.5:1には届かないが元の3.04:1から大きく改善する
+         新値#8B9B9Dを採用した（BgBase比5.58:1・BgSurface比5.20:1は基準を満たし、
+         BgSelected比は3.04→4.24:1、TextPrimaryの明度0.343に対しTextSecondaryは
+         0.314とまだ約9%暗く、階層は保たれる）。 -->
+    <Color x:Key="TextSecondaryColor">#8B9B9D</Color>
     <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
 
     <Color x:Key="TextDisabledColor">#586E75</Color>
@@ -81,6 +101,14 @@
     <!-- ========== アクセント（1色のみ） ========== -->
     <Color x:Key="AccentColor">#268BD2</Color>
     <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
+
+    <!-- ========== フォーカスリング（UI点検項目4対応） ========== -->
+    <!-- Accent（#268BD2）はBgBase比4.38:1・BgSurface比4.08:1は元々基準3:1を満たすが、
+         BgSelectedに対しては旧値（#0E4B5E）で2.61:1しか無かった。上のitem8対応で
+         BgSelectedColorを#0B3A49へ変更した副次効果でAccent÷BgSelectedが3.33:1まで
+         改善し3テーマとも基準を満たすようになったため、Sepia/Solarized Lightと違い
+         独立したFocusRingColorは不要と判断し、Accentへそのまま乗せる。 -->
+    <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
 
     <!-- ========== 境界線（必要最小限） ========== -->
     <Color x:Key="BorderSubtleColor">#0A3C4A</Color>
@@ -148,7 +176,9 @@
     <Color x:Key="EditorCurrentLineColor">#002B36</Color>
     <SolidColorBrush x:Key="EditorCurrentLine" Color="{StaticResource EditorCurrentLineColor}" />
 
-    <Color x:Key="EditorSelectionColor">#0E4B5E</Color>
+    <!-- UI点検（項目8）対応でBgSelectedColorを#0B3A49へ変更したのに合わせ、
+         「BgSelectedColorと同値にする」既存の規則どおりこちらも追随させる。 -->
+    <Color x:Key="EditorSelectionColor">#0B3A49</Color>
     <SolidColorBrush x:Key="EditorSelection" Color="{StaticResource EditorSelectionColor}" />
 
     <!-- ========== インデントガイド（縦線、検討書「インデントガイド（縦線）」・第2波） ========== -->
@@ -180,5 +210,11 @@
 
     <Color x:Key="SearchCurrentMatchBorderColor">#C55F05</Color>
     <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
+    <!-- ========== チュートリアルの覆い（UI点検項目9対応） ========== -->
+    <!-- ダーク系テーマなので値は変えずトークン化のみ行う（詳細な経緯はLight.axaml側の
+         同見出しコメント参照）。 -->
+    <Color x:Key="TutorialScrimColor">#8A000000</Color>
+    <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
 </ResourceDictionary>

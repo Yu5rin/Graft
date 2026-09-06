@@ -41,7 +41,7 @@ public class FileTreeServiceNameValidationTests
         var result = await service.RenameAsync(project, "original.txt", "dir/moved.txt", isDirectory: false, PathGuardOptions.Default);
 
         result.IsSuccess.Should().BeFalse("パス区切りを含む名前は1階層の名前として拒否されるべき");
-        result.Issues.Should().Contain(i => i.Code == ErrorCode.E213);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E214);
         File.Exists(filePath).Should().BeTrue("拒否された場合、元のファイルは移動されずそのまま残っているべき");
         File.Exists(Path.Combine(project.Root, "dir", "moved.txt")).Should().BeFalse("dir/へ移動してしまってはならない（ドキュメント通り同じ親フォルダ内でのみ変更可能）");
     }
@@ -56,7 +56,7 @@ public class FileTreeServiceNameValidationTests
         var result = await service.CreateFileAsync(project, string.Empty, "sub/child.txt", PathGuardOptions.Default);
 
         result.IsSuccess.Should().BeFalse();
-        result.Issues.Should().ContainSingle().Which.Code.Should().Be(ErrorCode.E213);
+        result.Issues.Should().ContainSingle().Which.Code.Should().Be(ErrorCode.E214);
         result.Issues[0].ToDisplayText().Should().NotContain("graft-tmp", "内部の一時ファイル名を利用者に晒してはならない");
     }
 
@@ -71,7 +71,7 @@ public class FileTreeServiceNameValidationTests
         var result = await service.CreateFileAsync(project, string.Empty, longName, PathGuardOptions.Default);
 
         result.IsSuccess.Should().BeFalse();
-        result.Issues.Should().ContainSingle().Which.Code.Should().Be(ErrorCode.E213);
+        result.Issues.Should().ContainSingle().Which.Code.Should().Be(ErrorCode.E214);
         result.Issues[0].ToDisplayText().Should().Contain("255文字以内").And.NotContain("too long", "英語の生の例外メッセージを出してはならない");
     }
 
@@ -103,7 +103,7 @@ public class FileTreeServiceNameValidationTests
         var result = await service.CreateFileAsync(project, string.Empty, name, PathGuardOptions.Default);
 
         result.IsSuccess.Should().BeFalse("Linux上でもそのまま作成できてはならない（ツリー表示が崩れる不具合の回帰）");
-        result.Issues.Should().Contain(i => i.Code == ErrorCode.E213);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E214);
     }
 
     [Fact(DisplayName = "末尾がピリオドの名前は拒否される（Windowsのエクスプローラ制約とクロスプラットフォームで揃える）")]
@@ -116,7 +116,7 @@ public class FileTreeServiceNameValidationTests
         var result = await service.CreateFolderAsync(project, string.Empty, "folder.", PathGuardOptions.Default);
 
         result.IsSuccess.Should().BeFalse();
-        result.Issues.Should().Contain(i => i.Code == ErrorCode.E213);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E214);
     }
 
     [Fact(DisplayName = "空・空白のみの名前は拒否される")]
@@ -129,7 +129,7 @@ public class FileTreeServiceNameValidationTests
         var result = await service.CreateFileAsync(project, string.Empty, "   ", PathGuardOptions.Default);
 
         result.IsSuccess.Should().BeFalse();
-        result.Issues.Should().Contain(i => i.Code == ErrorCode.E213);
+        result.Issues.Should().Contain(i => i.Code == ErrorCode.E214);
     }
 
     [Fact(DisplayName = "妥当な名前での新規ファイル作成・名前の変更は従来どおり成功する（回帰: 検証追加が正常系を壊していないこと）")]

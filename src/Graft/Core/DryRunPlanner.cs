@@ -328,6 +328,16 @@ public sealed class DryRunPlanner
     // 12章 トークン統計
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// ドライラン時点の見積もり統計。ここでの Files/Added/Removed は「パッチが対象にしている
+    /// 範囲」を表し、適用できないブロックやチェックを外したブロックも含む。
+    /// <para>
+    /// 【履歴に残る値との違い】 リビジョンのmanifest.jsonへ最終的に残る Files/Added/Removed は、
+    /// 実際に書き込んだ結果から<see cref="ApplyEngine.ApplyAsync"/>が数え直して上書きする
+    /// （履歴ペインの「Nファイル +X -Y」が実際の変更件数と食い違っていた実機不具合への対応。
+    /// 詳しい経緯は同メソッド内のコメント参照）。この見積もりの値がそのまま履歴に出ることは無い。
+    /// </para>
+    /// </summary>
     private static RevisionStats ComputeStats(Patch patch, IReadOnlyList<BlockPlan> plans, ApplyContext ctx)
     {
         var ratio = ctx.Settings.Context.TokenRatio;

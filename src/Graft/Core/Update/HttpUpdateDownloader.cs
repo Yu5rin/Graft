@@ -135,7 +135,11 @@ public sealed class HttpUpdateDownloader : IUpdateDownloader
             // 実機不具合対応: 以前はex.Messageをそのまま返しており、「The proxy tunnel request
             // to proxy '...' failed...」のような英語の生の例外メッセージがダイアログに
             // そのまま出ていた（名前解決不能・プロキシ到達不能等）。他のI/O例外と同じく
-            // ExceptionMessages.Describeへ通し、日本語の理由＋（詳細: 原文）へ揃える。
+            // ExceptionMessages.Describeへ通し、日本語の理由＋（詳細: 原文）へ揃える（原文は
+            // 診断用に残す。ここには原因を記録できるロガーが無く、原文まで捨てると通信・
+            // 書き込みのどちらで失敗したのかを追えなくなるため）。日本語化そのものの実装
+            // （HttpRequestExceptionの分類）はExceptionMessages.Describe側の1箇所に集約して
+            // いるため、ここでの重複判定は無い。
             return new UpdateDownloadOutcome(UpdateDownloadStatus.Failed, ExceptionMessages.Describe(ex));
         }
     }
