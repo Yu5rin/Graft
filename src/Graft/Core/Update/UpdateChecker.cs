@@ -70,11 +70,25 @@ public sealed class UpdateChecker
     /// いずれからも呼ばれ、必ず通信する（起動時・手動を問わず絞り込みは行わない）。
     /// 呼び出しの成否に関わらず、前回確認日時を今回の時刻へ更新する
     /// （通信に失敗しても「確認しようとした」事実は記録に残す。「最終確認」表示用）。
+    ///
+    /// 【成否も併せて記録する理由（実機不具合対応）】 以前は日時しか記録していなかったため、
+    /// 確認が3回連続で失敗しても画面には「最終確認: 2026/09/06 06:26」とだけ出ており、
+    /// 「確認した＝最新だった」と読めてしまっていた（失敗はログのwarnにしか残らない）。
+    /// オフラインが続くと利用者は何日でも更新が止まっていることに気づけない。
+    ///
+    /// 【2回書く理由】 まず通信前に「試みた・まだ成功していない」（<c>LastCheckSucceeded=false</c>）
+    /// として書き、最新かどうかの判定まで到達できたときだけ true で上書きする。こうしておくと、
+    /// 通信中にプロセスが落ちた場合でも「確認できていない」という安全側の記録が残る
+    /// （後から true を書かない限り成功にはならない）。書き込み先は数十バイトのJSON1個で、
+    /// 更新確認は起動時か手動ボタンのときにしか走らないため、2回書く負荷は問題にならない。
     /// </summary>
     public async Task<UpdateCheckResult> CheckNowAsync(
         string checkUrl, string currentVersion, string userAgent, CancellationToken ct = default)
     {
-        await _stateStore.SaveAsync(new UpdateCheckState { LastCheckedAt = _now() }, ct).ConfigureAwait(false);
+        var startedAt = _now();
+        await _stateStore
+            .SaveAsync(new UpdateCheckState { LastCheckedAt = startedAt, LastCheckSucceeded = false }, ct)
+            .ConfigureAwait(false);
 
         GitHubReleaseInfo? release;
         try
@@ -102,6 +116,13 @@ public sealed class UpdateChecker
         {
             return UpdateCheckResult.Failed("現在のバージョン情報を解釈できませんでした。");
         }
+
+        // ここまで来れば「最新かどうかを判定できた」＝確認は成功。日時は通信前に決めた値を
+        // そのまま使い（成功のたびに時刻がずれると「いつ試みたか」がぶれるため）、成否だけを
+        // true へ上書きする。
+        await _stateStore
+            .SaveAsync(new UpdateCheckState { LastCheckedAt = startedAt, LastCheckSucceeded = true }, ct)
+            .ConfigureAwait(false);
 
         // 【数値としての比較】文字列比較だと "1.0.10" < "1.0.9" と誤判定するため、
         // UpdateVersion.CompareToによる数値比較を必ず使う。

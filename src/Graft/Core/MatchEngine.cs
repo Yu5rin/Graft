@@ -92,13 +92,31 @@ public sealed class MatchEngine
 
         if (_options.AllowSimilarityMatch)
         {
-            var best = SimilarityScorer.FindBestMatch(fileLines, searchLines, _options.SimilarityThreshold);
-            if (best is not null)
+            var scan = SimilarityScorer.Scan(fileLines, searchLines, _options.SimilarityThreshold);
+            if (scan.Match is not null)
             {
+                var best = scan.Match;
                 var match = new LineMatch { StartLine = best.StartLine, LineCount = best.LineCount };
                 var result = BuildResult(fileLines, pair, MatchStage.Similarity, match,
                     similarity: best.Similarity, needsConfirmation: true);
                 return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { result });
+            }
+
+            // 段階5は枝刈りで十分速くなったが（SimilarityScorerのクラスコメント参照）、
+            // 「ほぼ同じ行が延々と続くファイル」のような病的な入力では、枝刈りが効かず
+            // 際限なく時間を使い得る。そのためDPのセル数に予算を設けており、使い切ったら
+            // 探索を打ち切る。利用者から見ると「一致しなかった」という結果は同じでも、
+            // 「本当に似た箇所が無かった」のか「大きすぎて調べきれなかった」のかで
+            // 次にやるべきこと（SEARCHを短くする・範囲指定に切り替える）が変わるため、
+            // 理由を必ず添える。理由を書かずに黙って打ち切ると、利用者は
+            // 「Graftが見落とした」としか受け取れない。
+            if (scan.Aborted)
+            {
+                return GraftResult<IReadOnlyList<MatchResult>>.Fail(
+                    ErrorCode.E101,
+                    "ファイルが大きく似た行が多いため、類似度による照合（段階5）を途中で打ち切りました。"
+                    + "SEARCH部を短くするか、範囲指定（アンカー）での指定をAIへ依頼してください",
+                    pair.SourceLine);
             }
         }
 
@@ -121,21 +139,30 @@ public sealed class MatchEngine
         {
             if (matches.Count > 1)
             {
+                // 実機不具合対応: 対処文（ErrorCatalogのE102）で OCCURRENCE=1 を案内するため、
+                // 「何番目まで指定できるのか」をここで具体的に添える。以前は件数しか出さず、
+                // 利用者は 1〜N のどれを書けるのか画面から判断できなかった。
                 return GraftResult<IReadOnlyList<MatchResult>>.Fail(
-                    ErrorCode.E102, $"{matches.Count}箇所でマッチしました", pair.SourceLine);
+                    ErrorCode.E102,
+                    $"{matches.Count}箇所でマッチしました（OCCURRENCE=1 〜 OCCURRENCE={matches.Count} を指定できます）",
+                    pair.SourceLine);
             }
 
             var single = BuildResult(fileLines, pair, stage, matches[0], similarity: 1.0, needsConfirmation: false);
             return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { single });
         }
 
-        if (occurrence.Index < 1 || occurrence.Index > matches.Count)
+        // ここへ来るのは OCCURRENCE を明示的に書いた場合だけ（OCCURRENCE=1 を含む）。
+        // 実機不具合対応の要: 以前は Index==1 が「未指定」と区別できず、明示的に書いた
+        // OCCURRENCE=1 が上の分岐へ吸い込まれて同じE102を返していた（OccurrenceSpec参照）。
+        var index = occurrence.EffectiveIndex;
+        if (index < 1 || index > matches.Count)
         {
             return GraftResult<IReadOnlyList<MatchResult>>.Fail(
-                ErrorCode.E101, $"OCCURRENCE={occurrence.Index} は範囲外です（{matches.Count}箇所）", pair.SourceLine);
+                ErrorCode.E101, $"OCCURRENCE={index} は範囲外です（{matches.Count}箇所）", pair.SourceLine);
         }
 
-        var chosen = BuildResult(fileLines, pair, stage, matches[occurrence.Index - 1],
+        var chosen = BuildResult(fileLines, pair, stage, matches[index - 1],
             similarity: 1.0, needsConfirmation: false);
         return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { chosen });
     }

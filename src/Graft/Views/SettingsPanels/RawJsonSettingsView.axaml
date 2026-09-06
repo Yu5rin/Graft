@@ -4,7 +4,15 @@
              x:Class="Graft.Views.SettingsPanels.RawJsonSettingsView"
              AutomationProperties.Name="設定JSON直接編集">
     <!-- 14章「jsonの直接編集も可能」に対応する。 -->
-    <Grid Margin="16,8" RowDefinitions="Auto,*,Auto">
+    <!--
+        実機不具合対応（エラーが右端で見切れる）: 以前はボタンとエラー文言を1つの横並び
+        StackPanel（Grid.Row=2）に並べていた。StackPanelは並べる方向（ここでは横）に
+        無限の幅を子へ与えるため、TextWrapping="Wrap"を書いても折り返しは一切起きず、
+        「JSONを解析できませんでした: '@' is an invalid start of a value. Path: $ | LineNumb…」の
+        ように、いちばん役に立つ行番号の手前で右端に切られて読めなかった。
+        エラー文言は独立した行（Grid.Row=3）へ移し、Gridの列幅に従って折り返させる。
+    -->
+    <Grid Margin="16,8" RowDefinitions="Auto,*,Auto,Auto">
         <TextBlock Grid.Row="0"
                    Text="settings.json を直接編集できます。保存時に検証し、不正な値は既定値へフォールバックします。"
                    TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,8" />
@@ -21,9 +29,13 @@
                     AutomationProperties.Name="JSONを検証して保存"
                     views:HelpTip.Standard="上のJSONの形式を確認してから設定へ反映します。不正な形式なら保存されずエラーが表示されます。"
                     views:HelpTip.Detailed="上のテキストがJSONとして正しい形式かどうかを確認し、正しければその内容を実際の設定として保存します。不正な形式（カンマの付け忘れなど）の場合は保存されず、下にエラー内容が表示されるので、修正してから再度押してください。保存に成功すると、他のタブの表示もその内容に合わせて更新されます。" />
-            <TextBlock Text="{Binding JsonParseError}" Foreground="{DynamicResource StateError}"
-                       VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"
-                       IsVisible="{Binding JsonParseError, Converter={x:Static views:Converters.NotNull}}" />
         </StackPanel>
+        <!-- 折り返せる独立した行に置く（上のGridのコメント参照）。読み上げにも確実に届くよう
+             LiveSettingをAssertiveにする（保存を押した結果として出る、利用者が今すぐ知るべき情報）。 -->
+        <TextBlock Grid.Row="3" Text="{Binding JsonParseError}" Foreground="{DynamicResource StateError}"
+                   Margin="0,8,0,0" TextWrapping="Wrap"
+                   AutomationProperties.Name="JSONのエラー内容"
+                   AutomationProperties.LiveSetting="Assertive"
+                   IsVisible="{Binding JsonParseError, Converter={x:Static views:Converters.NotNull}}" />
     </Grid>
 </UserControl>

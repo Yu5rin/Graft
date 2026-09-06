@@ -149,7 +149,9 @@ public sealed class SearchOverlayViewModel : ObservableObject
 
         if (regex is not null && _editor is not null && !string.IsNullOrEmpty(_query))
         {
-            CollectMatches(regex, _editor.Text);
+            // 照合が破滅的バックトラックで打ち切られた場合は、不正な正規表現を入れたときと
+            // 同じ「エラー表示」の見え方に落とす（HasError=true・StatusTextにその理由）。
+            _patternError = CollectMatches(regex, _editor.Text);
         }
 
         _currentIndex = _matches.Count > 0 ? 0 : -1;
@@ -161,13 +163,45 @@ public sealed class SearchOverlayViewModel : ObservableObject
         MatchesChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void CollectMatches(Regex regex, string text)
+    /// <summary>
+    /// 全文を走査してヒットを<see cref="_matches"/>へ集める。問題が無ければnull、
+    /// 照合がタイムアウトした場合はその旨のエラーメッセージを返す。
+    ///
+    /// なぜ<see cref="RegexMatchTimeoutException"/>をここで捕まえるのか:
+    /// <see cref="SearchPatternBuilder"/>が2秒のタイムアウト付きで<see cref="Regex"/>を作るため、
+    /// <c>(a+)+$</c>のような入れ子の量指定子を打ち込むとこの<c>Matches</c>の列挙中に
+    /// タイムアウト例外が飛ぶ。以前はこれを誰も捕まえていなかったため、例外は
+    /// デバウンスの<c>Tick</c>ハンドラ（<see cref="OnDebounceTick"/>）やキー入力ハンドラを
+    /// 経由して<c>Dispatcher.UIThread.UnhandledException</c>へ抜け、
+    /// <c>App.OnDispatcherUnhandledException</c>も（<c>AvaloniaEditExceptionGuard</c>は
+    /// 例外のSourceがAvaloniaEditのときしか握らないため）素通しし、最終的に
+    /// <c>AppDomain.UnhandledException</c>まで届いて<b>アプリがプロセスごと終了し、
+    /// 未保存の編集内容がすべて失われていた</b>。しかもデバウンス経由で発火するため、
+    /// 検索語を打っている途中の中間状態（例えば<c>(a+)+</c>まで打った時点）でも起こりうる。
+    ///
+    /// 検索が1件も出せないだけならユーザーはパターンを直せばよく、アプリを落とす理由には
+    /// まったくならない。既存の<see cref="_patternError"/>の仕組みに載せて、不正な正規表現を
+    /// 入れたときと同じ「エラー表示」で済ませる。
+    /// </summary>
+    private string? CollectMatches(Regex regex, string text)
     {
-        foreach (Match m in regex.Matches(text))
+        try
         {
-            if (m.Length == 0) continue; // 空一致は強調・移動の対象にしない
-            _matches.Add(m);
-            if (_matches.Count >= MaxMatches) break;
+            foreach (Match m in regex.Matches(text))
+            {
+                if (m.Length == 0) continue; // 空一致は強調・移動の対象にしない
+                _matches.Add(m);
+                if (_matches.Count >= MaxMatches) break;
+            }
+            return null;
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // 打ち切られた時点までに拾えたヒットは「文書の先頭側だけを見た結果」でしかなく、
+            // これを残すと件数表示（"3 / 12"）もハイライトも実態と食い違う。中途半端に
+            // 見せるより、エラーとして何も出さないほうが誤解が無い。
+            _matches.Clear();
+            return SearchPatternBuilder.TimeoutMessage;
         }
     }
 
@@ -227,6 +261,10 @@ public sealed class SearchOverlayViewModel : ObservableObject
         {
             _editor.EndUndoGroup();
         }
+        // 置換後の本文に対する再走査。ここも同じ正規表現で全文を照合し直すため
+        // 破滅的バックトラックが起こりうるが、RecomputeNow → CollectMatches が
+        // RegexMatchTimeoutException を捕まえてエラー表示に落とすので、
+        // 「すべて置換」の途中でアプリが落ちることはない。
         RecomputeNow(false);
     }
 
@@ -236,9 +274,13 @@ public sealed class SearchOverlayViewModel : ObservableObject
         {
             return _useRegex ? match.Result(_replaceText) : _replaceText;
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            _patternError = $"置換文字列が不正です: {ex.Message}";
+            // 実機不具合対応（表示文言）: CrossFileSearch.SearchPatternBuilder.TryBuild と同型の
+            // 問題。ex.Message は英語で長く、表示先で見切れて役に立たない。置換文字列で
+            // ArgumentException になるのは $1・${name} といった置換参照の書き方が不正な場合
+            // （存在しないグループ番号を指した等）なので、そこへ的を絞って案内する。
+            _patternError = "置換文字列が不正です。$1 や ${名前} のようなグループ参照の書き方と、検索側の（）の数を確認してください。";
             return null;
         }
     }

@@ -75,15 +75,29 @@
     <Color x:Key="TextSecondaryColor">#59636E</Color>
     <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
 
-    <Color x:Key="TextDisabledColor">#A4A9AF</Color>
+    <!-- UI点検（項目1）対応: 旧値#A4A9AFはBgBaseに対し実測2.03:1しか無く、コマンドバーの
+         無効ボタンが判読しづらかった。同じ色相・彩度を保ったまま明度を下げ、
+         新値#7F868FはBgBase比3.15:1・BgSurface比3.68:1（いずれもUI部品の基準3:1以上）。
+         TextSecondary（BgBase比5.24:1）よりは明らかに薄く、「無効に見える」印象は
+         保たれる。 -->
+    <Color x:Key="TextDisabledColor">#7F868F</Color>
     <SolidColorBrush x:Key="TextDisabled" Color="{StaticResource TextDisabledColor}" />
 
     <!-- ========== アクセント（1色のみ） ========== -->
     <Color x:Key="AccentColor">#0969DA</Color>
     <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
 
+    <!-- ========== フォーカスリング（UI点検項目4対応） ========== -->
+    <!-- Accent自体がBgBase比4.45:1・BgSurface比5.19:1・BgSelected比4.56:1といずれも
+         UI部品の基準3:1を満たすため、独立したFocusRingColorは持たずAccentへそのまま乗せる。 -->
+    <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
-    <Color x:Key="BorderSubtleColor">#D0D7DE</Color>
+    <!-- UI点検（項目5）対応: 旧値#D0D7DE（GitHub Primerのborder.default相当）はBgBaseに
+         対し実測1.25:1で、区切り線がほぼ視認できなかった。同じ色相・彩度を保ったまま
+         明度だけ下げ、新値#ABB7C4はBgBase比1.75:1（詳細な狙いはLight.axaml側の
+         同見出しコメント参照）。 -->
+    <Color x:Key="BorderSubtleColor">#ABB7C4</Color>
     <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
 
     <!-- ========== diff（Pane非対応のため独自算出。ファイル冒頭コメント参照） ========== -->
@@ -179,5 +193,11 @@
 
     <Color x:Key="SearchCurrentMatchBorderColor">#753803</Color>
     <SolidColorBrush x:Key="SearchCurrentMatchBorder" Color="{StaticResource SearchCurrentMatchBorderColor}" />
+
+    <!-- ========== チュートリアルの覆い（UI点検項目9対応） ========== -->
+    <!-- 明るいテーマなので不透明度を約40%（#66）に落とす（詳細な経緯はLight.axaml側の
+         同見出しコメント参照）。 -->
+    <Color x:Key="TutorialScrimColor">#66000000</Color>
+    <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
 </ResourceDictionary>
