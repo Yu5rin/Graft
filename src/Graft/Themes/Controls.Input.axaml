@@ -75,6 +75,21 @@
                     レイアウト上の占有領域とし、リングが常に境界内に収まるようにする
                     （v2.0のWPF版と同じ考え方）。
                 -->
+                <!--
+                    UI点検（項目3）対応: 以前は箱の背景を常にBgSurfaceのまま、細い1.5px線
+                    （IconStrokeThickness）をAccent色で描くだけでチェック済みを示していた。
+                    セピア/Solarized Lightはこの組み合わせのコントラスト比が実測3.36:1・
+                    3.41:1しか無く（Accent÷BgSurface）、UI部品の基準3:1をわずかに上回る
+                    程度で「オンかオフか一目で分からない」との指摘があった。線の色を変えず
+                    太さだけを増やす案（IconStrokeThicknessはIcons.axaml側の全アイコン共通
+                    トークンで、変えると9.5のアイコン全体の線幅が変わってしまい影響範囲が
+                    広すぎる）ではなく、チェック時は箱の背景をAccentで塗りつぶし、チェック
+                    マーク自体は逆に背景色（BgSurface）で描く一般的なチェックボックスの作法へ
+                    変える。線1本の細い輪郭の有無ではなく「箱が塗りつぶされているか」という
+                    面積の差で判定できるため、コントラスト比の数値自体（Accent÷BgSurfaceは
+                    変わらない）は同じでも体感の視認性は大きく上がる（9テーマぶんの
+                    スクリーンショットで確認済み。報告参照）。
+                -->
                 <Grid ColumnDefinitions="Auto,*">
                     <Grid Width="22" Height="22" VerticalAlignment="Center">
                         <Border Name="PART_Box"
@@ -84,11 +99,11 @@
                                 Background="{DynamicResource BgSurface}" />
                         <views:IconGlyph Name="PART_CheckMark"
                                          Data="{DynamicResource IconCheckGeometry}"
-                                         Width="12" Height="12"
-                                         Stroke="{DynamicResource Accent}"
+                                         Width="13" Height="13"
+                                         Stroke="{DynamicResource BgSurface}"
                                          IsVisible="False" />
                         <Border Name="PART_FocusRing"
-                                BorderBrush="{DynamicResource Accent}"
+                                BorderBrush="{DynamicResource FocusRing}"
                                 BorderThickness="{DynamicResource FocusRingBorderThickness}"
                                 IsHitTestVisible="False"
                                 Opacity="0" />
@@ -103,6 +118,13 @@
         </Setter>
         <Style Selector="^:checked /template/ views|IconGlyph#PART_CheckMark">
             <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <!-- UI点検（項目3）対応: チェック済みは箱そのものをAccentで塗る（上のControlTemplate
+             コメント参照）。ToggleButtonの:checkedスタイル（Controls.axaml）が背景と枠線の
+             両方をアクセント系へ変える既存の作法に合わせ、こちらも背景・枠線の両方を変える。 -->
+        <Style Selector="^:checked /template/ Border#PART_Box">
+            <Setter Property="Background" Value="{DynamicResource Accent}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
         </Style>
         <Style Selector="^:pointerover /template/ Border#PART_Box">
             <Setter Property="Background" Value="{DynamicResource BgHover}" />
@@ -119,7 +141,11 @@
             チェックの済/未済にかかわらず、箱の枠線も灰色にして押せない（変更できない）ことを
             示す。チェックマーク自体（PART_CheckMark、IconGlyph）はIcons.axaml側の
             IconGlyph:disabledスタイルが祖先のIsEnabled伝播で自動的に効くため、ここで
-            個別に指定する必要はない。
+            個別に指定する必要はない。なお、チェック済み×無効の組み合わせでは上の
+            :checkedスタイルのBackground（Accent）はそのまま残り、この:disabledスタイルの
+            BorderBrush（TextDisabled）だけが後勝ちで枠線に効く（塗り自体は変えず、枠線と
+            ラベルの色で「無効」を示す）。ToggleButtonの:checked/:disabledの組み合わせ
+            （Controls.axaml）も同様に塗りは変えない作法のため、これに合わせた。
         -->
         <Style Selector="^:disabled /template/ Border#PART_Box">
             <Setter Property="BorderBrush" Value="{DynamicResource TextDisabled}" />
@@ -138,7 +164,7 @@
                                           ContentTemplate="{TemplateBinding ContentTemplate}" />
                     </Border>
                     <Border Name="PART_FocusRing"
-                            BorderBrush="{DynamicResource Accent}"
+                            BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
                             IsHitTestVisible="False"
                             Opacity="0" />
@@ -243,7 +269,7 @@
                         </Border>
                     </Popup>
                     <Border Name="PART_FocusRing"
-                            BorderBrush="{DynamicResource Accent}"
+                            BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
                             IsHitTestVisible="False"
                             Opacity="0" />
