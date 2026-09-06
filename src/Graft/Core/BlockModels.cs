@@ -44,20 +44,47 @@ public enum MatchStage
 
 /// <summary>
 /// 出現位置の指定。ヘッダの OCCURRENCE に対応する。
+///
+/// 【実機不具合対応: OCCURRENCE=1 が効かなかった件】
+/// 以前は <c>Index</c> が <c>int</c>（既定値1）で、既定かどうかを <c>Index == 1</c> で判定して
+/// いた。そのため「OCCURRENCE 未指定」と「明示的に OCCURRENCE=1 と書いた」がまったく
+/// 区別できず、次の詰みが起きていた。
+///
+/// <list type="number">
+/// <item>50箇所にマッチする SEARCH を書く → E102「複数箇所にマッチ」＋対処「OCCURRENCE を
+/// 指定してください」が出る。</item>
+/// <item>言われたとおり最も自然な <c>OCCURRENCE=1</c> を書く → <c>Index == 1</c> なので
+/// 「未指定」と同じ扱いになり、<b>まったく同じ E102 が同じ対処文つきで返る</b>。</item>
+/// <item>一方で <c>OCCURRENCE=2</c> は通る。画面からは原因が絶対に分からない。</item>
+/// </list>
+///
+/// 対策として <c>Index</c> を <c>int?</c> にし、「値が入っている＝明示指定」を型で表す。
+/// bool のフラグを別に足す案（<c>IsExplicit</c>）も検討したが、<c>new OccurrenceSpec
+/// { Index = 2 }</c> のようにフラグを立て忘れた生成が黙って「未指定」に化ける危険が残る
+/// （実際、既存テストにその書き方があった）ため、フラグを立て忘れようのない nullable を選んだ。
 /// </summary>
 public sealed record OccurrenceSpec
 {
-    /// <summary>既定。1箇所のみを許容する。</summary>
-    public static readonly OccurrenceSpec Single = new() { Index = 1, All = false };
+    /// <summary>既定（OCCURRENCE 未指定）。1箇所のみを許容する。</summary>
+    public static readonly OccurrenceSpec Single = new();
 
-    /// <summary>何番目の出現を対象とするか（1始まり）。All が true の場合は無視する。</summary>
-    public int Index { get; init; } = 1;
+    /// <summary>
+    /// 何番目の出現を対象とするか（1始まり）。<b>OCCURRENCE 未指定なら null</b>。
+    /// <see cref="All"/> が true の場合は無視する。
+    /// </summary>
+    public int? Index { get; init; }
 
     /// <summary>すべての出現を対象とするかどうか。</summary>
     public bool All { get; init; }
 
+    /// <summary>利用者（AI）が OCCURRENCE を明示的に書いたかどうか。</summary>
+    public bool IsExplicit => All || Index.HasValue;
+
     /// <summary>既定（OCCURRENCE 未指定）かどうか。</summary>
-    public bool IsDefault => !All && Index == 1;
+    public bool IsDefault => !IsExplicit;
+
+    /// <summary>実際に使う出現番号。未指定なら1番目とみなす。</summary>
+    public int EffectiveIndex => Index ?? 1;
 }
 
 /// <summary>

@@ -121,21 +121,30 @@ public sealed class MatchEngine
         {
             if (matches.Count > 1)
             {
+                // 実機不具合対応: 対処文（ErrorCatalogのE102）で OCCURRENCE=1 を案内するため、
+                // 「何番目まで指定できるのか」をここで具体的に添える。以前は件数しか出さず、
+                // 利用者は 1〜N のどれを書けるのか画面から判断できなかった。
                 return GraftResult<IReadOnlyList<MatchResult>>.Fail(
-                    ErrorCode.E102, $"{matches.Count}箇所でマッチしました", pair.SourceLine);
+                    ErrorCode.E102,
+                    $"{matches.Count}箇所でマッチしました（OCCURRENCE=1 〜 OCCURRENCE={matches.Count} を指定できます）",
+                    pair.SourceLine);
             }
 
             var single = BuildResult(fileLines, pair, stage, matches[0], similarity: 1.0, needsConfirmation: false);
             return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { single });
         }
 
-        if (occurrence.Index < 1 || occurrence.Index > matches.Count)
+        // ここへ来るのは OCCURRENCE を明示的に書いた場合だけ（OCCURRENCE=1 を含む）。
+        // 実機不具合対応の要: 以前は Index==1 が「未指定」と区別できず、明示的に書いた
+        // OCCURRENCE=1 が上の分岐へ吸い込まれて同じE102を返していた（OccurrenceSpec参照）。
+        var index = occurrence.EffectiveIndex;
+        if (index < 1 || index > matches.Count)
         {
             return GraftResult<IReadOnlyList<MatchResult>>.Fail(
-                ErrorCode.E101, $"OCCURRENCE={occurrence.Index} は範囲外です（{matches.Count}箇所）", pair.SourceLine);
+                ErrorCode.E101, $"OCCURRENCE={index} は範囲外です（{matches.Count}箇所）", pair.SourceLine);
         }
 
-        var chosen = BuildResult(fileLines, pair, stage, matches[occurrence.Index - 1],
+        var chosen = BuildResult(fileLines, pair, stage, matches[index - 1],
             similarity: 1.0, needsConfirmation: false);
         return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { chosen });
     }

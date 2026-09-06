@@ -572,8 +572,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
 
         if (!result.IsSuccess)
         {
+            // 実機不具合対応: ここは「失敗しました」と伝えるだけの通知なのに、以前は
+            // ConfirmAsync（OK＋キャンセルの2ボタン）を使っていた。何も選べないのに
+            // 「キャンセル」が並び、押しても何も起きない（戻り値を捨てているため、
+            // OKでもキャンセルでも同じ）。他の失敗通知はすべてShowMessageAsync（OKのみ）を
+            // 使っており、そちらが正しい使い方。
             await _dialogs
-                .ConfirmAsync("復元に失敗しました", string.Join(Environment.NewLine, result.Errors.Select(i => i.ToDisplayText())))
+                .ShowMessageAsync("復元に失敗しました", string.Join(Environment.NewLine, result.Errors.Select(i => i.ToDisplayText())))
                 .ConfigureAwait(true);
             return false;
         }

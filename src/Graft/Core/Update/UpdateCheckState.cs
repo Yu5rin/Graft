@@ -14,6 +14,22 @@ public sealed record UpdateCheckState
     /// 絞り込みには使わなくなった。<see cref="UpdateChecker.CheckOnStartupAsync"/>参照）。
     /// </summary>
     public DateTimeOffset? LastCheckedAt { get; init; }
+
+    /// <summary>
+    /// 直前の確認が成功したかどうか（true=最新かどうかを判定できた、false=通信・解析に失敗した）。
+    /// <para>
+    /// 実機不具合対応: 以前は<see cref="LastCheckedAt"/>しか持たず、確認が3回連続で失敗しても
+    /// 画面には「最終確認: 2026/09/06 06:26」とだけ出ていた（失敗はログのwarnにしか残らない）。
+    /// これは「確認した＝最新だった」と読めてしまい、オフラインが続くと利用者は何日でも
+    /// 更新が止まっていることに気づけない。成否を併記できるようにこの項目を足した。
+    /// </para>
+    /// <para>
+    /// null は「不明」を表す。この項目が無かった頃のupdate-check.jsonを読んだ場合がこれにあたり、
+    /// 表示側（<see cref="Graft.ViewModels.SettingsViewModel.UpdateLastCheckedText"/>）は
+    /// 従来どおり日時だけを出す。憶測で「成功」と書いてしまわないため、既定値は true にしない。
+    /// </para>
+    /// </summary>
+    public bool? LastCheckSucceeded { get; init; }
 }
 
 /// <summary><see cref="UpdateCheckState"/>の読み書き。他の内部状態と同じ<see cref="JsonFileStore"/>を使う。</summary>

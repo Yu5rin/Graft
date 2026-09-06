@@ -40,9 +40,17 @@ public static class SearchPatternBuilder
         {
             return (new Regex(pattern, options, TimeSpan.FromSeconds(2)), null);
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            return (null, $"正規表現が不正です: {ex.Message}");
+            // 実機不具合対応（表示文言）: 以前は ex.Message を連結しており、画面には
+            // 「正規表現が不正です: Invalid pattern 'foo(b…」と英語が出たうえ、表示先
+            // （SearchView.axamlのStatusText）にTextWrapping指定が無く右端で見切れていた。
+            // .NETのRegex例外メッセージはパターン全文を含むため長く、そのまま出しても
+            // 利用者の役には立たない（原文はUI文言の日本語方針にも反する）。ここでは
+            // 「次に何をすればよいか」だけを日本語の一言で返す。原因の切り分けが必要なほど
+            // 込み入ったパターンを書くのは正規表現に慣れた利用者であり、その場合は
+            // パターン自体を見れば分かるため、原文は捨ててよいと判断した。
+            return (null, "正規表現が不正です。かっこ「()」や角かっこ「[]」の対応、末尾の「\\」の有無を確認してください。");
         }
     }
 }

@@ -352,9 +352,18 @@ public sealed class ProjectStore
             validated.Add(project with { IsDisconnected = !exists });
             if (!exists)
             {
+                // 実機不具合対応（表示文言）:
+                // 1. 以前はE404（設定・履歴データの破損）を使っており、フォルダを移動しただけで
+                //    「設定・履歴データの破損」「退避のうえ再生成しました」と告げていた。何も
+                //    壊れていないのに設定や履歴が失われたと誤解させるため、専用のE211へ分けた
+                //    （判断の経緯はErrorCode.E211の宣言側コメント参照）。
+                // 2. detailにもRootを書いていたため、GraftIssue.ToDisplayTextがPathを
+                //    「（…）」として前置した結果、同じ長いパスが1行に2回出て読みづらかった
+                //    （「E211 …（/path/to/x）：プロジェクト「x」のルート（/path/to/x）が…」）。
+                //    パスはPath側だけに任せ、detailからは外す。
                 issues.Add(GraftIssue.Of(
-                    ErrorCode.E404,
-                    detail: $"プロジェクト「{project.DisplayName}」のルート（{project.Root}）が見つからないため未接続にしました。",
+                    ErrorCode.E211,
+                    detail: $"プロジェクト「{project.DisplayName}」のフォルダが見つからないため未接続にしました。",
                     path: project.Root,
                     severity: Severity.Warning));
             }

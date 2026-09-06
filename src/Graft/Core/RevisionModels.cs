@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Graft.Core;
 
 /// <summary>リビジョンの状態。仕様書6.3の中断復帰に使う。</summary>
@@ -71,7 +73,29 @@ public sealed record HookResult
     public long DurationMs { get; init; }
     /// <summary>タイムアウトしたかどうか。</summary>
     public bool TimedOut { get; init; }
-    /// <summary>標準出力と標準エラーを結合したもの。manifest には保存しない。</summary>
+
+    /// <summary>
+    /// 標準出力と標準エラーを結合したもの。<b>manifest には保存しない</b>（<see cref="JsonIgnoreAttribute"/>）。
+    ///
+    /// <para>
+    /// 【JsonIgnoreを付けた経緯】 このコメントは以前から「manifest には保存しない」と書いて
+    /// いたのに、実装は普通のプロパティのままで<see cref="RevisionStore.RecordHookResultsAsync"/>が
+    /// <c>HookResult</c>ごとJSONへ直列化しており、ビルド出力の全文がmanifest.jsonへ永続化されて
+    /// いた（点検での指摘）。ビルド・テストの出力には絶対パス、環境変数、CI用トークンなどが
+    /// 混じりえて、しかもmanifest.jsonはリビジョンごとに残り続ける。書いてあるとおりに保存
+    /// しない側へ実装を合わせ、コメントと実装の食い違いを解消した。
+    /// </para>
+    ///
+    /// <para>
+    /// 【消してよいのか】 Outputはこのプロセス内で結果を運ぶためのもので、フック失敗時の
+    /// ダイアログ（<see cref="Graft.ViewModels.MainViewModel"/>のRunPostApplyHooksAsync）と
+    /// ログへは、実行直後のインスタンスから読み出して出す。読み込み時にnullになるのは、
+    /// 過去のリビジョンのビルド出力を後から画面に出す機能がそもそも無いため実害が無い。
+    /// なお既存のmanifest.jsonに残っている<c>output</c>フィールドは、読み飛ばされるだけで
+    /// 消えはしない（一度でも書き戻せば消える）。
+    /// </para>
+    /// </summary>
+    [JsonIgnore]
     public string? Output { get; init; }
 }
 
