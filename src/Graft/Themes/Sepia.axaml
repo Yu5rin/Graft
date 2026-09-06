@@ -81,7 +81,7 @@
     <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
 
     <!-- UI点検（項目1）対応: 旧値#B1A490はBgBaseに対し実測1.76:1しか無く、コマンドバーの
-         無効ボタンや接ぎ木パネルの「失敗を再依頼／破棄／プレビュー／適用」が判読不能
+         無効ボタンや接ぎ木パネルの「修正を依頼／破棄／プレビュー／適用」が判読不能
          だった。同じ色相・彩度を保ったまま明度を下げ、新値#86765EはBgBase比3.17:1・
          BgSurface比3.74:1（いずれもUI部品の基準3:1以上）。上のTextSecondary
          （BgBase比4.57:1）よりは明らかに薄く、「無効に見える」印象は保たれる。 -->
