@@ -48,12 +48,24 @@ public sealed class Logger : IAsyncDisposable
     };
 
     private readonly AppPaths _paths;
+    private readonly int _processId;
     private readonly Channel<LogEntry> _channel;
     private readonly Task _writerTask;
 
-    public Logger(AppPaths paths, LogLevel minLevel = LogLevel.Info, bool autoCleanupOnStart = true)
+    /// <param name="paths">ログファイルの置き場所（logs/）を含む各種パスの解決元。</param>
+    /// <param name="minLevel">この重大度未満のイベントは記録しない。</param>
+    /// <param name="autoCleanupOnStart">起動時に90日超の古いログを自動削除するか。</param>
+    /// <param name="processIdOverride">
+    /// ログファイル名に使うプロセスID（<see cref="AppPaths.GetLogFilePath"/>参照）。
+    /// 省略時は<see cref="Environment.ProcessId"/>（本番の挙動）。
+    /// 単体テストで「同一プロセス内に、別プロセストして振る舞う複数のLoggerが同時に
+    /// 存在する」状況（多重起動・自己再起動の再現）を作るためだけに用意した引数で、
+    /// 本番コードから渡すことは想定していない。
+    /// </param>
+    public Logger(AppPaths paths, LogLevel minLevel = LogLevel.Info, bool autoCleanupOnStart = true, int? processIdOverride = null)
     {
         _paths = paths;
+        _processId = processIdOverride ?? Environment.ProcessId;
         MinLevel = minLevel;
         _channel = Channel.CreateUnbounded<LogEntry>(new UnboundedChannelOptions
         {
@@ -170,7 +182,12 @@ public sealed class Logger : IAsyncDisposable
         try
         {
             Directory.CreateDirectory(_paths.LogsDirectory);
-            var path = Path.Combine(_paths.LogsDirectory, $"{date}.log");
+            // 不具合1の修正: ファイル名にプロセスIDを含める（AppPaths.GetLogFilePathのコメント参照）ことで、
+            // 多重起動や自己再起動で複数のGraftプロセスが同時に存在しても、物理的に別ファイルへ
+            // 書き込むようにする。日付の解釈はここではなく呼び出し元（EnsureWriter）で
+            // DateOnlyへ変換済みなので、date引数はそのまま渡す。
+            var dateOnly = DateOnly.ParseExact(date, "yyyyMMdd", CultureInfo.InvariantCulture);
+            var path = _paths.GetLogFilePath(dateOnly, _processId);
             var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096, useAsync: true);
             return new StreamWriter(stream) { AutoFlush = false };
         }
@@ -225,10 +242,19 @@ public sealed class Logger : IAsyncDisposable
         }
 
         var threshold = DateTime.Today.AddDays(-retentionDays);
-        foreach (var file in Directory.EnumerateFiles(_paths.LogsDirectory, "????????.log"))
+        // 不具合1の修正でファイル名が yyyyMMdd.log（旧）と yyyyMMdd-<pid>.log（新）の
+        // 2形態になった。"????????.log" では新形式（8文字ちょうどではない）を拾えず
+        // 掃除されないまま残ってしまうため、"*.log" 全件から先頭8文字だけを日付として
+        // 解釈する（新形式・旧形式のどちらでも先頭8文字が yyyyMMdd になっている）。
+        foreach (var file in Directory.EnumerateFiles(_paths.LogsDirectory, "*.log"))
         {
             var name = Path.GetFileNameWithoutExtension(file);
-            var isOld = DateTime.TryParseExact(name, "yyyyMMdd", CultureInfo.InvariantCulture,
+            if (name.Length < 8)
+            {
+                continue;
+            }
+
+            var isOld = DateTime.TryParseExact(name[..8], "yyyyMMdd", CultureInfo.InvariantCulture,
                 DateTimeStyles.None, out var fileDate) && fileDate < threshold;
             if (isOld)
             {

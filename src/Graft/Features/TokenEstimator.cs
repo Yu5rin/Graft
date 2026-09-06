@@ -38,6 +38,26 @@ public static class TokenEstimator
         }
 
         var effectiveRatio = ratio > 0 ? ratio : DefaultRatio;
-        return (int)Math.Ceiling(length / effectiveRatio);
+
+        // 異常系点検「中」3件目の対応: length が非常に大きい（例: 数GB相当のコンテキスト選択）・
+        // effectiveRatio が極端に小さい（設定 context.tokenRatio に小さい値を入れられる不具合2と
+        // 組み合わさると容易に起こる）場合、length / effectiveRatio は int.MaxValue
+        // （約21億）を軽く超える。以前は Math.Ceiling(...) の結果（double）をそのまま
+        // (int) へキャストしており、C# の既定動作（unchecked）では例外にならず静かに
+        // 負数へラップしていた（実測: EstimateLength(long.MaxValue) や
+        // EstimateLength(6_000_000_000) が -2147483648 を返すことを確認済み）。
+        // この負数が ContextCollectViewModel.ExceedsWarnThreshold の比較
+        // （推定トークン数 > 閾値）へそのまま渡ると常に false になり、10章の安全機構
+        // （上限超過の警告）が無言で無効化されてしまう。
+        //
+        // 呼び出し元（ContextResult.EstimatedTokens・RevisionStats.EstimatedTokens 等）が
+        // いずれも int 型で、それらすべてを long へ広げるのは影響範囲が大きい（複数の
+        // record・ViewModelプロパティ・表示の桁区切り書式に波及する）ため、ここでは
+        // 戻り値の型は int のまま、doubleの時点で int.MaxValue と比較してからキャストする
+        // （キャスト後の値で比較すると、その時点で既にオーバーフローして意味を失っている
+        // ため手遅れ）。表示用の概算値という性質上、桁あふれで無意味な値（まして負数）を
+        // 返すより、int.MaxValueへ丸めて「非常に多い」ことを正しく伝える方を優先する。
+        var estimated = Math.Ceiling(length / effectiveRatio);
+        return estimated >= int.MaxValue ? int.MaxValue : (int)estimated;
     }
 }
