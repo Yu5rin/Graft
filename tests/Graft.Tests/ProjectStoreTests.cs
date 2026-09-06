@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentAssertions;
+using Graft.Core;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Tests.TestSupport;
@@ -804,5 +805,102 @@ public class ProjectStoreTests
 
         resolved.Safety.AllowedExtensions.Should().BeEquivalentTo(baseSettings.Safety.AllowedExtensions);
         resolved.Encoding.NewFileEncoding.Should().Be(baseSettings.Encoding.NewFileEncoding);
+    }
+
+    // ------------------------------------------------------------------
+    // セキュリティ点検（v1.0.15）指摘対応: データ保存先を含むフォルダをプロジェクトとして
+    // 登録できてしまう問題。RegisterAsync/RelocateAsyncの入口で、データ保存先
+    // （AppPaths.BaseDirectory）と重なる場所を拒否する（実際の書き込み拒否自体は
+    // PathGuard.ProtectedDataDirectoryが別途常時行う。PathGuardTests.cs参照）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "RegisterAsyncはデータ保存先そのものの登録をE213で拒否する")]
+    public async Task RegisterAsyncはデータ保存先自身を拒否する()
+    {
+        using var ws = new TempWorkspace();
+        var appDir = ws.CreateDirectory("app"); // AppPaths.BaseDirectoryそのもの。
+        var paths = new AppPaths(appDir);
+        var store = new ProjectStore(paths);
+
+        var result = await store.RegisterAsync(appDir, "データ保存先そのもの");
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+    }
+
+    [Fact(DisplayName = "RegisterAsyncはデータ保存先を含む親フォルダの登録をE213で拒否する")]
+    public async Task RegisterAsyncはデータ保存先の親フォルダを拒否する()
+    {
+        using var ws = new TempWorkspace();
+        var parent = ws.CreateDirectory("graft-install"); // 例: Graft.exeを置いたフォルダ。
+        var appDir = Path.Combine(parent, "app-data");
+        Directory.CreateDirectory(appDir);
+        var paths = new AppPaths(appDir);
+        var store = new ProjectStore(paths);
+
+        // 「Graftの置き場所（データ保存先の親）」をプロジェクト登録しようとするケース。
+        var result = await store.RegisterAsync(parent, "データ保存先を含む親フォルダ");
+
+        result.IsSuccess.Should().BeFalse();
+        result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+    }
+
+    [Fact(DisplayName = "RegisterAsyncはデータ保存先の配下（内側）のサブフォルダは従来どおり登録できる（settings.json等には到達できないため安全）")]
+    public async Task RegisterAsyncはデータ保存先の内側のサブフォルダを拒否しない()
+    {
+        // 回帰テスト: 「fullRootがデータ保存先の配下にあるだけ」も拒否する実装を一度入れたところ、
+        // ポータブル運用でexeフォルダ（＝データ保存先）の直下にプロジェクトを作る既存の
+        // 単体テスト（OnboardingProjectRegistrationTests、初回起動ガイドの実機動線と同じ構成）が
+        // 壊れることが実測で分かった。settings.json等（データ保存先の直下）はプロジェクトルートの
+        // 外にあり、PathGuardの「ルート外へ出られない」制約により到達できないため、この構成は
+        // 安全であり拒否すべきでない（OverlapsDataDirectoryのクラスコメント参照）。
+        using var ws = new TempWorkspace();
+        var appDir = ws.CreateDirectory("app");
+        var insideDataDir = Path.Combine(appDir, "MyProject");
+        Directory.CreateDirectory(insideDataDir);
+        var paths = new AppPaths(appDir);
+        var store = new ProjectStore(paths);
+
+        var result = await store.RegisterAsync(insideDataDir, "データ保存先の内側のプロジェクト");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Root.Should().Be(insideDataDir);
+    }
+
+    [Fact(DisplayName = "RegisterAsyncはデータ保存先と無関係な通常のフォルダは従来どおり登録できる")]
+    public async Task RegisterAsyncは無関係なフォルダを従来どおり登録できる()
+    {
+        using var ws = new TempWorkspace();
+        var appDir = ws.CreateDirectory("app");
+        var projectDir = ws.CreateDirectory("my-project"); // appDirとは全く別の場所。
+        var paths = new AppPaths(appDir);
+        var store = new ProjectStore(paths);
+
+        var result = await store.RegisterAsync(projectDir, "普通のプロジェクト");
+
+        result.IsSuccess.Should().BeTrue("データ保存先と重ならない通常のプロジェクトの登録まで巻き込んで拒否してはならない");
+        result.Value.Root.Should().Be(projectDir);
+    }
+
+    [Fact(DisplayName = "RelocateAsyncはデータ保存先と重なる場所への移動をE213で拒否する")]
+    public async Task RelocateAsyncはデータ保存先と重なる移動先を拒否する()
+    {
+        using var ws = new TempWorkspace();
+        var appDir = ws.CreateDirectory("app");
+        var paths = new AppPaths(appDir);
+        var store = new ProjectStore(paths);
+        var original = ws.CreateDirectory("original-project");
+        var registered = await store.RegisterAsync(original, "移動前");
+        registered.IsSuccess.Should().BeTrue();
+
+        // 登録後に「場所を変更」でデータ保存先そのものへ移そうとするケース。
+        var relocated = await store.RelocateAsync(registered.Value.Id, appDir);
+
+        relocated.IsSuccess.Should().BeFalse();
+        relocated.Errors.Single().Code.Should().Be(ErrorCode.E213);
+
+        // 拒否された場合、元の登録内容（Root）は変わっていないはず。
+        var reloaded = await store.LoadAsync();
+        reloaded.Value.Single(p => p.Id == registered.Value.Id).Root.Should().Be(original);
     }
 }

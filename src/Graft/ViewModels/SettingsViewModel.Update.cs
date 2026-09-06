@@ -208,11 +208,22 @@ public sealed partial class SettingsViewModel
     /// </summary>
     private async Task OfferUpdateAsync(GitHubReleaseInfo release)
     {
-        var proceed = await _dialogService.ShowActionMessageAsync(
-            "更新の確認",
+        var message =
             $"新しいバージョン {release.TagName} が利用可能です（現在: {CurrentVersionText}）。" +
-            $"ダウンロードして更新しますか？{Environment.NewLine}{Environment.NewLine}リリースページ: {release.HtmlUrl}",
-            "今すぐ更新")
+            $"ダウンロードして更新しますか？{Environment.NewLine}{Environment.NewLine}リリースページ: {release.HtmlUrl}";
+
+        // セキュリティ点検指摘対応: checkUrlが既定値（Yu5rin/Graftの公式GitHub Releases）と
+        // 異なる場合、利用者が意図した変更かどうかをこの時点で気付けるようにする。
+        // settings.jsonを書き換えられた攻撃（項目4「データ保存先を含むフォルダを
+        // プロジェクトとして登録できてしまう」参照）でcheckUrlが差し替えられていても、
+        // 更新のたびにこの警告が出ることで気付く手がかりになる。
+        if (!UpdateHostPolicy.IsDefaultCheckUrl(_updateCheckUrl))
+        {
+            var host = Uri.TryCreate(_updateCheckUrl, UriKind.Absolute, out var uri) ? uri.Host : _updateCheckUrl;
+            message += $"{Environment.NewLine}{Environment.NewLine}【注意】更新の取得先が既定から変更されています: {host}";
+        }
+
+        var proceed = await _dialogService.ShowActionMessageAsync("更新の確認", message, "今すぐ更新")
             .ConfigureAwait(true);
         if (!proceed) return;
 
@@ -253,9 +264,21 @@ public sealed partial class SettingsViewModel
                 "リリースページから配布物をダウンロードし、手動で置き換えてください。",
                 "リリースページを開く")
                 .ConfigureAwait(true);
-            if (openReleasePage && !string.IsNullOrEmpty(release.HtmlUrl))
+            if (openReleasePage)
             {
-                _externalLinks.Open(release.HtmlUrl);
+                // セキュリティ点検指摘対応: release.HtmlUrlをスキーム検査なしでShellExecuteへ
+                // 渡さない。既存のMarkdownプレビューの外部リンク確認と同じ流儀
+                // （Uri.TryCreateで絶対URIかつhttpsのみ許可し、開く前にURL全文を確認ダイアログへ
+                // 出す）をExternalLinkConfirmationへ共通化して使う。
+                var opened = await ExternalLinkConfirmation
+                    .TryConfirmAndOpenHttpsAsync(_dialogService, _externalLinks, release.HtmlUrl, "リリースページを開きますか？")
+                    .ConfigureAwait(true);
+                if (!opened)
+                {
+                    await _dialogService.ShowMessageAsync(
+                        "リリースページを開けません",
+                        "リリースページのURLを確認できなかったため開けませんでした。").ConfigureAwait(true);
+                }
             }
             return;
         }
@@ -279,7 +302,7 @@ public sealed partial class SettingsViewModel
             var progress = new Progress<double>(p => UpdateProgressPercent = Math.Round(p * 100, 1));
 
             var installResult = await _updateInstallPipeline
-                .RunAsync(asset, installDirectory, workDir, progress, _updateDownloadCts.Token)
+                .RunAsync(asset, installDirectory, workDir, _updateCheckUrl, progress, _updateDownloadCts.Token)
                 .ConfigureAwait(true);
 
             if (!installResult.Success)
@@ -364,6 +387,7 @@ public sealed partial class SettingsViewModel
         UpdateInstallStatus.ChecksumUnavailable => result.ErrorMessage ?? "配布物の検証情報が取得できませんでした。",
         UpdateInstallStatus.ChecksumMismatch => result.ErrorMessage ?? "配布物の検証に失敗しました。",
         UpdateInstallStatus.UnexpectedZipContents => result.ErrorMessage ?? "配布物の中身が想定と異なっていました。",
+        UpdateInstallStatus.UntrustedDownloadHost => result.ErrorMessage ?? "ダウンロード元のホストが信頼できないため更新を中止しました。",
         UpdateInstallStatus.InstallFailed => $"ファイルの置き換えに失敗しました。{result.ErrorMessage}",
         _ => result.ErrorMessage ?? "更新に失敗しました。",
     };

@@ -743,4 +743,135 @@ public class PathGuardTests
         escape.Should().Contain(outside.RootPath, "どこへ逃げたのか（実体解決の行き先）が分からないと原因を追えない");
     }
 
+    // ------------------------------------------------------------------
+    // セキュリティ点検（v1.0.15）指摘対応: データ保存先配下への書き込みを常に拒否する
+    // （PathGuard.ProtectedDataDirectory）。ProtectedDataDirectoryは全テストで共有される
+    // static状態のため、必ずtry/finallyで元の値へ戻す（AnomalyLoggerと同じ流儀）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "ProtectedDataDirectory自身への書き込みはE213で拒否される（プロジェクトルート＝データ保存先のケース）")]
+    public void データ保存先自身への書き込みはE213で拒否される()
+    {
+        using var ws = new TempWorkspace();
+        var dataDir = ws.CreateDirectory("data"); // プロジェクトルート自体がデータ保存先、という想定。
+        File.WriteAllText(Path.Combine(dataDir, "settings.json"), "{}");
+
+        var previous = PathGuard.ProtectedDataDirectory;
+        try
+        {
+            PathGuard.ProtectedDataDirectory = dataDir;
+            var guard = new PathGuard(dataDir, PathGuardOptions.Default);
+
+            var result = guard.Resolve("settings.json");
+
+            result.IsSuccess.Should().BeFalse();
+            result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+        }
+        finally
+        {
+            PathGuard.ProtectedDataDirectory = previous;
+        }
+    }
+
+    [Fact(DisplayName = "ProtectedDataDirectory配下（サブフォルダ）への書き込みもE213で拒否される")]
+    public void データ保存先の配下への書き込みもE213で拒否される()
+    {
+        using var ws = new TempWorkspace();
+        // プロジェクトルートがデータ保存先を含む親フォルダになっているケース
+        // （例: Graftの置き場所自体、またはそれを含むフォルダを登録してしまった状態）。
+        var projectRoot = ws.CreateDirectory("root-containing-data");
+        var dataDir = Path.Combine(projectRoot, "back", "p_x", "r7_xxx");
+        Directory.CreateDirectory(dataDir);
+
+        var previous = PathGuard.ProtectedDataDirectory;
+        try
+        {
+            PathGuard.ProtectedDataDirectory = Path.Combine(projectRoot, "back");
+            var guard = new PathGuard(projectRoot, PathGuardOptions.Default);
+
+            var result = guard.Resolve("back/p_x/r7_xxx/manifest.json");
+
+            result.IsSuccess.Should().BeFalse();
+            result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+        }
+        finally
+        {
+            PathGuard.ProtectedDataDirectory = previous;
+        }
+    }
+
+    [Fact(DisplayName = "プロジェクトルートがデータ保存先の内側（配下）にあるだけなら、settings.json等に到達できないため書き込みは拒否されない")]
+    public void データ保存先の内側のプロジェクトは拒否されない()
+    {
+        // 回帰テスト: 「プロジェクトルートがデータ保存先の配下にあるだけ」も拒否する実装を
+        // 一度入れたところ、ポータブル運用でexeフォルダ（＝データ保存先）の直下にプロジェクトを
+        // 作る既存の単体テスト（OnboardingProjectRegistrationTests、初回起動ガイドの実機動線と
+        // 同じ構成）が壊れることが実測で分かった。settings.json等（データ保存先の直下）は
+        // このプロジェクトルートの外にあり、IsWithinRoot・".."禁止により到達できないため、
+        // この構成は安全であり拒否すべきでない（RootOverlapsProtectedDataDirectoryのコメント参照）。
+        using var ws = new TempWorkspace();
+        var dataDir = ws.CreateDirectory("app"); // exeフォルダ相当。settings.json等が直下に置かれる想定。
+        var projectRoot = Path.Combine(dataDir, "MyProject"); // その直下に作った作業用サブフォルダ。
+        Directory.CreateDirectory(projectRoot);
+
+        var previous = PathGuard.ProtectedDataDirectory;
+        try
+        {
+            PathGuard.ProtectedDataDirectory = dataDir;
+            var guard = new PathGuard(projectRoot, PathGuardOptions.Default);
+
+            var result = guard.Resolve("theme.js");
+
+            result.IsSuccess.Should().BeTrue("データ保存先の直下ファイルへはこのプロジェクトルートから'..'無しに到達できないため安全");
+        }
+        finally
+        {
+            PathGuard.ProtectedDataDirectory = previous;
+        }
+    }
+
+    [Fact(DisplayName = "ProtectedDataDirectoryが設定されていても、データ保存先と無関係な通常のプロジェクトへの書き込みは従来どおり成功する")]
+    public void 通常のプロジェクトへの書き込みは引き続き許可される()
+    {
+        using var ws = new TempWorkspace();
+        var projectRoot = ws.CreateDirectory("normal-project");
+        var unrelatedDataDir = ws.CreateDirectory("app-data"); // 別の場所にある、無関係なデータ保存先。
+
+        var previous = PathGuard.ProtectedDataDirectory;
+        try
+        {
+            PathGuard.ProtectedDataDirectory = unrelatedDataDir;
+            var guard = new PathGuard(projectRoot, PathGuardOptions.Default);
+
+            var result = guard.Resolve("theme.js");
+
+            result.IsSuccess.Should().BeTrue("データ保存先と重ならないプロジェクトへの書き込みまで巻き込んで拒否してはならない");
+        }
+        finally
+        {
+            PathGuard.ProtectedDataDirectory = previous;
+        }
+    }
+
+    [Fact(DisplayName = "ProtectedDataDirectoryが未設定（null）なら従来どおり制限しない")]
+    public void ProtectedDataDirectory未設定なら制限しない()
+    {
+        using var ws = new TempWorkspace();
+        var projectRoot = ws.CreateDirectory("no-restriction");
+
+        var previous = PathGuard.ProtectedDataDirectory;
+        try
+        {
+            PathGuard.ProtectedDataDirectory = null;
+            var guard = new PathGuard(projectRoot, PathGuardOptions.Default);
+
+            var result = guard.Resolve("theme.js");
+
+            result.IsSuccess.Should().BeTrue();
+        }
+        finally
+        {
+            PathGuard.ProtectedDataDirectory = previous;
+        }
+    }
 }

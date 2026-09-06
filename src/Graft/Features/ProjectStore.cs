@@ -122,6 +122,21 @@ public sealed class ProjectStore
             return GraftResult<Project>.Fail(ErrorCode.E201, $"不正なパスです: {ex.Message}", path: root);
         }
 
+        // セキュリティ点検（v1.0.15）指摘対応: データ保存先（settings.json・projects.json・
+        // back/等が置かれる場所）自身、またはそれを含む（＝データ保存先が配下になる）フォルダを
+        // プロジェクトとして登録できてしまうと、.jsonが拡張子ホワイトリストに入っていることも
+        // あり projects.json/settings.json 自体がパッチの書き込み対象になりうる
+        // （postApplyHooksやupdate.checkUrlを差し替える経路。詳しくはOverlapsDataDirectoryの
+        // コメント参照）。実際の書き込み拒否自体はPathGuard.ProtectedDataDirectoryが経路によらず
+        // 常に行うが、ここでは「登録できてしまうこと自体」を入口で止め、利用者に理由を伝える。
+        if (OverlapsDataDirectory(fullRoot))
+        {
+            return GraftResult<Project>.Fail(
+                ErrorCode.E213,
+                "選んだ場所はGraftのデータ保存先（設定・履歴データの保存先）と重なっています。データ保存先そのもの、またはそれを含む・その配下のフォルダはプロジェクトとして登録できません。別のフォルダを選んでください。",
+                path: fullRoot);
+        }
+
         var loaded = await LoadAsync(ct).ConfigureAwait(false);
         var projects = loaded.Value.ToList();
         var project = BuildOrUpdateProject(projects, fullRoot, name);
@@ -234,6 +249,17 @@ public sealed class ProjectStore
         if (!Directory.Exists(fullRoot))
         {
             return GraftResult<Project>.Fail(ErrorCode.E201, "指定したフォルダが見つかりません。", path: fullRoot);
+        }
+
+        // セキュリティ点検（v1.0.15）指摘対応: RegisterAsyncと同じ理由でRelocateAsync側にも同じ
+        // 検査を入れる（「場所を変更」で後からデータ保存先と重なる場所へ移せてしまうと、
+        // 登録時チェックだけでは防げないため）。
+        if (OverlapsDataDirectory(fullRoot))
+        {
+            return GraftResult<Project>.Fail(
+                ErrorCode.E213,
+                "選んだ場所はGraftのデータ保存先（設定・履歴データの保存先）と重なっています。データ保存先そのもの、またはそれを含む・その配下のフォルダはプロジェクトとして登録できません。別のフォルダを選んでください。",
+                path: fullRoot);
         }
 
         var loaded = await LoadAsync(ct).ConfigureAwait(false);
@@ -580,5 +606,46 @@ public sealed class ProjectStore
         // 無視するため小文字へ正規化し、区別するLinuxではそのまま使う。ここで一律に
         // 小文字化すると、Linuxで大文字小文字だけが異なる別フォルダが同一プロジェクトIDになる。
         return OperatingSystem.IsWindows() ? trimmed.ToLowerInvariant() : trimmed;
+    }
+
+    /// <summary>
+    /// セキュリティ点検（v1.0.15）指摘対応: <paramref name="fullRoot"/>を登録すると、
+    /// データ保存先（<see cref="AppPaths.BaseDirectory"/>。settings.json・projects.json等が
+    /// 直下に置かれる場所）自身がそのプロジェクトの書き込み対象に入ってしまうかどうか。
+    /// <para>
+    /// 危険なのは<paramref name="fullRoot"/>が<see cref="AppPaths.BaseDirectory"/>と同じか、
+    /// その祖先（親・祖先フォルダ）である場合だけである——settings.json等はデータ保存先の
+    /// 直下にあるため、プロジェクトルートがデータ保存先かその祖先でない限り、
+    /// <see cref="Core.PathGuard"/>の「ルート外へ出られない」制約（上位ディレクトリ参照
+    /// <c>..</c>の禁止・ルート内判定）に阻まれてそもそも到達できない。
+    /// </para>
+    /// <para>
+    /// 【逆方向（fullRootがデータ保存先の配下にあるだけのケース）は拒否しない】
+    /// 例えばポータブル運用でexeフォルダ（＝データ保存先）の直下に作業用サブフォルダを
+    /// 作ってプロジェクト登録するのは、settings.json等（データ保存先の直下・そのサブフォルダの
+    /// 外）へ<see cref="Core.PathGuard"/>経由で到達できない以上、安全な構成であり拒否すべきでない。
+    /// 実際にこの逆方向まで拒否する実装を一度入れたところ、既存の単体テスト
+    /// （<c>OnboardingProjectRegistrationTests</c>。データ保存先直下にサンプルプロジェクトを
+    /// 作る構成）が壊れることで発覚した（実測）ため、この一方向だけに絞っている。
+    /// 判定基準は<see cref="Infra.EnvironmentSummaryLogger"/>の<c>PathsEqual</c>
+    /// （設定画面のデータ保存先切り替えと同じ判定基準）と同じ流儀（フルパス化・末尾区切り除去の
+    /// うえ、Windowsのみ大文字小文字を無視）に揃えている。
+    /// </para>
+    /// </summary>
+    private bool OverlapsDataDirectory(string fullRoot)
+    {
+        try
+        {
+            var fullA = Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullRoot));
+            var fullB = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_paths.BaseDirectory));
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+            if (string.Equals(fullA, fullB, comparison)) return true;
+            return fullB.StartsWith(fullA + Path.DirectorySeparatorChar, comparison); // データ保存先がfullRootの配下＝fullRootが祖先
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return false;
+        }
     }
 }

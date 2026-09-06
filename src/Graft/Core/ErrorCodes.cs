@@ -193,6 +193,19 @@ public enum ErrorCode
     /// 参照）。
     /// </summary>
     E210,
+
+    /// <summary>
+    /// セキュリティ点検（v1.0.15）指摘対応: 書き込み先がデータ保存先
+    /// （<see cref="Graft.Infra.AppPaths.BaseDirectory"/>。settings.json・projects.json・
+    /// back/・logs/等が置かれる場所）自身か、その配下だったため拒否した（16章の表には
+    /// 無いため追加）。E201（パスがルート外）とは別に用意する理由: E201は「プロジェクト
+    /// ルートの外」を指す場合の判定であり、データ保存先そのものをプロジェクトとして
+    /// 登録してしまった場合（<see cref="Features.ProjectStore.RegisterAsync"/>参照）は
+    /// ルート内判定そのものは通ってしまう。そのため<see cref="PathGuard"/>側で独立に
+    /// 拒否する専用コードとして分ける（<see cref="PathGuard.ProtectedDataDirectory"/>参照）。
+    /// E211・E212は別の作業で追加されるため番号を空け、E213から使う。
+    /// </summary>
+    E213,
 }
 
 /// <summary>
@@ -269,6 +282,9 @@ public static class ErrorCatalog
 
         [ErrorCode.E210] = ("ファイルが見つからない、またはこの環境から読み取れない",
             "ファイルパスや権限を確認してください。ネットワークドライブ上の場合は、いったんローカルへコピーして開き直すと切り分けになります"),
+
+        [ErrorCode.E213] = ("データ保存先の配下への書き込みは拒否されます",
+            "Graftの設定・履歴データが置かれている場所（またはその親フォルダ）はプロジェクトとして登録できません。別のフォルダを選んでください"),
     };
 
     /// <summary>エラーコードの内容（短い説明）を返す。</summary>

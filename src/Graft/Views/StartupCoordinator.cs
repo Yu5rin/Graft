@@ -258,6 +258,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 内部でPathGuard.NormalizeRootを呼ぶため、それより手前で配線しておく。
         PathGuard.AnomalyLogger = message => _logger?.Warn("path-guard", message);
 
+        // セキュリティ点検（v1.0.15）指摘対応: データ保存先配下への書き込みを、経路によらず
+        // 常に拒否する（PathGuard.ProtectedDataDirectoryのクラスコメント参照）。AnomalyLoggerと
+        // 同じくアプリ全体で1回だけ配線する。
+        PathGuard.ProtectedDataDirectory = _appPaths.BaseDirectory;
+
         EnvironmentSummaryLogger.Log(_logger, _appPaths, _exeDirectory, _settings, projectRoot: null);
 
         // 9.3: 保存しておいたテーマを反映する。App起動時点では設定をまだ読めていないため、

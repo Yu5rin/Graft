@@ -36,6 +36,12 @@
       （tests/Graft.Tests/PlatformDiagnosticsLoggingTests.cs参照）。
     -->
     <Compile Include="..\..\src\Graft\Platform\PlatformDiagnosticsLogging.cs" LinkBase="Linked\Platform" />
+    <!--
+      セキュリティ点検指摘対応（release.HtmlUrlをスキーム検査なしでShellExecuteに渡していた件）。
+      ExternalLinkConfirmationはIDialogService/IExternalLinkLauncher（いずれも上で取り込み済み）と
+      System.Uriのみに依存し、Avalonia/WPFに一切触れないため単体テスト可能。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\ExternalLinkConfirmation.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\Null\**\*.cs" LinkBase="Linked\Platform\Null" />
     <!--
       Linux版クリップボード読み取り不具合の修正（X11ClipboardReader）。P/Invoke宣言
