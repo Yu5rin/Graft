@@ -288,8 +288,8 @@ public partial class ShellWindow : Window
     private void ExecutePromptCopy()
     {
         if (DataContext is not ShellViewModel viewModel) return;
-        var copyCommand = viewModel.Graft.PromptCopy.CopyCommand;
-        if (copyCommand.CanExecute(null)) copyCommand.Execute(null);
+        var copyCommand = viewModel.Graft.PromptCopy?.CopyCommand;
+        if (copyCommand is not null && copyCommand.CanExecute(null)) copyCommand.Execute(null);
     }
 
     private static T? FindAncestor<T>(Visual? node) where T : Visual
