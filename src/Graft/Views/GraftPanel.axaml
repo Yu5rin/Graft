@@ -18,7 +18,7 @@
     -->
     <Grid Background="{DynamicResource BgSurface}" RowDefinitions="32,*">
 
-        <!-- ヘッダー: 開閉トグル・タイトル・状態サマリ・プレビュー/適用・失敗再依頼 -->
+        <!-- ヘッダー: 開閉トグル・タイトル・状態サマリ・プレビュー/適用・修正を依頼 -->
         <Border Grid.Row="0" DataContext="{Binding Graft}"
                 BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0">
             <Grid Margin="8,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
@@ -82,12 +82,12 @@
                            FontSize="{DynamicResource StatusBarFontSize}"
                            Foreground="{DynamicResource TextSecondary}" />
 
-                <!-- 11章 失敗時リカバリ支援: 失敗ブロックがある場合のみ有効になる。 -->
-                <Button Grid.Column="4" Content="失敗を再依頼" Margin="4,0"
+                <!-- 11章 失敗時の修正依頼: 失敗ブロックがある場合のみ有効になる。 -->
+                <Button Grid.Column="4" Content="修正を依頼" Margin="4,0"
                         Command="{Binding CopyRecoveryPromptCommand}"
                         views:HelpTip.Standard="適用できなかったブロックについて、現在のファイルの内容を添えた修正依頼文をクリップボードへコピーします。AIへ再度質問するときに使います。失敗したブロックがあるときだけ有効になります。"
                         views:HelpTip.Detailed="一覧の中に赤い×印（適用できなかったブロック）があるときに使います。押すと、失敗した理由と対象ファイルの今の中身を含んだ修正依頼文がクリップボードへコピーされます。それをAIとの会話に貼り付けて再度質問すれば、状況を説明し直す手間なく修正案をもらえます。失敗したブロックが無いときはこのボタンは押せません。"
-                        AutomationProperties.Name="失敗ブロックの再依頼プロンプトをコピー" />
+                        AutomationProperties.Name="失敗ブロックの修正依頼プロンプトをコピー" />
 
                 <!--
                     修正3: 「破棄」ボタン。DiscardCommand自体は既存実装済みだったが、Escキー以外の

@@ -550,7 +550,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         }
 
         var confirmed = await _dialogs
-            .ConfirmAsync("復元の確認", $"{target.RevisionLabel} 直前の状態へ復元します。よろしいですか？")
+            .ConfirmAsync("取り消しの確認", $"{target.RevisionLabel} を取り消して、適用する直前の状態に戻します。よろしいですか？")
             .ConfigureAwait(true);
         if (!confirmed)
         {
@@ -561,7 +561,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         if (!result.IsSuccess && result.HasIssue(ErrorCode.E301))
         {
             var force = await _dialogs
-                .ConfirmAsync("適用後の変更を検出", BuildAppliedAfterChangeMessage(target.RevisionLabel, result.Issues, "復元すると"))
+                .ConfirmAsync("適用後の変更を検出", BuildAppliedAfterChangeMessage(target.RevisionLabel, result.Issues, "取り消すと"))
                 .ConfigureAwait(true);
             if (!force)
             {
@@ -573,7 +573,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         if (!result.IsSuccess)
         {
             await _dialogs
-                .ConfirmAsync("復元に失敗しました", string.Join(Environment.NewLine, result.Errors.Select(i => i.ToDisplayText())))
+                .ConfirmAsync("取り消せません", string.Join(Environment.NewLine, result.Errors.Select(i => i.ToDisplayText())))
                 .ConfigureAwait(true);
             return false;
         }
@@ -631,7 +631,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
             var names = string.Join("、", preview.NotRestorable.Select(r => $"r{r.Manifest.Revision}"));
             await _dialogs
                 .ShowMessageAsync(
-                    "ここまで戻せません",
+                    "ここまで戻せませんでした",
                     $"取り消し対象にバックアップの実体が失われているリビジョンが含まれるため中止しました（{names}）。" +
                     "順序を保ったまま取り消せないリビジョンを飛ばして続行すると内容が壊れるため、この操作は実行できません。")
                 .ConfigureAwait(true);
@@ -647,7 +647,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         if (!newRevision.IsSuccess)
         {
             await _dialogs
-                .ShowMessageAsync("ここまで戻せません", string.Join(Environment.NewLine, newRevision.Errors.Select(i => i.ToDisplayText())))
+                .ShowMessageAsync("ここまで戻せませんでした", string.Join(Environment.NewLine, newRevision.Errors.Select(i => i.ToDisplayText())))
                 .ConfigureAwait(true);
             return false;
         }
@@ -799,7 +799,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
             $"{target.RevisionLabel} を適用した直後の状態まで戻します。\n\n" +
             $"取り消すリビジョン（{preview.RevisionsToUndo.Count}件、新しい順）:\n{revisionList}\n\n" +
             $"影響を受けるファイル（{preview.AffectedPaths.Count}件）:\n{fileList}\n\n" +
-            "この操作自体も新しいリビジョンとして記録されるため、後から「このリビジョンを取り消す」で元に戻せます。よろしいですか？";
+            "この操作自体も新しいリビジョンとして記録されるため、後から「このリビジョンを取り消す」で取り消せます。よろしいですか？";
         return _dialogs.ConfirmAsync("ここまで戻す確認", message);
     }
 

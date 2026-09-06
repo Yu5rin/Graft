@@ -260,8 +260,8 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         var result = await CollectAsync().ConfigureAwait(true);
         if (result is null) return;
         StatusMessage = ExceedsWarnThreshold
-            ? $"推定トークン数 {EstimatedTokens} 件。上限（{TokenWarnThreshold} 件）を超えています。ファイル選択を見直してください。"
-            : $"推定トークン数 {EstimatedTokens} 件。";
+            ? $"推定: 約{EstimatedTokens}トークン。上限（約{TokenWarnThreshold}トークン）を超えています。ファイル選択を見直してください。"
+            : $"推定: 約{EstimatedTokens}トークン。";
     }
 
     private async Task CopyAsync()
@@ -271,7 +271,7 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
 
         if (ExceedsWarnThreshold)
         {
-            StatusMessage = $"推定トークン数 {EstimatedTokens} 件が上限（{TokenWarnThreshold} 件）を超えています。ファイル選択を見直してください。";
+            StatusMessage = $"推定 約{EstimatedTokens}トークンが上限（約{TokenWarnThreshold}トークン）を超えています。ファイル選択を見直してください。";
             return;
         }
 
@@ -308,7 +308,7 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         }
 
         StatusMessage = ExceedsWarnThreshold
-            ? $"推定トークン数 {EstimatedTokens} 件が上限（{TokenWarnThreshold} 件）を超えていますが保存しました。ファイル選択の見直しをお勧めします。保存先: {path}"
+            ? $"推定 約{EstimatedTokens}トークンが上限（約{TokenWarnThreshold}トークン）を超えていますが保存しました。ファイル選択の見直しをお勧めします。保存先: {path}"
             : $"保存しました。保存先: {path}";
     }
 
@@ -620,7 +620,7 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
     {
         if (!ExceedsWarnThreshold) return;
         StatusMessage =
-            $"既定ですべてのファイルの内容を含めています。推定トークン数 {EstimatedTokens} 件が上限（{TokenWarnThreshold} 件）を超えています。"
+            $"既定ですべてのファイルの内容を含めています。推定 約{EstimatedTokens}トークンが上限（約{TokenWarnThreshold}トークン）を超えています。"
             + "lib/ など不要なフォルダを「構成だけ」または「出さない」に切り替えることをお勧めします。";
     }
 

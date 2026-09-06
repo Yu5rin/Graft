@@ -163,8 +163,8 @@ public sealed partial class MainViewModel
         // ブロックがあったこと」自体は利用者に伝わるべき情報のため、成功の完了メッセージに
         // 併記する（既存の「N件を適用します」等の文言と同じ「◯件」の言い回しに揃える）。
         var completionMessage = updatedDryRun.FailedCount > 0
-            ? $"r{result.Value.Revision} として記録しました。（{updatedDryRun.FailedCount}件は適用できませんでした）"
-            : $"r{result.Value.Revision} として記録しました。";
+            ? $"r{result.Value.Revision} として適用しました。（{updatedDryRun.FailedCount}件は適用できませんでした）"
+            : $"r{result.Value.Revision} として適用しました。";
         await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
 
         // 機能2: 適用直後の「元に戻す」通知（MainViewModel.ApplyUndoNotice.cs）。確認ダイアログを
@@ -183,7 +183,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private void LogApplySuccess(RevisionManifest manifest, IReadOnlyList<GraftIssue> issues, long durationMs)
     {
-        Logger?.Info("apply", $"r{manifest.Revision} として記録しました（{manifest.Entries.Count}件）",
+        Logger?.Info("apply", $"r{manifest.Revision} として適用しました（{manifest.Entries.Count}件）",
             revision: manifest.Revision, durationMs: durationMs);
 
         foreach (var issue in issues)
@@ -244,7 +244,7 @@ public sealed partial class MainViewModel
     {
         DismissApplyUndoNotice();
         var undone = await History.UndoLatestAsync().ConfigureAwait(true);
-        if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
+        if (!undone) await _dialogs.ShowMessageAsync("元に戻せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
     }
 
     /// <summary>RunDryRunAsyncの冒頭から呼ぶ。フック未設定時は常にtrue。</summary>

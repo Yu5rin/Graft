@@ -486,7 +486,7 @@ public class StandardSearchReplaceAdapterTests
         var result = new PatchParser().Parse(diff);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Meta.Summary.Should().Be("unified diff からの取り込み");
+        result.Value.Meta.Summary.Should().Be("unified diff の適用");
         result.Value.Blocks.Single().Path.Should().Be("src/calc.py");
     }
 

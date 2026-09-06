@@ -117,7 +117,7 @@ public sealed partial class MainViewModel
         _dryRunFromQueue = false;
     }
 
-    /// <summary>11章: 適用に失敗したブロックについて、現在のコードを添えた再依頼文をコピーする。</summary>
+    /// <summary>11章: 適用に失敗したブロックについて、現在のコードを添えた修正依頼文をコピーする。</summary>
     private async Task CopyRecoveryPromptAsync()
     {
         var failedPlans = Blocks.Where(b => !b.Plan.CanApply).Select(b => b.Plan).ToList();
@@ -128,8 +128,8 @@ public sealed partial class MainViewModel
 
         var prompt = RecoveryPrompt.Build(failedPlans, path => ReadCurrentTextForRecovery(projectRoot, path));
         TrySetClipboardText(prompt);
-        await _dialogs.ShowMessageAsync("再依頼プロンプトをコピーしました",
-            $"{failedPlans.Count}件の失敗ブロックについて、現在のコードを含む再依頼文をクリップボードへコピーしました。")
+        await _dialogs.ShowMessageAsync("修正依頼プロンプトをコピーしました",
+            $"{failedPlans.Count}件の失敗ブロックについて、現在のコードを含む修正依頼文をクリップボードへコピーしました。")
             .ConfigureAwait(true);
     }
 

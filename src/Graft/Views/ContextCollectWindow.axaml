@@ -45,8 +45,8 @@
                           ItemTemplate="{StaticResource LabelItemTemplate}"
                           MaxWidth="220" HorizontalAlignment="Left"
                           AutomationProperties.Name="収集モード" TabIndex="0"
-                          local:HelpTip.Standard="AIへ渡す内容の集め方を選びます。「ツリーのみ」はファイル構成だけ、「選択ファイル」は中身も含める、「差分のみ」は前回からの変更点だけです。"
-                          local:HelpTip.Detailed="下のファイル一覧・出力プレビューに何を含めるかを選びます。「ツリーのみ」はフォルダ構成だけを伝え中身は含めません。「選択ファイル」は左のファイル一覧でチェックした内容も含めます（通常はこれを使います）。「ツリー＋選択」はフォルダ構成全体を見せつつ、選んだファイルだけ中身も含めます。「差分のみ」は右側で選ぶ過去のリビジョンから今までの変更点だけを抜き出します（大きなプロジェクトで変更箇所だけをAIに伝えたいときに使います）。" />
+                          local:HelpTip.Standard="AIへ渡す内容の集め方を選びます。「ツリーのみ」はファイル構成だけ、「選択ファイル」は選んだファイルの中身だけ、「ツリー＋選択」は構成全体＋選んだファイルの中身（既定）、「差分のみ」は前回からの変更点だけです。"
+                          local:HelpTip.Detailed="下のファイル一覧・出力プレビューに何を含めるかを選びます。「ツリーのみ」はフォルダ構成だけを伝え中身は含めません。「選択ファイル」は左のファイル一覧でチェックしたファイルの中身だけを含め、構成は伝えません。「ツリー＋選択」はフォルダ構成全体を見せつつ、選んだファイルだけ中身も含めます（既定はこちらで、通常はこれを使います）。「差分のみ」は右側で選ぶ過去のリビジョンから今までの変更点だけを抜き出します（大きなプロジェクトで変更箇所だけをAIに伝えたいときに使います）。" />
                 <TextBlock Grid.Column="2" Text="対象リビジョン" VerticalAlignment="Center" Margin="16,0,8,0"
                            IsVisible="{Binding ShowRevisionPicker}" />
                 <ComboBox Grid.Column="3" ItemsSource="{Binding Revisions}" SelectedItem="{Binding SelectedRevision}"
@@ -223,7 +223,7 @@
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"
                            Classes="statusMessage"
                            Classes.warn="{Binding ExceedsWarnThreshold}" />
-                <TextBlock Text="{Binding EstimatedTokens, StringFormat=推定トークン数: {0} 件}"
+                <TextBlock Text="{Binding EstimatedTokens, StringFormat=推定トークン数: 約{0}トークン}"
                            Foreground="{DynamicResource TextSecondary}"
                            FontSize="{DynamicResource CaptionFontSize}" />
             </StackPanel>
