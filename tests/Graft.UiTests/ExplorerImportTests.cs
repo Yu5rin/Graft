@@ -96,6 +96,26 @@ public class ExplorerImportTests : IDisposable
         File.Exists(Path.Combine(_root, "photo.png")).Should().BeTrue("対象ノードが無い（余白へのドロップ）場合はプロジェクトルートへコピーされるべき");
     }
 
+    [AvaloniaFact(DisplayName = "v1.0.15: 拡張子の無いファイル・許可外の拡張子のファイルも従来どおり取り込める（名前の許可リストの対象外）")]
+    public async Task 拡張子の無いファイルも従来どおり取り込める()
+    {
+        // v1.0.15で「拡張子が無ければ無条件に通す」をやめたが、取り込みは
+        // PathGuard.ResolveImportTarget を通る経路であり、拡張子・名前の検査はもともと
+        // 適用されない（利用者が明示的に選んだ既存ファイルのコピーにすぎないため）。
+        // 拡張子ホワイトリストの作り替えでこの経路が巻き添えになっていないことを固定する。
+        using var external = new ExternalSource();
+        var extensionless = external.WriteFile("mytool", "拡張子の無いファイル");
+        var binary = external.WriteFile("photo.png", "画像データ");
+
+        var (explorer, _) = await BuildExplorerWithProjectAsync().ConfigureAwait(true);
+
+        await explorer.ImportPathsAsync(null, new[] { extensionless, binary }).ConfigureAwait(true);
+
+        File.Exists(Path.Combine(_root, "mytool")).Should().BeTrue(
+            "取り込みは拡張子なしの名前の許可リストの対象外であるべき");
+        File.Exists(Path.Combine(_root, "photo.png")).Should().BeTrue();
+    }
+
     // ===================== フォルダごとの再帰コピー =====================
 
     [AvaloniaFact(DisplayName = "フォルダを取り込むと中身が再帰的にコピーされ、元のフォルダは残る")]
