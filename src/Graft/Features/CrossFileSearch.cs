@@ -25,9 +25,36 @@ public sealed record CrossFileSearchOptions
 }
 
 /// <summary>検索・置換で共有する正規表現の組み立て。不正な正規表現は例外にせず失敗として返す
-/// （4.4節「正規表現が不正な場合はエラーにせず、その旨を表示する」）。</summary>
+/// （4.4節「正規表現が不正な場合はエラーにせず、その旨を表示する」）。
+///
+/// ここで生成する<see cref="Regex"/>には必ず<see cref="MatchTimeout"/>を渡している。利用者は
+/// 検索欄へ任意の正規表現を打ち込めるため、<c>(a+)+$</c>のような入れ子の量指定子を含む
+/// パターンでは照合そのものが指数時間（破滅的バックトラック）になりうる。タイムアウトが
+/// 無ければUIスレッドが永久に固まるため、2秒で打ち切って
+/// <see cref="RegexMatchTimeoutException"/>を投げさせている。
+///
+/// <b>重要</b>: そのタイムアウト例外は「Regexを作るとき」ではなく「照合するとき」
+/// （<c>Matches</c>/<c>IsMatch</c>/<c>Replace</c>）に飛ぶ。つまりこのクラスの<c>try</c>では
+/// 決して捕まらない。以前はどの呼び出し側も捕まえておらず、エディタ内検索では
+/// <c>Dispatcher</c>のTick（デバウンス）やキー入力ハンドラまで例外が抜け、
+/// <c>App.OnDispatcherUnhandledException</c>も（例外のSourceがAvaloniaEditではないため）
+/// 握らずに<c>AppDomain.UnhandledException</c>へ流れ、<b>アプリがプロセスごと落ちて
+/// 未保存の編集内容が失われていた</b>。照合を行う箇所は必ず
+/// <see cref="RegexMatchTimeoutException"/>を捕まえ、<see cref="TimeoutMessage"/>を
+/// エラー表示に落とすこと。</summary>
 public static class SearchPatternBuilder
 {
+    /// <summary>1回の照合に許す上限時間。破滅的バックトラックでUIが固まるのを防ぐための値で、
+    /// 「人間が待てる限界」より短く、かつ巨大なファイルに対する正当な検索を誤って
+    /// 打ち切らない長さとして2秒を採っている。</summary>
+    public static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>照合がタイムアウトしたときに表示する文言。エディタ内検索（Ctrl+F）と
+    /// プロジェクト全体検索（Ctrl+Shift+F）で同じ文言にするため、ここを唯一の定義とする。
+    /// 「中断した」だけでなく「次に何をすればよいか（パターンを簡単にする）」まで書く。</summary>
+    public const string TimeoutMessage =
+        "正規表現の処理に時間がかかりすぎたため中断しました。パターンを簡単にしてください。";
+
     public static (Regex? Regex, string? Error) TryBuild(
         string query, bool useRegex, bool caseSensitive, bool wholeWord)
     {
@@ -38,7 +65,7 @@ public static class SearchPatternBuilder
         var options = RegexOptions.CultureInvariant | (caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase);
         try
         {
-            return (new Regex(pattern, options, TimeSpan.FromSeconds(2)), null);
+            return (new Regex(pattern, options, MatchTimeout), null);
         }
         catch (ArgumentException ex)
         {
@@ -76,6 +103,12 @@ public sealed class SearchRunState
     public bool TruncatedByTotalLimit { get; internal set; }
     /// <summary>1ファイルあたりの上限に達したファイルの相対パス一覧（打ち切りをUIへ明示するため）。</summary>
     public List<string> FilesTruncatedByPerFileLimit { get; } = new();
+
+    /// <summary>正規表現の照合がタイムアウトし、検索全体を打ち切ったかどうか。
+    /// タイムアウトするようなパターン（<c>(a+)+$</c>等）は、どのファイルに対しても同じように
+    /// 破滅的バックトラックを起こす。1行ごとに2秒待ちながら全ファイルを走り続けても
+    /// 結果は得られず利用者を待たせるだけなので、最初の1回で検索全体を止める。</summary>
+    public bool TimedOutByRegex { get; internal set; }
 }
 
 /// <summary>置換の実行結果。</summary>
@@ -160,20 +193,39 @@ public sealed class CrossFileSearchEngine
         if (!read.IsSuccess) return (0, read.Issues.FirstOrDefault()?.ToDisplayText() ?? "読み込みに失敗しました");
 
         var (text, shape) = read.Value;
-        var count = regex.Matches(text).Count;
-        if (count == 0) return (0, null);
+        int count;
+        string newText;
+        try
+        {
+            count = regex.Matches(text).Count;
+            if (count == 0) return (0, null);
+            newText = regex.Replace(text, safeReplacement);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // 置換は「まず全文を照合する」処理なので、検索と同じ破滅的バックトラックが起きうる。
+            // ここで捕まえないと ReplaceInFilesAsync → AsyncRelayCommand まで例外が抜けてしまう。
+            // このファイルは1文字も書き換えていない（Matches/Replaceの時点で失敗している）ため、
+            // 失敗として記録して次のファイルへ進むのが安全側。1ファイルの事情で
+            // 「すべて置換」全体を巻き添えにしない。
+            return (0, SearchPatternBuilder.TimeoutMessage);
+        }
 
-        var newText = regex.Replace(text, safeReplacement);
         var write = await FileTextIO.WriteAsync(fullPath, newText, shape, ct).ConfigureAwait(false);
         if (!write.IsSuccess) return (0, write.Issues.FirstOrDefault()?.ToDisplayText() ?? "書き込みに失敗しました");
         return (count, null);
     }
 
+    /// <summary>これ以上の走査をやめるべきか。ヒット上限による打ち切りに加え、正規表現の
+    /// タイムアウトによる打ち切りも同じ経路で全階層へ伝えるため、判定をここへ集約する。</summary>
+    private static bool ShouldStopWalking(SearchRunState state)
+        => state.TruncatedByTotalLimit || state.TimedOutByRegex;
+
     private static async IAsyncEnumerable<SearchHit> WalkAsync(
         string root, string dir, GitignoreFilter filter, Regex regex, CrossFileSearchOptions options,
         SearchRunState state, [EnumeratorCancellation] CancellationToken ct)
     {
-        if (state.TruncatedByTotalLimit) yield break;
+        if (ShouldStopWalking(state)) yield break;
 
         List<string> dirEntries;
         List<string> fileEntries;
@@ -190,7 +242,7 @@ public sealed class CrossFileSearchEngine
         foreach (var subDir in dirEntries)
         {
             ct.ThrowIfCancellationRequested();
-            if (state.TruncatedByTotalLimit) yield break;
+            if (ShouldStopWalking(state)) yield break;
             var rel = ToRelative(root, subDir);
             if (filter.IsIgnored(rel, isDirectory: true)) continue;
 
@@ -203,7 +255,7 @@ public sealed class CrossFileSearchEngine
         foreach (var file in fileEntries)
         {
             ct.ThrowIfCancellationRequested();
-            if (state.TruncatedByTotalLimit) yield break;
+            if (ShouldStopWalking(state)) yield break;
 
             var rel = ToRelative(root, file);
             if (filter.IsIgnored(rel, isDirectory: false)) continue;
@@ -227,10 +279,34 @@ public sealed class CrossFileSearchEngine
 
         var lines = TextNormalizer.SplitLines(read.Value.Text);
         var hitsInFile = 0;
+        // 1行分の照合結果を一旦ここへ溜める（下の try/catch の理由を参照）。ループの外で
+        // 使い回してGC圧を上げないようにしている。
+        var lineMatches = new List<Match>();
         for (var i = 0; i < lines.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
-            foreach (Match m in regex.Matches(lines[i]))
+
+            // MatchCollection の列挙は遅延評価で、実際の照合（＝RegexMatchTimeoutExceptionが
+            // 飛びうる箇所）は MoveNext の中で起きる。C#は try ブロック内に yield return を
+            // 書けないため、foreach をそのまま try で囲むことができない。そこで「1行分を
+            // materialize する部分」だけを try で囲み、結果を返すのはその外側で行う。
+            lineMatches.Clear();
+            try
+            {
+                foreach (Match m in regex.Matches(lines[i])) lineMatches.Add(m);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // 破滅的バックトラック（例: (a+)+$）。ここで捕まえないと例外は
+                // SearchViewModel の AsyncRelayCommand まで抜け、SafeHandler が
+                // 「想定外のエラー」という原因の分からない文言を出してしまう。
+                // 原因も次の一手も分かる文言（TimeoutMessage）へ落とし、検索全体を止める。
+                state.PatternError = SearchPatternBuilder.TimeoutMessage;
+                state.TimedOutByRegex = true;
+                yield break;
+            }
+
+            foreach (var m in lineMatches)
             {
                 if (hitsInFile >= options.MaxHitsPerFile)
                 {
