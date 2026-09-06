@@ -124,7 +124,7 @@
                     （MainViewModel.ApplyUndoNotice.cs）。クリップボード監視の通知・削除取り消し
                     通知と同じ考え方（Buttonそのものがクリック可能な通知）。「元に戻す」は
                     Ctrl+Zと同じUndoCommand（既存の単発復元経路）をそのまま再利用するため、
-                    クリックすると復元の確認ダイアログを挟んだうえで直前のリビジョンを取り消す。
+                    クリックすると取り消しの確認ダイアログを挟んだうえで直前のリビジョンを取り消す。
                 -->
                 <Button Content="{Binding Graft.ApplyUndoNoticeText}"
                         Command="{Binding Graft.UndoCommand}"

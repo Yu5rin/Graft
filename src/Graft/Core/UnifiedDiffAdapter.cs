@@ -13,7 +13,7 @@ namespace Graft.Core;
 /// </summary>
 public static class UnifiedDiffAdapter
 {
-    private const string ImportSummary = "unified diff からの取り込み";
+    private const string ImportSummary = "unified diff の適用";
     private const string ImportType = "chore";
     private const string DevNull = "/dev/null";
 
@@ -49,7 +49,7 @@ public static class UnifiedDiffAdapter
 
     /// <summary>
     /// unified diff 本文を解析し <see cref="Patch"/> を組み立てる。summary が無いため
-    /// メタは固定文言（"unified diff からの取り込み" / type=chore）を補い、
+    /// メタは固定文言（"unified diff の適用" / type=chore）を補い、
     /// requireSummary 設定の必須チェックに引っかからないようにする。
     /// </summary>
     public static GraftResult<Patch> Parse(string patchText)

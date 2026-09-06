@@ -12,7 +12,7 @@ namespace Graft.ViewModels;
 /// 「元に戻す」の実処理は<see cref="UndoCommand"/>（<c>UndoLastAsync</c>→
 /// <c>History.UndoLatestAsync</c>→<c>HistoryPaneViewModel</c>内部の単発復元経路、
 /// 最終的に<see cref="Core.RevisionRestorer.RestoreAsync"/>）をそのまま再利用する
-/// （Ctrl+Zと同じ経路。並行実装を作らない）。そのため確認ダイアログ（「復元の確認」）も
+/// （Ctrl+Zと同じ経路。並行実装を作らない）。そのため確認ダイアログ（「取り消しの確認」）も
 /// Ctrl+Zと同じく挟まる。この通知はあくまで「直前に適用したばかりのリビジョン番号」と
 /// 「元に戻す手段があること」を数秒間だけ知らせるものであり、クリックの結果自体は
 /// 既存の復元フローに委ねる。

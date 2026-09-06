@@ -169,9 +169,9 @@ public class MisleadingMessageUiRegressionTests : IDisposable
 
         await ExecuteAsync(history.RestoreCommand).ConfigureAwait(true);
 
-        dialogs.MessageTitles.Should().Contain("復元に失敗しました",
+        dialogs.MessageTitles.Should().Contain("取り消せません",
             "失敗はOKのみのメッセージで伝えること（B-8）");
-        dialogs.ConfirmTitles.Should().NotContain("復元に失敗しました",
+        dialogs.ConfirmTitles.Should().NotContain("取り消せません",
             "単なる通知に「キャンセル」を並べてはならない（B-8）");
     }
 
