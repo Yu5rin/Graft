@@ -608,6 +608,11 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (_project is null) return;
         var relativeDir = dirNode?.RelativePath ?? string.Empty;
         var listed = await _treeService.ListChildrenAsync(_project, relativeDir, _filter, ct).ConfigureAwait(true);
+
+        // 列挙が終わった時点で「実列挙済み」を確定させる（FileNodeViewModel.IsLoadedのコメント参照）。
+        // 成否は問わない。失敗（フォルダが消えた等）でも立てるのは、展開のたびに無限に
+        // 列挙をやり直すループを作らないため＝列挙を同期実行していた頃の挙動をそのまま保つため。
+        dirNode?.MarkChildrenListed();
         if (!listed.IsSuccess) return; // 監視イベントで頻発するため、消失等は静かに諦める
 
         var target = dirNode?.Children ?? RootNodes;
@@ -1094,39 +1099,56 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
             .ConfigureAwait(true);
         if (!confirmed) return;
 
-        // 課題2: 実際の削除（ごみ箱送り／完全削除）より前に、アプリ内Ctrl+Zで戻せるよう
-        // 退避コピーを取っておく。退避自体に失敗しても（ディスク容量不足等）、OSのごみ箱という
-        // 別の安全網があるため削除自体は続行する。取り消し通知は退避に成功した場合のみ出す。
-        var staged = await _undoStore.StageAsync(node.FullPath, node.IsDirectory).ConfigureAwait(true);
-
-        // NewFileAsyncと同じレース対策（同メソッドのコメント参照）: 抑制は実際の削除より前に
-        // 登録する。
-        _fileWatch.SuppressDirectory(node.Parent is null ? _project.Root : node.Parent.FullPath);
-        _fileWatch.SuppressPath(node.FullPath);
-        var deleted = await _treeService.DeleteAsync(_project, node.RelativePath, node.IsDirectory, _guardOptions).ConfigureAwait(true);
-        if (!deleted.IsSuccess)
+        // 8.8: 確認ダイアログでOKを押してから削除が終わるまでの間、待機表示（ペイン上端の
+        // 不確定プログレスバー。ExplorerView.axamlのIsVisible="{Binding IsLoading}"）を出す。
+        // ここは退避コピー（DeleteUndoStore.StageAsync。フォルダ丸ごとの再帰コピー）と
+        // ごみ箱送りの2段構えで、大きなフォルダやネットワークドライブ上では数秒かかる。
+        // 従来はその間まったく無表示で、利用者からは「削除を押しても何も起きない」ように
+        // 見えていた（点検指摘A-4）。
+        IsLoading = true;
+        try
         {
-            if (staged.IsSuccess) _undoStore.DiscardLast(); // 実際には削除されなかったので退避コピーだけ後始末する
-            await ShowFailureAsync("削除できませんでした", deleted.Issues).ConfigureAwait(true);
-            return;
+            // 課題2: 実際の削除（ごみ箱送り／完全削除）より前に、アプリ内Ctrl+Zで戻せるよう
+            // 退避コピーを取っておく。退避自体に失敗しても（ディスク容量不足等）、OSのごみ箱という
+            // 別の安全網があるため削除自体は続行する。取り消し通知は退避に成功した場合のみ出す。
+            var staged = await _undoStore.StageAsync(node.FullPath, node.IsDirectory).ConfigureAwait(true);
+
+            // NewFileAsyncと同じレース対策（同メソッドのコメント参照）: 抑制は実際の削除より前に
+            // 登録する。
+            _fileWatch.SuppressDirectory(node.Parent is null ? _project.Root : node.Parent.FullPath);
+            _fileWatch.SuppressPath(node.FullPath);
+            var deleted = await _treeService.DeleteAsync(_project, node.RelativePath, node.IsDirectory, _guardOptions).ConfigureAwait(true);
+            if (!deleted.IsSuccess)
+            {
+                if (staged.IsSuccess) _undoStore.DiscardLast(); // 実際には削除されなかったので退避コピーだけ後始末する
+                await ShowFailureAsync("削除できませんでした", deleted.Issues).ConfigureAwait(true);
+                return;
+            }
+
+            // 削除されたファイルのタブは開いたままにできないため閉じる（4.2・4.3）。
+            if (!node.IsDirectory) await _editor.NotifyDeletedAsync(node.FullPath).ConfigureAwait(true);
+            await ReconcileDirectoryAsync(node.Parent, CancellationToken.None).ConfigureAwait(true);
+            if (ReferenceEquals(SelectedNode, node)) SelectedNode = null;
+
+            if (!staged.IsSuccess) return;
+        }
+        finally
+        {
+            // 失敗（ShowFailureAsyncでのreturn）でも必ず下ろす。立ちっぱなしになると
+            // 以後ずっとプログレスバーが回り続ける。
+            IsLoading = false;
         }
 
-        // 削除されたファイルのタブは開いたままにできないため閉じる（4.2・4.3）。
-        if (!node.IsDirectory) await _editor.NotifyDeletedAsync(node.FullPath).ConfigureAwait(true);
-        await ReconcileDirectoryAsync(node.Parent, CancellationToken.None).ConfigureAwait(true);
-        if (ReferenceEquals(SelectedNode, node)) SelectedNode = null;
+        // 退避に成功していた場合だけ取り消しの案内を出す（上のtry内で、退避できていなければ
+        // 早期returnしている）。案内とフォーカス戻しは待機表示を下ろした後に行う。
+        DeleteUndoNoticeText = $"「{node.Name}」を削除しました。Ctrl+Zで元に戻せます";
+        HasDeleteUndoNotice = true;
+        _deleteNoticeTimer.Restart();
 
-        if (staged.IsSuccess)
-        {
-            DeleteUndoNoticeText = $"「{node.Name}」を削除しました。Ctrl+Zで元に戻せます";
-            HasDeleteUndoNotice = true;
-            _deleteNoticeTimer.Restart();
-
-            // 課題2: ツリーの再構築（直前のReconcileDirectoryAsync）で選択中だった項目の
-            // コンテナが作り直され、フォーカスを失っている。エクスプローラにフォーカスがある
-            // 状態でのCtrl+Zが削除直後も引き続き届くよう、Viewへツリーへの再フォーカスを促す。
-            RequestFocus();
-        }
+        // 課題2: ツリーの再構築（直前のReconcileDirectoryAsync）で選択中だった項目の
+        // コンテナが作り直され、フォーカスを失っている。エクスプローラにフォーカスがある
+        // 状態でのCtrl+Zが削除直後も引き続き届くよう、Viewへツリーへの再フォーカスを促す。
+        RequestFocus();
     }
 
     private void OnDeleteNoticeTimeout()
