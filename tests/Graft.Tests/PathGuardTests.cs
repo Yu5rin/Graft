@@ -749,8 +749,8 @@ public class PathGuardTests
     // static状態のため、必ずtry/finallyで元の値へ戻す（AnomalyLoggerと同じ流儀）。
     // ------------------------------------------------------------------
 
-    [Fact(DisplayName = "ProtectedDataDirectory自身への書き込みはE213で拒否される（プロジェクトルート＝データ保存先のケース）")]
-    public void データ保存先自身への書き込みはE213で拒否される()
+    [Fact(DisplayName = "ProtectedDataDirectory自身への書き込みはE214で拒否される（プロジェクトルート＝データ保存先のケース）")]
+    public void データ保存先自身への書き込みはE214で拒否される()
     {
         using var ws = new TempWorkspace();
         var dataDir = ws.CreateDirectory("data"); // プロジェクトルート自体がデータ保存先、という想定。
@@ -765,7 +765,7 @@ public class PathGuardTests
             var result = guard.Resolve("settings.json");
 
             result.IsSuccess.Should().BeFalse();
-            result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+            result.Errors.Single().Code.Should().Be(ErrorCode.E214);
         }
         finally
         {
@@ -773,8 +773,8 @@ public class PathGuardTests
         }
     }
 
-    [Fact(DisplayName = "ProtectedDataDirectory配下（サブフォルダ）への書き込みもE213で拒否される")]
-    public void データ保存先の配下への書き込みもE213で拒否される()
+    [Fact(DisplayName = "ProtectedDataDirectory配下（サブフォルダ）への書き込みもE214で拒否される")]
+    public void データ保存先の配下への書き込みもE214で拒否される()
     {
         using var ws = new TempWorkspace();
         // プロジェクトルートがデータ保存先を含む親フォルダになっているケース
@@ -792,7 +792,7 @@ public class PathGuardTests
             var result = guard.Resolve("back/p_x/r7_xxx/manifest.json");
 
             result.IsSuccess.Should().BeFalse();
-            result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+            result.Errors.Single().Code.Should().Be(ErrorCode.E214);
         }
         finally
         {

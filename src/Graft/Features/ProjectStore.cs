@@ -229,7 +229,7 @@ public sealed class ProjectStore
         if (OverlapsDataDirectory(fullRoot))
         {
             return GraftResult<Project>.Fail(
-                ErrorCode.E213,
+                ErrorCode.E214,
                 "選んだ場所はGraftのデータ保存先（設定・履歴データの保存先）と重なっています。データ保存先そのもの、またはそれを含む・その配下のフォルダはプロジェクトとして登録できません。別のフォルダを選んでください。",
                 path: fullRoot);
         }
@@ -376,7 +376,7 @@ public sealed class ProjectStore
         if (OverlapsDataDirectory(fullRoot))
         {
             return GraftResult<Project>.Fail(
-                ErrorCode.E213,
+                ErrorCode.E214,
                 "選んだ場所はGraftのデータ保存先（設定・履歴データの保存先）と重なっています。データ保存先そのもの、またはそれを含む・その配下のフォルダはプロジェクトとして登録できません。別のフォルダを選んでください。",
                 path: fullRoot);
         }

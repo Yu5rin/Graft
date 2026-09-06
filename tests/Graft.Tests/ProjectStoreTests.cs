@@ -814,7 +814,7 @@ public class ProjectStoreTests
     // PathGuard.ProtectedDataDirectoryが別途常時行う。PathGuardTests.cs参照）。
     // ------------------------------------------------------------------
 
-    [Fact(DisplayName = "RegisterAsyncはデータ保存先そのものの登録をE213で拒否する")]
+    [Fact(DisplayName = "RegisterAsyncはデータ保存先そのものの登録をE214で拒否する")]
     public async Task RegisterAsyncはデータ保存先自身を拒否する()
     {
         using var ws = new TempWorkspace();
@@ -825,10 +825,10 @@ public class ProjectStoreTests
         var result = await store.RegisterAsync(appDir, "データ保存先そのもの");
 
         result.IsSuccess.Should().BeFalse();
-        result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+        result.Errors.Single().Code.Should().Be(ErrorCode.E214);
     }
 
-    [Fact(DisplayName = "RegisterAsyncはデータ保存先を含む親フォルダの登録をE213で拒否する")]
+    [Fact(DisplayName = "RegisterAsyncはデータ保存先を含む親フォルダの登録をE214で拒否する")]
     public async Task RegisterAsyncはデータ保存先の親フォルダを拒否する()
     {
         using var ws = new TempWorkspace();
@@ -842,7 +842,7 @@ public class ProjectStoreTests
         var result = await store.RegisterAsync(parent, "データ保存先を含む親フォルダ");
 
         result.IsSuccess.Should().BeFalse();
-        result.Errors.Single().Code.Should().Be(ErrorCode.E213);
+        result.Errors.Single().Code.Should().Be(ErrorCode.E214);
     }
 
     [Fact(DisplayName = "RegisterAsyncはデータ保存先の配下（内側）のサブフォルダは従来どおり登録できる（settings.json等には到達できないため安全）")]
@@ -882,7 +882,7 @@ public class ProjectStoreTests
         result.Value.Root.Should().Be(projectDir);
     }
 
-    [Fact(DisplayName = "RelocateAsyncはデータ保存先と重なる場所への移動をE213で拒否する")]
+    [Fact(DisplayName = "RelocateAsyncはデータ保存先と重なる場所への移動をE214で拒否する")]
     public async Task RelocateAsyncはデータ保存先と重なる移動先を拒否する()
     {
         using var ws = new TempWorkspace();
@@ -897,7 +897,7 @@ public class ProjectStoreTests
         var relocated = await store.RelocateAsync(registered.Value.Id, appDir);
 
         relocated.IsSuccess.Should().BeFalse();
-        relocated.Errors.Single().Code.Should().Be(ErrorCode.E213);
+        relocated.Errors.Single().Code.Should().Be(ErrorCode.E214);
 
         // 拒否された場合、元の登録内容（Root）は変わっていないはず。
         var reloaded = await store.LoadAsync();

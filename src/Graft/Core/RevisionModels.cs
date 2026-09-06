@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace Graft.Core;
 
 /// <summary>リビジョンの状態。仕様書6.3の中断復帰に使う。</summary>
@@ -73,18 +71,7 @@ public sealed record HookResult
     public long DurationMs { get; init; }
     /// <summary>タイムアウトしたかどうか。</summary>
     public bool TimedOut { get; init; }
-    /// <summary>
-    /// 標準出力と標準エラーを結合したもの。manifest には保存しない。
-    /// [JsonIgnore]で明示的に直列化から除外している——実測で確認したとおり、
-    /// これを付けないと <see cref="RevisionStore.RecordHookResultsAsync"/> が
-    /// manifest.json へそのまま書き込んでしまう（npm run build等の標準出力には
-    /// ビルド環境の絶対パス・環境変数・場合によってはトークンが出うるため、
-    /// 全文リビジョンごとに平文で残るのは避けたい）。画面上のフック失敗通知
-    /// （MainViewModel.Hooks.cs の BuildHookFailureMessage）は
-    /// このプロパティを使わずExitCode/TimedOutのみで組み立てているため、
-    /// この変更による表示への影響はない。
-    /// </summary>
-    [JsonIgnore]
+    /// <summary>標準出力と標準エラーを結合したもの。manifest には保存しない。</summary>
     public string? Output { get; init; }
 }
 

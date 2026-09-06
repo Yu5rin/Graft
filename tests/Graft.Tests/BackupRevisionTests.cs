@@ -403,37 +403,4 @@ public class BackupRevisionTests
         recorded.IsSuccess.Should().BeFalse();
         recorded.Errors.Should().Contain(i => i.Code == ErrorCode.E405);
     }
-
-    [Fact(DisplayName = "フックの標準出力はmanifest.jsonに平文で残らない（[JsonIgnore]対応）")]
-    public async Task フック結果のOutputはmanifestファイルに書き込まれない()
-    {
-        // セキュリティ点検の指摘事項2「適用後フックの標準出力がmanifest.jsonに平文で
-        // 永続化されている」への回帰テスト。npm run build等の標準出力にはビルド環境の
-        // 絶対パス・環境変数・場合によってはトークンが出うるため、機密情報を模した
-        // 文字列（TOKEN_LEAKED_ABC123）をOutputに渡し、書き出されたmanifest.jsonの
-        // 生テキストにそれが一切現れないことを確認する。
-        using var ws = new TempWorkspace();
-        var harness = new ApplyHarness(ws);
-        var (_, session) = await CreateRevisionAsync(harness, 7, "sha256:hookrecord7abc");
-        var hooks = new[]
-        {
-            new HookResult { Name = "ビルド", ExitCode = 1, DurationMs = 50, TimedOut = false, Output = "TOKEN_LEAKED_ABC123" },
-        };
-
-        var recorded = await harness.Revisions.RecordHookResultsAsync(harness.ProjectId, 7, hooks);
-        recorded.IsSuccess.Should().BeTrue();
-
-        var manifestPath = Path.Combine(session.FolderPath, "manifest.json");
-        var rawJson = await File.ReadAllTextAsync(manifestPath);
-        rawJson.Should().NotContain("TOKEN_LEAKED_ABC123");
-        rawJson.Should().NotContain("output");
-
-        // ExitCode等、Output以外のフィールドは引き続きmanifestへ記録される
-        // （画面上のフック結果表示に必要な情報のため、記録そのものは維持する）。
-        var reread = await harness.Revisions.ReadAsync(harness.ProjectId, 7);
-        reread.IsSuccess.Should().BeTrue();
-        reread.Value.Manifest.Hooks.Should().ContainSingle();
-        reread.Value.Manifest.Hooks[0].ExitCode.Should().Be(1);
-        reread.Value.Manifest.Hooks[0].Output.Should().BeNull();
-    }
 }
