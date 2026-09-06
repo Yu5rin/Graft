@@ -16,6 +16,14 @@ public enum UpdateInstallStatus
     /// <summary>ZIPの中身が想定外だった（不足・過剰・重複のいずれか）。</summary>
     UnexpectedZipContents,
 
+    /// <summary>
+    /// ダウンロードURLのホストが信頼できないと判断した（セキュリティ点検指摘対応）。
+    /// <see cref="UpdateHostPolicy"/>参照。期待ハッシュ（Digest）はダウンロードURLと
+    /// 同じJSON応答から来るため、checkUrlを握った側は両方を自由に決められSHA256は
+    /// 無力になる。ここでの検証はそれとは独立にホスト自体を確認する。
+    /// </summary>
+    UntrustedDownloadHost,
+
     /// <summary>自己置き換え（ファイルの入れ替え）自体が失敗した。ロールバック済み。</summary>
     InstallFailed,
 }
@@ -59,14 +67,34 @@ public sealed class UpdateInstallPipeline
     /// 場合はここでは掃除できないため、次回起動時の掃除を<see cref="PendingUpdateWorkDirCleanup"/>
     /// が別途担う）。
     /// </param>
+    /// <param name="checkUrl">
+    /// 更新確認に使った<c>update.checkUrl</c>（設定画面で変更可能）。ダウンロードURLの
+    /// ホスト検証（<see cref="UpdateHostPolicy"/>）に使う。期待ハッシュとダウンロードURLは
+    /// checkUrlへの同じHTTP応答から来るため、checkUrl自体を書き換えられる攻撃者に対しては
+    /// SHA256の一致だけでは配布元の正当性を保証できない（詳しくは<see cref="UpdateHostPolicy"/>
+    /// のクラスコメント参照）。
+    /// </param>
     public async Task<UpdateInstallResult> RunAsync(
         GitHubReleaseAsset asset,
         string installDirectory,
         string workDirectory,
+        string checkUrl,
         IProgress<double>? downloadProgress,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(asset);
+
+        // 【ダウンロード元ホストの検証】SHA256検証より前に行う。ここで拒否すれば、
+        // 信頼できないホストへは一度も接続しない（DNS解決すら発生しない）。
+        if (!UpdateHostPolicy.IsAllowedDownloadUrl(checkUrl, asset.BrowserDownloadUrl))
+        {
+            var host = Uri.TryCreate(asset.BrowserDownloadUrl, UriKind.Absolute, out var u) ? u.Host : asset.BrowserDownloadUrl;
+            return new UpdateInstallResult(
+                UpdateInstallStatus.UntrustedDownloadHost,
+                $"ダウンロード元のホスト（{host}）が信頼できないため、更新を中止しました。" +
+                "設定画面の「更新確認先URL」が意図したものか確認してください。");
+        }
+
         Directory.CreateDirectory(workDirectory);
         var zipPath = Path.Combine(workDirectory, "graft-update.zip");
         var stagingDir = Path.Combine(workDirectory, "staged");
@@ -93,12 +121,24 @@ public sealed class UpdateInstallPipeline
                     "配布物の整合性情報（SHA256）が取得できなかったため、安全のため更新を中止しました。");
             }
 
+            // 【この検証で防げないもの（セキュリティ点検指摘対応・正直な注記）】
+            // ここで比較する期待ハッシュ（asset.Digest）は、ダウンロードURL（asset.
+            // BrowserDownloadUrl）と同じcheckUrlへのHTTP応答（同じJSON）から取り出している。
+            // つまりcheckUrl自体を書き換えられる攻撃者は両方を自分の都合の良い値に決められる
+            // ため、この一致は「配布元自体が悪意を持つ場合」の防御にはならない。それを防ぐのは
+            // 上でRunAsync冒頭に行っているUpdateHostPolicyによるホスト検証の役割であり、
+            // このSHA256検証が実際に守っているのは「通信経路の途中でファイルが壊れて
+            // いないこと」だけである。以前はこの不一致時のメッセージに「改ざんされている
+            // 可能性がある」と書いていたが、上記の理由でその説明は成立しない
+            // （checkUrlが正規のままダウンロードだけが改ざんされる経路は無く、checkUrl自体が
+            // 悪意を持つ場合はハッシュも一致してしまいこの分岐に到達しない）ため、成立する
+            // 説明（通信起因の破損）だけを利用者に伝える文言へ直した。
             var actualHash = await Sha256Verifier.ComputeHexAsync(zipPath, ct).ConfigureAwait(false);
             if (!Sha256Verifier.Matches(actualHash, expectedHash))
             {
                 return new UpdateInstallResult(
                     UpdateInstallStatus.ChecksumMismatch,
-                    "ダウンロードしたファイルの検証（SHA256）に失敗しました。通信の途中で壊れたか、改ざんされている可能性があるため更新を中止しました。");
+                    "ダウンロードしたファイルの検証（SHA256）に失敗しました。ダウンロードが途中で壊れた可能性があります。通信環境を確認してやり直してください。");
             }
 
             var validation = UpdateZipInspector.Validate(zipPath);

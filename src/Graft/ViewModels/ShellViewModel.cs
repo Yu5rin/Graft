@@ -358,6 +358,20 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public event EventHandler<bool>? DiffSideBySideChangeRequested;
 
     /// <summary>
+    /// 指摘4: 適用前プレビュー窓（<see cref="Views.ApplyPreviewWindow"/>）の「今後は表示しない」
+    /// チェックボックスが確認されたことの通知。EditorFontSizeChangeRequestedと同じ経路で
+    /// StartupCoordinatorが購読し、常駐のSettingsViewModel経由で設定
+    /// （<see cref="Graft.Infra.Settings.ShowPreview"/>）への永続化を行う。ShellWindowは
+    /// ApplyPreviewWindowを開いた張本人（OnApplyPreviewRequested）のため、Viewの都合
+    /// （ウィンドウを閉じた後にチェック状態を読む）はそちらの責務とし、ここでは「確認された」
+    /// という1回きりの通知だけを扱う（値は常にfalse固定のためbool等のペイロードは持たない）。
+    /// </summary>
+    public event EventHandler? ApplyPreviewDisableRequested;
+
+    /// <summary>ShellWindow.OnApplyPreviewRequestedから、チェックが入っていたときにだけ呼ぶ。</summary>
+    public void NotifyApplyPreviewDisableRequested() => ApplyPreviewDisableRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
     /// 再クリックした場合はサイドビューを折りたたむ。それ以外は該当ビューへ切り替えて展開する。
     /// </summary>

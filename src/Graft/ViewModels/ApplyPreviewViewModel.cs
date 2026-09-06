@@ -60,4 +60,13 @@ public sealed class ApplyPreviewViewModel : ObservableObject
             if (value is null) Diff.Clear(); else Diff.Load(value.Plan);
         }
     }
+
+    /// <summary>
+    /// 実機で確認された指摘4: このプレビュー窓自体は「直前に見たのと同じ差分をもう一度見せる」
+    /// 確認画面として妥当だが、指摘1（完了ダイアログの二重表示）と合わせて確認画面が2枚に
+    /// なっていた。安全側の既定（<see cref="Settings.ShowPreview"/>=true）は変えず、
+    /// このチェックボックスで能動的にオフへ切り替える経路だけを設ける
+    /// （ApplyPreviewWindow.axaml.csが、ウィンドウを閉じるときにこの値を読む）。
+    /// </summary>
+    public bool DontShowAgain { get; set; }
 }

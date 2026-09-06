@@ -94,7 +94,7 @@ public class UpdateInstallDirectoryRegressionTests
 
         // 修正前のバグ再現: installDirectoryへ「データ保存先」（実行ファイルが無いフォルダ）を渡す。
         var result = await pipeline.RunAsync(
-            asset, userDataDir, ws.Combine("work-buggy"), downloadProgress: null, CancellationToken.None);
+            asset, userDataDir, ws.Combine("work-buggy"), checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.InstallFailed);
         result.ErrorMessage.Should().Contain("Graft.exe");
@@ -136,7 +136,7 @@ public class UpdateInstallDirectoryRegressionTests
         installDirectory.Should().Be(exeDir);
 
         var result = await pipeline.RunAsync(
-            asset, installDirectory!, ws.Combine("work-fixed"), downloadProgress: null, CancellationToken.None);
+            asset, installDirectory!, ws.Combine("work-fixed"), checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.Success, result.ErrorMessage);
         foreach (var fileName in UpdateFiles.RequiredFileNames)

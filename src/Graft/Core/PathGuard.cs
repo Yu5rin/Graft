@@ -160,6 +160,78 @@ public sealed class PathGuard
     private static void ReportAnomaly(string message) => AnomalyLogger?.Invoke(message);
 
     /// <summary>
+    /// セキュリティ点検（v1.0.15）指摘対応: データ保存先（<see cref="Infra.AppPaths.BaseDirectory"/>。
+    /// settings.json・projects.json・back/（バックアップ・履歴の実体）・logs/等が置かれる場所）の
+    /// 絶対パス。設定されていれば、<see cref="Resolve"/>は「プロジェクトルート自身がデータ保存先と
+    /// 同じか、データ保存先を配下に含んでいる」場合に、そのプロジェクトへのあらゆる書き込みを
+    /// 拒否する（<see cref="ErrorCode.E215"/>）。
+    /// <para>
+    /// 【判定基準はプロジェクトルート単位であり、個々のファイルパスではない】 危険なのは
+    /// 「settings.json・projects.json（データ保存先の直下）が、あるプロジェクトの<see cref="Resolve"/>で
+    /// 到達可能かどうか」であり、これが成り立つのは<b>プロジェクトルートがデータ保存先と同じか、
+    /// その祖先（親・祖先フォルダ）である場合だけ</b>である。データ保存先の内側にプロジェクト
+    /// ルートを置くケース（例: ポータブル運用でexeフォルダの直下に作業用サブフォルダを作る）は
+    /// 逆に安全側であり誤って拒否してはならない——<see cref="Resolve"/>は結合後のパスが
+    /// プロジェクトルート自身の配下であることを別途要求する（<c>IsWithinRoot</c>・上位ディレクトリ
+    /// 参照<c>..</c>の禁止）ため、そのプロジェクトルートの兄弟であるsettings.json等へは
+    /// そもそも<c>..</c>無しに到達できない。実際にこの逆方向まで拒否する実装を一度入れたところ、
+    /// 「exeフォルダの直下にサンプルプロジェクトを作る」という既存の単体テスト
+    /// （<c>OnboardingProjectRegistrationTests</c>）が壊れることで発覚した（実測）。
+    /// </para>
+    /// <para>
+    /// 【なぜ登録時チェック（<see cref="Features.ProjectStore.RegisterAsync"/>）だけでは
+    /// 不十分か】 <c>.json</c>はProjectStoreの拡張子ホワイトリストに含まれる一般的な拡張子
+    /// （<see cref="Infra.Settings"/>のAllowedExtensions参照）であり、データ保存先（または
+    /// それを含むフォルダ）を誤って、あるいは悪意を持ってプロジェクト登録すると、
+    /// <c>projects.json</c>や<c>settings.json</c>自体をパッチの書き込み対象にできてしまう。
+    /// 前者は<c>postApplyHooks</c>を、後者は<c>update.checkUrl</c>を差し替える経路になり、
+    /// 次回の適用やフック実行・更新確認で任意コード実行につながりうる。登録時チェックだけだと
+    /// 「登録後にデータ保存先を設定画面からユーザーフォルダへ移動した」ケース（両者が事後的に
+    /// 重なる）を検知できないため、実際の書き込み経路であるここ（<see cref="PathGuard"/>）で
+    /// 経路によらず一貫して拒否する方式にした。
+    /// </para>
+    /// <para>
+    /// <see cref="AnomalyLogger"/>と同じ理由（附録A.3: DIコンテナを使わず、生成箇所が多い
+    /// <see cref="Graft.Core"/>層のクラスへ<see cref="Infra.AppPaths"/>を引き回さない）で、
+    /// staticなアンビエント設定として公開し、起動時に一度だけ配線する
+    /// （<c>Views/StartupCoordinator.cs</c>）。未設定（null）の間は従来どおり制限なし
+    /// （単体テストや配線前の一時的な状態でプロジェクトルート内の操作まで巻き込んで
+    /// 拒否してしまわないため）。
+    /// </para>
+    /// </summary>
+    public static string? ProtectedDataDirectory { get; set; }
+
+    /// <summary>
+    /// このガードの<c>_root</c>自身が<see cref="ProtectedDataDirectory"/>と同じか、
+    /// それを配下に含む（＝データ保存先の祖先である）かどうか。未設定（null・空）なら常にfalse。
+    /// trueなら、このプロジェクトルートに対するすべての<see cref="Resolve"/>を拒否する
+    /// （個々の相対パスによらない。クラスコメント参照）。
+    /// </summary>
+    private bool RootOverlapsProtectedDataDirectory()
+    {
+        var dataDirectory = ProtectedDataDirectory;
+        if (string.IsNullOrEmpty(dataDirectory)) return false;
+
+        string normalizedDataDirectory;
+        try
+        {
+            normalizedDataDirectory = NormalizeTrailingSeparator(Path.GetFullPath(dataDirectory));
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            // ProtectedDataDirectory自体が解決できない異常値なら、判定しようがないため
+            // 安全側（制限なし）ではなく「誤検知で全拒否」も避け、単に判定をスキップする。
+            // 通常はAppPaths.BaseDirectory（起動時に検証済み）を渡すため到達しない想定。
+            return false;
+        }
+
+        // IsWithin(candidate, root)は「candidateがrootと同じか配下か」を見る関数なので、
+        // 引数を逆に渡すと「データ保存先が_rootと同じか配下か」＝「_rootがデータ保存先の
+        // 祖先（または本人）か」の判定になる。
+        return IsWithin(normalizedDataDirectory, _root);
+    }
+
+    /// <summary>
     /// v1.0.7実機不具合対応: projectRootは呼び出し元（MainViewModel等）がprojects.jsonから
     /// 読み込んだProject.Rootをそのまま渡す経路が複数あり、ProjectStore側の防御
     /// （RegisterAsync/RelocateAsync/LoadAsync）を経由しないまま渡される可能性がある。
@@ -232,6 +304,15 @@ public sealed class PathGuard
 
     private GraftResult<string> Resolve(string relativePath, bool checkExtension)
     {
+        // セキュリティ点検（v1.0.15）指摘対応: プロジェクトルート自体がデータ保存先と同じか
+        // その祖先だった場合、settings.json・projects.json自体がこのプロジェクトの書き込み対象に
+        // なってしまう。個々の相対パスの中身によらずプロジェクト全体を拒否する
+        // （ProtectedDataDirectory・RootOverlapsProtectedDataDirectoryのコメント参照）。
+        if (RootOverlapsProtectedDataDirectory())
+        {
+            return GraftResult<string>.Fail(ErrorCode.E215, "プロジェクトルートがデータ保存先と重なっています", path: relativePath);
+        }
+
         if (string.IsNullOrWhiteSpace(relativePath))
         {
             return GraftResult<string>.Fail(ErrorCode.E201, "パスが空です", path: relativePath);
