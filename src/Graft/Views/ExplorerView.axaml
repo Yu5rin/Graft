@@ -272,10 +272,16 @@
                             <local:IconGlyph Data="{DynamicResource IconFileGeometry}"
                                              Classes="treeIcon" Classes.excluded="{Binding IsExcluded}"
                                              IsVisible="{Binding ShowPlainFileIcon}" />
+                            <!-- 項目5: 長い日本語ファイル名が省略記号なしで枠端で断ち切られ、
+                                 全体を確認する手段（ツールチップ）も無かった（実機Xvfbで確認済み）。
+                                 ツリー自体は横スクロールバーで追えるためTextTrimmingは主に見た目の
+                                 整えだが、ToolTipは横スクロールしなくても全体を確認できる手段として足す。 -->
                             <TextBlock Text="{Binding Name}" VerticalAlignment="Center"
                                        Classes="nodeName"
                                        Classes.excluded="{Binding IsExcluded}"
-                                       Classes.placeholder="{Binding IsPlaceholder}" />
+                                       Classes.placeholder="{Binding IsPlaceholder}"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Name}" />
                         </StackPanel>
                     </TreeDataTemplate>
                 </TreeView.ItemTemplate>
@@ -299,6 +305,24 @@
                                   Message="プロジェクトを選択してください"
                                   State="{Binding HasProject,
                                           Converter={x:Static local:Converters.HasNodesToEmptyState}}" />
+
+            <!-- 項目7個別: プロジェクトを選んでいてもツリー直下が0件だと、上のEmptyStateView
+                 （HasProjectだけを見る）はNoneのままで何も出ず、画面が完全な空白になっていた
+                 （実機Xvfbで確認済み）。「プロジェクトはある／ファイルが無い」を別状態として扱い、
+                 新規ファイルの導線も添える。 -->
+            <local:EmptyStateView AutomationProperties.Name="エクスプローラビュー（ファイルなし）"
+                                  IconGeometry="{DynamicResource IconFileGeometry}"
+                                  Message="このフォルダにファイルがありません"
+                                  ActionText="新規ファイル"
+                                  ActionCommand="{Binding NewFileCommand}"
+                                  ActionTooltip="このフォルダの直下に、空の新しいファイルを作成します。">
+                <local:EmptyStateView.State>
+                    <MultiBinding Converter="{x:Static local:Converters.HasProjectButNoNodesToEmptyState}">
+                        <Binding Path="HasProject" />
+                        <Binding Path="RootNodes.Count" />
+                    </MultiBinding>
+                </local:EmptyStateView.State>
+            </local:EmptyStateView>
         </Grid>
     </Grid>
 </UserControl>

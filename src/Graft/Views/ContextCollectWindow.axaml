@@ -123,18 +123,24 @@
                                                                  Classes.stateHidden="{Binding IsHidden}"
                                                                  Classes.stateMixed="{Binding IsMixed}" />
                                             </Button>
-                                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
+                                            <!-- 項目5: 長い日本語ファイル名が枠端で省略記号無しに断ち切られ、
+                                                 ツールチップも無かった（実機Xvfbで確認済み）。エクスプローラは
+                                                 横スクロールで追えるが、この一覧には横スクロールバーが無いため
+                                                 実害がより大きい。 -->
+                                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding DisplayName}" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
-                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
-                                        IsVisible="{Binding IsEmpty}">
-                                <local:IconGlyph Data="{DynamicResource IconFolderGeometry}"
-                                                 Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
-                                <TextBlock Text="対象ファイルがありません" Margin="0,8,0,0"
-                                           Foreground="{DynamicResource TextSecondary}" />
-                            </StackPanel>
+                            <!-- 項目7: 手書きのアイコン＋文言（Opacity 0.4）だった空状態を、他画面
+                                 （ProjectPane/ExplorerView/HistoryPane等）と同じ共通EmptyStateViewへ
+                                 寄せる（空状態の作り方が4系統に分かれている問題への対応）。 -->
+                            <local:EmptyStateView AutomationProperties.Name="ファイル一覧（0件）"
+                                                  IconGeometry="{DynamicResource IconFolderGeometry}"
+                                                  Message="対象ファイルがありません"
+                                                  State="{Binding IsEmpty, Converter={x:Static local:Converters.IsEmptyToEmptyState}}" />
                         </Grid>
                     </DockPanel>
 
@@ -146,7 +152,10 @@
                                    Foreground="{DynamicResource TextSecondary}"
                                    TextWrapping="Wrap" Margin="0,0,0,4" />
                         <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0" ColumnDefinitions="*,Auto">
+                            <!-- 項目8: このパターン入力欄だけWatermarkが無く、用途が書かれていない
+                                 空欄になっていた（実機Xvfbで確認済み）。HelpTipの例示と同じ文言にする。 -->
                             <TextBox Grid.Column="0" Text="{Binding NewExcludePattern}"
+                                     Watermark="例: *.log、node_modules/"
                                      AutomationProperties.Name="追加する除外パターン" TabIndex="3"
                                      local:HelpTip.Standard="AIへ渡す内容から除外したいファイル・フォルダのパターンを入力します（例: *.log、node_modules/）。"
                                      local:HelpTip.Detailed="ここに入力したパターンに一致するファイル・フォルダを、このプロジェクトでは常にファイル一覧・出力から除外できます（例: *.log で全てのログファイル、node_modules/ でそのフォルダ全体）。.gitignoreと似た書き方です。入力したら右の「追加」ボタンで確定します。" />
@@ -155,24 +164,34 @@
                                     local:HelpTip.Detailed="左のテキストボックスに入力したパターン（例: *.log や node_modules/）を、このプロジェクト専用の除外リストへ追加します。追加すると、左側のファイル一覧やAIへ渡す内容から、パターンに一致するファイルが除かれるようになります。AIに読ませたくない大きなファイルや秘密情報を含むファイルを外すのに使います。"
                                     AutomationProperties.Name="除外パターンを追加" TabIndex="4" />
                         </Grid>
-                        <ListBox ItemsSource="{Binding ExtraExcludes}"
-                                 AutomationProperties.Name="プロジェクト単位の除外パターン一覧" TabIndex="5"
-                                 local:HelpTip.Standard="このプロジェクトに登録済みの除外パターンの一覧です。各行の「削除」で取り除けます。"
-                                 local:HelpTip.Detailed="上で追加した除外パターンの一覧です。このプロジェクトを開いている間はずっと有効で、ファイル一覧・出力プレビューに反映されます。不要になったパターンは各行の「削除」ボタンで取り除けます。">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Grid.Column="0" Text="{Binding}" VerticalAlignment="Center" />
-                                        <Button Grid.Column="1" Content="削除"
-                                                Command="{Binding DataContext.RemoveExcludeCommand, ElementName=Root}"
-                                                CommandParameter="{Binding}"
-                                                local:HelpTip.Standard="この除外パターンをプロジェクトの除外リストから取り除きます。"
-                                                local:HelpTip.Detailed="この1件の除外パターンだけをリストから取り除きます。取り除くと、次にファイル一覧・収集結果を作り直したときに、これまでこのパターンで除かれていたファイルが再び対象に含まれるようになります。"
-                                                AutomationProperties.Name="{Binding}" />
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                        <!-- 項目7個別: 除外パターン0件のとき何も出ない「空箱」だった（4系統目、
+                             「何も出さない」パターン。実機Xvfbで確認済み）。他と同じEmptyStateViewを
+                             重ねる。ここは登録前が普通の状態（未使用でも問題ない画面）なので
+                             アクションボタンは付けない。 -->
+                        <Grid>
+                            <ListBox ItemsSource="{Binding ExtraExcludes}"
+                                     AutomationProperties.Name="プロジェクト単位の除外パターン一覧" TabIndex="5"
+                                     local:HelpTip.Standard="このプロジェクトに登録済みの除外パターンの一覧です。各行の「削除」で取り除けます。"
+                                     local:HelpTip.Detailed="上で追加した除外パターンの一覧です。このプロジェクトを開いている間はずっと有効で、ファイル一覧・出力プレビューに反映されます。不要になったパターンは各行の「削除」ボタンで取り除けます。">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Grid.Column="0" Text="{Binding}" VerticalAlignment="Center" />
+                                            <Button Grid.Column="1" Content="削除"
+                                                    Command="{Binding DataContext.RemoveExcludeCommand, ElementName=Root}"
+                                                    CommandParameter="{Binding}"
+                                                    local:HelpTip.Standard="この除外パターンをプロジェクトの除外リストから取り除きます。"
+                                                    local:HelpTip.Detailed="この1件の除外パターンだけをリストから取り除きます。取り除くと、次にファイル一覧・収集結果を作り直したときに、これまでこのパターンで除かれていたファイルが再び対象に含まれるようになります。"
+                                                    AutomationProperties.Name="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <local:EmptyStateView AutomationProperties.Name="除外パターン一覧（0件）"
+                                                  IconGeometry="{DynamicResource IconAlertTriangleGeometry}"
+                                                  Message="除外パターンは登録されていません"
+                                                  State="{Binding ExtraExcludes, Converter={x:Static local:Converters.CollectionToEmptyState}}" />
+                        </Grid>
                     </DockPanel>
                 </Grid>
             </TabItem>
@@ -206,14 +225,12 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
-                                IsVisible="{Binding PreviewLines,
-                                            Converter={x:Static local:Converters.IsEmptyCollection}}">
-                        <local:IconGlyph Data="{DynamicResource IconEyeGeometry}"
-                                         Width="32" Height="32" Opacity="0.4" HorizontalAlignment="Center" />
-                        <TextBlock Text="「プレビュー」または「コピー」を押すと出力内容を表示します"
-                                   Margin="0,8,0,0" Foreground="{DynamicResource TextSecondary}" />
-                    </StackPanel>
+                    <!-- 項目7: こちらも手書きのアイコン＋文言（Opacity 0.4）だった空状態を
+                         共通EmptyStateViewへ寄せる。 -->
+                    <local:EmptyStateView AutomationProperties.Name="出力プレビュー（未生成）"
+                                          IconGeometry="{DynamicResource IconEyeGeometry}"
+                                          Message="「プレビュー」または「コピー」を押すと出力内容を表示します"
+                                          State="{Binding PreviewLines, Converter={x:Static local:Converters.CollectionToEmptyState}}" />
                 </Grid>
             </TabItem>
         </TabControl>

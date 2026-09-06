@@ -77,6 +77,48 @@ public static class Converters
         new FuncValueConverter<int, bool>(count => count == 0);
 
     /// <summary>
+    /// UI点検（項目7）: コレクションが0件かどうかで空状態にする。<see cref="IsEmptyCollection"/>と
+    /// 同じ判定をEmptyStateMode向けに返す版。「対象ファイルがありません」「出力プレビューが
+    /// まだ無い」「除外パターンが無い」など、専用の状態列挙を持たない一覧向けに、共通の
+    /// EmptyStateViewへ寄せるために追加した（元は各画面が手書きのアイコン＋文言、または
+    /// 何も出さないの3系統に分かれていた）。
+    /// </summary>
+    public static readonly IValueConverter CollectionToEmptyState =
+        new FuncValueConverter<ICollection?, EmptyStateMode>(
+            value => value is null or { Count: 0 } ? EmptyStateMode.Empty : EmptyStateMode.None);
+
+    /// <summary>
+    /// UI点検（項目7）: SearchView専用。検索結果ツリー（Groups）が0件のとき、
+    /// 「まだ一度も検索していない（案内文を出す）」のか「検索した結果0件だった（一致なしを
+    /// 出す）」のかを、Groups.Count・StatusText・IsSearchingの3値から判定する。
+    /// 従来は検索前の結果領域が完全な空白で、検索窓を開いても何をする画面か分からなかった
+    /// （実機Xvfbで確認済み）。SearchViewModel側に専用の状態プロパティを増やさず、
+    /// 既存の3プロパティ（うちGroups.CountはObservableCollectionが自動でPropertyChanged
+    /// "Count"を発火する）だけで再評価できるようにするためMultiBindingにしている。
+    /// </summary>
+    public static readonly IMultiValueConverter SearchNotStartedToEmptyState =
+        new FuncMultiValueConverter<object?, EmptyStateMode>(values =>
+        {
+            var list = values.ToList();
+            var count = list.Count > 0 && list[0] is int c ? c : -1;
+            var statusText = list.Count > 1 ? list[1] as string : null;
+            return count == 0 && string.IsNullOrEmpty(statusText) ? EmptyStateMode.Empty : EmptyStateMode.None;
+        });
+
+    /// <summary><see cref="SearchNotStartedToEmptyState"/>と対になる「検索済みだが0件」判定。</summary>
+    public static readonly IMultiValueConverter SearchNoResultsToEmptyState =
+        new FuncMultiValueConverter<object?, EmptyStateMode>(values =>
+        {
+            var list = values.ToList();
+            var count = list.Count > 0 && list[0] is int c ? c : -1;
+            var statusText = list.Count > 1 ? list[1] as string : null;
+            var isSearching = list.Count > 2 && list[2] is bool s && s;
+            return count == 0 && !isSearching && !string.IsNullOrEmpty(statusText)
+                ? EmptyStateMode.Empty
+                : EmptyStateMode.None;
+        });
+
+    /// <summary>
     /// <see cref="GraftIssue"/>を「コード＋内容（対処: 対処方法）」の1行表示へ変換する（8.8章）。
     /// </summary>
     public static readonly IValueConverter IssueToText =
@@ -190,10 +232,37 @@ public static class Converters
         new FuncValueConverter<bool, EmptyStateMode>(
             hasNodes => hasNodes ? EmptyStateMode.None : EmptyStateMode.Empty);
 
+    /// <summary>
+    /// UI点検（項目7）: 「プロジェクトはあるが直下にファイルが1件も無い」状態だけを空状態にする。
+    /// 従来は<see cref="HasNodesToEmptyState"/>がHasProjectだけを見ていたため、プロジェクトを
+    /// 選んでいるのにツリーが空（新規プロジェクトや除外設定で全滅した等）だと、案内も
+    /// 「新規ファイル」導線も一切出ず画面が完全な空白になっていた（実機Xvfbで確認済み）。
+    /// これは<see cref="HasNodesToEmptyState"/>とは別のEmptyStateViewに割り当て、
+    /// 「プロジェクト未選択」と「プロジェクトはあるがファイル0件」を別メッセージで案内する。
+    /// </summary>
+    public static readonly IMultiValueConverter HasProjectButNoNodesToEmptyState =
+        new FuncMultiValueConverter<object?, EmptyStateMode>(values =>
+        {
+            var list = values.ToList();
+            var hasProject = list.Count > 0 && list[0] is bool hp && hp;
+            var nodeCount = list.Count > 1 && list[1] is int count ? count : -1;
+            return hasProject && nodeCount == 0 ? EmptyStateMode.Empty : EmptyStateMode.None;
+        });
+
     /// <summary>キューが空なら空状態、そうでなければ通常表示にする。</summary>
     public static readonly IValueConverter IsEmptyToEmptyState =
         new FuncValueConverter<bool, EmptyStateMode>(
             isEmpty => isEmpty ? EmptyStateMode.Empty : EmptyStateMode.None);
+
+    /// <summary>
+    /// UI点検（項目6・7）: 件数（ObservableCollection.Count）が0件かどうかだけで空状態にする。
+    /// 専用のIsEmptyプロパティをViewModelへ増やすほどでもない一覧（適用後フック等）向け。
+    /// ObservableCollection&lt;T&gt;はAdd/Remove/Clearのたびに"Count"のPropertyChangedを
+    /// 発火するため、{Binding XxxList.Count}で直接束縛しても表示は追従する。
+    /// </summary>
+    public static readonly IValueConverter CountToEmptyState =
+        new FuncValueConverter<int, EmptyStateMode>(
+            count => count == 0 ? EmptyStateMode.Empty : EmptyStateMode.None);
 
     /// <summary>
     /// 現在のサイドビュー種別が<c>ConverterParameter</c>で指定した種別と一致するかを返す。

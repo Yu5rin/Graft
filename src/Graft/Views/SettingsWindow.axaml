@@ -102,39 +102,58 @@
             <TabItem Header="適用後フック" AutomationProperties.Name="適用後フック設定タブ"
                      local:HelpTip.Standard="パッチの適用が成功した直後に、リンターなどのコマンドを自動実行する設定です。"
                      local:HelpTip.Detailed="適用が成功するたびに自動実行したいコマンド（リンター・フォーマッタなど）を、プロジェクトごとに登録します。コマンドは実際にファイルを書き換えられるため、内容をよく確認してから登録してください。">
-                <settings:HookSettingsView />
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <settings:HookSettingsView />
+                </ScrollViewer>
             </TabItem>
 
             <TabItem Header="トークン統計" AutomationProperties.Name="トークン統計タブ"
                      local:HelpTip.Standard="これまでAIとのやり取りで使ったおおよそのトークン数を、期間ごとに確認できます。"
                      local:HelpTip.Detailed="コンテキスト収集やパッチ適用でやり取りした内容から見積もった、AIのトークン消費量の推移を確認できます。実際にAIへ送って数えた値ではなく、文字数からの概算です（見積もり方法は「表示・コンテキスト」タブの「トークン概算比率」）。AIの利用量を把握したいときの目安として使ってください。">
-                <Grid DataContext="{Binding TokenStats}" Margin="16,8" RowDefinitions="2,Auto,Auto,*,Auto">
+                <!--
+                    項目1: 元は「プロジェクト」ラベル→ComboBox→「集計単位」ラベルの並びをStackPanel
+                    (Orientation="Horizontal")で並べていたため、既定サイズ880x680・fieldLabelの
+                    MinWidth=280（Themes/Settings.axaml）と相まって右端に達し、「集計単位」の
+                    ComboBoxと「更新」ボタンが画面外に出て操作できなかった（1340pxまで広げると
+                    現れることを実機Xvfbで確認済み）。HookSettingsView.axaml:19に倣いWrapPanelにして
+                    幅が足りないときは2段目へ折り返す形にする。ラベルとComboBoxは
+                    ペアで1つのStackPanelにまとめ、折り返してもラベルとComboBoxが離ればなれに
+                    ならないようにする。あわせてタブ全体をScrollViewerで包み、折り返しで縦に
+                    伸びても・狭いMinHeightでも「更新」ボタンまで確実に辿り着けるようにする
+                    （他の設定タブは包んであるのに、この2つだけ包んでいなかった）。
+                -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <Grid DataContext="{Binding TokenStats}" Margin="16,8" RowDefinitions="2,Auto,Auto,Auto,Auto">
 
                     <ProgressBar Grid.Row="0" Height="2" IsIndeterminate="True"
                                  Background="Transparent" BorderThickness="0"
                                  Foreground="{DynamicResource Accent}"
                                  IsVisible="{Binding IsBusy}" />
 
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,8">
-                        <TextBlock Text="プロジェクト" Classes="fieldLabel" />
-                        <ComboBox ItemsSource="{Binding Projects}"
-                                  ItemTemplate="{StaticResource NameItemTemplate}"
-                                  SelectedItem="{Binding SelectedProject}"
-                                  AutomationProperties.Name="集計対象プロジェクト"
-                                  local:HelpTip.Standard="集計するプロジェクトを選びます。"
-                                  local:HelpTip.Detailed="下の表・合計に表示する集計対象のプロジェクトを選びます。プロジェクトごとに履歴（リビジョン）が別々に記録されているため、複数プロジェクトの合計は表示されません。" />
-                        <TextBlock Text="集計単位" Classes="fieldLabel" Margin="24,0,0,0" />
-                        <ComboBox ItemsSource="{Binding Granularities}"
-                                  ItemTemplate="{StaticResource LabelItemTemplate}"
-                                  SelectedValueBinding="{Binding Value}" SelectedValue="{Binding Granularity}"
-                                  AutomationProperties.Name="集計単位"
-                                  local:HelpTip.Standard="下の表を日ごと・週ごと・月ごとのどれで区切って表示するかです。"
-                                  local:HelpTip.Detailed="下の表の「期間」列を、日単位・週単位・月単位のどの粒度でまとめるかを選びます。選び直すと表がその場で更新されます。" />
-                        <Button Content="更新" Command="{Binding RefreshCommand}" Margin="24,0,0,0"
+                    <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,8">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,24,4">
+                            <TextBlock Text="プロジェクト" Classes="fieldLabel" />
+                            <ComboBox ItemsSource="{Binding Projects}"
+                                      ItemTemplate="{StaticResource NameItemTemplate}"
+                                      SelectedItem="{Binding SelectedProject}"
+                                      AutomationProperties.Name="集計対象プロジェクト"
+                                      local:HelpTip.Standard="集計するプロジェクトを選びます。"
+                                      local:HelpTip.Detailed="下の表・合計に表示する集計対象のプロジェクトを選びます。プロジェクトごとに履歴（リビジョン）が別々に記録されているため、複数プロジェクトの合計は表示されません。" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,24,4">
+                            <TextBlock Text="集計単位" Classes="fieldLabel" />
+                            <ComboBox ItemsSource="{Binding Granularities}"
+                                      ItemTemplate="{StaticResource LabelItemTemplate}"
+                                      SelectedValueBinding="{Binding Value}" SelectedValue="{Binding Granularity}"
+                                      AutomationProperties.Name="集計単位"
+                                      local:HelpTip.Standard="下の表を日ごと・週ごと・月ごとのどれで区切って表示するかです。"
+                                      local:HelpTip.Detailed="下の表の「期間」列を、日単位・週単位・月単位のどの粒度でまとめるかを選びます。選び直すと表がその場で更新されます。" />
+                        </StackPanel>
+                        <Button Content="更新" Command="{Binding RefreshCommand}" Margin="0,0,0,4"
                                 AutomationProperties.Name="トークン統計を更新"
                                 local:HelpTip.Standard="履歴から最新の集計を読み直します。"
                                 local:HelpTip.Detailed="このプロジェクトの履歴（リビジョン）を読み直し、下の表と合計を最新の内容に更新します。この画面を開いたあとに別の操作でパッチを適用した場合など、表示が古いと感じたら押してください。" />
-                    </StackPanel>
+                    </WrapPanel>
 
                     <!-- 表の見出し行。桁幅は各行のテンプレートと合わせる。 -->
                     <Border Grid.Row="2" BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
@@ -148,7 +167,14 @@
                         </StackPanel>
                     </Border>
 
-                    <Grid Grid.Row="3">
+                    <!--
+                        項目1の付随修正: このタブ自体をScrollViewerで包んだため、下のリストは
+                        RowDefinitionsの"*"（残り全部）ではなく、必要な高さぶんだけを要求する
+                        "Auto"扱いになる（ScrollViewer配下では星指定は高さ無限大の中で評価され、
+                        実質Autoと同じに振る舞う）。空状態のアイコン＋文言が窮屈にならないよう
+                        MinHeightで最低限の高さを確保する。
+                    -->
+                    <Grid Grid.Row="3" MinHeight="160">
                         <ListBox ItemsSource="{Binding Buckets}" AutomationProperties.Name="期間別トークン統計"
                                  Background="{DynamicResource BgSurface}" BorderThickness="0"
                                  IsVisible="{Binding !IsEmpty}"
@@ -187,6 +213,7 @@
                         <TextBlock Text="{Binding TotalRevisions, StringFormat=リビジョン数 合計: {0}}" />
                     </StackPanel>
                 </Grid>
+                </ScrollViewer>
             </TabItem>
 
             <TabItem Header="JSON編集" AutomationProperties.Name="設定JSON直接編集タブ"
