@@ -274,9 +274,13 @@ public sealed class SearchOverlayViewModel : ObservableObject
         {
             return _useRegex ? match.Result(_replaceText) : _replaceText;
         }
-        catch (ArgumentException ex)
+        catch (ArgumentException)
         {
-            _patternError = $"置換文字列が不正です: {ex.Message}";
+            // 実機不具合対応（表示文言）: CrossFileSearch.SearchPatternBuilder.TryBuild と同型の
+            // 問題。ex.Message は英語で長く、表示先で見切れて役に立たない。置換文字列で
+            // ArgumentException になるのは $1・${name} といった置換参照の書き方が不正な場合
+            // （存在しないグループ番号を指した等）なので、そこへ的を絞って案内する。
+            _patternError = "置換文字列が不正です。$1 や ${名前} のようなグループ参照の書き方と、検索側の（）の数を確認してください。";
             return null;
         }
     }

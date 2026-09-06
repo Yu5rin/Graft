@@ -67,7 +67,13 @@ public sealed class HttpUpdateDownloader : IUpdateDownloader
         catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException)
         {
             TryDeletePartialFile(destinationPath);
-            return new UpdateDownloadOutcome(UpdateDownloadStatus.Failed, ex.Message);
+            // 点検での指摘: 以前は ex.Message をそのまま返しており、通信断のときに
+            // .NETの英語の内部メッセージがそのままダイアログ（「更新に失敗しました」）へ
+            // 出る経路になっていた。ExceptionMessages.Describeを通し、まず日本語で
+            // 「何が起きたか・次に何をすればよいか」を述べる形にする（原文は診断用に
+            // 「（詳細: ...）」として後ろへ残す。ここには原因を記録できるロガーが無く、
+            // 原文まで捨てると通信・書き込みのどちらで失敗したのかを追えなくなるため）。
+            return new UpdateDownloadOutcome(UpdateDownloadStatus.Failed, ExceptionMessages.Describe(ex));
         }
     }
 

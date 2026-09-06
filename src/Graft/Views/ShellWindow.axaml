@@ -268,8 +268,8 @@
                                     Command="{Binding StartTutorialCommand}"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                     Background="Transparent" BorderThickness="0"
-                                    views:HelpTip.Standard="サンプルを使って、実際の画面上で接ぎ木の一連の流れ（解析→差分確認→適用→履歴→復元）を体験します。"
-                                    views:HelpTip.Detailed="実際のGraftの画面上でコントロールを指しながら、解析→差分確認→適用→履歴確認→復元までの一連の流れを1つずつ体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断できます。"
+                                    views:HelpTip.Standard="サンプルを使って、実際の画面上で接ぎ木の一連の流れ（解析→差分確認→適用→履歴→取り消し）を体験します。"
+                                    views:HelpTip.Detailed="実際のGraftの画面上でコントロールを指しながら、解析→差分確認→適用→履歴確認→取り消しまでの一連の流れを1つずつ体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断できます。"
                                     AutomationProperties.Name="使い方を学ぶ（画面上のチュートリアルを開始）" />
                         </StackPanel>
                     </Border>
