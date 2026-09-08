@@ -121,7 +121,14 @@ public sealed class AppPaths
     public string GetRevisionDirectory(string projectId, string revisionFolderName)
         => Path.Combine(GetProjectBackupDirectory(projectId), revisionFolderName);
 
-    /// <summary>指定リビジョンの manifest.json の絶対パス。</summary>
+    /// <summary>
+    /// 指定リビジョンの manifest.json の絶対パス（リビジョンフォルダ直下）。
+    /// 退避したプロジェクトファイル自体はここには置かず、
+    /// <see cref="Graft.Core.BackupPathUtil.FilesSubfolderName"/>配下（<c>files/</c>サブフォルダ）
+    /// へ物理的に分離している。以前は分離しておらず、プロジェクト直下に<c>manifest.json</c>という
+    /// 名前のファイルがあると退避先とここが同一パスになり互いを上書きし合う実機不具合があった
+    /// （経緯は<see cref="Graft.Core.BackupPathUtil.FilesSubfolderName"/>のコメント参照）。
+    /// </summary>
     public string GetManifestFilePath(string projectId, string revisionFolderName)
         => Path.Combine(GetRevisionDirectory(projectId, revisionFolderName), "manifest.json");
 

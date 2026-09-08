@@ -56,7 +56,10 @@ public sealed class BackupSession
             return GraftResult<bool>.Ok(false);
         }
 
-        var destFull = Path.Combine(FolderPath, normalized.Value);
+        // 新規に作成するバックアップは必ずfiles/サブフォルダ配下へ書く（BackupPathUtil.
+        // FilesSubfolderNameのコメント参照）。リビジョンフォルダ直下にはメタデータ
+        // （manifest.json）だけを置き、退避したプロジェクトファイルとは物理的に分離する。
+        var destFull = BackupPathUtil.GetBackupFilePathForWrite(FolderPath, normalized.Value);
         var destDir = Path.GetDirectoryName(destFull);
         if (!string.IsNullOrEmpty(destDir))
         {
@@ -167,25 +170,17 @@ public sealed class BackupSession
 
     private async Task<GraftResult<bool>> RestoreOneAsync(string relativePath, CancellationToken ct)
     {
-        var backupFull = Path.Combine(FolderPath, relativePath);
-        var backupIo = LongPath.Extended(backupFull);
-        if (!File.Exists(backupIo))
+        // relativePathは_storedPaths由来で既に正規化済み（StoreAsync参照）。読み取りは
+        // 新旧レイアウトの解決・存在確認・旧レイアウト特有の破損検出（E216）まで含めて
+        // BackupPathUtil.ReadBackupFileAsyncへ委譲する（RevisionRestorerの復元系と共通）。
+        var readResult = await BackupPathUtil.ReadBackupFileAsync(FolderPath, relativePath, ct).ConfigureAwait(false);
+        if (!readResult.IsSuccess)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E405, "退避ファイルが見つかりません", path: relativePath);
-        }
-
-        byte[] bytes;
-        try
-        {
-            bytes = await File.ReadAllBytesAsync(backupIo, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return GraftResult<bool>.Fail(ErrorCode.E402, $"退避ファイルの読み取りに失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath);
+            return GraftResult<bool>.Fail(readResult.Issues);
         }
 
         var targetFull = Path.GetFullPath(Path.Combine(_projectRoot, relativePath));
-        return await SafeFileWriter.ReplaceAsync(targetFull, bytes, ct).ConfigureAwait(false);
+        return await SafeFileWriter.ReplaceAsync(targetFull, readResult.Value, ct).ConfigureAwait(false);
     }
 
     private void DeleteCreatedFile(string relativePath, List<GraftIssue> issues)

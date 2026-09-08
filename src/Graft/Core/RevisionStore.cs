@@ -360,7 +360,14 @@ public sealed partial class RevisionStore
             var normalized = BackupPathUtil.NormalizeRelativePath(backupRelative);
             if (!normalized.IsSuccess) continue;
 
-            var backupFull = Path.Combine(folder, normalized.Value);
+            // 新レイアウト（files/配下）を優先し、無ければ旧レイアウト（直下）を見る
+            // （BackupPathUtil.ResolveBackupFilePathForRead参照）。ここでは存在確認のみを
+            // 行い、旧レイアウトの内容がメタデータで上書きされて壊れているか（E216相当）は
+            // 判定しない。実体としてはファイルが存在する以上IsRestorable=trueのままとし、
+            // 実際に壊れているかどうかは復元を試みた時点（BackupPathUtil.ReadBackupFileAsync）
+            // で個別のファイル単位の失敗として検出する（このリビジョン全体を復元不可扱いに
+            // してしまうと、他の正しく退避できているファイルまで復元できなくなるため）。
+            var backupFull = BackupPathUtil.ResolveBackupFilePathForRead(folder, normalized.Value);
             if (!File.Exists(LongPath.Extended(backupFull)))
             {
                 return false;

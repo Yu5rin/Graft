@@ -136,8 +136,10 @@ public class ApplyEngineTests
 
         apply.IsSuccess.Should().BeTrue("部分適用モードでは成功ブロックのみ適用され全体は成功するはず");
         var revisionDir = harness.Paths.GetRevisionDirectory(harness.ProjectId, apply.Value.Revision, apply.Value.AppliedAt);
-        File.Exists(Path.Combine(revisionDir, "ok.txt")).Should().BeTrue("適用対象のファイルはバックアップされるはず");
-        File.Exists(Path.Combine(revisionDir, "bad.txt")).Should().BeTrue(
+        // v1.0.16で退避ファイルの置き場所をリビジョンフォルダ直下からfiles/サブフォルダへ
+        // 分離した（BackupPathUtil.FilesSubfolderName参照）。
+        File.Exists(Path.Combine(revisionDir, "files", "ok.txt")).Should().BeTrue("適用対象のファイルはバックアップされるはず");
+        File.Exists(Path.Combine(revisionDir, "files", "bad.txt")).Should().BeTrue(
             "失敗したブロックの対象ファイルも部分適用モードでは全件バックアップの対象になるはず（仕様書6.1）");
     }
 

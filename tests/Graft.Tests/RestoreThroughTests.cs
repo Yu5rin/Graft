@@ -312,7 +312,11 @@ public class RestoreThroughTests
         // 実際に想定される「フォルダはあるのに個別の書き戻しだけ失敗する」ケースの代わりに使う
         // 決定的な再現手段（chmodは本テスト実行環境がrootで無効化されるため使えない）。
         var r2Summary = await harness.Revisions.ReadAsync(harness.ProjectId, 2);
-        File.Delete(Path.Combine(r2Summary.Value.FolderPath, "w.txt"));
+        // v1.0.16でリビジョンフォルダ直下からfiles/サブフォルダへ退避先を分離した
+        // （BackupPathUtil.FilesSubfolderName参照。プロジェクト直下のmanifest.jsonと
+        // メタデータのmanifest.jsonが同一パスになる不具合の修正）ため、新レイアウトの
+        // 退避先を直接指定して破損させる。
+        File.Delete(Path.Combine(r2Summary.Value.FolderPath, "files", "w.txt"));
 
         var list = await harness.Revisions.ListAsync(harness.ProjectId);
         var preview = RevisionRestorer.BuildRestoreThroughPreview(list.Value, targetRevision: 1);
