@@ -91,8 +91,11 @@ public class BackupRevisionTests
         var stored = await began.Value.StoreAsync("src/sub/file.txt");
         stored.IsSuccess.Should().BeTrue();
         stored.Value.Should().BeTrue();
-        var backedUpPath = Path.Combine(began.Value.FolderPath, "src", "sub", "file.txt");
-        File.Exists(backedUpPath).Should().BeTrue("相対パス構造を保ったまま退避されているはず");
+        // v1.0.16で退避ファイルの置き場所をリビジョンフォルダ直下からfiles/サブフォルダへ
+        // 分離した（BackupPathUtil.FilesSubfolderName参照。プロジェクト直下のmanifest.jsonが
+        // メタデータのmanifest.jsonと同一パスになり互いを上書きする不具合の修正）。
+        var backedUpPath = Path.Combine(began.Value.FolderPath, "files", "src", "sub", "file.txt");
+        File.Exists(backedUpPath).Should().BeTrue("相対パス構造を保ったまま退避されているはず（files/サブフォルダ配下）");
         File.ReadAllText(backedUpPath).Should().Be("退避対象の内容");
     }
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Graft.Infra;
 
@@ -113,6 +114,160 @@ internal static class BackupPathUtil
             }
         }
         return total;
+    }
+
+    /// <summary>
+    /// 退避したプロジェクトファイルを格納するサブフォルダ名（新レイアウト、v1.0.16〜）。
+    ///
+    /// 【実機不具合の原因と、なぜサブフォルダへ分離するか】 以前はこのサブフォルダを設けず、
+    /// 退避ファイルもリビジョンフォルダ直下（<see cref="AppPaths.GetRevisionDirectory(string,string)"/>
+    /// が返す場所そのもの）へ相対パス構造を保ったまま平置きしていた。ところが
+    /// リビジョンのメタデータ（<see cref="AppPaths.GetManifestFilePath"/>）も同じフォルダの
+    /// 直下に <c>manifest.json</c> という名前で置かれるため、プロジェクト自身の直下に
+    /// <c>manifest.json</c> というファイルがある場合（Chrome/Edge拡張の開発が典型例）、
+    /// 退避先のパスがメタデータのパスと完全に一致してしまう。実機では次の順で互いを
+    /// 上書きし合うことを実測で確認した: (1) <see cref="BackupManager.BeginAsync"/> が
+    /// <c>status: "in_progress"</c> のメタデータを書く → (2) <see cref="BackupSession.StoreAsync"/>
+    /// がプロジェクトの manifest.json を同じパスへコピーし(1)を潰す → (3) 適用確定時に
+    /// 最終メタデータが同じパスへ書かれ(2)の退避コピーを潰す → (4) 取り消し時に
+    /// <see cref="BackupSession.RestoreOneAsync"/> がこの壊れた「実体はメタデータ」の
+    /// ファイルを読んでプロジェクトへ書き戻し、利用者のmanifest.jsonをGraftの内部データで
+    /// 上書きしてしまう。壊れるのは名前が一致する manifest.json だけで、他のファイルは
+    /// 正しく退避・復元できていた（衝突条件が「ファイル名が一致すること」そのものだった
+    /// ため）。
+    ///
+    /// この種の衝突は「manifest.json」という名前に固有の問題ではなく、
+    /// 「リビジョンフォルダ直下にメタデータ以外の何かを置く」構造そのものに起因するため、
+    /// ファイル名で個別に回避するのではなく、退避ファイル一式をこのサブフォルダへ
+    /// 物理的に分離した。名前は利用者のプロジェクトに実在しうる相対パスの「先頭の1段」に
+    /// 一致してもかまわない（例えばプロジェクト自身に <c>files/</c> フォルダがあっても
+    /// <c>files/files/…</c> という形で入れ子になるだけで、メタデータの置き場所
+    /// （リビジョンフォルダ直下）とは階層が1段ずれるため構造的に衝突しない）。
+    /// </summary>
+    public const string FilesSubfolderName = "files";
+
+    /// <summary>
+    /// 退避ファイルの新規書き込み先の絶対パスを返す（<paramref name="revisionFolder"/>/files/
+    /// <paramref name="normalizedRelativePath"/>）。新規に作成するバックアップは常にこちらへ書く。
+    /// </summary>
+    public static string GetBackupFilePathForWrite(string revisionFolder, string normalizedRelativePath)
+        => Path.Combine(revisionFolder, FilesSubfolderName, normalizedRelativePath);
+
+    /// <summary>
+    /// 退避ファイルの読み取り先を解決する。新レイアウト（<see cref="FilesSubfolderName"/>配下）を
+    /// 優先し、そちらに実体が無ければ旧レイアウト（リビジョンフォルダ直下のフラット配置）へ
+    /// 後退する。
+    ///
+    /// 【なぜレイアウト移行スクリプトを書かず、読み取り側の後退で対応するか】 利用者の環境には
+    /// 既にレイアウト変更前の（フラット配置の）バックアップが大量に存在する。これらを新レイアウトへ
+    /// 一括で移し替えるスクリプトを書いて実行することも考えられるが、移行処理自体が失敗した場合
+    /// （ディスク容量不足・権限不足・処理中のクラッシュ等）に既存の全バックアップを巻き添えで
+    /// 壊しかねず、被害が今回の不具合よりはるかに大きくなる。読み取り側が新旧どちらの配置にも
+    /// 対応する形にしておけば、ファイルは一切移動させずに済み、この種の被害が原理的に発生しない。
+    /// </summary>
+    public static string ResolveBackupFilePathForRead(string revisionFolder, string normalizedRelativePath)
+    {
+        var newPath = GetBackupFilePathForWrite(revisionFolder, normalizedRelativePath);
+        return File.Exists(LongPath.Extended(newPath))
+            ? newPath
+            : Path.Combine(revisionFolder, normalizedRelativePath);
+    }
+
+    /// <summary>
+    /// 退避ファイルを読み取る。新旧レイアウトの解決（<see cref="ResolveBackupFilePathForRead"/>）・
+    /// 存在確認（E405）・読み取り失敗（E402）に加え、旧レイアウト特有の「退避コピーが
+    /// メタデータ確定処理に上書きされて壊れている」ケース（E216）もここで検出する。
+    /// <see cref="BackupSession.RestoreOneAsync"/>・<see cref="RevisionRestorer"/>の
+    /// 復元系メソッドが共通で使う、退避ファイル読み取りの単一の入口。
+    /// </summary>
+    public static async Task<GraftResult<byte[]>> ReadBackupFileAsync(
+        string revisionFolder, string normalizedRelativePath, CancellationToken ct)
+    {
+        var newPath = GetBackupFilePathForWrite(revisionFolder, normalizedRelativePath);
+        var isNewLayout = File.Exists(LongPath.Extended(newPath));
+        var resolvedPath = isNewLayout ? newPath : Path.Combine(revisionFolder, normalizedRelativePath);
+        var resolvedIo = LongPath.Extended(resolvedPath);
+
+        if (!File.Exists(resolvedIo))
+        {
+            return GraftResult<byte[]>.Fail(ErrorCode.E405, "退避ファイルが見つかりません", path: normalizedRelativePath);
+        }
+
+        byte[] bytes;
+        try
+        {
+            bytes = await File.ReadAllBytesAsync(resolvedIo, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return GraftResult<byte[]>.Fail(
+                ErrorCode.E402, $"退避ファイルの読み取りに失敗しました: {ExceptionMessages.Describe(ex)}", path: normalizedRelativePath);
+        }
+
+        if (!isNewLayout && LooksOverwrittenByManifestMetadata(normalizedRelativePath, bytes))
+        {
+            return GraftResult<byte[]>.Fail(
+                ErrorCode.E216,
+                "旧レイアウト（v1.0.15以前）のバックアップで、このファイルの退避コピーが" +
+                "Graftのリビジョン確定処理によって上書きされており、元の内容は失われています。" +
+                "書き込むとファイルを壊すため復元を行いませんでした。Gitなど、Graft以外の" +
+                "バックアップ手段からこのファイルを復元してください。",
+                path: normalizedRelativePath);
+        }
+
+        return GraftResult<byte[]>.Ok(bytes);
+    }
+
+    /// <summary>
+    /// 旧レイアウトの退避ファイルが、実際にはリビジョンのメタデータ（manifest.json確定処理）に
+    /// 上書きされてしまっている（＝退避コピーとして壊れている）ことを検出する。
+    ///
+    /// 判定は2段構えにしている。
+    /// (1) 相対パスが（サブフォルダを含まず）ちょうど<c>manifest.json</c>であること。
+    ///     <see cref="FilesSubfolderName"/>のコメントに記載の衝突条件そのもの
+    ///     （<see cref="AppPaths.GetManifestFilePath"/>と同じファイル名がリビジョンフォルダ
+    ///     直下に来る唯一のケース）であり、<c>sub/manifest.json</c>のようにサブフォルダ配下は
+    ///     この構造的な衝突を起こさないため対象外にする。
+    /// (2) 読み込んだ内容がJSONオブジェクトとして解析でき、かつ<see cref="RevisionManifest"/>の
+    ///     主要キー（revision/projectId/appliedAt/patchHash/entriesのいずれか。DefaultOptionsの
+    ///     camelCase命名規則に合わせた表記）を1つでも持つこと。
+    ///     (1)だけで判定を打ち切らない理由: 退避コピーの書き込み（StoreAsync）自体は成功したが、
+    ///     その後の確定書き込み（メタデータでの上書き）がクラッシュ等で走らないまま終わった場合、
+    ///     旧レイアウトかつパスがmanifest.jsonであっても、退避コピーの中身は実際には
+    ///     利用者のmanifest.jsonのままで壊れていない（正しく復元できる）。(1)だけで拒否すると、
+    ///     この正当なケースまで復元不能扱いにしてしまう。Chrome拡張のmanifest.json等が
+    ///     たまたま revision/projectId のようなキーを持つ可能性は極めて低いため、
+    ///     誤検出のリスクより見逃しのリスク（内部データを利用者のファイルへ書き込んでしまう）を
+    ///     避けることを優先する。
+    /// </summary>
+    public static bool LooksOverwrittenByManifestMetadata(string normalizedRelativePath, byte[] content)
+    {
+        if (!string.Equals(normalizedRelativePath, "manifest.json", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(content);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            return doc.RootElement.TryGetProperty("revision", out _)
+                || doc.RootElement.TryGetProperty("projectId", out _)
+                || doc.RootElement.TryGetProperty("appliedAt", out _)
+                || doc.RootElement.TryGetProperty("patchHash", out _)
+                || doc.RootElement.TryGetProperty("entries", out _);
+        }
+        catch (JsonException)
+        {
+            // JSONとして解析できない = リビジョンのメタデータではない
+            // （利用者のmanifest.jsonが非JSON、または壊れたJSONの場合はここに来るが、
+            // いずれにせよ「メタデータに上書きされた」ケースではないため誤検出しない）。
+            return false;
+        }
     }
 
     /// <summary>

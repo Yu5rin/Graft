@@ -907,7 +907,16 @@ public sealed class HistoryPaneViewModel : ObservableObject
             return null;
         }
 
-        var full = Path.Combine(revision.FolderPath, relative.Replace('/', Path.DirectorySeparatorChar));
+        var normalized = BackupPathUtil.NormalizeRelativePath(relative);
+        if (!normalized.IsSuccess)
+        {
+            return null;
+        }
+
+        // v1.0.16でリビジョンフォルダ直下からfiles/サブフォルダへ退避先を分離した
+        // （BackupPathUtil.FilesSubfolderName参照）ため、新レイアウトを優先しつつ
+        // 旧レイアウト（直下）のバックアップも引き続き差分表示できるよう後退する。
+        var full = BackupPathUtil.ResolveBackupFilePathForRead(revision.FolderPath, normalized.Value);
         if (!File.Exists(full))
         {
             return null;

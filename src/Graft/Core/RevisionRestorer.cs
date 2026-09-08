@@ -339,8 +339,13 @@ public sealed class RevisionRestorer
             if (!normalized.IsSuccess) continue;
 
             var before = existedBefore.TryGetValue(path, out var stored) && stored;
+            // ここで参照するbackupFolderは、この「ここまで戻す」操作自身のためにBeginAsyncが
+            // 直前に新規作成し、session.StoreAsyncで退避を終えたばかりのフォルダである
+            // （呼び出し元RestoreThroughAsync参照）。旧レイアウトのバックアップを読むことは
+            // 無いため、後退（ResolveBackupFilePathForRead）は使わず新レイアウトのパスを
+            // 直接組み立ててよい。
             string? hashBefore = before
-                ? await ReadHashIfExistsAsync(Path.Combine(backupFolder, normalized.Value), ct).ConfigureAwait(false)
+                ? await ReadHashIfExistsAsync(BackupPathUtil.GetBackupFilePathForWrite(backupFolder, normalized.Value), ct).ConfigureAwait(false)
                 : null;
 
             var currentFull = Path.GetFullPath(Path.Combine(projectRoot, normalized.Value));
@@ -556,25 +561,16 @@ public sealed class RevisionRestorer
             return GraftResult<string?>.Fail(normalized.Issues);
         }
 
-        var backupFull = Path.Combine(backupFolder, normalized.Value);
-        var backupIo = LongPath.Extended(backupFull);
-        if (!File.Exists(backupIo))
+        // 新旧レイアウトの解決・存在確認・旧レイアウト特有の破損検出（E216）まで含めて
+        // BackupPathUtil.ReadBackupFileAsyncへ委譲する（BackupSession.RestoreOneAsyncと共通）。
+        var readResult = await BackupPathUtil.ReadBackupFileAsync(backupFolder, normalized.Value, ct).ConfigureAwait(false);
+        if (!readResult.IsSuccess)
         {
-            return GraftResult<string?>.Fail(ErrorCode.E405, "退避ファイルが見つかりません", path: relativePath);
-        }
-
-        byte[] bytes;
-        try
-        {
-            bytes = await File.ReadAllBytesAsync(backupIo, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return GraftResult<string?>.Fail(ErrorCode.E402, $"退避ファイルの読み取りに失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath);
+            return GraftResult<string?>.Fail(readResult.Issues);
         }
 
         var targetFull = Path.GetFullPath(Path.Combine(projectRoot, normalized.Value));
-        var writeResult = await SafeFileWriter.ReplaceAsync(targetFull, bytes, ct).ConfigureAwait(false);
+        var writeResult = await SafeFileWriter.ReplaceAsync(targetFull, readResult.Value, ct).ConfigureAwait(false);
         return writeResult.IsSuccess
             ? GraftResult<string?>.Ok(relativePath, writeResult.Issues)
             : GraftResult<string?>.Fail(writeResult.Issues);
