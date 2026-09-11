@@ -183,6 +183,7 @@ public sealed partial class SettingsViewModel
 
         IsUpdateBusy = true;
         UpdateStatusMessage = "更新を確認しています…";
+        LogNetworkEnvironmentOnce();
         try
         {
             var userAgent = $"Graft/{CurrentVersionText}";
@@ -206,7 +207,13 @@ public sealed partial class SettingsViewModel
                     // （利用者が見ていない場面での通信結果を、わざわざ画面上に出す必要は無い。
                     // 詳細はログに残る）。
                     UpdateStatusMessage = isManual ? result.ErrorMessage : null;
-                    Logger?.Warn("update", $"{trigger}: 通信に失敗しました（{result.ErrorMessage}）。");
+                    // 実機不具合対応（要件3）: 利用者向けの文言（result.ErrorMessage。型名や
+                    // 状態コードを含まない）とは別に、原因の切り分けに要る診断情報
+                    // （DiagnosticDetail。HTTP状態コード・例外の型名）を必ずログへ残す。
+                    // 以前はここが「通信に失敗しました（更新の確認に失敗しました。…）」としか
+                    // 出ておらず、原因（回数上限か・プロキシかネットワーク不調か）を実機ログ
+                    // から切り分けられなかった。
+                    Logger?.Warn("update", $"{trigger}: 通信に失敗しました（{result.ErrorMessage}）。{DiagnosticSuffix(result)}");
                     break;
                 case UpdateCheckStatus.UpToDate:
                     UpdateStatusMessage = $"最新版です（現在のバージョン: {CurrentVersionText}）。";
@@ -216,6 +223,16 @@ public sealed partial class SettingsViewModel
                     UpdateStatusMessage = $"新しいバージョン {result.Release!.TagName} が利用可能です（現在: {CurrentVersionText}）。";
                     Logger?.Info("update", $"{trigger}: 確認しました。新しいバージョンが見つかりました（{result.Release!.TagName}、現在: {CurrentVersionText}）。");
                     await OfferUpdateAsync(result.Release!).ConfigureAwait(true);
+                    break;
+                case UpdateCheckStatus.UpdateAvailableNoDetails:
+                    // 実機不具合対応（要件2）: Atomフィードで新しい版があることは分かったが、
+                    // GitHub Releases APIが失敗し配布物の詳細を取得できなかった場合。
+                    // 「確認できませんでした」で終わらせず、分かっているところ（新しい版が
+                    // あること・リリースページの場所）は必ず伝える。
+                    UpdateStatusMessage = result.ErrorMessage;
+                    Logger?.Warn("update", $"{trigger}: {result.ErrorMessage}（{result.Release!.TagName}）。{DiagnosticSuffix(result)}");
+                    await OfferManualUpdateViaReleasePageAsync(
+                        "新しい版があります", result.ErrorMessage!, result.Release!.HtmlUrl).ConfigureAwait(true);
                     break;
             }
         }
@@ -282,29 +299,12 @@ public sealed partial class SettingsViewModel
         // （課題1の書き込み権限確認）をディレクトリ引数化して再利用する）。
         if (!AppPaths.CanWriteToDirectory(installDirectory))
         {
-            var openReleasePage = await _dialogService.ShowActionMessageAsync(
+            await OfferManualUpdateViaReleasePageAsync(
                 "自動更新できません",
                 $"実行ファイルのフォルダ（{installDirectory}）へ書き込めないため、自動更新できませんでした。" +
                 "Program Files 等、書き込みが制限されたフォルダに置かれている可能性があります。" +
                 "リリースページから配布物をダウンロードし、手動で置き換えてください。",
-                "リリースページを開く")
-                .ConfigureAwait(true);
-            if (openReleasePage)
-            {
-                // セキュリティ点検指摘対応: release.HtmlUrlをスキーム検査なしでShellExecuteへ
-                // 渡さない。既存のMarkdownプレビューの外部リンク確認と同じ流儀
-                // （Uri.TryCreateで絶対URIかつhttpsのみ許可し、開く前にURL全文を確認ダイアログへ
-                // 出す）をExternalLinkConfirmationへ共通化して使う。
-                var opened = await ExternalLinkConfirmation
-                    .TryConfirmAndOpenHttpsAsync(_dialogService, _externalLinks, release.HtmlUrl, "リリースページを開きますか？")
-                    .ConfigureAwait(true);
-                if (!opened)
-                {
-                    await _dialogService.ShowMessageAsync(
-                        "リリースページを開けません",
-                        "リリースページのURLを確認できなかったため開けませんでした。").ConfigureAwait(true);
-                }
-            }
+                release.HtmlUrl).ConfigureAwait(true);
             return;
         }
 
@@ -405,6 +405,60 @@ public sealed partial class SettingsViewModel
         UpdateLastCheckedAt = state.LastCheckedAt;
         UpdateLastCheckSucceeded = state.LastCheckSucceeded;
     }
+
+    /// <summary>
+    /// 「自動更新はできないので、リリースページを開いて手動で更新してもらう」案内を出す。
+    /// 書き込み権限が無い場合（<see cref="RunUpdateAsync"/>）と、AtomではAPIの詳細が
+    /// 取得できなかった場合（<see cref="UpdateCheckStatus.UpdateAvailableNoDetails"/>）の
+    /// 両方から呼ばれる重複コードをまとめたもの。
+    /// </summary>
+    private async Task OfferManualUpdateViaReleasePageAsync(string title, string message, string releaseHtmlUrl)
+    {
+        var openReleasePage = await _dialogService
+            .ShowActionMessageAsync(title, message, "リリースページを開く").ConfigureAwait(true);
+        if (!openReleasePage) return;
+
+        // セキュリティ点検指摘対応: releaseHtmlUrlをスキーム検査なしでShellExecuteへ渡さない。
+        // 既存のMarkdownプレビューの外部リンク確認と同じ流儀（Uri.TryCreateで絶対URIかつ
+        // httpsのみ許可し、開く前にURL全文を確認ダイアログへ出す）をExternalLinkConfirmationへ
+        // 共通化して使う。
+        var opened = await ExternalLinkConfirmation
+            .TryConfirmAndOpenHttpsAsync(_dialogService, _externalLinks, releaseHtmlUrl, "リリースページを開きますか？")
+            .ConfigureAwait(true);
+        if (!opened)
+        {
+            await _dialogService.ShowMessageAsync(
+                "リリースページを開けません",
+                "リリースページのURLを確認できなかったため開けませんでした。").ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>この起動で1回だけ通信環境をログに残したか。</summary>
+    private static bool _networkEnvironmentLogged;
+
+    /// <summary>
+    /// 実機不具合対応（要件3）: 通信がプロキシ経由かどうか・経由先ホスト・資格情報の有無を、
+    /// この起動で1回だけログへ記録する。別リポジトリpaneの<c>UpdateService.LogNetworkEnvironmentOnce</c>
+    /// と同じ考え方（会社のネットワークではプロキシ経由になることが多く、経由の有無が分かる
+    /// だけで切り分けの幅が狭まる）。実際の判定は<see cref="NetworkEnvironmentLog"/>
+    /// （Core.Update側は<see cref="Graft.Infra.Logger"/>を知らないため、文字列を組み立てる
+    /// だけの純粋な処理として分離してある）に委ね、ここではログへ書くことだけを行う。
+    /// 利用者名やURL全体などの不要な情報は出さない（既存のログ方針＝ファイルの中身やAIの
+    /// 応答は残さない、と同じ配慮。ホストとポート・資格情報の有無にとどめる）。
+    /// </summary>
+    private void LogNetworkEnvironmentOnce()
+    {
+        if (_networkEnvironmentLogged) return;
+        _networkEnvironmentLogged = true;
+        Logger?.Info("update", $"通信環境: {NetworkEnvironmentLog.Describe(_updateCheckUrl)}");
+    }
+
+    /// <summary>
+    /// ログ専用の診断情報（<see cref="UpdateCheckResult.DiagnosticDetail"/>）を、ログの末尾に
+    /// 添えるための断片へ整形する。無い場合は空文字列（末尾に何も付かない）。
+    /// </summary>
+    private static string DiagnosticSuffix(UpdateCheckResult result)
+        => result.DiagnosticDetail is { } detail ? $" 詳細: {detail}" : "";
 
     private static string DescribeInstallFailure(UpdateInstallResult result) => result.Status switch
     {

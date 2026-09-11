@@ -250,6 +250,13 @@ public class UpdateCheckObservabilityTests : IDisposable
         return await File.ReadAllLinesAsync(logPath);
     }
 
+    /// <summary>
+    /// Atomフィード（回数上限とは別枠の近道）は常に「使えない」を返し、これまでどおり
+    /// GitHub Releases APIだけで確認する経路をたどらせる（このテストファイルの関心は
+    /// Atom優先のオーケストレーションそのものではなく、確認結果がログ・「最終確認」表示へ
+    /// どう反映されるかのため、Atomの段は意図的に素通りさせている。Atom優先の
+    /// オーケストレーション自体はUpdateCheckerTests側で固定する）。
+    /// </summary>
     private sealed class FakeReleaseFeed : IReleaseFeed
     {
         private readonly GitHubReleaseInfo? _response;
@@ -257,10 +264,15 @@ public class UpdateCheckObservabilityTests : IDisposable
 
         public FakeReleaseFeed(GitHubReleaseInfo? response) => _response = response;
 
-        public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(string checkUrl, string userAgent, CancellationToken ct)
+        public Task<AtomFeedTag?> TryGetLatestTagFromAtomAsync(string checkUrl, CancellationToken ct)
+            => Task.FromResult<AtomFeedTag?>(null);
+
+        public Task<ReleaseFetchResult> GetLatestReleaseAsync(string checkUrl, string userAgent, CancellationToken ct)
         {
             CallCount++;
-            return Task.FromResult(_response);
+            return Task.FromResult(_response is null
+                ? ReleaseFetchResult.Fail(ReleaseFetchFailureReason.Unknown)
+                : ReleaseFetchResult.Ok(_response));
         }
     }
 
