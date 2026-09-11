@@ -11,8 +11,8 @@ namespace Graft.ViewModels;
 
 /// <summary>
 /// 仕様書10章のコンテキスト収集UIを担う。収集モードの選択、ファイルの3状態選択（内容も出す／
-/// 構成だけ／出さない）、除外規則の確認、出力前の概算トークン数表示（10.4）と上限超過時の警告、
-/// クリップボードへのコピー・ファイルへの保存を行う。
+/// 構成だけ／出さない）、除外規則の確認、出力前の概算トークン数表示（10.4）と目安超過時の
+/// 助言表示、クリップボードへのコピー・ファイルへの保存を行う。
 /// </summary>
 public sealed class ContextCollectViewModel : ObservableObject, IDisposable
 {
@@ -183,7 +183,12 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _estimatedTokens, value);
     }
 
-    /// <summary>10.4: 上限超過フラグ。超過時はファイル選択の見直しを促す警告を表示する。</summary>
+    /// <summary>
+    /// 10.4: 推定トークン数が<see cref="TokenWarnThreshold"/>を超えたかどうかのフラグ。
+    /// あくまで「AIへ一度に渡すには大きいかもしれない」という目安であり、Graft側の上限では
+    /// ない。超過してもコピー・保存そのものは妨げず、その旨を助言としてステータスへ添える
+    /// ためだけに使う（<see cref="CopyAsync"/>のコメント参照）。
+    /// </summary>
     public bool ExceedsWarnThreshold
     {
         get => _exceedsWarnThreshold;
@@ -298,30 +303,47 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         var result = await CollectAsync().ConfigureAwait(true);
         if (result is null) return;
         StatusMessage = ExceedsWarnThreshold
-            ? $"推定: 約{EstimatedTokens}トークン。上限（約{TokenWarnThreshold}トークン）を超えています。ファイル選択を見直してください。"
+            ? $"推定: 約{EstimatedTokens}トークン。{BuildSizeAdvice()}"
             : $"推定: 約{EstimatedTokens}トークン。";
     }
 
+    /// <summary>
+    /// 課題（本命・実機で報告された不具合そのもの）: 推定トークン数が10.4の閾値
+    /// （<see cref="TokenWarnThreshold"/>）を超えても、必ずクリップボードへ全文を書く。
+    ///
+    /// 【なぜ「超過時は書かずreturn」をやめたか】
+    /// 以前はここで超過時に早期returnし、<see cref="IClipboardAccess.SetText"/>を一切呼ばずに
+    /// 終わっていた。ところがStatusMessageの表示自体はこの分岐でも更新されるため、利用者には
+    /// 「コピーした」ように見える。実際にはクリップボードの中身は前回コピーした時点のまま
+    /// 変わっておらず、そのままAIとの会話に貼り付けると古い内容が出る。これが「コンテキスト
+    /// 収集で内容が欠落している」という利用者報告の正体で、内容が途中で切り詰められたのでは
+    /// なく、そもそも書き込まれていなかった。
+    ///
+    /// 推定トークン数の閾値は「AIが一度に読み切れないかもしれない」という目安であって、
+    /// Graft自身が何かを禁止しているわけではない（<see cref="ExceedsWarnThreshold"/>のコメント
+    /// 参照）。目安を理由に本来の操作（コピー）を取り消すのは筋が違う。<see cref="SaveToFileAsync"/>
+    /// も同じ方針（超過していても書き出す）にすでになっているため、今回の修正でコピーもそれに
+    /// 揃えたことになる。将来また「大きいときは止めよう」と戻さないための歯止めとして、この
+    /// 経緯をここに残す。
+    /// </summary>
     private async Task CopyAsync()
     {
         var result = await CollectAsync().ConfigureAwait(true);
         if (result is null) return;
 
-        if (ExceedsWarnThreshold)
-        {
-            StatusMessage = $"推定 約{EstimatedTokens}トークンが上限（約{TokenWarnThreshold}トークン）を超えています。ファイル選択を見直してください。";
-            return;
-        }
-
         _ui.Clipboard.SetText(result.Text);
-        StatusMessage = "クリップボードにコピーしました。";
+        StatusMessage = ExceedsWarnThreshold
+            ? $"クリップボードにコピーしました。{BuildSizeAdvice()}"
+            : "クリップボードにコピーしました。";
     }
 
     /// <summary>
     /// 課題1: 名前を付けて保存ダイアログを表示し、Markdown形式のテキストとして書き出す。
-    /// コピーと異なり、トークン数が上限を超えていても保存自体は行う（保存は「ファイルへ出力する
-    /// だけ」でAIへ即渡すコピーとは性質が違い、大きい構成をいったんファイル化して後で選別する
-    /// 使い方もあり得るため）。ただし超過している旨はステータスに残し、見直しを促す。
+    /// <see cref="CopyAsync"/>と同じ方針で、推定トークン数が閾値を超えていても保存は必ず行う
+    /// （閾値は制限ではなく目安にすぎないため。<see cref="ExceedsWarnThreshold"/>のコメント
+    /// 参照）。超えている場合は、保存できたことを先に伝えたうえで大きさの助言を続けて添える
+    /// （「超えていますが保存しました」のような、本来なら保存されないところを特別扱いした
+    /// かのような言い方はしない。常に保存されるのが正しい動作のため）。
     /// </summary>
     private async Task SaveToFileAsync()
     {
@@ -346,9 +368,18 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         }
 
         StatusMessage = ExceedsWarnThreshold
-            ? $"推定 約{EstimatedTokens}トークンが上限（約{TokenWarnThreshold}トークン）を超えていますが保存しました。ファイル選択の見直しをお勧めします。保存先: {path}"
+            ? $"保存しました。{BuildSizeAdvice()}保存先: {path}"
             : $"保存しました。保存先: {path}";
     }
+
+    /// <summary>
+    /// 推定トークン数についての助言文言（コピー・保存・プレビュー・既定選択時の注意喚起で共通
+    /// 利用）。「上限」「超過」という、Graftが拒否しているかのように読める語をあえて避け、
+    /// 「目安」「かもしれない」という助言の言い回しに統一する（このIssueの要望そのもの）。
+    /// </summary>
+    private string BuildSizeAdvice()
+        => $"推定 約{EstimatedTokens}トークンとなり、AIへ一度に渡すには大きいかもしれません（目安: 約{TokenWarnThreshold}トークン）。"
+            + "lib/ など不要なフォルダを「構成だけ」または「出さない」に切り替えると軽くできます。";
 
     /// <summary>既定のファイル名を「プロジェクト名_yyyyMMdd_HHmm.md」の形式で組み立てる。</summary>
     private static string BuildDefaultFileName(string projectDisplayName, DateTimeOffset timestamp)
@@ -697,15 +728,14 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// 課題3: 既定は全部「内容も出す」のため、大規模プロジェクトでは開いた直後から推定
-    /// トークン数が上限を超えることがある。黙って超過させず、フォルダ単位で「構成だけ」へ
-    /// 切り替えるよう一言添えて気付けるようにする。
+    /// トークン数が目安を超えることがある。黙って気付けないままにせず、フォルダ単位で
+    /// 「構成だけ」へ切り替えるよう一言添える（拒否ではなく助言。<see cref="BuildSizeAdvice"/>
+    /// のコメント参照）。
     /// </summary>
     private void WarnIfDefaultSelectionIsLarge()
     {
         if (!ExceedsWarnThreshold) return;
-        StatusMessage =
-            $"既定ですべてのファイルの内容を含めています。推定 約{EstimatedTokens}トークンが上限（約{TokenWarnThreshold}トークン）を超えています。"
-            + "lib/ など不要なフォルダを「構成だけ」または「出さない」に切り替えることをお勧めします。";
+        StatusMessage = $"既定ですべてのファイルの内容を含めています。{BuildSizeAdvice()}";
     }
 
     // ---- 追加要件: プロジェクトごとのチェック状態（3状態）の永続化 ----

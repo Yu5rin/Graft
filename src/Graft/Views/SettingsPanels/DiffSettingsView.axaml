@@ -71,8 +71,8 @@
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="トークン数の警告閾値"
                          views:HelpTip.Minimal="{Binding TokenWarnThresholdText, StringFormat='トークン数の警告閾値: {0}'}"
-                         views:HelpTip.Standard="コンテキスト収集でコピーする内容の推定トークン数がこれを超えると警告します。既定は50000です。"
-                         views:HelpTip.Detailed="コンテキスト収集画面でファイルを選んでコピーしようとしたとき、上の比率で見積もった推定トークン数がこの値を超える場合に警告を表示します。既定は50000です。AIの入力上限に収まらず回答が途中で切れてしまうといった事態に気付きやすくするための目安で、警告が出てもコピー自体はできます。" />
+                         views:HelpTip.Standard="コンテキスト収集でコピー・保存する内容の推定トークン数がこれを超えると、大きいかもしれないという助言を表示します。既定は50000です。"
+                         views:HelpTip.Detailed="コンテキスト収集画面でファイルを選んでコピー・保存しようとしたとき、上の比率で見積もった推定トークン数がこの値を超える場合に「AIへ一度に渡すには大きいかもしれません」という助言を表示します。既定は50000です。AIへ渡すと回答が途中で切れてしまうことがある、といった事態に気付きやすくするための目安であり、この値を超えてもコピー・保存の内容が削られることはありません（あくまで目安の表示だけで、常に全文がコピー・保存されます）。" />
             </StackPanel>
 
             <TextBlock Text="新規ファイル" Classes="sectionHeading" />

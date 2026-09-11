@@ -271,6 +271,29 @@ public class ContextCollectViewModelTests : IDisposable
         return (vm, appPaths, registered);
     }
 
+    /// <summary>
+    /// <see cref="BuildAsync(string, System.Action{Workspace})"/>の拡張版。コピー・保存まわりの
+    /// テスト（下記）はクリップボードの実際の値・保存先ファイルの実際の内容を検証したいため、
+    /// 設定（トークン警告閾値）・<see cref="IUiServices"/>（クリップボードのフェイク）・
+    /// <see cref="IDialogService"/>（保存先パスのフェイク）を差し替えられるようにする。
+    /// </summary>
+    private async Task<(ContextCollectViewModel Vm, AppPaths AppPaths, Project Project)> BuildAsync(
+        string caseName, Action<Workspace> setup, Settings settings, IUiServices ui, IDialogService dialogs)
+    {
+        var appPaths = new AppPaths(Path.Combine(_root, caseName, "app"));
+        appPaths.EnsureCoreDirectoriesExist();
+        var projectDir = Path.Combine(_root, caseName, "project");
+        Directory.CreateDirectory(projectDir);
+        setup(new Workspace(projectDir));
+
+        var store = new ProjectStore(appPaths);
+        var registered = (await store.RegisterAsync(projectDir, caseName)).Value;
+
+        var vm = new ContextCollectViewModel(appPaths, store, registered, settings, ui, dialogs);
+        await vm.InitializeAsync();
+        return (vm, appPaths, registered);
+    }
+
     private static ContextFileNodeViewModel FindByPath(ContextCollectViewModel vm, string relativePath)
         => vm.Files.Single(f => f.RelativePath == relativePath);
 
@@ -295,5 +318,182 @@ public class ContextCollectViewModelTests : IDisposable
             Directory.CreateDirectory(Path.GetDirectoryName(full)!);
             File.WriteAllText(full, content);
         }
+
+        /// <summary>1MB超過ファイルのフィクスチャ等、バイト単位でサイズを厳密に作りたい場合に使う。</summary>
+        public void WriteBytes(string relativePath, byte[] content)
+        {
+            var full = Path.Combine(_root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            File.WriteAllBytes(full, content);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 本命の不具合: 推定トークン数が閾値を超えると、コピーがクリップボードへ
+    // 一切書き込まずに終わっていた（ステータス表示だけ変わるため、利用者には
+    // 「コピーした」ように見えるが実際には前回コピーした古い内容のまま）。
+    // ------------------------------------------------------------------
+
+    /// <summary>実際のクリップボードに触れないフェイク（ClipboardWatchTests.FakeClipboardAccessと同じ方針）。</summary>
+    private sealed class FakeClipboardAccess : IClipboardAccess
+    {
+        /// <summary>テストから直接差し替え可能（不具合の再現に「前回コピーした内容」を仕込むため）。</summary>
+        public string? Text { get; set; }
+
+        public void SetText(string text) => Text = text;
+
+        public Task<string?> GetTextAsync() => Task.FromResult(Text);
+    }
+
+    /// <summary>クリップボードだけフェイクへ差し替えたUI機能一式。画面情報・タイマーは本物（AvaloniaUiServices）を使う。</summary>
+    private sealed class FakeUiServices : IUiServices
+    {
+        private readonly AvaloniaUiServices _inner = new();
+
+        public FakeUiServices(IClipboardAccess clipboard) => Clipboard = clipboard;
+
+        public IClipboardAccess Clipboard { get; }
+
+        public IScreenInfo Screens => _inner.Screens;
+
+        public IUiTimer CreateTimer(TimeSpan interval, Action onTick) => _inner.CreateTimer(interval, onTick);
+    }
+
+    /// <summary>
+    /// 「名前を付けて保存」を、実際にダイアログを出さずあらかじめ決めたパスへ即決定するフェイク。
+    /// それ以外の確認系はNullDialogServiceと同じ安全側（キャンセル扱い）に倣う。
+    /// </summary>
+    private sealed class FakeSaveDialogService : IDialogService
+    {
+        private readonly string _path;
+        public FakeSaveDialogService(string path) => _path = path;
+
+        public Task<bool> ConfirmAsync(string title, string message) => Task.FromResult(false);
+
+        public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
+            => Task.FromResult((bool?)null);
+
+        public Task<string?> PromptAsync(string title, string message, string? initial = null)
+            => Task.FromResult((string?)null);
+
+        public Task<string?> PickFolderAsync(string title) => Task.FromResult((string?)null);
+
+        public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null)
+            => Task.FromResult((string?)null);
+
+        public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null)
+            => Task.FromResult((string?)_path);
+
+        public Task ShowMessageAsync(string title, string message) => Task.CompletedTask;
+    }
+
+    [AvaloniaFact(DisplayName = "推定トークン数が閾値を超えても、コピーは必ずクリップボードへ全文を書く（本命）")]
+    public async Task 閾値超過でもコピーは全文を書く()
+    {
+        var clipboard = new FakeClipboardAccess();
+        // TokenWarnThresholdを極端に小さくし、通常サイズのファイル1つだけで確実に超過させる
+        // （巨大なフィクスチャを用意しなくても閾値超過を再現できる）。
+        var settings = new Settings { Context = new ContextSettings { TokenWarnThreshold = 1 } };
+        var (vm, _, _) = await BuildAsync(
+            "copy-exceeds", ws => ws.WriteText("main.py", "print('graftコンテキスト収集の本文')\n"),
+            settings, new FakeUiServices(clipboard), new NullDialogService());
+
+        vm.ExceedsWarnThreshold.Should().BeTrue("極端に小さい閾値のため必ず超過するはず（前提の確認）");
+
+        clipboard.Text = "前回コピーした古い内容"; // 修正前の不具合を再現する呼び水（早期returnなら書き換わらずこれが残る）
+
+        await ExecuteAsync(vm.CopyCommand);
+
+        clipboard.Text.Should().NotBe("前回コピーした古い内容",
+            "早期returnで書き込まれず、前回コピーした内容が残ったままなのが今回の不具合そのもの");
+        clipboard.Text.Should().Contain("main.py").And.Contain("graftコンテキスト収集の本文",
+            "閾値を超えていても全文（選択ファイルの内容）がクリップボードへ書かれるはず");
+
+        vm.StatusMessage.Should().Contain("コピーしました", "コピーされたことがステータスへ先に伝わるはず");
+        vm.StatusMessage.Should().NotContain("上限", "Graftが拒否しているように読める語は使わないはず");
+        vm.StatusMessage.Should().Contain("目安", "大きさについては拒否ではなく助言として続けて伝えるはず");
+    }
+
+    [AvaloniaFact(DisplayName = "推定トークン数が閾値以下のときは、従来どおりコピーされ助言文言は付かない（デグレ防止）")]
+    public async Task 閾値以下ならコピーは従来どおり()
+    {
+        var clipboard = new FakeClipboardAccess();
+        var (vm, _, _) = await BuildAsync(
+            "copy-within", ws => ws.WriteText("main.py", "print(1)\n"),
+            new Settings(), new FakeUiServices(clipboard), new NullDialogService());
+
+        vm.ExceedsWarnThreshold.Should().BeFalse("既定の閾値（5万トークン）に対し、この程度の内容は超過しないはず（前提の確認）");
+
+        await ExecuteAsync(vm.CopyCommand);
+
+        clipboard.Text.Should().Contain("main.py").And.Contain("print(1)");
+        vm.StatusMessage.Should().Be("クリップボードにコピーしました。", "閾値以下では従来どおり助言なしの短いメッセージのはず");
+    }
+
+    [AvaloniaFact(DisplayName = "推定トークン数が閾値を超えても、保存されたファイルの内容はコピーした内容と完全に一致する")]
+    public async Task 閾値超過でも保存内容はコピー内容と完全一致する()
+    {
+        var clipboard = new FakeClipboardAccess();
+        var settings = new Settings { Context = new ContextSettings { TokenWarnThreshold = 1 } };
+        var savePath = Path.Combine(_root, "save-exceeds", "out.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(savePath)!);
+
+        var (vm, _, _) = await BuildAsync(
+            "save-exceeds", ws => ws.WriteText("main.py", "print('graftコンテキスト収集の本文')\n"),
+            settings, new FakeUiServices(clipboard), new FakeSaveDialogService(savePath));
+
+        vm.ExceedsWarnThreshold.Should().BeTrue("前提の確認: 極端に小さい閾値のため必ず超過する");
+
+        // 同一のvm・同一の選択状態で、コピー→保存の順に実行する。生成日時（分単位）を含む
+        // 出力のため、テスト実行中（数十ms）に分をまたがない前提で、両者は完全一致するはず。
+        await ExecuteAsync(vm.CopyCommand);
+        var copiedText = clipboard.Text;
+        copiedText.Should().NotBeNullOrEmpty();
+
+        await ExecuteAsync(vm.SaveToFileCommand);
+
+        File.Exists(savePath).Should().BeTrue();
+        var savedText = await File.ReadAllTextAsync(savePath);
+        savedText.Should().Be(copiedText, "保存されたファイルの内容はコピーした内容と先頭・末尾まで完全に一致するはず");
+
+        vm.StatusMessage.Should().StartWith("保存しました。", "保存できたことが先に伝わるはず（『超えていますが保存しました』という特別扱いの言い方をしない）");
+        vm.StatusMessage.Should().NotContain("上限", "Graftが拒否しているように読める語は使わないはず");
+        vm.StatusMessage.Should().Contain("目安", "大きさについては助言として続けて伝えるはず");
+    }
+
+    [AvaloniaFact(DisplayName = "「選択ファイル」モードでチェック済みのファイルが後から1MBを超えても、保存先にその旨が記載される（チェック時点では対象外だった除外が保存直前に効くケース）")]
+    public async Task 選択ファイルモードで選択後に1MBを超えたファイルは省略の旨が保存先に残る()
+    {
+        // 実機で起こりうる経緯: チェックした時点ではbig.txtは1MB未満で対象内だった
+        // （ContextCollectViewModel.Filesはこの時点のスナップショット）。ところが
+        // 「保存」を押した瞬間にContextCollector.CollectAsyncは必ず走査をやり直す
+        // （ScanAsyncを毎回呼ぶ実装）ため、その間にファイルが1MBを超えていれば
+        // 保存直前に初めて除外対象になる。ツリーの無い「選択ファイル」モードでは、
+        // 修正前はこの場合も本文から痕跡なく消えていた。
+        var savePath = Path.Combine(_root, "save-oversize", "out.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(savePath)!);
+
+        var (vm, _, project) = await BuildAsync(
+            "save-oversize",
+            ws =>
+            {
+                ws.WriteText("big.txt", "x"); // チェック時点では1MB未満
+                ws.WriteText("normal.py", "print(1)");
+            },
+            new Settings(), new FakeUiServices(new FakeClipboardAccess()), new FakeSaveDialogService(savePath));
+
+        vm.SelectedMode = ContextMode.SelectedFiles;
+        FindByPath(vm, "big.txt").State.Should().Be(ContextFileState.Full, "既定で選択済みのはず（チェック時点ではまだ1MB未満）");
+
+        // 保存を押す前に、実際のファイルを1MB超へ書き換える（上記の経緯を再現）。
+        File.WriteAllBytes(Path.Combine(project.Root, "big.txt"), new byte[1024 * 1024 + 1]);
+
+        await ExecuteAsync(vm.SaveToFileCommand);
+
+        File.Exists(savePath).Should().BeTrue();
+        var savedText = await File.ReadAllTextAsync(savePath);
+        savedText.Should().Contain("normal.py").And.Contain("print(1)");
+        savedText.Should().Contain("big.txt", "選択されていたが保存直前に除外された事実が保存先にも明記されるはず");
+        savedText.Should().Contain("サイズが1MBを超過", "除外理由が保存先からも読み取れるはず");
     }
 }
