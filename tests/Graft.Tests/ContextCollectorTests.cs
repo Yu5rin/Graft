@@ -459,4 +459,37 @@ public class ContextCollectorTests
     {
         ContextCollector.IsLockFileForInitialUncheck(fileName).Should().Be(expected);
     }
+
+    // ------------------------------------------------------------------
+    // 課題3(a): ツリーを持たないモードで、除外により内容を出せなかった選択済みファイルを
+    // 痕跡なく消さない（利用者から「内容が欠落している」と報告された不具合の一部）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "「選択ファイル」モードで1MB超のファイルを選ぶと、内容は出さないがその旨を本文に明記する（修正前は痕跡なく消えていた）")]
+    public async Task 選択ファイルモードで1MB超のファイルは省略された旨が本文に残る()
+    {
+        using var ws = new TempWorkspace();
+        ws.WriteBytes("big.txt", new byte[1024 * 1024 + 1]);
+        ws.WriteText("normal.py", "print(1)");
+        var paths = new AppPaths(ws.CreateDirectory("app_data"));
+        var collector = new ContextCollector(paths);
+        var project = MakeProject(ws.RootPath);
+        var request = new ContextRequest
+        {
+            // 「選択ファイル」モードにはツリーが無い（BuildTreeTextの除外注記が効かない）ため、
+            // 修正前はbig.txtが本文から何の説明も無く消えていた。
+            Project = project, Mode = ContextMode.SelectedFiles,
+            SelectedPaths = new[] { "big.txt", "normal.py" }, Settings = new Settings(),
+        };
+
+        var result = await collector.CollectAsync(request);
+
+        result.IsSuccess.Should().BeTrue();
+        var text = result.Value.Text;
+        text.Should().Contain("normal.py", "除外されていない選択ファイルは従来どおり内容が出るはず");
+        text.Should().Contain("print(1)");
+        text.Should().Contain("big.txt", "内容を省略したファイルの一覧に選択パスが挙がるはず");
+        text.Should().Contain("サイズが1MBを超過", "除外理由が本文から読み取れるはず");
+        text.Should().NotContain("# big.txt", "除外されたファイルの中身セクション自体は作られないはず（見出しが無いことで確認）");
+    }
 }

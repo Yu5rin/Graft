@@ -161,6 +161,28 @@ public sealed class ContextCollector
         ".o", ".a", ".lib", ".msi", ".iso", ".node",
     };
 
+    /// <summary>
+    /// コンテキスト収集で内容を出力する1ファイルあたりの上限サイズ。既存の値（1MB）を
+    /// 据え置く判断をした（値は上げていない）。
+    ///
+    /// 【<c>safety.maxFileSizeMB</c>（既定10MB。適用時にパッチを書き込める1ファイルの上限）
+    /// と値が違うのはなぜか】 両者は別の懸念に対する歯止めで、値を揃える必然性が無いと判断した。
+    /// 適用側の10MBは「事故で巨大ファイルを誤って書き換えない」ための書き込み安全弁であり、
+    /// ファイルは1つずつ処理されるため10MBでもコストは有限。一方こちらは「AIへ一度に渡す
+    /// 文脈」の話で、選んだファイルの内容がまるごと1本のテキストへ連結される。1MBのテキスト
+    /// ファイルは<see cref="TokenEstimator"/>の既定比率（文字数÷2.5）で概算すると約42万文字・
+    /// 17万トークン相当になり、これだけで<see cref="ContextSettings.TokenWarnThreshold"/>の
+    /// 既定値（5万トークン）を1ファイル単独で3倍以上超える。10MBまで許すと1ファイルで
+    /// 100万トークン超もあり得ることになり、「巨大なファイルを黙って積み込まない」という
+    /// もう一つの要件（点検で問題になった2400ファイル・66MB級プロジェクトの重さの教訓、
+    /// <see cref="ContextCollectViewModel.MaxPreviewLines"/>のコメント参照）に反する。
+    ///
+    /// 一方で「内容を出さない」という判断自体は妥当でも、利用者に無断で消えるのは別問題
+    /// （今回の欠落report3(a)）だったため、値はそのままに「なぜ出さなかったか」を
+    /// どのモードでも本文に明記する方へ寄せた（<see cref="AppendOmittedContentNotice"/>）。
+    /// 生成物やログ等、正当に大きいテキストファイルをどうしても含めたい場合は、除外規則を
+    /// 個別に見直す（設定でこの値自体を上げる機能は現時点では提供しない）。
+    /// </summary>
     private const long MaxFileSizeBytes = 1024 * 1024;
 
     private static readonly IReadOnlySet<string> EmptyPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -238,9 +260,10 @@ public sealed class ContextCollector
 
         // 「出さない」（HiddenPaths）は本文からも除く。SelectedPaths・HiddenPathsの両方に
         // 同じパスが渡された場合（呼び出し側の不整合）でも「出さない」を優先する。
+        var resolvedTargets = targetsResult.Value.Targets;
         var contentTargets = hiddenPaths.Count == 0
-            ? targetsResult.Value
-            : targetsResult.Value.Where(n => !hiddenPaths.Contains(n.RelativePath)).ToArray();
+            ? resolvedTargets
+            : resolvedTargets.Where(n => !hiddenPaths.Contains(n.RelativePath)).ToArray();
         var contentPaths = new HashSet<string>(contentTargets.Select(n => n.RelativePath), StringComparer.OrdinalIgnoreCase);
         var annotateContent = request.Mode == ContextMode.TreeAndSelected ? contentPaths : null;
 
@@ -250,6 +273,11 @@ public sealed class ContextCollector
         AppendOverview(sb, request, treeVisibleCount, contentTargets.Count);
         AppendStandingContext(sb, request.Project.StandingContext);
         if (IncludesTree(request.Mode)) AppendTree(sb, files, hiddenPaths, annotateContent);
+
+        // ツリーを含まないモード（選択ファイル・差分のみ）では、除外により内容を出せなかった
+        // 選択済みファイルがツリーの注記で救われないため、ここで代わりに明記する
+        // （TargetResolution.ExcludedRequestedのコメント・AppendOmittedContentNoticeのコメント参照）。
+        if (!IncludesTree(request.Mode)) AppendOmittedContentNotice(sb, targetsResult.Value.ExcludedRequested);
 
         var issues = new List<GraftIssue>(targetsResult.Issues);
         if (IncludesFiles(request.Mode))
@@ -278,14 +306,51 @@ public sealed class ContextCollector
         return GraftResult<string>.Ok(BuildTreeText(scan.Value, EmptyPathSet, null));
     }
 
-    /// <summary>{{files}} 展開用に、request のモードに従って選択されたファイルの全文のみを返す。</summary>
+    /// <summary>
+    /// {{files}} 展開用に、request のモードに従って選択されたファイルの全文のみを返す。
+    /// こちらもツリーを持たないため、除外により内容を出せなかった選択済みファイルは
+    /// <see cref="CollectAsync"/>と同様に本文冒頭へ明記する（AppendOmittedContentNoticeの
+    /// コメント参照）。
+    /// </summary>
     public async Task<GraftResult<string>> BuildFilesTextAsync(ContextRequest request, CancellationToken ct = default)
     {
         var scan = await ScanAsync(request.Project, request.Settings, ct).ConfigureAwait(false);
         if (!scan.IsSuccess) return GraftResult<string>.Fail(scan.Issues);
         var targets = await ResolveTargetsAsync(request, scan.Value, ct).ConfigureAwait(false);
         if (!targets.IsSuccess) return GraftResult<string>.Fail(targets.Issues);
-        return await BuildFileSectionsAsync(request.Project.Root, targets.Value, ct).ConfigureAwait(false);
+        var filesText = await BuildFileSectionsAsync(request.Project.Root, targets.Value.Targets, ct).ConfigureAwait(false);
+        if (targets.Value.ExcludedRequested.Count == 0) return filesText;
+
+        var sb = new StringBuilder();
+        AppendOmittedContentNotice(sb, targets.Value.ExcludedRequested);
+        sb.Append(filesText.Value);
+        return GraftResult<string>.Ok(sb.ToString(), filesText.Issues);
+    }
+
+    /// <summary>
+    /// 選択（または差分対象）ではあったが、除外規則により内容を出力できなかったファイルを
+    /// 本文中に明記する。ツリーを含むモードでは<see cref="BuildTreeText"/>の除外注記
+    /// （「(理由・内容は非出力)」）が既にこの役割を果たしているため、呼び出すのはツリーを
+    /// 含まないモード（選択ファイル・差分のみ）に限る。
+    ///
+    /// なぜ必要か（実機起因の欠落report3(a)）: 従来はここで何もしておらず、利用者が
+    /// 「選択ファイル」モードで明示的にチェックした1MB超のファイル等が、ツリーが無いため
+    /// 注記される場所も無いまま出力から完全に消えていた。中身が切り詰められたのではなく、
+    /// 選んだのに何の説明もなく無かったことにされる、本物の「欠落」だった。
+    /// 既存の「(構成のみ・内容は省略)」と同じ流儀で、AIにも人にも「これは意図的に省かれた」
+    /// と分かる形にする。
+    /// </summary>
+    private static void AppendOmittedContentNotice(StringBuilder sb, IReadOnlyList<ContextFileNode> excludedRequested)
+    {
+        if (excludedRequested.Count == 0) return;
+        sb.AppendLine("# 内容を省略したファイル");
+        sb.AppendLine();
+        sb.AppendLine("選択されましたが、次の理由により内容は出力に含まれていません。");
+        foreach (var node in excludedRequested)
+        {
+            sb.Append("- ").Append(node.RelativePath).Append("  (").Append(node.ExcludeReason).AppendLine(")");
+        }
+        sb.AppendLine();
     }
 
     private static bool IncludesTree(ContextMode mode) => mode is ContextMode.TreeOnly or ContextMode.TreeAndSelected;
@@ -506,35 +571,62 @@ public sealed class ContextCollector
         return FenceLanguagesByFileName.TryGetValue(fileName, out var byFileName) ? byFileName : string.Empty;
     }
 
-    private async Task<GraftResult<IReadOnlyList<ContextFileNode>>> ResolveTargetsAsync(
+    /// <summary>
+    /// ResolveTargetsAsync/ResolvePathsの結果。<see cref="Targets"/>は実際に内容を出力する
+    /// ファイル、<see cref="ExcludedRequested"/>は「選択（または差分）はされたが、除外規則
+    /// （サイズ超過・バイナリ・.gitignore等）により内容を出力できなかった」ファイル。
+    ///
+    /// 後者を別枠で持つ理由（実機起因の欠落report3(a)）: 以前は<see cref="ResolvePaths"/>が
+    /// 除外ファイルを結果から静かに落とすだけで、呼び出し側にはその事実が一切伝わらなかった。
+    /// ツリーを含むモード（TreeOnly・TreeAndSelected）ではBuildTreeTextが除外理由を書くため
+    /// 気付けるが、ツリーを持たない「選択ファイル」「差分のみ」モードでは、利用者が明示的に
+    /// チェックした1MB超のファイルなどが本文からも痕跡なく消えていた。この情報を
+    /// <see cref="CollectAsync"/>側へ返せるようにし、ツリーが無いモードでは本文中に
+    /// 明記できるようにする。
+    /// </summary>
+    private readonly record struct TargetResolution(
+        IReadOnlyList<ContextFileNode> Targets, IReadOnlyList<ContextFileNode> ExcludedRequested);
+
+    private static readonly TargetResolution EmptyTargetResolution = new(Array.Empty<ContextFileNode>(), Array.Empty<ContextFileNode>());
+
+    private async Task<GraftResult<TargetResolution>> ResolveTargetsAsync(
         ContextRequest request, IReadOnlyList<ContextFileNode> files, CancellationToken ct)
     {
         if (request.Mode == ContextMode.TreeOnly)
         {
-            return GraftResult<IReadOnlyList<ContextFileNode>>.Ok(Array.Empty<ContextFileNode>());
+            return GraftResult<TargetResolution>.Ok(EmptyTargetResolution);
         }
 
         if (request.Mode == ContextMode.ChangedSince)
         {
-            if (request.SinceRevision is null) return GraftResult<IReadOnlyList<ContextFileNode>>.Ok(Array.Empty<ContextFileNode>());
+            if (request.SinceRevision is null) return GraftResult<TargetResolution>.Ok(EmptyTargetResolution);
             var changed = await LoadChangedPathsAsync(request.Project, request.SinceRevision.Value, ct).ConfigureAwait(false);
-            if (!changed.IsSuccess) return GraftResult<IReadOnlyList<ContextFileNode>>.Fail(changed.Issues);
-            return GraftResult<IReadOnlyList<ContextFileNode>>.Ok(ResolvePaths(files, changed.Value));
+            if (!changed.IsSuccess) return GraftResult<TargetResolution>.Fail(changed.Issues);
+            return GraftResult<TargetResolution>.Ok(ResolvePaths(files, changed.Value));
         }
 
-        return GraftResult<IReadOnlyList<ContextFileNode>>.Ok(ResolvePaths(files, request.SelectedPaths));
+        return GraftResult<TargetResolution>.Ok(ResolvePaths(files, request.SelectedPaths));
     }
 
-    private static IReadOnlyList<ContextFileNode> ResolvePaths(IReadOnlyList<ContextFileNode> files, IReadOnlyList<string> paths)
+    /// <summary>
+    /// 指定パス群をノードへ解決する。存在し除外もされていないファイルは<see cref="TargetResolution.Targets"/>
+    /// へ、存在するが除外されているファイルは理由を明示できるよう<see cref="TargetResolution.ExcludedRequested"/>
+    /// へ振り分ける（パスがそもそも存在しない場合は、削除済み等の呼び出し側の不整合として無視する。
+    /// 従来からの挙動を変えない）。
+    /// </summary>
+    private static TargetResolution ResolvePaths(IReadOnlyList<ContextFileNode> files, IReadOnlyList<string> paths)
     {
-        var byPath = files.Where(f => !f.IsDirectory && !f.IsExcluded)
+        var byPath = files.Where(f => !f.IsDirectory)
             .ToDictionary(f => Normalize(f.RelativePath), StringComparer.OrdinalIgnoreCase);
-        var result = new List<ContextFileNode>();
+        var targets = new List<ContextFileNode>();
+        var excludedRequested = new List<ContextFileNode>();
         foreach (var raw in paths)
         {
-            if (byPath.TryGetValue(Normalize(raw), out var node)) result.Add(node);
+            if (!byPath.TryGetValue(Normalize(raw), out var node)) continue;
+            if (node.IsExcluded) excludedRequested.Add(node);
+            else targets.Add(node);
         }
-        return result;
+        return new TargetResolution(targets, excludedRequested);
     }
 
     /// <summary>
