@@ -367,13 +367,23 @@ public class MisleadingMessageUiRegressionTests : IDisposable
         public IUiTimer CreateTimer(TimeSpan interval, Action onTick) => _inner.CreateTimer(interval, onTick);
     }
 
+    /// <summary>
+    /// Atomフィードは常に「使えない」を返し、GitHub Releases APIだけで確認する経路を
+    /// たどらせる（このテストファイルの関心はAtom優先のオーケストレーションではないため。
+    /// そちらはUpdateCheckerTests側で固定する）。
+    /// </summary>
     private sealed class FakeReleaseFeed : IReleaseFeed
     {
         private readonly GitHubReleaseInfo? _response;
 
         public FakeReleaseFeed(GitHubReleaseInfo? response) => _response = response;
 
-        public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(string checkUrl, string userAgent, CancellationToken ct)
-            => Task.FromResult(_response);
+        public Task<AtomFeedTag?> TryGetLatestTagFromAtomAsync(string checkUrl, CancellationToken ct)
+            => Task.FromResult<AtomFeedTag?>(null);
+
+        public Task<ReleaseFetchResult> GetLatestReleaseAsync(string checkUrl, string userAgent, CancellationToken ct)
+            => Task.FromResult(_response is null
+                ? ReleaseFetchResult.Fail(ReleaseFetchFailureReason.Unknown)
+                : ReleaseFetchResult.Ok(_response));
     }
 }

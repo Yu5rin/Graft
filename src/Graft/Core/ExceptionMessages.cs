@@ -195,7 +195,11 @@ public static class ExceptionMessages
     /// 「名前解決に失敗した」のか「（名前は解決できたが）接続やプロキシで失敗した」のかを
     /// 区別できない。判定できない場合（InnerExceptionが無い・別の型）は名前解決以外の
     /// 一般的な接続失敗として扱う（呼び出し元のswitch式のフォールスルー）。
+    ///
+    /// <see cref="Update.GitHubReleaseFeed"/>が更新確認の失敗理由（<see
+    /// cref="Update.ReleaseFetchFailureReason"/>）を分類する際にも同じ判定を使うため、
+    /// 同一アセンブリ内に限りinternalで公開する（判定ロジックを2箇所に重複させないため）。
     /// </summary>
-    private static bool IsNameResolutionFailure(Exception ex)
+    internal static bool IsNameResolutionFailure(Exception ex)
         => ex.InnerException is SocketException { SocketErrorCode: SocketError.HostNotFound or SocketError.TryAgain };
 }
