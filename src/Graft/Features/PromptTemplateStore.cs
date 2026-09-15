@@ -395,6 +395,68 @@ public sealed class PromptTemplateStore
         "パッチ本文に ``` が含まれる場合（Markdownファイルの編集など）は、外側をバッククォート4個にし、" +
         "1行目を ````text、最終行を ```` としてください。";
 
+    /// <summary>
+    /// 利用者の実機不具合対応: パッチ適用でインデントが1文字削られる事故が実際に起きた。
+    /// 原因はAIが出したSEARCH部が実ファイルと1文字違っていた（記憶・推測で再構成した）ことに
+    /// あり、Graft側のパッチ適用処理を直しても「AIがそもそも不正確なSEARCHを出す」という
+    /// 発生源を塞がない限り再発しうる。そこでAIの出力段階でSEARCH部の作り方を明文化し、
+    /// 事故の発生率そのものを下げるために追加した規則。
+    ///
+    /// 【FullBody・FixRequestFormatInstruction・NewFileBodyの3箇所で同じ文を挿入するのに、
+    /// 定数を1つだけ新設して共有する理由】3箇所へ似た文をそれぞれ書くと、後から文言を
+    /// 育てていく過程で必ずどこかを直し忘れて食い違う（このファイル自体、標準SR形式側で
+    /// <see cref="StandardRuleNote"/>を複数テンプレートが共用しているのと同じ理由づけ）。
+    /// 正本を1箇所にし、3箇所は参照するだけにしておけば、将来の追記・訂正が自動的に
+    /// 全箇所へ反映される。
+    ///
+    /// 【本文に"NEED_MORE_CONTEXT"という語を含めても、テンプレート本文自体が
+    /// 「情報不足の申告」として誤検知されない理由】<see cref="StandardSearchReplaceAdapter.IsNeedMoreContext"/>
+    /// の実装を確認したところ、空行とコードフェンス行（```で始まる行）を取り除いた後に
+    /// 残る「意味のある行」がちょうど1行だけで、かつその1行が"NEED_MORE_CONTEXT"という
+    /// 文字列と完全一致する場合にのみ true を返す作りになっている。このテンプレート本文は
+    /// 見出し・箇条書き・他の規則文など多数の行を含み、"NEED_MORE_CONTEXT"は
+    /// 「"NEED_MORE_CONTEXT: &lt;ファイルパス&gt;"の1行のみを出力して」という説明文の中に
+    /// 埋め込まれているだけなので、意味のある行が1行に絞られることはなく、
+    /// IsNeedMoreContextは常にfalseを返す。したがってテンプレート本文をコピーしただけで
+    /// 「AIが情報不足を申告した」と誤解されることはない。
+    ///
+    /// 【<see cref="Core.PatchTextDetector"/>の既存の誤検知対策を壊さない理由】この規則文は
+    /// <c>&lt;&lt;&lt;&lt;</c>・<c>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</c>のようなパッチマーカーを
+    /// 新たに増やしていない（見出し【】や箇条書きの「-」だけで書かれている）。
+    /// PatchTextDetectorの「パスらしい見た目（拡張子または区切りを持つ）」を要求する
+    /// 誤検知対策はパスを伴うヘッダ（<<<< FILE: 等）が存在する場合にのみ働く判定であり、
+    /// 本規則文が新たにそうしたヘッダを増やすことも無いため、既存の対策（および
+    /// PromptTemplateCodeBlockTests.既定テンプレートの本文自体は自動検知しない）を壊さない。
+    /// </summary>
+    private const string SearchBlockRuleNote =
+        "【SEARCH部の作成規則】\n" +
+        "- SEARCH部は、添付・提示された実際のファイル内容から\n" +
+        "  一字一句そのままコピーする。記憶・推測・再構成は禁止。\n" +
+        "- 次のいずれかに該当する場合は、パッチを出力せず\n" +
+        "  「NEED_MORE_CONTEXT: <ファイルパス>」の1行のみを出力して、\n" +
+        "  現在のコードの提示を求める。\n" +
+        "  - 対象ファイルの該当箇所が提示されていない\n" +
+        "  - 提示された内容だけでは変更箇所を一意に特定できない\n" +
+        "  - 複数回のパッチ適用によって現在のファイル内容が確実でない\n" +
+        "- SEARCH部は前後に文脈行を1行以上含め、そのファイル内で\n" +
+        "  一意になるまで範囲を広げる。似た並びが複数ある箇所\n" +
+        "  （設定キーの列挙、配列要素の並びなど）では特に注意する。\n" +
+        "- 同一ファイルに複数のSEARCH/REPLACEを作る場合、\n" +
+        "  各SEARCH範囲が互いに重複しないようにする。\n" +
+        "- 変更は必要最小限にする。ただし1行単位の最小編集より、\n" +
+        "  関数・条件分岐など意味のある塊で編集する。\n" +
+        "- 無関係な整形、空白変更、改行変更、並び替え、\n" +
+        "  コメント修正は禁止。既存のインデント・空白・改行\n" +
+        "  スタイルを維持する。\n" +
+        "- 省略記号（...）、placeholder、擬似コードは禁止。\n" +
+        "  MODE=FULL では全文を省略せず記述する。\n" +
+        "- ファイルパスは相対パスで記述する\n" +
+        "  （絶対パスや ../ による親階層への指定は禁止）。\n" +
+        "- インデントは半角スペース4個（またはプロジェクトの既存\n" +
+        "  スタイル）に統一する。新規ファイル作成時も同様。\n" +
+        "  既存ファイルを修正する場合は、そのファイルの\n" +
+        "  既存インデント幅に合わせる。";
+
     /// <summary>仕様書4.8「初回用（完全版）」の本文。</summary>
     private const string FullBody =
         "コードの修正を提案する際は、必ず以下の形式で出力してください。\n" +
@@ -420,6 +482,8 @@ public sealed class PromptTemplateStore
         "（全文）\n" +
         ">>>> END\n" +
         "\n" +
+        SearchBlockRuleNote +
+        "\n\n" +
         "説明文はブロックの外に書いてください。\n" +
         "\n" +
         EscapeRuleNote +
@@ -442,6 +506,17 @@ public sealed class PromptTemplateStore
     /// <summary>
     /// 4.8.3「修正依頼」の形式指示部分（standingContext/filesを含まない）。単体でも、
     /// 選択範囲からの修正依頼プロンプト（<see cref="BuildSelectionFixRequestPrompt"/>）でも使う。
+    ///
+    /// 【MODE=FULLの書き方を例示していないのに<see cref="SearchBlockRuleNote"/>を
+    /// そのまま（「MODE=FULL では全文を省略せず記述する。」の一文も含めて）共有する理由】
+    /// この本文自体はSEARCH/REPLACE形式しか例示していないが、実際に適用する側の
+    /// <see cref="Core.PatchParser"/>は「修正依頼」から出力されたパッチであっても
+    /// MODE=FULLのFILEブロックを区別なく受け付ける（パーサはテンプレートの種類を
+    /// 認識しない）。修正依頼の対話中でもAIが「対象ファイルが実質的に全面書き換えに
+    /// なる」と判断してMODE=FULLで返してくることは起こり得るため、規則としては
+    /// 依然として有効であり、削ると「その場合に省略記号を使ってよい」という誤った
+    /// 余地を与えてしまう。そのため文面を本文の見た目に合わせて調整せず、
+    /// FullBody・NewFileBodyと共通の<see cref="SearchBlockRuleNote"/>をそのまま使う。
     /// </summary>
     private const string FixRequestFormatInstruction =
         "コードの修正を提案する際は、必ず以下の形式で出力してください。\n" +
@@ -462,6 +537,8 @@ public sealed class PromptTemplateStore
         "（修正後のコード）\n" +
         ">>>>>>> REPLACE\n" +
         "\n" +
+        SearchBlockRuleNote +
+        "\n\n" +
         "説明文はブロックの外に書いてください。\n" +
         "\n" +
         EscapeRuleNote +
@@ -473,6 +550,35 @@ public sealed class PromptTemplateStore
     /// <summary>4.8.3「修正依頼」: 形式指示（SR優先）＋standingContext＋files。</summary>
     private const string FixRequestBody =
         FixRequestFormatInstruction + "\n\n# 前提\n{{standingContext}}\n\n# 対象ファイル\n{{files}}";
+
+    /// <summary>
+    /// 「新規実装」向けの縮小版規則。<see cref="SearchBlockRuleNote"/>のうちSEARCH部を
+    /// 前提にした5項目（実ファイルからの一字一句コピー・NEED_MORE_CONTEXT・文脈行による
+    /// 一意化・SEARCH範囲の重複禁止・意味のある塊で編集）は、<see cref="NewFileBody"/>が
+    /// MODE=FULLのみを例示しSEARCH/REPLACEを出させないため、従う対象となるSEARCH部が
+    /// 本文中にそもそも存在せず、そのまま載せると宛先の無い指示になってしまう。そこで
+    /// 新規作成でも意味を持つ残り4項目（整形・省略記号・相対パス・インデント幅）だけを
+    /// 抜き出した別の定数として新設した。
+    ///
+    /// 【見出しを【SEARCH部の作成規則】ではなく【作成規則】にした理由】SEARCH部が
+    /// 一切登場しないテンプレートで見出しに「SEARCH部の」を残すと、AIが見出しだけを見て
+    /// 「このテンプレートには自分に該当する指示は無い」と読み飛ばしてしまう恐れがある。
+    /// 中身がSEARCH部に依存しない4項目だけになったことに合わせ、見出しも
+    /// SEARCH部を名乗らない汎用的な表現に変えた。
+    /// </summary>
+    private const string NewFileRuleNote =
+        "【作成規則】\n" +
+        "- 無関係な整形、空白変更、改行変更、並び替え、\n" +
+        "  コメント修正は禁止。既存のインデント・空白・改行\n" +
+        "  スタイルを維持する。\n" +
+        "- 省略記号（...）、placeholder、擬似コードは禁止。\n" +
+        "  MODE=FULL では全文を省略せず記述する。\n" +
+        "- ファイルパスは相対パスで記述する\n" +
+        "  （絶対パスや ../ による親階層への指定は禁止）。\n" +
+        "- インデントは半角スペース4個（またはプロジェクトの既存\n" +
+        "  スタイル）に統一する。新規ファイル作成時も同様。\n" +
+        "  既存ファイルを修正する場合は、そのファイルの\n" +
+        "  既存インデント幅に合わせる。";
 
     /// <summary>4.8.3「新規実装」: 形式指示（FULL許可）＋standingContext＋tree。</summary>
     private const string NewFileBody =
@@ -489,6 +595,8 @@ public sealed class PromptTemplateStore
         "（全文）\n" +
         ">>>> END\n" +
         "\n" +
+        NewFileRuleNote +
+        "\n\n" +
         "説明文はブロックの外に書いてください。\n" +
         "\n" +
         EscapeRuleNote +
