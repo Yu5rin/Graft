@@ -136,6 +136,33 @@ public sealed partial class DiffViewModel : ObservableObject
     /// <summary>段階5（類似度）でマッチした要確認ブロックかどうか（8.7）。</summary>
     public bool NeedsConfirmation => _plan?.NeedsConfirmation ?? false;
 
+    /// <summary>
+    /// 実機不具合対応（修正4）: 段階3（相対インデント一致）で実際にインデント補正を行ったか
+    /// どうか。以前は補正の有無・量がどの画面にも表示されず、利用者は書き込まれた内容が
+    /// 補正されたものかどうかを画面から判断できなかった（インデント1文字が意図せず潰れる
+    /// 不具合も、この「見えなさ」のせいで発覚が遅れた）。0（補正なし。ゲートで見送られた
+    /// 場合を含む）ではバナーを出さない。
+    /// </summary>
+    public bool HasIndentCorrection => (_plan?.IndentCorrectionChars ?? 0) != 0;
+
+    /// <summary>
+    /// <see cref="HasIndentCorrection"/>のバナーに表示する日本語の文言。符号を数値のまま
+    /// 見せるのではなく「追加」「削除」という向きの言葉に変換し、一目で方向が分かるようにする。
+    /// </summary>
+    public string IndentCorrectionText
+    {
+        get
+        {
+            var chars = _plan?.IndentCorrectionChars ?? 0;
+            return chars switch
+            {
+                0 => string.Empty,
+                > 0 => $"インデントを{chars}文字追加して書き込みます。内容を確認してください。",
+                _ => $"インデントを{-chars}文字削除して書き込みます。内容を確認してください。",
+            };
+        }
+    }
+
     /// <summary><see cref="IsIncluded"/> をユーザーが切り替えられるかどうか。</summary>
     public bool CanToggleInclusion => _plan?.NeedsConfirmation ?? false;
 
@@ -224,6 +251,8 @@ public sealed partial class DiffViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(NeedsConfirmation));
         OnPropertyChanged(nameof(CanToggleInclusion));
+        OnPropertyChanged(nameof(HasIndentCorrection));
+        OnPropertyChanged(nameof(IndentCorrectionText));
         OnPropertyChanged(nameof(IsFailed));
         OnPropertyChanged(nameof(IsMissingFile));
         OnPropertyChanged(nameof(MissingFileDetailText));

@@ -52,6 +52,18 @@ public sealed record BlockPlan
 
     /// <summary>削除行数。</summary>
     public int Removed { get; init; }
+
+    /// <summary>
+    /// 実機不具合対応（修正4）: 段階3（相対インデント一致）で実際にREPLACE本文へ加えた
+    /// インデント補正量（文字数）。正なら追加、負なら削除、0は「補正なし」を表す
+    /// （<see cref="MatchResult.IndentCorrectionChars"/>参照）。UI（DiffViewModel）はこれを
+    /// 使って「インデントをN文字補正して書き込みます」というバナーを出し、段階3の補正が
+    /// 画面のどこにも表示されず黙って書き換わっていた状態を解消する。OCCURRENCE=ALL等で
+    /// 1ブロックに複数一致がある場合は、そのうち絶対値が最大の補正量を代表させる
+    /// （<see cref="BlockResolver.ResolveSearchReplacePairs"/>参照。利用者に補正量を
+    /// 過小に見せないための選び方）。
+    /// </summary>
+    public int IndentCorrectionChars { get; init; }
 }
 
 /// <summary>

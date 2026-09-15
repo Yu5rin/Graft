@@ -148,6 +148,28 @@
             </StackPanel>
         </Border>
 
+        <!--
+            実機不具合対応（修正4）: 段階3（相対インデント一致）の補正量を利用者に開示するバナー。
+            以前は補正が実際に何文字・どちら向きに行われたかがどの画面にも表示されず、
+            報告された不具合（正しく書かれたREPLACEのインデントが1文字潰れて書き込まれる）に
+            利用者が気付く手立てが無かった。上のNeedsConfirmationバナーと同じ「自動的に内容が
+            変わったので確認してほしい」という位置づけのため、アイコン・色は8.7の要確認バナーを
+            踏襲する。段階3の補正はマッチの成否自体を左右しない（NeedsConfirmationは段階5専用）
+            ため、チェックボックスは出さない。HasIndentCorrectionがtrueになるのは
+            Stage==RelativeIndentかつ補正が実際に行われた場合に限るため、上のバナー
+            （NeedsConfirmation。段階5専用）とは排他的で、同時に表示されることはない。
+        -->
+        <Border Grid.Row="1" Background="{DynamicResource BgElevated}" BorderBrush="{DynamicResource StateWarn}"
+                BorderThickness="0,0,0,1" Padding="{DynamicResource SpacingSmThickness}"
+                IsVisible="{Binding HasIndentCorrection}">
+            <StackPanel Orientation="Horizontal">
+                <views:IconGlyph Data="{DynamicResource IconAlertTriangleGeometry}"
+                                 Stroke="{DynamicResource StateWarn}" Margin="0,0,8,0" />
+                <TextBlock Text="{Binding IndentCorrectionText}" VerticalAlignment="Center"
+                           AutomationProperties.Name="{Binding IndentCorrectionText}" />
+            </StackPanel>
+        </Border>
+
         <!-- diff本体（表示範囲のみレンダリング） -->
         <ListBox Grid.Row="2" ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource RowTemplate}"
                  Background="Transparent" BorderThickness="0"

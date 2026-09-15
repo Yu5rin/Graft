@@ -38,6 +38,15 @@ public sealed record MatchResult
 
     /// <summary>段階5のとき true。プレビューで強調し個別承認を求める。</summary>
     public bool NeedsConfirmation { get; init; }
+
+    /// <summary>
+    /// 実機不具合対応（修正4）: 段階3（相対インデント一致）で実際にREPLACE本文へ加えた
+    /// インデント補正量（文字数）。正なら追加、負なら削除、0は「補正なし」を表す
+    /// （段階3以外の全段階、および段階3でもTextNormalizer.ApplyIndentCorrectionのゲートで
+    /// 見送られた場合はここが必ず0になる）。黙って書き換えるのではなく、この値をUI
+    /// （DiffViewModel.IndentCorrectionText）まで届けて利用者に開示するために保持する。
+    /// </summary>
+    public int IndentCorrectionChars { get; init; }
 }
 
 /// <summary>
@@ -71,8 +80,9 @@ public sealed class MatchEngine
 
         var range = resolved.Value;
         var match = new LineMatch { StartLine = range.StartLine, LineCount = range.LineCount };
-        var result = BuildResult(fileLines, pair, range.Stage, match, similarity: 1.0, needsConfirmation: false);
-        return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { result }, resolved.Issues);
+        var built = BuildResult(fileLines, pair, range.Stage, match, similarity: 1.0, needsConfirmation: false);
+        if (!built.IsSuccess) return GraftResult<IReadOnlyList<MatchResult>>.Fail(built.Issues);
+        return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { built.Value }, resolved.Issues);
     }
 
     private GraftResult<IReadOnlyList<MatchResult>> MatchPlain(
@@ -97,9 +107,10 @@ public sealed class MatchEngine
             {
                 var best = scan.Match;
                 var match = new LineMatch { StartLine = best.StartLine, LineCount = best.LineCount };
-                var result = BuildResult(fileLines, pair, MatchStage.Similarity, match,
+                var built = BuildResult(fileLines, pair, MatchStage.Similarity, match,
                     similarity: best.Similarity, needsConfirmation: true);
-                return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { result });
+                if (!built.IsSuccess) return GraftResult<IReadOnlyList<MatchResult>>.Fail(built.Issues);
+                return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { built.Value });
             }
 
             // 段階5は枝刈りで十分速くなったが（SimilarityScorerのクラスコメント参照）、
@@ -128,10 +139,14 @@ public sealed class MatchEngine
     {
         if (occurrence.All)
         {
-            var all = matches
-                .OrderByDescending(m => m.StartLine)
-                .Select(m => BuildResult(fileLines, pair, stage, m, similarity: 1.0, needsConfirmation: false))
-                .ToArray();
+            var all = new List<MatchResult>();
+            foreach (var m in matches.OrderByDescending(m => m.StartLine))
+            {
+                var built = BuildResult(fileLines, pair, stage, m, similarity: 1.0, needsConfirmation: false);
+                if (!built.IsSuccess) return GraftResult<IReadOnlyList<MatchResult>>.Fail(built.Issues);
+                all.Add(built.Value);
+            }
+
             return GraftResult<IReadOnlyList<MatchResult>>.Ok(all);
         }
 
@@ -149,7 +164,8 @@ public sealed class MatchEngine
             }
 
             var single = BuildResult(fileLines, pair, stage, matches[0], similarity: 1.0, needsConfirmation: false);
-            return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { single });
+            if (!single.IsSuccess) return GraftResult<IReadOnlyList<MatchResult>>.Fail(single.Issues);
+            return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { single.Value });
         }
 
         // ここへ来るのは OCCURRENCE を明示的に書いた場合だけ（OCCURRENCE=1 を含む）。
@@ -164,17 +180,29 @@ public sealed class MatchEngine
 
         var chosen = BuildResult(fileLines, pair, stage, matches[index - 1],
             similarity: 1.0, needsConfirmation: false);
-        return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { chosen });
+        if (!chosen.IsSuccess) return GraftResult<IReadOnlyList<MatchResult>>.Fail(chosen.Issues);
+        return GraftResult<IReadOnlyList<MatchResult>>.Ok(new[] { chosen.Value });
     }
 
-    private static MatchResult BuildResult(IReadOnlyList<string> fileLines, SearchReplacePair pair,
+    private static GraftResult<MatchResult> BuildResult(IReadOnlyList<string> fileLines, SearchReplacePair pair,
         MatchStage stage, LineMatch match, double similarity, bool needsConfirmation)
     {
-        var applied = stage == MatchStage.RelativeIndent
+        var (applied, correctionChars) = stage == MatchStage.RelativeIndent
             ? ApplyIndentCorrection(fileLines, pair, match.StartLine)
-            : pair.ReplaceText;
+            : (pair.ReplaceText, 0);
 
-        return new MatchResult
+        // 修正3（実機不具合の再発防止）: インデント補正の内部検証。補正の有無に関わらず、
+        // 「行頭空白を除けばREPLACE本文と1文字も違わない」という不変条件を必ず確認する。
+        // これが破れるのは、TextNormalizer.ApplyIndentCorrection自身に将来バグが入った
+        // （ゲートをすり抜けた／dominantCharの適用を誤った等）場合であり、その状態のまま
+        // 黙って書き込むと、今回報告された不具合と同種の「利用者が意図した内容を書き換えて
+        // しまう」事故を繰り返す。検証に失敗したら書き込む前に必ず止め、E217として報告する。
+        if (!IndentCorrectionPreservesContent(pair.ReplaceText, applied))
+        {
+            return GraftResult<MatchResult>.Fail(ErrorCode.E217, line: pair.SourceLine);
+        }
+
+        var result = new MatchResult
         {
             Stage = stage,
             StartLine = match.StartLine,
@@ -182,16 +210,38 @@ public sealed class MatchEngine
             AppliedReplacement = applied,
             Similarity = similarity,
             NeedsConfirmation = needsConfirmation,
+            IndentCorrectionChars = correctionChars,
         };
+        return GraftResult<MatchResult>.Ok(result);
     }
 
-    private static string ApplyIndentCorrection(IReadOnlyList<string> fileLines, SearchReplacePair pair, int startLine)
+    /// <summary>
+    /// 修正3の不変条件そのもの: 行数が一致し、かつ各行が行頭空白を除いて1文字も違わないこと。
+    /// 行末はインデント補正の対象外（触っていないはず）なので、行頭空白を取り除いた残り全体
+    /// （行末含む）を比較する。
+    /// </summary>
+    private static bool IndentCorrectionPreservesContent(string replaceText, string applied)
+    {
+        var replaceLines = TextNormalizer.SplitLines(replaceText);
+        var appliedLines = TextNormalizer.SplitLines(applied);
+        if (replaceLines.Count != appliedLines.Count) return false;
+
+        for (var i = 0; i < replaceLines.Count; i++)
+        {
+            if (replaceLines[i].TrimStart(' ', '\t') != appliedLines[i].TrimStart(' ', '\t')) return false;
+        }
+
+        return true;
+    }
+
+    private static (string Applied, int CorrectionChars) ApplyIndentCorrection(
+        IReadOnlyList<string> fileLines, SearchReplacePair pair, int startLine)
     {
         var searchLines = TextNormalizer.SplitLines(pair.SearchText);
         var searchFirstLine = searchLines.Count > 0 ? searchLines[0] : string.Empty;
         var delta = TextNormalizer.LeadingWhitespace(fileLines[startLine]).Length
                     - TextNormalizer.LeadingWhitespace(searchFirstLine).Length;
         var dominantChar = TextNormalizer.DominantIndentChar(fileLines);
-        return TextNormalizer.ApplyIndentCorrection(pair.ReplaceText, delta, dominantChar);
+        return TextNormalizer.ApplyIndentCorrection(searchLines, pair.ReplaceText, delta, dominantChar);
     }
 }
