@@ -266,6 +266,46 @@ public class PromptTemplateCodeBlockTests
             "閉じていないコードフェンスの中身は除外せず、切断パッチとして従来どおり検知するはず");
     }
 
+    // ------------------------------------------------------------------
+    // 利用者の実機不具合対応: パッチ適用でインデントが1文字削られた事故を踏まえ、
+    // Graft独自形式の既定テンプレートへ【SEARCH部の作成規則】（新規実装のみ【作成規則】）を
+    // 追加したことの固定テスト。標準SR形式側（builtin-full 等）は今回の対象外であり、
+    // 本文が変わっていないことも合わせて固定する。
+    // ------------------------------------------------------------------
+
+    [Theory(DisplayName = "Graft独自形式の初回用・修正依頼は【SEARCH部の作成規則】とNEED_MORE_CONTEXTを含む")]
+    [InlineData("builtin-graft-full")]
+    [InlineData("builtin-graft-fix-request")]
+    public void Graft独自形式の初回用と修正依頼はSEARCH部の作成規則を含む(string id)
+    {
+        var body = Body(id);
+        body.Should().Contain("【SEARCH部の作成規則】");
+        body.Should().Contain("NEED_MORE_CONTEXT");
+    }
+
+    [Fact(DisplayName = "Graft独自形式の新規実装は【作成規則】を含むが【SEARCH部の作成規則】は含まない")]
+    public void Graft独自形式の新規実装は作成規則を含みSEARCH部の作成規則は含まない()
+    {
+        var body = Body("builtin-graft-new-file");
+        body.Should().Contain("【作成規則】");
+        body.Should().NotContain("【SEARCH部の作成規則】");
+    }
+
+    [Theory(DisplayName = "Graft独自形式の既定テンプレートへ規則を追加しても自動検知（誤検知）は起きない")]
+    [InlineData("builtin-graft-full")]
+    [InlineData("builtin-graft-fix-request")]
+    [InlineData("builtin-graft-new-file")]
+    public void 規則追加後もGraft独自形式のテンプレート本文は自動検知しない(string id)
+        => PatchTextDetector.LooksLikePatch(Body(id)).Should().BeFalse(
+            $"{id} は【】や「-」の箇条書きだけで書かれた規則文であり、パッチマーカーを新たに増やしていないため誤検知してはいけない");
+
+    [Theory(DisplayName = "標準SEARCH/REPLACE形式のテンプレートは今回の変更の対象外で、本文が変わっていない")]
+    [InlineData("builtin-full")]
+    [InlineData("builtin-fix-request")]
+    [InlineData("builtin-new-file")]
+    public void 標準SR形式のテンプレートはSEARCH部の作成規則を含まない(string id)
+        => Body(id).Should().NotContain("【SEARCH部の作成規則】", $"{id} は標準SR形式のテンプレートであり、今回の変更対象はGraft独自形式（builtin-graft-*）に限られる");
+
     /// <summary>
     /// FullBody/FixRequestBody/NewFileBodyが指示する形（PATCHメタ＋複数のFILEブロックを
     /// すべて含めて1つの外側```で囲む）を模した、実在しそうなパスを持つAIの回答らしいテキスト。
