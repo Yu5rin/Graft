@@ -265,6 +265,21 @@ public sealed partial class SettingsViewModel
             message += $"{Environment.NewLine}{Environment.NewLine}【注意】更新の取得先が既定から変更されています: {host}";
         }
 
+        // 実機不具合対応（CLAUDE.mdの実測ログ、v1.0.17）: GitHub APIの回数上限に阻まれ、
+        // ダウンロードURLを規則から組み立てて続行する経路（GitHubReleaseInfo.
+        // AllowMissingChecksum参照）では、SHA256による整合性照合を省く。追加の確認モーダルは
+        // 増やさず、既にここで見せている「新しい版があります」ダイアログの本文へ1〜2文足す形で
+        // 開示する（既定から変更された確認先URLの注意と同じ流儀）。黙って省かないこと自体が
+        // 指示書の要件であり、何が守られ何が省かれるかを具体的に書く（RunUpdateAsync側で
+        // 実際に照合を省く判断はUpdateInstallPipeline.RunAsyncのallowMissingChecksumへ渡す）。
+        if (release.AllowMissingChecksum)
+        {
+            message += $"{Environment.NewLine}{Environment.NewLine}【お知らせ】配布元への問い合わせが回数の上限に達しているため、" +
+                "整合性情報（SHA256）を取得できませんでした。そのため今回はその照合を省いて更新します。" +
+                "ダウンロード元のホストの確認と、ダウンロード後のファイル内容の検査（想定外のファイルが" +
+                "含まれていないか等）は、通常どおり行います。";
+        }
+
         var proceed = await _dialogService.ShowActionMessageAsync("更新の確認", message, "今すぐ更新")
             .ConfigureAwait(true);
         if (!proceed) return;
@@ -326,8 +341,26 @@ public sealed partial class SettingsViewModel
             var workDir = Path.Combine(Path.GetTempPath(), UpdateFiles.WorkDirectoryRootName, Guid.NewGuid().ToString("N"));
             var progress = new Progress<double>(p => UpdateProgressPercent = Math.Round(p * 100, 1));
 
+            // 実機不具合対応（CLAUDE.mdの実測ログ、v1.0.17）: allowMissingChecksumがtrueに
+            // なるのは、GitHub APIの回数上限に阻まれダウンロードURLを規則から組み立てて
+            // 続行する経路（release.AllowMissingChecksum）からだけ（既定はfalse。
+            // UpdateInstallPipeline.RunAsyncのallowMissingChecksumのコメント参照）。
+            // 【ログに必ず残す（黙って省かない。指示書の要件）】 UpdateInstallPipeline自身は
+            // Graft.Infra.Loggerを知らない設計（NetworkEnvironmentLog等、他のCore.Update配下と
+            // 同じ方針）のため、実際に省く直前であるここで記録する。allowMissingChecksumが
+            // trueになる経路はここ1箇所しか無いため、「ここで記録する」＝「実際に省かれる場合を
+            // 漏れなく記録する」になる。
+            var allowMissingChecksum = release.AllowMissingChecksum;
+            if (allowMissingChecksum)
+            {
+                Logger?.Warn("update",
+                    $"更新のインストール: 配布元への問い合わせが回数の上限に達しているため、" +
+                    $"SHA256の照合を省いて続行します（{release.TagName}、{asset.BrowserDownloadUrl}）。" +
+                    "ダウンロード元ホストの検証とZIP内容の検査は通常どおり行います。");
+            }
+
             var installResult = await _updateInstallPipeline
-                .RunAsync(asset, installDirectory, workDir, _updateCheckUrl, progress, _updateDownloadCts.Token)
+                .RunAsync(asset, installDirectory, workDir, _updateCheckUrl, allowMissingChecksum, progress, _updateDownloadCts.Token)
                 .ConfigureAwait(true);
 
             if (!installResult.Success)

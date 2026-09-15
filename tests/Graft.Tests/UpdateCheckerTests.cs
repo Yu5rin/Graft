@@ -201,24 +201,68 @@ public class UpdateCheckerTests
         feed.ApiCallCount.Should().Be(1);
     }
 
-    [Fact(DisplayName = "Atomが新しいタグを返すがAPIが403で失敗する場合、詳細は取れなくても新版があることとリリースページURLを伝える")]
-    public async Task Atomで新しいと分かりAPIが403で失敗すれば詳細なしで案内する()
+    [Fact(DisplayName = "Atomが新しいタグを返しAPIが403で失敗しても、checkUrlがGitHub API形式ならダウンロードURLを組み立てて自動更新可能にする（実機不具合対応・v1.0.17）")]
+    public async Task Atomで新しいと分かりAPIが403で失敗してもダウンロードURLを組み立てられれば自動更新可能にする()
     {
+        // 仕様変更の回帰テスト: 以前はここでUpdateAvailableNoDetails（自動更新できない案内）に
+        // していたが、GitHub Releases APIの回数上限に阻まれても、ダウンロードURLは規則的
+        // なのでAPIに頼らず組み立てられる（UpdateAtomFeedLogic.TryBuildDownloadUrl参照）。
+        // checkUrlが既定（GitHub Releases API形式）なので組み立てられ、SHA256は無いが
+        // 自動更新可能な結果になることを固定する。
         using var ws = new TempWorkspace();
         var appPaths = new AppPaths(ws.CreateDirectory("app"));
         var stateStore = new UpdateCheckStateStore(appPaths);
-        const string releaseUrl = "https://github.com/Yu5rin/Graft/releases/tag/v1.0.10";
+        const string releaseUrl = "https://github.com/Yu5rin/Graft/releases/tag/v1.0.17";
         var feed = FakeReleaseFeed.WithAtomAndApi(
-            new AtomFeedTag("v1.0.10", releaseUrl),
+            new AtomFeedTag("v1.0.17", releaseUrl),
             ReleaseFetchResult.Fail(ReleaseFetchFailureReason.RateLimited, 403));
         var checker = new UpdateChecker(feed, stateStore);
 
         var result = await checker.CheckOnStartupAsync(CheckUrl, "1.0.9", UserAgent);
 
+        result.Status.Should().Be(UpdateCheckStatus.UpdateAvailable, "ダウンロードURLを組み立てられる以上、自動更新可能な結果として扱うべき");
+        result.Release!.TagName.Should().Be("v1.0.17");
+        result.Release!.HtmlUrl.Should().Be(releaseUrl);
+        result.Release!.AllowMissingChecksum.Should().BeTrue("APIに到達できずSHA256を取得できないまま進むことを、結果に明示しなければならない");
+
+        var asset = result.Release!.FindAssetByNameSuffix("win-x64.zip");
+        asset.Should().NotBeNull();
+        asset!.BrowserDownloadUrl.Should().Be(
+            "https://github.com/Yu5rin/Graft/releases/download/v1.0.17/Graft-1.0.17-win-x64.zip",
+            "実物で確認済みの規則どおりに組み立てられているはず");
+        asset.Digest.Should().BeNull("APIに到達できていないためSHA256は取得できない");
+
+        var state = await stateStore.LoadAsync();
+        state.LastCheckSucceeded.Should().BeTrue("新しい版があることは判定できているので、確認は成功したものとして記録する");
+    }
+
+    [Fact(DisplayName = "Atomが新しいタグを返しAPIが403で失敗しても、checkUrlがGitHub API形式でなければ組み立てず、従来どおり手動案内にする（回数上限の理由も文言に含める）")]
+    public async Task Atomで新しいと分かりAPIが403で失敗しても独自の確認先なら詳細なしで案内する()
+    {
+        using var ws = new TempWorkspace();
+        var appPaths = new AppPaths(ws.CreateDirectory("app"));
+        var stateStore = new UpdateCheckStateStore(appPaths);
+        const string releaseUrl = "https://github.com/Yu5rin/Graft/releases/tag/v1.0.10";
+        // GitHub Releases APIの形（api.github.com/repos/{owner}/{repo}/releases/latest）と
+        // 異なるcheckUrl。UpdateAtomFeedLogic.TryBuildAtomUrlがnullを返すため、
+        // ダウンロードURLの組み立てにも進まない（利用者が独自の配布元を設定している場合を
+        // 塞がないための、TryBuildAtomUrlの既存の性質をそのまま利用した設計）。
+        const string customCheckUrl = "https://git.example.co.jp/api/v4/projects/1/releases/latest";
+        var feed = FakeReleaseFeed.WithAtomAndApi(
+            new AtomFeedTag("v1.0.10", releaseUrl),
+            ReleaseFetchResult.Fail(ReleaseFetchFailureReason.RateLimited, 403));
+        var checker = new UpdateChecker(feed, stateStore);
+
+        var result = await checker.CheckOnStartupAsync(customCheckUrl, "1.0.9", UserAgent);
+
         result.Status.Should().Be(UpdateCheckStatus.UpdateAvailableNoDetails);
         result.Release!.TagName.Should().Be("v1.0.10");
         result.Release!.HtmlUrl.Should().Be(releaseUrl, "自動更新できない場合、手動更新へ誘導するためリリースページのURLが必要");
+        result.Release!.AllowMissingChecksum.Should().BeFalse("組み立てられていない以上、ハッシュ省略を許可する理由が無い");
         result.ErrorMessage.Should().Contain("v1.0.10").And.Contain("自動更新はできません").And.Contain("リリースページ");
+        // 実機不具合対応（要件4）: 待てば直るのかどうかが伝わるよう、理由（回数上限の説明）を
+        // 文言に含める。以前は理由に触れず「詳細を取得できなかったため」とだけ書いていた。
+        result.ErrorMessage.Should().Contain("回数の上限");
         result.DiagnosticDetail.Should().Contain("403");
 
         var state = await stateStore.LoadAsync();

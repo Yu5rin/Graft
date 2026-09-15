@@ -114,4 +114,75 @@ public static class UpdateAtomFeedLogic
 
         return bestTag;
     }
+
+    /// <summary>
+    /// Windows版配布物（ZIP）のファイル名を、タグから組み立てる。
+    ///
+    /// 【実物で確認済みの規則（推測ではない）】 タグ<c>v1.0.17</c>に対する実際の配布物は
+    /// <c>Graft-1.0.17-win-x64.zip</c>である（先頭の<c>"v"</c>が落ちている）。つまり
+    /// <b>タグの先頭の<c>"v"/"V"</c>を1つだけ取り除いた文字列</b>をファイル名に使う。
+    /// （URLのパス部分（タグそのもの）とファイル名（"v"を落とした版）とで表記が異なる点を
+    /// 混同しないこと。<see cref="TryBuildDownloadUrl"/>参照。）
+    ///
+    /// 【<c>tools/New-Release.ps1</c>との整合（このメソッドが前提にしていること）】
+    /// 同スクリプトはZIPのファイル名を <c>"Graft-$resolvedVersion-win-x64.zip"</c> として作り
+    /// （同ファイル199行目付近）、<c>$resolvedVersion</c>には<c>Graft.csproj</c>の
+    /// <c>&lt;Version&gt;</c>の値（"v"を付けない、例: "1.0.17"）をそのまま使う（桁を補わない）。
+    /// このメソッドはその命名と一致する形（タグから"v"を落とすだけ）で組み立てている。
+    /// <b>将来<c>tools/New-Release.ps1</c>側でファイル名の付け方を変えるなら、ここも合わせて
+    /// 直す必要がある。</b>（ずれた場合の実害は「組み立てたURLが404になり自動更新に失敗する」
+    /// だけで、誤ったファイルが入ることはない。）
+    ///
+    /// 【<c>.github/workflows/release.yml</c>とは命名が食い違うが、それでよい】 同ワークフローは
+    /// <c>github.ref_name</c>（タグそのもの。"v"が付いたまま）をファイル名にも使っており、
+    /// ここでの組み立てとは一致しない。ただしこのワークフローは<c>workflow_dispatch</c>
+    /// （Actions画面からの手動実行）専用であり、タグpushでは動かない設定になっている
+    /// （かつて<c>tools/New-Release.ps1</c>による手作業のリリースと二重に動き、同じ版の書庫が
+    /// 命名違いで並んで公開される事故が起きたため、release.yml側のコメントに経緯が残っている）。
+    /// 実際のリリースは<c>tools/New-Release.ps1</c>の手作業でのみ行われる運用のため、ここでは
+    /// そちらの命名に合わせている。
+    /// </summary>
+    public static string BuildWindowsAssetFileName(string tag)
+    {
+        var stripped = tag.Length > 0 && (tag[0] == 'v' || tag[0] == 'V') ? tag[1..] : tag;
+        return $"Graft-{stripped}-win-x64.zip";
+    }
+
+    /// <summary>
+    /// GitHub Releases APIを使わずに、Windows版配布物のダウンロードURLを規則から組み立てる。
+    /// 組み立てられない場合はnull。
+    ///
+    /// <code>
+    /// https://github.com/{owner}/{repo}/releases/download/{tag}/Graft-{タグから"v"を除いた値}-win-x64.zip
+    /// </code>
+    ///
+    /// 【なぜ要るか（実機不具合対応。CLAUDE.mdの実測ログ参照）】 GitHub Releases APIには
+    /// 未認証で1時間60回・IPアドレス単位の上限がある。社内の共有回線（プロキシ経由・
+    /// 他者と共有するIP）では他の通信で先に使い切られ、Atomフィードで「新しい版がある」ことは
+    /// 分かっているのに、配布物の詳細（ダウンロードURL・SHA256）を取りに行くAPIだけが
+    /// 毎回403で失敗し、自動更新が一度も成立しなかった（実機ログ、2026-09-XX、v1.0.17）。
+    /// ダウンロードURLは上記のとおり規則的なので、APIに頼らず組み立てられる。
+    ///
+    /// 【引き換えに失うもの】 SHA256はAPIの応答（アセットのdigestフィールド）からしか
+    /// 取れないため、この経路で得られる配布物情報には付けられない。呼び出し元
+    /// （<see cref="UpdateChecker.CheckNowAsync"/>）は、ここでURLを組み立てられた場合に限り
+    /// <see cref="GitHubReleaseInfo.AllowMissingChecksum"/>をtrueにして続行する。「APIに
+    /// 到達できず理由が分かっている場合だけ省く」のであって「常に省く」わけではないことが
+    /// 重要（<see cref="UpdateInstallPipeline"/>のクラスコメント・RunAsyncのコメント参照）。
+    ///
+    /// 【前提】 <paramref name="atomUrl"/>は必ず<see cref="TryBuildAtomUrl"/>の戻り値
+    /// （非null）をそのまま渡すこと。この前提が崩れていない限り、下のEndsWith判定に
+    /// 落ちることは無い（呼び出し元がGitHub以外の確認先を設定している場合はそもそも
+    /// <see cref="TryBuildAtomUrl"/>がnullを返し、このメソッド自体を呼ぶ機会が無い。
+    /// 独自の配布元を設定した利用者に対して、こちらの都合でgithub.comへ推測アクセスしに
+    /// 行くことがないようにするための設計）。
+    /// </summary>
+    public static string? TryBuildDownloadUrl(string atomUrl, string tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return null;
+        if (!atomUrl.EndsWith(".atom", StringComparison.OrdinalIgnoreCase)) return null;
+
+        var baseUrl = atomUrl[..^".atom".Length]; // https://github.com/{owner}/{repo}/releases
+        return $"{baseUrl}/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(BuildWindowsAssetFileName(tag))}";
+    }
 }

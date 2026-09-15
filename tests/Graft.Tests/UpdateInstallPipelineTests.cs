@@ -15,7 +15,7 @@ namespace Graft.Tests;
 /// </summary>
 public class UpdateInstallPipelineTests
 {
-    [Fact(DisplayName = "digestが無いアセットはインストールしない（ChecksumUnavailable）")]
+    [Fact(DisplayName = "digestが無いアセットは既定（allowMissingChecksum=false）ではインストールしない（ChecksumUnavailable。安全側の既定挙動の固定）")]
     public async Task digestが無ければインストールしない()
     {
         using var ws = new TempWorkspace();
@@ -24,10 +24,56 @@ public class UpdateInstallPipelineTests
         var pipeline = new UpdateInstallPipeline(new FakeDownloader(zipBytes));
         var asset = new GitHubReleaseAsset { Name = "Graft-1.0.8-win-x64.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = null };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", allowMissingChecksum: false, downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.ChecksumUnavailable);
         scenario.AssertInstallDirUntouched();
+    }
+
+    [Fact(DisplayName = "allowMissingChecksum=trueかつdigestが無い場合は、SHA256の照合を飛ばしてZIPの中身の検査まで進む（実機不具合対応・v1.0.17）")]
+    public async Task ハッシュ許容フラグが立っていればSHA256を飛ばしてZIP検査まで進む()
+    {
+        // 【この検証の狙い】 allowMissingChecksum=trueでも、SHA256の照合「だけ」を省き、
+        // UpdateZipInspector.Validateによる中身の検査までは従来どおり必ず行うこと
+        // （指示書の要件）を固定する。ZIPの中身をわざと想定外にしておき、digestが無くても
+        // UnexpectedZipContentsまで到達する（＝ChecksumUnavailableで止まっていない＝
+        // 中身の検査自体はスキップされていない）ことを1つのテストで確認する。
+        using var ws = new TempWorkspace();
+        var zipBytes = BuildZipWithUnexpectedEntry();
+        var scenario = new Scenario(ws);
+        var pipeline = new UpdateInstallPipeline(new FakeDownloader(zipBytes));
+        var asset = new GitHubReleaseAsset { Name = "Graft-1.0.17-win-x64.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = null };
+
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", allowMissingChecksum: true, downloadProgress: null, CancellationToken.None);
+
+        result.Status.Should().Be(UpdateInstallStatus.UnexpectedZipContents,
+            "ChecksumUnavailableで止まっていない＝SHA256の照合は飛ばされ、ZIP中身の検査までは進んだはず");
+        scenario.AssertInstallDirUntouched();
+    }
+
+    [Fact(DisplayName = "allowMissingChecksum=trueでも、ダウンロードURLのホストが信頼できなければ中止する（ホスト検証は省かれない）")]
+    public async Task ハッシュ許容フラグが立っていてもホスト検証は素通りしない()
+    {
+        using var ws = new TempWorkspace();
+        var zipBytes = BuildValidZip();
+        var scenario = new Scenario(ws);
+        var downloader = new FakeDownloader(zipBytes);
+        var pipeline = new UpdateInstallPipeline(downloader);
+        var asset = new GitHubReleaseAsset
+        {
+            Name = "Graft-1.0.17-win-x64.zip",
+            BrowserDownloadUrl = "https://evil.example.com/Graft-1.0.17-win-x64.zip",
+            Digest = null,
+        };
+
+        var result = await pipeline.RunAsync(
+            asset, scenario.InstallDir, scenario.WorkDir, UpdateHostPolicy.DefaultCheckUrl,
+            allowMissingChecksum: true, downloadProgress: null, CancellationToken.None);
+
+        result.Status.Should().Be(UpdateInstallStatus.UntrustedDownloadHost,
+            "ハッシュ照合を省いてよい場合でも、UpdateHostPolicyによるダウンロード元ホストの検証は必ず通すべき");
+        scenario.AssertInstallDirUntouched();
+        downloader.CallCount.Should().Be(0, "信頼できないホストへは一度も接続してはならない");
     }
 
     [Fact(DisplayName = "SHA256が一致しないときはインストールしない（ChecksumMismatch）")]
@@ -43,7 +89,7 @@ public class UpdateInstallPipelineTests
             Name = "Graft-1.0.8-win-x64.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = $"sha256:{wrongHash}",
         };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", allowMissingChecksum: false, downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.ChecksumMismatch);
         scenario.AssertInstallDirUntouched();
@@ -69,7 +115,7 @@ public class UpdateInstallPipelineTests
         var progressReports = new List<double>();
         var progress = new Progress<double>(p => progressReports.Add(p));
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", progress, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", allowMissingChecksum: false, downloadProgress: progress, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.Success, result.ErrorMessage);
         foreach (var fileName in UpdateFiles.RequiredFileNames)
@@ -99,7 +145,7 @@ public class UpdateInstallPipelineTests
             Digest = $"sha256:{ComputeSha256Hex(zipBytes)}",
         };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", allowMissingChecksum: false, downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.UnexpectedZipContents);
         scenario.AssertInstallDirUntouched();
@@ -113,7 +159,7 @@ public class UpdateInstallPipelineTests
         var pipeline = new UpdateInstallPipeline(new FakeDownloader(new UpdateDownloadOutcome(UpdateDownloadStatus.Failed, "接続できませんでした。")));
         var asset = new GitHubReleaseAsset { Name = "x.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = $"sha256:{new string('a', 64)}" };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", allowMissingChecksum: false, downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.DownloadFailed);
         scenario.AssertInstallDirUntouched();
@@ -127,7 +173,7 @@ public class UpdateInstallPipelineTests
         var pipeline = new UpdateInstallPipeline(new FakeDownloader(new UpdateDownloadOutcome(UpdateDownloadStatus.Cancelled, "中断しました。")));
         var asset = new GitHubReleaseAsset { Name = "x.zip", BrowserDownloadUrl = "https://example.invalid/x.zip", Digest = $"sha256:{new string('a', 64)}" };
 
-        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", downloadProgress: null, CancellationToken.None);
+        var result = await pipeline.RunAsync(asset, scenario.InstallDir, scenario.WorkDir, checkUrl: "https://example.invalid/releases/latest", allowMissingChecksum: false, downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.Cancelled);
         scenario.AssertInstallDirUntouched();
@@ -154,7 +200,8 @@ public class UpdateInstallPipelineTests
         };
 
         var result = await pipeline.RunAsync(
-            asset, scenario.InstallDir, scenario.WorkDir, UpdateHostPolicy.DefaultCheckUrl, downloadProgress: null, CancellationToken.None);
+            asset, scenario.InstallDir, scenario.WorkDir, UpdateHostPolicy.DefaultCheckUrl,
+            allowMissingChecksum: false, downloadProgress: null, CancellationToken.None);
 
         result.Status.Should().Be(UpdateInstallStatus.UntrustedDownloadHost);
         result.ErrorMessage.Should().Contain("evil.example.com");
