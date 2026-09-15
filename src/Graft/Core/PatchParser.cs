@@ -183,7 +183,7 @@ public sealed class PatchParser
     private static PatchBlock ParseFileBlock(PatchScanner scanner, string headerText, int lineNumber)
     {
         var afterPrefix = headerText["<<<< FILE:".Length..];
-        var (rawPath, isFull, fence, occurrence, description) = ParseHeaderTokens(afterPrefix, hasPath: true);
+        var (rawPath, isFull, fence, occurrence, description) = ParseHeaderTokens(afterPrefix, hasPath: true, lineNumber);
         var path = NormalizePathOrThrow(rawPath, lineNumber);
         scanner.Next(); // FILE ヘッダ行を消費
 
@@ -232,7 +232,7 @@ public sealed class PatchParser
         while (scanner.HasNext)
         {
             var (searchLine, text) = scanner.Peek();
-            if (!TryParseSearchMarker(text, out var isRange, out var pairOccurrence, out var description))
+            if (!TryParseSearchMarker(text, searchLine, out var isRange, out var pairOccurrence, out var description))
             {
                 if (text.StartsWith("<<<<", StringComparison.Ordinal)) break;
                 scanner.Next();
@@ -287,7 +287,7 @@ public sealed class PatchParser
     }
 
     private static bool TryParseSearchMarker(
-        string text, out bool isRange, out OccurrenceSpec? occurrence, out string? description)
+        string text, int lineNumber, out bool isRange, out OccurrenceSpec? occurrence, out string? description)
     {
         isRange = false;
         occurrence = null;
@@ -308,7 +308,10 @@ public sealed class PatchParser
             return false;
         }
 
-        var (_, _, _, occ, desc) = ParseHeaderTokens(rest, hasPath: false);
+        // hasPath: false（SEARCHマーカー行はパスを持たない）。未知の属性トークンが
+        // あればParseHeaderTokens内部からSyntaxFailureがthrowされ、この呼び出しの外側
+        // （ParseSearchReplaceBody経由でParse()のtry/catch）まで伝播して打ち切られる。
+        var (_, _, _, occ, desc) = ParseHeaderTokens(rest, hasPath: false, lineNumber);
         occurrence = occ;
         description = desc;
         return true;
@@ -352,7 +355,7 @@ public sealed class PatchParser
     {
         var prefixLength = (isAppend ? "<<<< APPEND:" : "<<<< PREPEND:").Length;
         var afterPrefix = headerText[prefixLength..];
-        var (rawPath, _, fence, occurrence, description) = ParseHeaderTokens(afterPrefix, hasPath: true);
+        var (rawPath, _, fence, occurrence, description) = ParseHeaderTokens(afterPrefix, hasPath: true, lineNumber);
         var path = NormalizePathOrThrow(rawPath, lineNumber);
         scanner.Next();
 
@@ -376,9 +379,19 @@ public sealed class PatchParser
     /// ヘッダ行の残り部分から、先頭パス（任意）・属性（MODE=FULL / FENCE= / OCCURRENCE=）・
     /// "#" 以降の説明文を取り出す。<paramref name="hasPath"/> が false の場合は
     /// 先頭トークンをパスとして消費せず、すべて属性として解釈する（SEARCH マーカー行用）。
+    /// <paramref name="lineNumber"/> は未知の属性トークンを検出した際のE002報告にのみ使う。
     /// </summary>
+    /// <remarks>
+    /// 【実機事故: MODE=DELETE が黙って捨てられていた不具合】以前はここで未知のトークンを
+    /// 無視していたため、「&lt;&lt;&lt;&lt; FILE: path MODE=DELETE」のようにMODEに存在しない値を
+    /// 書かれても isFull=false のまま先へ進み、SEARCHペアを探し続けて入力が尽き、
+    /// 「パッチが途中で切れている」（E005・TruncatedSignal）という誤った診断に化けていた。
+    /// 実際には1文字も欠けておらず、利用者は間違った対処（AIに続きを依頼）へ誘導されてしまう。
+    /// 未知のトークンは黙って捨てず、ここでE002として打ち切ることで「何が」「どこが」
+    /// 間違っているかをその場で伝える。
+    /// </remarks>
     private static (string Path, bool IsFull, string? Fence, OccurrenceSpec? Occurrence, string? Description)
-        ParseHeaderTokens(string afterPrefix, bool hasPath)
+        ParseHeaderTokens(string afterPrefix, bool hasPath, int lineNumber)
     {
         var hashIdx = afterPrefix.IndexOf('#');
         var mainPart = hashIdx >= 0 ? afterPrefix[..hashIdx] : afterPrefix;
@@ -399,12 +412,92 @@ public sealed class PatchParser
         OccurrenceSpec? occurrence = null;
         foreach (var token in attrTokens)
         {
-            if (token == "MODE=FULL") isFull = true;
-            else if (token.StartsWith("FENCE=", StringComparison.Ordinal)) fence = token["FENCE=".Length..];
-            else if (token.StartsWith("OCCURRENCE=", StringComparison.Ordinal))
+            if (token == "MODE=FULL") { isFull = true; continue; }
+            if (token.StartsWith("FENCE=", StringComparison.Ordinal)) { fence = token["FENCE=".Length..]; continue; }
+            if (token.StartsWith("OCCURRENCE=", StringComparison.Ordinal))
+            {
+                // OCCURRENCE=の値そのもの（例: OCCURRENCE=abc）の妥当性検証は今回の対象外。
+                // ParseOccurrenceは不正な値を既定のSingleへ黙って倒す作りだが、これは今回の
+                // 報告（未知の"トークン"が捨てられる問題）とは別の話であり、ここで検証を
+                // 追加すると既存パッチの解釈（既定Singleへのフォールバック）が変わって
+                // しまう。トークン自体（"OCCURRENCE="というキー）は認識できているため、
+                // このforeachの中では素通りさせる。
                 occurrence = PatchTextUtil.ParseOccurrence(token["OCCURRENCE=".Length..]);
+                continue;
+            }
+
+            throw UnknownAttributeTokenFailure(token, hasPath, lineNumber);
         }
         return (path, isFull, fence, occurrence, description);
+    }
+
+    /// <summary>
+    /// ヘッダ行に現れた未知の属性トークンをE002として報告する。トークンの形によって
+    /// 利用者が次に取るべき行動が変わるため、3通りに文言を出し分ける（詳細は本ファイルを
+    /// 変更した際のPR説明・変更履歴を参照）。
+    /// </summary>
+    private static SyntaxFailure UnknownAttributeTokenFailure(string token, bool hasPath, int lineNumber)
+    {
+        if (token.StartsWith("MODE=", StringComparison.Ordinal))
+        {
+            var value = token["MODE=".Length..];
+            if (!string.Equals(value, "FULL", StringComparison.Ordinal)
+                && string.Equals(value, "FULL", StringComparison.OrdinalIgnoreCase))
+            {
+                // 大文字小文字だけの違い（MODE=full・MODE=Full等）。別の操作と取り違えている
+                // わけではなく単なる綴りの問題なので、案内を専用にする。
+                return Fail(ErrorCode.E002, lineNumber,
+                    $"\"{token}\" は使えません。MODE=FULL と大文字で書いてください。");
+            }
+
+            // MODE=で始まるが値がFULL以外（例: MODE=DELETE・MODE=RENAME・MODE=APPEND）。
+            // 「MODE=で指定できる値はFULLだけ」という否定だけでは利用者は次に何を書けば
+            // よいか分からないため、削除・改名・フォルダ作成・追記・先頭挿入それぞれに
+            // 対応する正しいヘッダをその場で名指しする。
+            return Fail(ErrorCode.E002, lineNumber,
+                $"\"{token}\" は使えません。MODE= で指定できる値は MODE=FULL だけです。" +
+                "削除は \"<<<< DELETE: パス\"、改名・移動は \"<<<< RENAME: 旧パス -> 新パス\"、" +
+                "フォルダ作成は \"<<<< MKDIR: パス\"、末尾への追記は \"<<<< APPEND: パス\"、" +
+                "先頭への挿入は \"<<<< PREPEND: パス\" のように、操作ごとに専用のヘッダを使ってください。");
+        }
+
+        if (token.Contains('=', StringComparison.Ordinal))
+        {
+            // "="を含むが既知のキー（MODE/FENCE/OCCURRENCE）のいずれでもない
+            // （例: FENC=xxx・OCCURENCE=2・ENCODING=utf8）。綴り間違いに気づけるよう、
+            // 見つかったトークンをそのまま文言に含める。
+            return Fail(ErrorCode.E002, lineNumber,
+                $"\"{token}\" は使えない属性です。このヘッダで使える属性は " +
+                "MODE=FULL・FENCE=<任意文字列>・OCCURRENCE=<番号またはALL> だけです。綴りを確認してください。");
+        }
+
+        if (hasPath)
+        {
+            // "="を含まない、かつこの呼び出しはパスを取るヘッダ（<<<< FILE:・<<<< APPEND:・
+            // <<<< PREPEND:）。これらは先頭トークンだけをパスとして扱う作りのため、
+            // パスに空白を含めると2つ目以降の単語が属性として誤解釈される
+            // （例: "<<<< FILE: My Folder/a.js" の "Folder/a.js"）。これが最も多い原因と
+            // 考えられるため最優先で案内する。
+            return Fail(ErrorCode.E002, lineNumber,
+                $"\"{token}\" を属性として解釈できませんでした。パスに空白が含まれている場合、" +
+                "Graftは空白より後ろを属性として解釈します。空白を含まないパスにするか、" +
+                "対象ファイルの場所を変えてください。" +
+                "このヘッダに説明文を書きたい場合は、\"# 説明\" のように行頭ではなく途中に \"#\" を置いてください。");
+        }
+
+        // "="を含まない、かつパスを取らない呼び出し（<<<<<<< SEARCH マーカー行）。
+        // パスという概念が無いため空白の案内は成立しない。
+        //
+        // 【後方互換の穴をここで埋めている】既定テンプレートは説明文を
+        // "<<<<<<< SEARCH  # このペアの変更内容を1行で" と "#" 付きで書くよう指示しているが、
+        // AIが "#" を落として "<<<<<<< SEARCH ここを直す" と出力することは十分ありうる。
+        // 以前は未知のトークンを黙って捨てていたためこの形でも通っていたが、今回の変更で
+        // パッチ全体が拒否されるようになる。「綴りを確認してください」だけでは
+        // "#" を付ければよいと気づけないため、属性の列挙と並べて必ず案内する。
+        return Fail(ErrorCode.E002, lineNumber,
+            $"\"{token}\" を属性として解釈できませんでした。このヘッダで使える属性は " +
+            "MODE=FULL・FENCE=<任意文字列>・OCCURRENCE=<番号またはALL> だけです。" +
+            "説明文を書きたい場合は \"<<<<<<< SEARCH  # 説明\" のように \"#\" を付けてください。");
     }
 
     /// <summary>4.7 のパス表記ルールに従い正規化する。不正な形の場合は E201 で打ち切る。</summary>
