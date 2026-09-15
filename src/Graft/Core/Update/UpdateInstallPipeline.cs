@@ -74,11 +74,39 @@ public sealed class UpdateInstallPipeline
     /// SHA256の一致だけでは配布元の正当性を保証できない（詳しくは<see cref="UpdateHostPolicy"/>
     /// のクラスコメント参照）。
     /// </param>
+    /// <param name="allowMissingChecksum">
+    /// 【既定はfalse。安易に緩めないこと】 <see cref="Sha256Verifier.ExtractSha256"/>が
+    /// nullを返した（SHA256が取得できなかった）ときに、検証を省いてインストールを続行して
+    /// よいかどうか。falseなら従来どおり<see cref="UpdateInstallStatus.ChecksumUnavailable"/>で
+    /// 必ず中止する。
+    ///
+    /// 【trueにしてよいのは「理由の分かっている場合」だけ（実機不具合対応。CLAUDE.mdの
+    /// 実測ログ、v1.0.17）】 GitHub Releases APIの回数上限（未認証で1時間60回、IPアドレス
+    /// 単位）に阻まれ、Atomフィードから読み取ったタグを基にダウンロードURLを規則から
+    /// 組み立てて続行する経路（<see cref="UpdateAtomFeedLogic.TryBuildDownloadUrl"/>）でのみ、
+    /// 呼び出し元（<c>SettingsViewModel.Update.cs</c>のRunUpdateAsync）は<see
+    /// cref="GitHubReleaseInfo.AllowMissingChecksum"/>を経由してtrueを渡す。APIが応答した
+    /// のにアセットにdigestが無い、という説明のつかない状況（trueを渡さない限りfalseのまま）
+    /// では従来どおり中止するべきであり、「取れないときだけ省く」と「常に省く」は別物である
+    /// （既に下の【この検証で防げないもの】に整理してある「このSHA256検証が実際に守っているのは
+    /// 通信経路の途中でファイルが壊れていないことだけ」という理解を踏まえてもなお、この
+    /// 区別には意味がある。SHA256が無力な状況を自分から広げてよい理由にはならないため）。
+    /// 別リポジトリpaneの<c>UpdateService.NewerButNoDetails</c>のコメントが同じ結論
+    /// （「引き換えにSHA256は分からない。照合を省いて続行する経路は元からあり、HTTPSで
+    /// 取得している以上そこで防げるのは転送中の破損だけ、という点も変わらない」）に
+    /// 達していることも根拠として引いておく。
+    ///
+    /// 【trueでも省かれないもの】 <see cref="UpdateHostPolicy.IsAllowedDownloadUrl"/>による
+    /// ダウンロード元ホストの検証（下記、SHA256検証より前）と、<see cref="UpdateZipInspector.
+    /// Validate"/>によるZIPの中身の検査（下記、SHA256検証の直後）は、trueでも必ず両方とも
+    /// 通す。省くのはSHA256の一致確認だけである。
+    /// </param>
     public async Task<UpdateInstallResult> RunAsync(
         GitHubReleaseAsset asset,
         string installDirectory,
         string workDirectory,
         string checkUrl,
+        bool allowMissingChecksum,
         IProgress<double>? downloadProgress,
         CancellationToken ct)
     {
@@ -112,33 +140,61 @@ public sealed class UpdateInstallPipeline
                 return new UpdateInstallResult(UpdateInstallStatus.DownloadFailed, download.ErrorMessage);
             }
 
-            // 【SHA256検証】digestが無い・解釈できない場合はインストールしない（安全側）。
+            // 【SHA256検証】digestが無い・解釈できない場合、既定（allowMissingChecksum=false）
+            // ではインストールしない（安全側）。
             var expectedHash = Sha256Verifier.ExtractSha256(asset.Digest);
             if (expectedHash is null)
             {
-                return new UpdateInstallResult(
-                    UpdateInstallStatus.ChecksumUnavailable,
-                    "配布物の整合性情報（SHA256）が取得できなかったため、安全のため更新を中止しました。");
-            }
+                if (!allowMissingChecksum)
+                {
+                    return new UpdateInstallResult(
+                        UpdateInstallStatus.ChecksumUnavailable,
+                        "配布物の整合性情報（SHA256）が取得できなかったため、安全のため更新を中止しました。");
+                }
 
-            // 【この検証で防げないもの（セキュリティ点検指摘対応・正直な注記）】
-            // ここで比較する期待ハッシュ（asset.Digest）は、ダウンロードURL（asset.
-            // BrowserDownloadUrl）と同じcheckUrlへのHTTP応答（同じJSON）から取り出している。
-            // つまりcheckUrl自体を書き換えられる攻撃者は両方を自分の都合の良い値に決められる
-            // ため、この一致は「配布元自体が悪意を持つ場合」の防御にはならない。それを防ぐのは
-            // 上でRunAsync冒頭に行っているUpdateHostPolicyによるホスト検証の役割であり、
-            // このSHA256検証が実際に守っているのは「通信経路の途中でファイルが壊れて
-            // いないこと」だけである。以前はこの不一致時のメッセージに「改ざんされている
-            // 可能性がある」と書いていたが、上記の理由でその説明は成立しない
-            // （checkUrlが正規のままダウンロードだけが改ざんされる経路は無く、checkUrl自体が
-            // 悪意を持つ場合はハッシュも一致してしまいこの分岐に到達しない）ため、成立する
-            // 説明（通信起因の破損）だけを利用者に伝える文言へ直した。
-            var actualHash = await Sha256Verifier.ComputeHexAsync(zipPath, ct).ConfigureAwait(false);
-            if (!Sha256Verifier.Matches(actualHash, expectedHash))
+                // 【allowMissingChecksum=trueでのみ、ここへ到達する（実機不具合対応。RunAsyncの
+                // allowMissingChecksumのコメント参照）】 GitHub APIの回数上限に阻まれ、
+                // ダウンロードURLを規則から組み立てて続行する経路からのみtrueが渡る。
+                //
+                // 【ログに必ず残す（黙って省かない。指示書の要件）】 このクラス自身は
+                // Graft.Infra.Loggerを知らない（他のCore.Update配下のクラスと同じ設計方針。
+                // NetworkEnvironmentLogのクラスコメント参照: 「Core.Update側はGraft.Infra.
+                // Loggerを知らないため、文字列を組み立てるだけの純粋な処理として分離してある」）。
+                // そのため、ここで直接ログへ書く代わりに、呼び出し元（SettingsViewModel.Update.cs
+                // のRunUpdateAsync）が、allowMissingChecksum=trueを渡す直前に
+                // Logger.Warnでこの事実（どのタグ・どのURLに対してハッシュ照合を省いて
+                // 続行するか）を記録する。allowMissingChecksumがtrueになるのはこの1箇所
+                // からだけなので、「渡す＝実際に省かれる」が常に対応しており、この分担でも
+                // 記録漏れは起きない。
+            }
+            else
             {
-                return new UpdateInstallResult(
-                    UpdateInstallStatus.ChecksumMismatch,
-                    "ダウンロードしたファイルの検証（SHA256）に失敗しました。ダウンロードが途中で壊れた可能性があります。通信環境を確認してやり直してください。");
+                // 【この検証で防げないもの（セキュリティ点検指摘対応・正直な注記）】
+                // ここで比較する期待ハッシュ（asset.Digest）は、ダウンロードURL（asset.
+                // BrowserDownloadUrl）と同じcheckUrlへのHTTP応答（同じJSON）から取り出している。
+                // つまりcheckUrl自体を書き換えられる攻撃者は両方を自分の都合の良い値に決められる
+                // ため、この一致は「配布元自体が悪意を持つ場合」の防御にはならない。それを防ぐのは
+                // 上でRunAsync冒頭に行っているUpdateHostPolicyによるホスト検証の役割であり、
+                // このSHA256検証が実際に守っているのは「通信経路の途中でファイルが壊れて
+                // いないこと」だけである。以前はこの不一致時のメッセージに「改ざんされている
+                // 可能性がある」と書いていたが、上記の理由でその説明は成立しない
+                // （checkUrlが正規のままダウンロードだけが改ざんされる経路は無く、checkUrl自体が
+                // 悪意を持つ場合はハッシュも一致してしまいこの分岐に到達しない）ため、成立する
+                // 説明（通信起因の破損）だけを利用者に伝える文言へ直した。
+                //
+                // 【なお、上記の整理を踏まえてもallowMissingChecksumの既定をfalseのままにする
+                // 理由】 このSHA256検証が防げるのが「通信経路の途中の破損」だけだとしても、
+                // それ自体は実際に起こりうる（低速・不安定な回線、プロキシでの中継等）ため、
+                // 検証できるなら検証したほうが良いことに変わりはない。「取れないときだけ省く」
+                // （理由が分かっている場合に限定）と「常に省く」（防御の意味が薄いからと
+                // 一律に検証自体を無くす）は別物であり、後者を選ぶ理由には全くならない。
+                var actualHash = await Sha256Verifier.ComputeHexAsync(zipPath, ct).ConfigureAwait(false);
+                if (!Sha256Verifier.Matches(actualHash, expectedHash))
+                {
+                    return new UpdateInstallResult(
+                        UpdateInstallStatus.ChecksumMismatch,
+                        "ダウンロードしたファイルの検証（SHA256）に失敗しました。ダウンロードが途中で壊れた可能性があります。通信環境を確認してやり直してください。");
+                }
             }
 
             var validation = UpdateZipInspector.Validate(zipPath);

@@ -80,6 +80,61 @@ public class UpdateAtomFeedLogicTests
         UpdateAtomFeedLogic.ExtractLatestTag(xml).Should().BeNull();
     }
 
+    [Fact(DisplayName = "組み立てたダウンロードURLは、実物（v1.0.17）と完全一致する")]
+    public void ダウンロードURLは実物と完全一致する()
+    {
+        // 実機で確認済みの値（CLAUDE.md記載）。推測ではなく、この文字列リテラルとの
+        // 完全一致で固定する。
+        var url = UpdateAtomFeedLogic.TryBuildDownloadUrl("https://github.com/Yu5rin/Graft/releases.atom", "v1.0.17");
+
+        url.Should().Be("https://github.com/Yu5rin/Graft/releases/download/v1.0.17/Graft-1.0.17-win-x64.zip");
+    }
+
+    [Fact(DisplayName = "タグの先頭の\"v\"は、ファイル名側からだけ取り除かれる（URLのパス部分はタグそのまま）")]
+    public void タグのvはファイル名側だけ取り除かれる()
+    {
+        var url = UpdateAtomFeedLogic.TryBuildDownloadUrl("https://github.com/Yu5rin/Graft/releases.atom", "v1.0.17");
+
+        // パス部分（.../download/の直後）はタグそのまま("v"付き)。
+        url.Should().Contain("/download/v1.0.17/");
+        // ファイル名側は"v"を落とした表記。
+        url.Should().EndWith("/Graft-1.0.17-win-x64.zip");
+    }
+
+    [Fact(DisplayName = "\"v\"の付かないタグでも壊れない（先頭が\"v\"でなければ何も取り除かない）")]
+    public void v無しのタグでも壊れない()
+    {
+        var url = UpdateAtomFeedLogic.TryBuildDownloadUrl("https://github.com/Yu5rin/Graft/releases.atom", "1.0.17");
+
+        url.Should().Be("https://github.com/Yu5rin/Graft/releases/download/1.0.17/Graft-1.0.17-win-x64.zip");
+    }
+
+    [Fact(DisplayName = "BuildWindowsAssetFileNameは、tools/New-Release.ps1の命名（\"Graft-<vを除いたバージョン>-win-x64.zip\"）と一致する")]
+    public void ファイル名の組み立てはNewReleaseスクリプトと一致する()
+    {
+        UpdateAtomFeedLogic.BuildWindowsAssetFileName("v1.0.17").Should().Be("Graft-1.0.17-win-x64.zip");
+        UpdateAtomFeedLogic.BuildWindowsAssetFileName("V1.0.17").Should().Be("Graft-1.0.17-win-x64.zip");
+        UpdateAtomFeedLogic.BuildWindowsAssetFileName("1.0.17").Should().Be("Graft-1.0.17-win-x64.zip");
+    }
+
+    [Fact(DisplayName = "checkUrlがGitHub Releases APIの形でない場合、ダウンロードURLは組み立てない（TryBuildAtomUrlがnullを返すため）")]
+    public void 独自の確認先ではダウンロードURLを組み立てない()
+    {
+        // 利用者が確認先URLをGitHub以外（独自のミラー等）へ変更している場合、TryBuildAtomUrl
+        // 自体がnullを返す。この性質をそのまま利用して、こちらの都合でgithub.comへ推測
+        // アクセスしに行くことがないようにしている（UpdateAtomFeedLogic.TryBuildAtomUrl・
+        // TryBuildDownloadUrlのクラス/メソッドコメント参照）。
+        var atomUrl = UpdateAtomFeedLogic.TryBuildAtomUrl("https://git.example.co.jp/api/v4/projects/1/releases/latest");
+
+        atomUrl.Should().BeNull();
+    }
+
+    [Fact(DisplayName = "タグが空文字列ならダウンロードURLを組み立てない")]
+    public void タグが空ならnullになる()
+    {
+        UpdateAtomFeedLogic.TryBuildDownloadUrl("https://github.com/Yu5rin/Graft/releases.atom", "").Should().BeNull();
+    }
+
     /// <summary>
     /// GitHubの実際のreleases.atomに近い最小限の形のフィードを組み立てる。タグ名は
     /// entryのlinkのhref末尾（.../releases/tag/{tag}）に置く。

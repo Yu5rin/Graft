@@ -84,6 +84,18 @@ public class UpdateHostPolicyTests
             .Should().BeFalse();
     }
 
+    [Fact(DisplayName = "UpdateAtomFeedLogic.TryBuildDownloadUrlが組み立てたURLは、既定checkUrlでの検証を通る")]
+    public void 組み立てたダウンロードURLはホスト検証を通る()
+    {
+        // 実機不具合対応（CLAUDE.mdの実測ログ、v1.0.17）: GitHub APIの回数上限に阻まれ
+        // ダウンロードURLを規則から組み立てて続行する経路でも、UpdateInstallPipeline.RunAsync
+        // 冒頭のホスト検証は素通しにしない（指示書の要件）ことを固定する。
+        var built = UpdateAtomFeedLogic.TryBuildDownloadUrl(
+            "https://github.com/Yu5rin/Graft/releases.atom", "v1.0.17");
+
+        UpdateHostPolicy.IsAllowedDownloadUrl(UpdateHostPolicy.DefaultCheckUrl, built!).Should().BeTrue();
+    }
+
     [Fact(DisplayName = "IsDefaultCheckUrlは前後の空白・大文字小文字の違いのみ許容する")]
     public void IsDefaultCheckUrlの判定()
     {

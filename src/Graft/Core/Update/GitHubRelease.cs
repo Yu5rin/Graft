@@ -44,6 +44,30 @@ public sealed record GitHubReleaseInfo
     public IReadOnlyList<GitHubReleaseAsset> Assets { get; init; } = Array.Empty<GitHubReleaseAsset>();
 
     /// <summary>
+    /// true の場合、この情報はGitHub Releases APIの応答ではなく、Atomフィードで読み取れた
+    /// タグから<see cref="UpdateAtomFeedLogic.TryBuildDownloadUrl"/>でダウンロードURLを
+    /// 規則的に組み立てて合成したものであることを示す（実機不具合対応。詳しい経緯は
+    /// <see cref="UpdateAtomFeedLogic.TryBuildDownloadUrl"/>のコメント参照）。
+    ///
+    /// 【この値の使いみち（置き場所をGitHubReleaseInfoにした理由）】
+    /// この経路ではSHA256（<see cref="GitHubReleaseAsset.Digest"/>）が全アセットでnullになるが、
+    /// それは「API未対応の古いアセット」等の異常ではなく、「APIに到達できず理由が分かって
+    /// いる」という既知の制約である。この区別自体は個々のアセットではなくリリース全体（＝
+    /// どの経路で情報を得たか）に属する性質のため、<see cref="GitHubReleaseAsset"/>ではなく
+    /// ここに持たせている。
+    /// <list type="bullet">
+    /// <item>UI（<c>SettingsViewModel.Update.cs</c>のOfferUpdateAsync）: 更新確認ダイアログの
+    /// 本文へ「SHA256の照合を省く」旨を追記する判断に使う。</item>
+    /// <item>インストール処理（<c>SettingsViewModel.Update.cs</c>のRunUpdateAsync）:
+    /// <see cref="UpdateInstallPipeline.RunAsync"/>へ渡す<c>allowMissingChecksum</c>引数を
+    /// この値にする。既定（false）ではdigestが無ければ必ず<c>ChecksumUnavailable</c>で
+    /// 中止する安全側の挙動を変えず、この経路（true）からのみハッシュ照合の省略を許す
+    /// （<see cref="UpdateInstallPipeline"/>のRunAsyncコメント参照）。</item>
+    /// </list>
+    /// </summary>
+    public bool AllowMissingChecksum { get; init; }
+
+    /// <summary>
     /// 名前でアセットを探す（大文字小文字を区別しない）。Windows版配布物
     /// （<c>tools/New-Release.ps1</c>が作る "Graft-&lt;バージョン&gt;-win-x64.zip"）を
     /// 見つけるために使う。

@@ -120,10 +120,25 @@ public sealed class UpdateChecker
     /// 2. Atomが使えなかった（<c>checkUrl</c>がGitHub API形式でない、通信・解析に失敗、
     ///    バージョンとして読めるタグが無い等）、またはAtomで「新しい」と分かった場合は、
     ///    配布物の詳細（ダウンロードURL・SHA256）を取りにAPIへ問い合わせる。
-    /// 3. APIが失敗した場合、Atomで新しいタグが分かっていれば
-    ///    <see cref="UpdateCheckResult.AvailableNoDetails"/>（「新しい版があることは
-    ///    分かったが、自動更新はできない。リリースページから手動で」）を返す。Atomの
-    ///    情報も無ければ、理由別の文言（<see cref="BuildFailureMessage"/>）で
+    /// 3. APIが失敗した場合、Atomで新しいタグが分かっていれば、まず
+    ///    <see cref="UpdateAtomFeedLogic.TryBuildDownloadUrl"/>でダウンロードURLを
+    ///    規則から組み立てられないかを試す（実機不具合対応。詳しい経緯は同メソッドの
+    ///    コメント参照）。
+    ///    <list type="bullet">
+    ///    <item>組み立てられた場合: SHA256は無いが自動更新を進められる情報として、
+    ///    <see cref="UpdateCheckResult.Available"/>（<see cref="GitHubReleaseInfo.
+    ///    AllowMissingChecksum"/>=true）を返す。「APIに到達できなかった」以外の理由で
+    ///    digestが無い場合（＝APIが成功したのにdigestが無い等）とは明確に区別しており、
+    ///    後者は従来どおり<see cref="UpdateInstallPipeline"/>側で中止する
+    ///    （このAllowMissingChecksumを経由しない限りtrueにならないため）。</item>
+    ///    <item>組み立てられなかった場合（設定画面でGitHub以外の確認先へ変更している等）:
+    ///    従来どおり<see cref="UpdateCheckResult.AvailableNoDetails"/>（「新しい版があることは
+    ///    分かったが、自動更新はできない。リリースページから手動で」）を返す。この文言には
+    ///    <see cref="BuildFailureMessage"/>が組み立てた理由別の説明（403なら回数上限の説明等）
+    ///    をそのまま含める（以前は理由に触れず「詳細を取得できなかったため」とだけ書いており、
+    ///    待てば直るのかどうかが利用者に伝わらなかった）。</item>
+    ///    </list>
+    ///    Atomの情報も無ければ、理由別の文言（<see cref="BuildFailureMessage"/>）で
     ///    <see cref="UpdateCheckResult.Failed"/>を返す。
     /// 4. APIが成功した場合は、その応答のタグを<see cref="UpdateVersion"/>で現在と数値比較する
     ///    （Atomのタグをそのまま信用しない）。これにより、AtomとAPIの既知の非対称——
@@ -176,12 +191,59 @@ public sealed class UpdateChecker
             {
                 // Atomで新しい版があることは分かっているので、「確認できなかった」だけで
                 // 終わらせない（実機不具合対応。要件2）。「確認できた」の一種として扱い、
-                // LastCheckSucceededもtrueにする。
+                // LastCheckSucceededもtrueにする（どちらの分岐に進んでも共通）。
                 await MarkSucceededAsync(startedAt, ct).ConfigureAwait(false);
+
+                // 【実機不具合対応（CLAUDE.mdの実測ログ、v1.0.17）】 ここまでは以前から
+                // 「Atomで新しい版があると分かったがAPIが失敗した」場合で、以前は常に
+                // AvailableNoDetails（自動更新できない案内）にしていた。しかしダウンロード
+                // URLは規則的なので、APIに頼らず組み立てられる場合がある
+                // （UpdateAtomFeedLogic.TryBuildDownloadUrlのコメント参照）。組み立てられた
+                // 場合は、SHA256こそ無いが自動更新を進められる情報として扱う。
+                //
+                // checkUrlがGitHub Releases API形式でない（利用者が独自の確認先へ変更した）
+                // 場合はTryBuildAtomUrlがnullを返し、以降のTryBuildDownloadUrlも呼ばれない。
+                // その利用者に対してこちらの都合でgithub.comへ推測アクセスしに行くことは
+                // しない（TryBuildAtomUrlの既存の性質をそのまま利用した安全側の設計）。
+                var atomUrl = UpdateAtomFeedLogic.TryBuildAtomUrl(checkUrl);
+                var builtDownloadUrl = atomUrl is not null
+                    ? UpdateAtomFeedLogic.TryBuildDownloadUrl(atomUrl, atomTag.TagName)
+                    : null;
+
+                if (builtDownloadUrl is not null)
+                {
+                    // 【Windows版のみ合成する（Linux版は対象外。要調査確認済み）】 自動更新の
+                    // 実処理（UpdateInstallPipeline・UpdateZipInspector・UpdateFiles）は、
+                    // ZIPを展開する前提で作られており、必須ファイル一覧（UpdateFiles.
+                    // RequiredFileNames）もWindows版6ファイル（Graft.exe等）に固定されている。
+                    // Linux版はtar.gzで配布しており（tools/New-Release.ps1参照）、この経路は
+                    // 最初からLinux版を扱えない（既存の制約であり、今回のURL組み立てで
+                    // 新たに生まれた制約ではない）。合成するアセットをWindows版1つに限ることで、
+                    // この既存の制約を超えて「対応していないふりをする」ことがないようにしている。
+                    var builtAsset = new GitHubReleaseAsset
+                    {
+                        Name = UpdateAtomFeedLogic.BuildWindowsAssetFileName(atomTag.TagName),
+                        BrowserDownloadUrl = builtDownloadUrl,
+                        Size = 0, // APIから取れないため不明。ダウンローダは応答のContent-Lengthを使うため実害は無い。
+                        Digest = null, // APIからしか取れない。GitHubReleaseInfo.AllowMissingChecksum参照。
+                    };
+                    return UpdateCheckResult.Available(new GitHubReleaseInfo
+                    {
+                        TagName = atomTag.TagName,
+                        HtmlUrl = atomTag.ReleasePageUrl,
+                        Assets = new[] { builtAsset },
+                        AllowMissingChecksum = true,
+                    });
+                }
+
                 return UpdateCheckResult.AvailableNoDetails(
                     new GitHubReleaseInfo { TagName = atomTag.TagName, HtmlUrl = atomTag.ReleasePageUrl },
+                    // 理由別の説明（BuildFailureMessage。403なら回数上限の説明と「しばらく待つか
+                    // リリースページを直接見る」旨等）をそのまま含める。以前は理由に触れず
+                    // 「詳細を取得できなかったため」とだけ書いており、待てば直るのかどうかが
+                    // 利用者に伝わらなかった（実機不具合対応・要件4）。
                     $"新しい版 {atomTag.TagName} があります。ただし配布物の詳細を取得できなかったため" +
-                    "自動更新はできません。リリースページから手動で更新してください。",
+                    $"自動更新はできません。{userMessage}",
                     diagnostic);
             }
             return UpdateCheckResult.Failed(userMessage, diagnostic);
