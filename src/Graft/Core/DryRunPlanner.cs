@@ -214,6 +214,7 @@ public sealed class DryRunPlanner
             CanApply = canApply, NeedsConfirmation = unit.NeedsConfirmation, IsSelected = canApply,
             Issues = issues, BeforeText = unit.BeforeText, AfterText = unit.AfterText, Shape = shape,
             Diff = diff, Description = unit.Description, Added = diff?.Added ?? 0, Removed = diff?.Removed ?? 0,
+            IndentCorrectionChars = unit.IndentCorrectionChars,
         };
     }
 

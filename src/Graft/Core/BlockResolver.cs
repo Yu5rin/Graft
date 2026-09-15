@@ -34,6 +34,10 @@ public sealed record ChangeUnitResult
 
     /// <summary>このブロックの適用が終わった直後のファイル全文（"\n"区切り）。</summary>
     public string? AfterText { get; init; }
+
+    /// <summary>実機不具合対応（修正4）: このユニットの代表インデント補正量。BlockPlan
+    /// へそのまま引き継ぐ（<see cref="BlockPlan.IndentCorrectionChars"/>参照）。</summary>
+    public int IndentCorrectionChars { get; init; }
 }
 
 /// <summary>
@@ -178,6 +182,10 @@ public static class BlockResolver
             var edits = new List<LineEdit>();
             var worstStage = MatchStage.Exact;
             var needsConfirmation = false;
+            // OCCURRENCE=ALLで1ペアが複数箇所にマッチする場合、箇所ごとに補正量が異なりうる。
+            // 「補正あり」を利用者に見落とされないよう、絶対値が最大の補正量を代表として残す
+            // （0文字補正の箇所に埋もれて「補正あり」の箇所が隠れてしまうことを避ける）。
+            var indentCorrectionChars = 0;
             var subSeq = 0;
             foreach (var m in matched.Value)
             {
@@ -190,6 +198,10 @@ public static class BlockResolver
                 });
                 if (m.Stage > worstStage) worstStage = m.Stage;
                 needsConfirmation |= m.NeedsConfirmation;
+                if (Math.Abs(m.IndentCorrectionChars) > Math.Abs(indentCorrectionChars))
+                {
+                    indentCorrectionChars = m.IndentCorrectionChars;
+                }
             }
 
             results.Add(new ResolvedBlock
@@ -200,6 +212,7 @@ public static class BlockResolver
                 Edits = edits,
                 Stage = worstStage,
                 NeedsConfirmation = needsConfirmation,
+                IndentCorrectionChars = indentCorrectionChars,
             });
         }
 
@@ -256,6 +269,7 @@ public static class BlockResolver
                     NeedsConfirmation = owner.NeedsConfirmation,
                     BeforeText = beforeByOwner[owner],
                     AfterText = JoinText(working),
+                    IndentCorrectionChars = owner.IndentCorrectionChars,
                 });
             }
         }
@@ -285,5 +299,6 @@ public static class BlockResolver
         public MatchStage Stage { get; init; }
         public bool NeedsConfirmation { get; init; }
         public IReadOnlyList<GraftIssue> Issues { get; init; } = Array.Empty<GraftIssue>();
+        public int IndentCorrectionChars { get; init; }
     }
 }

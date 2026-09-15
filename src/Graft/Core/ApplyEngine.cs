@@ -20,6 +20,25 @@ public sealed partial class ApplyEngine
     private MatchEngine _matcher;
     private DryRunPlanner _planner;
 
+    /// <summary>
+    /// テスト専用のフック（修正6の回帰テスト用）。非nullの場合、書き込み直前の <c>finalText</c>
+    /// をこの関数の戻り値へ差し替える。既定はnullで、本番のふるまいには一切影響しない。
+    ///
+    /// 【なぜ必要か】 修正6（<see cref="VerifyWrittenContentMatchesPatch"/>）は「実際に書き込んだ
+    /// 内容がパッチの指示と食い違っていないか」を検証するが、正常なGraftの内部処理では
+    /// <c>finalText</c> は常にパッチの指示どおりに組み立てられるため、通常のパッチ適用では
+    /// この不一致を意図的に発生させる経路が無い（修正3のE217も同様に、通常経路では
+    /// 発生させられない）。「検証が実際に機能し、E217で中止したうえでロールバックが正しく
+    /// 動くこと」を検証するには、書き込み直前の内容を意図的に壊す手段が要る。
+    ///
+    /// 【なぜ本番コードに分岐を増やさずに実現できるか】 <see cref="SafeFileWriter"/> の
+    /// <c>IPrimaryReplaceOp</c>/<c>IMoveOp</c>（<see cref="SafeFileWriterTests"/>参照）と同じ
+    /// 考え方で、判定ロジックそのものは一切変えず、「値の差し替え口」だけをinternalに公開する。
+    /// <c>Graft.Core</c> は <c>tests/Graft.Tests</c> へソースごと取り込まれる構成のため
+    /// （Graft.Tests.csproj参照）、internalのままテストから直接設定できる。
+    /// </summary>
+    internal Func<string, string>? DebugCorruptFinalTextForTests { get; set; }
+
     public ApplyEngine(BackupManager backup, RevisionStore revisions, MatchEngine matcher)
     {
         _backup = backup;
@@ -323,7 +342,7 @@ public sealed partial class ApplyEngine
         foreach (var group in groups)
         {
             var plansForFile = group.ToList();
-            var written = await ApplyFileGroupAsync(group.Key, plansForFile, ctx, ct).ConfigureAwait(false);
+            var written = await ApplyFileGroupAsync(group.Key, plansForFile, ctx, session, ct).ConfigureAwait(false);
             if (!written.IsSuccess) return GraftResult<bool>.Fail(written.Issues);
 
             // SafeFileWriterが検出した警告・情報（退避方式を使った／書き込み直後の検証で
@@ -332,7 +351,15 @@ public sealed partial class ApplyEngine
             writeIssues.AddRange(written.Issues);
 
             var (existedBefore, hashBefore, hashAfter) = written.Value;
-            if (!existedBefore) session.TrackCreated(group.Key);
+            // 修正6: session.TrackCreated は ApplyFileGroupAsync 内で「実際にディスクへ書き込んだ
+            // 直後」に呼ぶよう移した（このメソッドの旧実装ではここで呼んでいた）。理由は、
+            // 書き込み後のバイト検証（VerifyWrittenContentMatchesPatch）に失敗してE217を返す
+            // 経路がApplyFileGroupAsync内に増えたため。検証失敗時もファイルは既に物理的に
+            // 作成済みであり、ここまで到達する前にreturnで抜けてしまうと、新規作成ファイルが
+            // TrackCreatedされないままロールバック（BackupSession.RollbackAsync）を迎え、
+            // 壊れた内容のファイルが削除されずディスクに残ってしまう。書き込み成否の直後という
+            // 最も早いタイミングで記録することで、その後どの経路で失敗してもロールバックが
+            // 確実にこのファイルを削除できるようにしている。
 
             var stage = plansForFile.Max(p => p.Stage);
             entries.Add(new RevisionEntry
@@ -350,7 +377,7 @@ public sealed partial class ApplyEngine
     /// 一部ブロックの選択を外した場合にも正しい結果を書き込むため。
     /// </summary>
     private async Task<GraftResult<(bool ExistedBefore, string? HashBefore, string HashAfter)>> ApplyFileGroupAsync(
-        string path, List<BlockPlan> plansForFile, ApplyContext ctx, CancellationToken ct)
+        string path, List<BlockPlan> plansForFile, ApplyContext ctx, BackupSession session, CancellationToken ct)
     {
         var resolved = ctx.Guard.Resolve(path);
         if (!resolved.IsSuccess) return GraftResult<(bool, string?, string)>.Fail(resolved.Issues);
@@ -361,6 +388,11 @@ public sealed partial class ApplyEngine
         IReadOnlyList<string> originalLines = Array.Empty<string>();
         IReadOnlyList<(string Text, string Terminator)>? originalWithTerminators = null;
         string? hashBefore = null;
+        // 修正6: 書き込み後のバイト検証（VerifyWrittenContentMatchesPatch）で、SR形式が絡まない
+        // ファイル（MODE=FULL・APPEND・PREPENDのみ）の期待値を組み立てる材料として使う
+        // 「変更前の生テキスト」。既存のoriginalLines/originalWithTerminatorsは改行コードの
+        // 復元用に行単位へ分解済みのため、それとは別に生の文字列のまま保持しておく。
+        string? originalTextForVerify = null;
 
         if (existed)
         {
@@ -370,6 +402,7 @@ public sealed partial class ApplyEngine
             originalLines = originalWithTerminators.Select(l => l.Text).ToList();
             shape = read.Value.Shape;
             hashBefore = FileTextIO.ComputeHash(read.Value.Text);
+            originalTextForVerify = read.Value.Text;
         }
         else
         {
@@ -399,11 +432,22 @@ public sealed partial class ApplyEngine
             plansForFile.Where(p => p.Pair is not null).Select(p => p.Pair!), ReferenceEqualityComparer.Instance);
         var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher, includedPairs);
         var finalText = ComposeFinalText(resolution.FinalLines, originalWithTerminators, shape);
+        // テスト専用フック（DebugCorruptFinalTextForTestsのコメント参照）。本番では常にnullのため
+        // 素通りする。
+        if (DebugCorruptFinalTextForTests is not null) finalText = DebugCorruptFinalTextForTests(finalText);
 
         var clearedReadOnly = ClearReadOnlyIfNeeded(fullPath, ctx);
         var written = await FileTextIO.WriteAsync(fullPath, finalText, shape, ct).ConfigureAwait(false);
         RestoreReadOnlyIfNeeded(fullPath, clearedReadOnly);
         if (!written.IsSuccess) return GraftResult<(bool, string?, string)>.Fail(written.Issues);
+
+        // 修正6: TrackCreatedは「ディスクへの書き込みが成功した直後」に呼ぶ。この後の
+        // バイト検証（VerifyWrittenContentMatchesPatch）で不一致を検出して失敗を返す経路が
+        // あるが、その時点で既にファイルは物理的に作成済みのため、記録を後回しにすると
+        // ロールバック（BackupSession.RollbackAsync）がこの新規作成ファイルを削除対象として
+        // 認識できず、壊れた内容のファイルが削除されずに残ってしまう
+        // （ExecuteTextFilesAsyncの呼び出し元コメントも参照）。
+        if (!existed) session.TrackCreated(path);
 
         // 実機不具合対応: hashAfterはメモリ上のfinalTextからではなく、書き込み直後にディスクを
         // 読み直した実測値から計算する。SafeFileWriterは既にバイト列レベルでの検証を済ませて
@@ -418,7 +462,97 @@ public sealed partial class ApplyEngine
                 ErrorCode.E402, "書き込み後の確認読み込みに失敗しました。ファイルが見つからないか読み取れません", path: path);
         }
 
+        // 修正6: MODE=FULL/APPEND/PREPENDについても、SR形式のE217（MatchEngine.BuildResult）と
+        // 同じ発想で「実際にディスクへ書かれた内容」を「パッチが指示した内容」と突き合わせる。
+        // SafeFileWriter.ReplaceAsyncが既に持つ長さ検証・ハッシュ再計算は「渡された内容
+        // （finalText）どおりに書けたか」の検証であり、その渡された内容自体がパッチの指示と
+        // 一致しているかは検証していない（層が異なる）。ここではその後者を、finalTextや
+        // BlockResolverの中間状態を経由せず、パッチのContent（生の指示）と読み戻した実ファイルの
+        // 内容だけを突き合わせることで独立に検証する。
+        if (!VerifyWrittenContentMatchesPatch(blocks, originalTextForVerify, verifyRead.Value.Text, shape))
+        {
+            return GraftResult<(bool, string?, string)>.Fail(ErrorCode.E217,
+                "MODE=FULL/APPEND/PREPENDの書き込み内容がパッチの本文と一致しません", path: path);
+        }
+
         return GraftResult<(bool, string?, string)>.Ok(
             (existed, hashBefore, FileTextIO.ComputeHash(verifyRead.Value.Text)), written.Issues);
     }
+
+    // ------------------------------------------------------------------
+    // 修正6: 書き込み後のバイト検証をFULL/APPEND/PREPENDへ広げる
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 実機不具合対応（修正6）: SR形式の不変条件検証（<see cref="MatchEngine.BuildResult"/>の
+    /// E217）はマッチ結果にのみ効き、MODE=FULL・APPEND・PREPENDの書き込み結果は検証されない
+    /// ままだった。利用者から「MODE=FULLで新規作成したファイルが、インデントのある行だけ
+    /// 行頭空白1個分減った状態でディスクに書かれていた」という実物の証拠が届いたが、
+    /// 同じパッチ本文をGraft自身に通した再現実験では、パーサ出力・書き込み結果ともに
+    /// パッチ本文とバイト単位で完全一致しており、原因はGraftの外（AIの出力やコピー経路）か、
+    /// まだ辿れていない経路にある可能性が高い。原因の所在によらず、Graftが「パッチの指示」と
+    /// 食い違う内容を黙って書き込んでしまう状態は避けたいため、書き込み直後に独立して検証する。
+    ///
+    /// 検証対象を「SR形式が混在しないファイル」「PREPEND/APPENDはそれぞれ0〜1個」に限定する
+    /// 理由: SR形式はマッチ結果（どこに・どう当たったか）に依存するため、その結果を使わずに
+    /// 期待値を組み立てることはMatchEngineの判定そのものを二重実装することになり、独立検証の
+    /// 意味が薄れる（SR形式の不変条件はMatchEngine.BuildResult側のE217が別途担う）。
+    /// PREPEND/APPENDが複数個ある場合の最終的な行順序はBlockResolver.ApplyBlockEditsInOrderの
+    /// 並び替え規則（同一開始行は文書内で後方のブロックを先に適用）に依存し、単純な文字列連結
+    /// として再現するのは複雑になりすぎるため対象外とする（実務上、1ファイルにAPPEND・PREPENDを
+    /// 複数積む使い方は稀）。対象外の場合はtrue（=検証をパス）を返す。
+    /// </summary>
+    private static bool VerifyWrittenContentMatchesPatch(
+        IReadOnlyList<PatchBlock> blocks, string? originalText, string actualDiskText, TextShape shape)
+    {
+        if (!TryBuildIndependentExpectedText(blocks, originalText, out var expectedRaw)) return true;
+
+        // エンコーディングが表現できない文字（例: Shift-JISに存在しない文字）がある場合、
+        // 既存のFileTextIO.WriteAsync（shape.Encoding.GetBytes）は例外を投げず、既定の
+        // 置換フォールバックで書き込む（EncodingRoundTripTests参照）。この往復を期待値側にも
+        // 同じエンコーディングで通しておかないと、エンコーディングの表現限界による正当な差異
+        // まで「内容が壊れた」と誤検知し、正しく書けているファイルをロールバックしてしまう。
+        var expectedRoundTripped = shape.Encoding.GetString(shape.Encoding.GetBytes(expectedRaw));
+        var expected = CanonicalizeLines(expectedRoundTripped);
+        var actual = CanonicalizeLines(actualDiskText);
+        return expected == actual;
+    }
+
+    /// <summary>
+    /// SR形式が混在しない場合に限り、パッチのContent（生の指示）だけから期待される全文を
+    /// 独立に組み立てる。組み立てられない（対象外の）場合はfalseを返す。
+    /// </summary>
+    private static bool TryBuildIndependentExpectedText(
+        IReadOnlyList<PatchBlock> blocks, string? originalText, out string expected)
+    {
+        expected = string.Empty;
+        if (blocks.Any(b => b is SearchReplaceBlock)) return false;
+
+        var fulls = blocks.OfType<FullContentBlock>().ToList();
+        var prepends = blocks.OfType<PrependBlock>().ToList();
+        var appends = blocks.OfType<AppendBlock>().ToList();
+        if (fulls.Count == 0 && prepends.Count == 0 && appends.Count == 0) return false;
+        if (prepends.Count > 1 || appends.Count > 1) return false;
+
+        // BlockResolver.ResolveFileと同じく、MODE=FULLが複数あれば最後のものが勝つ
+        // （foreachで順に baseLines を上書きしていくため）。
+        var baseContent = fulls.Count > 0 ? fulls[^1].Content : originalText ?? string.Empty;
+
+        var parts = new List<string>();
+        if (prepends.Count == 1) parts.Add(CanonicalizeLines(prepends[0].Content));
+        var baseCanon = CanonicalizeLines(baseContent);
+        if (baseCanon.Length > 0) parts.Add(baseCanon);
+        if (appends.Count == 1) parts.Add(CanonicalizeLines(appends[0].Content));
+
+        expected = string.Join("\n", parts);
+        return true;
+    }
+
+    /// <summary>
+    /// 改行コード（CRLF/CR/LF）の違いと末尾改行の有無を正規化した、行ベースの比較用文字列を
+    /// 返す。<see cref="TextNormalizer.SplitLines"/>は3種の改行いずれも境界として扱い、末尾の
+    /// 改行1個分は「末尾に空行がある」とはみなさない（同メソッドの実装参照）ため、
+    /// これで改行コードと末尾改行の有無の両方が吸収された比較ができる。
+    /// </summary>
+    private static string CanonicalizeLines(string text) => string.Join("\n", TextNormalizer.SplitLines(text));
 }
