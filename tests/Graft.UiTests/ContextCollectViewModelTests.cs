@@ -62,6 +62,237 @@ public class ContextCollectViewModelTests : IDisposable
         FindByPath(vm, "lib/b.py").State.Should().Be(ContextFileState.Full);
     }
 
+    // ------------------------------------------------------------------
+    // 利用者の要望: プロジェクトルート直下のファイルを1個ずつ選ぶしかなかった問題への対応。
+    // 「すべて」行（ContextCollectViewModel.Filesの先頭に混ぜて入れるルート行。
+    // ContextFileNodeViewModel.CreateRoot/IsRoot参照）が、既存のフォルダ行とまったく同じ
+    // 仕組み（ListBox.ItemTemplateを共有し、CycleState/ApplyStateRecursiveも無変更）で
+    // 動くことを確認する。
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "「すべて」行をクリックすると、ルート直下のファイルだけでなくサブフォルダの中のファイルまで同じ状態になる")]
+    public async Task ルート行のクリックでサブフォルダの中まで一括切替される()
+    {
+        var (vm, _, _) = await BuildAsync("root-cycle", ws =>
+        {
+            ws.WriteText("top.py", "x"); // ルート直下
+            ws.WriteText("lib/nested/deep.py", "x"); // 2階層下のサブフォルダ
+        });
+
+        vm.RootNode.State.Should().Be(ContextFileState.Full, "既定はすべて「内容も出す」のはず");
+
+        vm.CycleStateCommand.Execute(vm.RootNode); // Full → StructureOnly
+
+        FindByPath(vm, "top.py").State.Should().Be(ContextFileState.StructureOnly, "ルート直下のファイルも対象のはず");
+        FindByPath(vm, "lib/nested/deep.py").State.Should().Be(
+            ContextFileState.StructureOnly, "2階層下のサブフォルダの中のファイルまで対象のはず");
+    }
+
+    [AvaloniaFact(DisplayName = "「すべて」行の3状態巡回は他の行と同じ順序（内容も出す→構成だけ→出さない→内容も出す）で進む")]
+    public async Task ルート行の巡回順序が行と同じ()
+    {
+        var (vm, _, _) = await BuildAsync("root-order", ws => ws.WriteText("main.py", "x"));
+
+        vm.RootNode.State.Should().Be(ContextFileState.Full);
+
+        vm.CycleStateCommand.Execute(vm.RootNode);
+        vm.RootNode.State.Should().Be(ContextFileState.StructureOnly);
+
+        vm.CycleStateCommand.Execute(vm.RootNode);
+        vm.RootNode.State.Should().Be(ContextFileState.Hidden);
+
+        vm.CycleStateCommand.Execute(vm.RootNode);
+        vm.RootNode.State.Should().Be(ContextFileState.Full, "1周すると内容も出すへ戻るはず");
+    }
+
+    [AvaloniaFact(DisplayName = "一部のファイルだけ状態を変えると「すべて」行が混在（IsMixed）になる")]
+    public async Task 一部だけ変更するとルート行が混在になる()
+    {
+        var (vm, _, _) = await BuildAsync("root-mixed", ws =>
+        {
+            ws.WriteText("a.py", "x");
+            ws.WriteText("b.py", "x");
+        });
+
+        vm.RootNode.IsMixed.Should().BeFalse("最初は全部「内容も出す」で揃っているはず");
+
+        vm.CycleStateCommand.Execute(FindByPath(vm, "a.py")); // a.pyだけFull→StructureOnly
+
+        vm.RootNode.IsMixed.Should().BeTrue("a.pyとb.pyの状態が食い違っているので混在のはず");
+        vm.RootNode.State.Should().BeNull();
+    }
+
+    [AvaloniaFact(DisplayName = "混在状態の「すべて」行をクリックすると、プロジェクト全体がFullに揃う")]
+    public async Task 混在のルート行をクリックすると全体がFullに揃う()
+    {
+        var (vm, _, _) = await BuildAsync("root-mixed-cycle", ws =>
+        {
+            ws.WriteText("a.py", "x");
+            ws.WriteText("lib/b.py", "x");
+        });
+
+        vm.CycleStateCommand.Execute(FindByPath(vm, "a.py")); // Full → StructureOnly
+        vm.RootNode.IsMixed.Should().BeTrue("前提の確認: a.pyだけ変えたので混在のはず");
+
+        vm.CycleStateCommand.Execute(vm.RootNode); // 中間状態からのクリックは必ずFullへ
+
+        FindByPath(vm, "a.py").State.Should().Be(ContextFileState.Full);
+        FindByPath(vm, "lib/b.py").State.Should().Be(ContextFileState.Full);
+        vm.RootNode.State.Should().Be(ContextFileState.Full);
+    }
+
+    [AvaloniaFact(DisplayName = "除外されたファイル・フォルダは「すべて」行の一括切替の対象外")]
+    public async Task 除外ファイルはルート行の一括切替の対象外()
+    {
+        var (vm, _, _) = await BuildAsync("root-excluded", ws =>
+        {
+            ws.WriteText("keep.py", "x");
+            ws.WriteText("node_modules/lib.js", "x"); // 既定除外パターンで除外される
+        });
+
+        var excluded = vm.Files.Single(f => f.RelativePath == "node_modules");
+        excluded.IsExcluded.Should().BeTrue("前提の確認: node_modules/は既定除外パターンに一致するはず");
+        excluded.State.Should().BeNull("除外ノードは選択対象外(null)のはず");
+
+        vm.CycleStateCommand.Execute(vm.RootNode); // Full → StructureOnly
+
+        FindByPath(vm, "keep.py").State.Should().Be(ContextFileState.StructureOnly, "除外されていないファイルは対象のはず");
+        excluded.State.Should().BeNull("除外フォルダは一括切替の後も対象外のままのはず");
+    }
+
+    [AvaloniaFact(DisplayName = "「すべて」行はFilesの先頭に実在するが、出力対象（selectedPaths/hiddenPaths）にもライブのトークン概算にも一切数えられない")]
+    public async Task ルート行はFilesに含まれるが出力対象とトークン概算からは除外される()
+    {
+        var clipboard = new FakeClipboardAccess();
+        var (vm, _, _) = await BuildAsync(
+            "root-no-side-effect",
+            ws =>
+            {
+                ws.WriteText("a.py", "print('a')\n");
+                ws.WriteText("lib/b.py", "print('b')\n");
+            },
+            new Settings(), new FakeUiServices(clipboard), new NullDialogService());
+
+        // 設計変更の確認: 「すべて」行は（当初案のFilesの外ではなく）Filesの先頭に実ノードと
+        // 同じ1件として実在する。
+        vm.Files[0].IsRoot.Should().BeTrue("「すべて」行はFilesの先頭に入っているはず");
+        vm.Files.Count(f => f.IsRoot).Should().Be(1, "ルート行は1件だけのはず");
+
+        // (a) selectedPaths/hiddenPathsへの非混入: a.pyだけ「構成だけ」に変えたうえでコピーし、
+        // 出力にa.pyの中身が含まれず・lib/b.pyの中身とその見出し行だけが含まれることを確認する
+        // （ルートのDisplayName「すべて」という文字列そのものが出力に紛れ込んでいないことも
+        // 合わせて確認する）。
+        vm.CycleStateCommand.Execute(FindByPath(vm, "a.py")); // Full → StructureOnly
+        await ExecuteAsync(vm.CopyCommand);
+
+        clipboard.Text.Should().Contain("lib/b.py").And.Contain("print('b')", "Fullのままのファイルは内容が含まれるはず");
+        clipboard.Text.Should().NotContain("print('a')", "構成だけへ変えたファイルの中身は出力されないはず");
+        clipboard.Text.Should().NotContain("すべて", "ルート行の表示名が実際の出力に紛れ込んでいないはず");
+
+        // (b) ライブのトークン概算への非混入: 別プロジェクトで、ツリーに現れる行がルート以外
+        // 1つも無い状態（唯一のファイルを「出さない」にする）を作る。EstimateTreeSectionChars
+        // はHidden状態の非除外ファイルをツリーから完全に除く実装のため、このときの構成ツリー
+        // 文字数は「概要見出し＋フェンスの固定オーバーヘッド（同メソッドのoverviewAndFenceOverhead
+        // 定数、現状220文字）」だけになるはずである。もしルート行（DisplayName="すべて"、
+        // IndentLevel=0）が誤って数えられていれば、その1行ぶん（約7文字: "すべて"の3文字＋
+        // ディレクトリの"/"1文字＋改行オーバーヘッド3文字）だけ余計に文字数が増え、
+        // Math.Ceiling(chars / ratio)の丸めの都合で概算トークン数が目に見えて変わる
+        // （220文字→88トークン、227文字→91トークン。TokenEstimator.EstimateLength参照）。
+        var (vm2, _, _) = await BuildAsync("root-estimate-overhead", ws => ws.WriteText("only.py", "x"));
+        vm2.SelectedMode = ContextMode.TreeOnly; // 構成ツリーのみのモード（EstimateTreeSectionCharsだけが効く）
+        vm2.CycleStateCommand.Execute(FindByPath(vm2, "only.py")); // Full → StructureOnly
+        vm2.CycleStateCommand.Execute(FindByPath(vm2, "only.py")); // StructureOnly → Hidden
+
+        const int overviewAndFenceOverheadCharsWithoutAnyTreeLine = 220;
+        var expectedTokens = Graft.Features.TokenEstimator.EstimateLength(
+            overviewAndFenceOverheadCharsWithoutAnyTreeLine, new Settings().Context.TokenRatio);
+
+        vm2.EstimatedTokens.Should().Be(expectedTokens,
+            "ツリーに現れる行が1つも無い状態なので、概算は固定オーバーヘッドぶんだけのはず。" +
+            "ルート行が誤って数えられていれば、ここへ「すべて」の1行ぶんが上乗せされて食い違う");
+    }
+
+    [AvaloniaFact(DisplayName = "実ノードの表示インデントはルート行より1段深い（IndentLevelプロパティの値自体は従来どおり据え置く）")]
+    public async Task 実ノードの表示インデントはルートより1段深い()
+    {
+        var (vm, _, _) = await BuildAsync("root-indent", ws =>
+        {
+            ws.WriteText("top.py", "x");
+            ws.WriteText("lib/nested/deep.py", "x");
+        });
+
+        var root = vm.RootNode;
+        var top = FindByPath(vm, "top.py");
+        var lib = FindByPath(vm, "lib");
+        var nested = FindByPath(vm, "lib/nested");
+        var deep = FindByPath(vm, "lib/nested/deep.py");
+
+        // IndentLevel自体（RecomputeDirectoryStatesの深い順ソート・EstimateTreeSectionCharsの
+        // 字下げ再現に使う値）は、ルート行を混ぜる前と変わらないはず。
+        root.IndentLevel.Should().Be(0);
+        top.IndentLevel.Should().Be(0, "ルート直下は従来どおりIndentLevel=0のはず");
+        lib.IndentLevel.Should().Be(0);
+        nested.IndentLevel.Should().Be(1);
+        deep.IndentLevel.Should().Be(2);
+
+        // 一方、表示用のDisplayIndentLevelは、ルート行を0段目としたとき実ノードが1段深く
+        // 見えるよう、+1されているはず（ルートと同じ段に見えると「配下」に見えないため）。
+        root.DisplayIndentLevel.Should().Be(0);
+        top.DisplayIndentLevel.Should().Be(1);
+        lib.DisplayIndentLevel.Should().Be(1);
+        nested.DisplayIndentLevel.Should().Be(2);
+        deep.DisplayIndentLevel.Should().Be(3);
+    }
+
+    [AvaloniaFact(DisplayName = "ルート行の集計は、同じ階層（IndentLevel=0）の実ディレクトリより後に計算される（1サイクル遅れの古い値を拾わない）")]
+    public async Task ルート行の集計は同階層の実ディレクトリより後に計算される()
+    {
+        // RecomputeDirectoryStatesのコメントに書いた具体的な事故の再現テスト。
+        // ThenBy(f => f.IsRoot)によるタイブレークが無いと、Filesの先頭にあるルートが
+        // 同じIndentLevel=0のlibより先に集計され、libがこのサイクルでまだ更新される前の
+        // 「1サイクル古い」状態を読んでしまう。
+        var (vm, _, _) = await BuildAsync("root-order-safety", ws =>
+        {
+            ws.WriteText("top.py", "x"); // ルート直下。最後まで変更しない（Fullのまま）
+            ws.WriteText("lib/nested/deep.py", "x"); // 2階層下
+        });
+
+        vm.RootNode.State.Should().Be(ContextFileState.Full, "前提の確認: 変更前は全部Fullのはず");
+        FindByPath(vm, "lib").State.Should().Be(ContextFileState.Full);
+
+        // lib/nested/deep.py（IndentLevel=2）だけを変更する。これによりlib/nested
+        // （IndentLevel=1）→lib（IndentLevel=0）の順に、このRecomputeDirectoryStates
+        // 1回の呼び出し内でFullからStructureOnlyへ更新されるはず。
+        vm.CycleStateCommand.Execute(FindByPath(vm, "lib/nested/deep.py")); // Full → StructureOnly
+
+        FindByPath(vm, "lib/nested").State.Should().Be(
+            ContextFileState.StructureOnly, "前提の確認: 直下の唯一のファイルに揃うはず");
+        FindByPath(vm, "lib").State.Should().Be(
+            ContextFileState.StructureOnly, "前提の確認: libの唯一の子lib/nestedに揃うはず");
+
+        // top.pyはFullのまま・libはStructureOnlyになった → ルート直下の状態が食い違うので、
+        // ルートは中間状態（混在）になるはず。タイブレークが無く、ルートがlibの更新前の
+        // 古い値（Full）を読んでいれば、top.pyと一致してしまい誤ってFullのまま
+        // （IsMixed=false）になる。
+        vm.RootNode.IsMixed.Should().BeTrue(
+            "top.pyはFull・libはStructureOnlyで食い違っているのでルートは混在のはず" +
+            "（タイブレークが効いていないと、ルートがlibの更新前の古いFullを読んで誤ってFullのままになる）");
+        vm.RootNode.State.Should().BeNull();
+    }
+
+    [AvaloniaFact(DisplayName = "空のプロジェクトでは「すべて」行が表示されない")]
+    public async Task 空のプロジェクトではルート行が表示されない()
+    {
+        var (vm, _, _) = await BuildAsync("root-empty", _ => { });
+
+        vm.IsEmpty.Should().BeTrue("前提の確認: 対象ファイルが1件も無いはず");
+        // 対象ファイルが1件も無いときはルート行自体をFilesへ追加しない実装（RefreshAsync参照）。
+        // ContextCollectWindow.axaml側もListBox自体をIsVisible="{Binding !IsEmpty}"で隠すため、
+        // 二重の意味でルート行は画面に現れない。
+        vm.Files.Should().BeEmpty();
+        vm.Files.Should().NotContain(f => f.IsRoot);
+    }
+
     [AvaloniaFact(DisplayName = "チェック状態はプロジェクトごとに保存され、次回開いたときに復元される")]
     public async Task チェック状態が保存され復元される()
     {
