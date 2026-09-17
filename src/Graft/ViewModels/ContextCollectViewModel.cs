@@ -102,7 +102,42 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<ModeOption> Modes { get; }
     public ObservableCollection<RevisionOption> Revisions { get; }
+
+    /// <summary>
+    /// ファイル一覧。先頭（インデックス0）には常に「すべて」行（プロジェクトルート、
+    /// <see cref="ContextFileNodeViewModel.IsRoot"/>=true）が入る（<see cref="IsEmpty"/>のときを
+    /// 除く。<see cref="RefreshAsync"/>参照）。
+    ///
+    /// 【なぜルートを実ノードと同じ1件としてFilesへ混ぜたか】
+    /// 当初はFilesの外（ListBoxの上）に専用の行を追加する設計で作ったが、それだと行の見た目
+    /// （ContextCollectWindow.axamlのButton Classes="stateToggle" + IconGlyphの
+    /// Classes.stateXxxの束ね方）の定義が2箇所に分かれる。このリポジトリでは過去に、同じ
+    /// 見た目の部品が2つ存在したことが原因の不具合を踏んでいるため、ListBox.ItemTemplateという
+    /// 唯一の定義を使い回せる「Filesの先頭に混ぜる」ほうを選んだ。ルートはIsDirectory=trueの
+    /// 通常のディレクトリ行として扱われるため、<see cref="CycleState"/>・
+    /// <see cref="ApplyStateRecursive"/>（配下への再帰適用）は一切手を加えなくてもそのまま働く
+    /// （ルートの子は<c>_childrenByPath[""]</c>で引ける。この空文字キーはルートを混ぜる前から
+    /// 存在した「ルート直下の子」を指すキーで、混ぜたことで意味は変わらない）。
+    ///
+    /// 一方、Filesを走査する既存の集計ロジック（<see cref="UpdateApproxTokenEstimate"/>・
+    /// <see cref="EstimateTreeSectionChars"/>・<see cref="CollectAsync"/>のselectedPaths/
+    /// hiddenPaths算出）には影響が及ぶため、それぞれ個別に手当てしている
+    /// （<see cref="EstimateTreeSectionChars"/>のコメント参照。selectedPaths/hiddenPathsの
+    /// 算出自体は<c>IsDirectory: false</c>で絞り込む実装のため、ルート（常にIsDirectory=true）
+    /// は元から対象外で変更不要）。
+    /// </summary>
     public ObservableCollection<ContextFileNodeViewModel> Files { get; }
+
+    /// <summary>
+    /// 「すべて」行（<see cref="Files"/>の先頭に入っているプロジェクトルート行）への参照。
+    /// テスト・将来のUIから毎回<c>Files[0]</c>と書かずに済むようにするための便宜プロパティ。
+    /// <see cref="IsEmpty"/>のときはルート行自体をFilesへ入れていないため例外を投げる
+    /// （呼び出し側にIsEmptyの確認漏れがあることを早期に気付かせるため、nullを返して
+    /// 呼び出し側にnull条件演算子を強いるよりも、境界条件をここで明確にする狙い）。
+    /// </summary>
+    public ContextFileNodeViewModel RootNode => Files.Count > 0 && Files[0].IsRoot
+        ? Files[0]
+        : throw new InvalidOperationException("ファイル一覧が空のときはRootNodeを参照できません（先にIsEmptyを確認してください）。");
 
     /// <summary>
     /// 8.6: 出力プレビューの行（シンタックストークン付き）。プレビュー・コピー実行時に、
@@ -279,12 +314,25 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
 
             _lastScan = scan.Value;
             Files.Clear();
+            // 利用者の要望: プロジェクトルート直下のファイルには「配下をまとめて切り替える親」が
+            // 無かった（Filesに入るのはルート直下から始まる実ノードのみだったため）。先頭に
+            // 「すべて」行を1件差し込み、既存のフォルダ行とまったく同じ操作（Files.RootNodeの
+            // コメント参照）でプロジェクト全体を一括切替できるようにする。対象ファイルが1件も
+            // 無いとき（IsEmpty）はルート行を切り替えても何も起きないため入れない
+            // （要件: 空のプロジェクトでルート行が表示されない。IsEmpty=trueだとListBox自体が
+            // ContextCollectWindow.axamlのIsVisible="{Binding !IsEmpty}"で非表示になるため実害は
+            // 無いが、Filesの中身を「実際に走査された対象がある場合のみ」に保っておくほうが
+            // IsEmptyの意味（対象ファイルが1件も無い）とも一貫する）。
+            if (scan.Value.Count > 0)
+            {
+                Files.Add(ContextFileNodeViewModel.CreateRoot());
+            }
             foreach (var node in scan.Value)
             {
                 // 課題3: 既定は全部「内容も出す」（ContextFileNodeViewModelのコンストラクタで設定）。
                 Files.Add(new ContextFileNodeViewModel(node));
             }
-            IsEmpty = Files.Count == 0;
+            IsEmpty = scan.Value.Count == 0;
 
             RebuildChildrenMap();
             await ApplyPersistedStatesAsync().ConfigureAwait(true);
@@ -396,6 +444,9 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
 
     private async Task<ContextResult?> CollectAsync()
     {
+        // Files先頭の「すべて」行（RootNode）はIsDirectory=trueのため、下の2つの
+        // Where(f => f is { IsDirectory: false, ... })で自動的に対象外になる。ルートを
+        // Filesへ混ぜるにあたってここは変更不要（Files.RootNodeのコメント参照）。
         var selectedPaths = Files.Where(f => f is { IsDirectory: false, IsExcluded: false, State: ContextFileState.Full })
             .Select(f => f.RelativePath).ToArray();
         var hiddenPaths = Files.Where(f => f is { IsDirectory: false, IsExcluded: false, State: ContextFileState.Hidden })
@@ -591,10 +642,29 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
     /// 全ディレクトリの状態を、配下ファイル・配下サブディレクトリの集計から再計算する
     /// （要件: 子の変更が祖先フォルダへ即座に反映される）。IndentLevelの深い順（葉に近い順）に
     /// 処理することで、サブディレクトリの集計値を使って親ディレクトリを計算できる。
+    ///
+    /// 【ルート（「すべて」行）を確実に最後に計算するための並び替え】
+    /// ルートはIndentLevel=0で、ルート直下の実ディレクトリ（同じくIndentLevel=0）と同じ階層に
+    /// 並ぶ。<c>OrderByDescending</c>単体（IndentLevelだけをキーにした降順）では、同順位
+    /// （IndentLevel=0同士）の要素は.NETのOrderByが安定ソートであることに従い、Files内での
+    /// 元の並び順のまま並ぶ。ルートはFilesの先頭（インデックス0）に入っているため、これでは
+    /// ルート直下の実ディレクトリより「先に」ルートが計算されてしまい、まだ今回のサイクルで
+    /// 更新されていない（1サイクル古い）実ディレクトリの状態を拾って誤集計する
+    /// （実例: lib/nested/deep.pyを変更した直後、libディレクトリ自身がこのループ内で
+    /// まだStructureOnlyへ更新される前にルートがlibの古いFull値を読んでしまい、実際には
+    /// 混在しているのにルートがFullのまま、という食い違いが起こり得る。
+    /// ContextCollectViewModelTests「ルート行の集計は同じ階層の実ディレクトリより後に計算される」
+    /// で固定している）。
+    /// そのため<c>ThenBy(f => f.IsRoot)</c>で明示的なタイブレークを加え、同じIndentLevelの
+    /// 中では非ルート（false=0）を先に、ルート（true=1）を必ず最後に回す。これでルートは
+    /// 常に自分より浅い階層が存在しない＝最後のティアで、かつそのティア内でも他の全項目より
+    /// 後に計算されることが保証される。
     /// </summary>
     private void RecomputeDirectoryStates()
     {
-        foreach (var dir in Files.Where(f => f.IsDirectory && !f.IsExcluded).OrderByDescending(f => f.IndentLevel))
+        foreach (var dir in Files.Where(f => f.IsDirectory && !f.IsExcluded)
+                     .OrderByDescending(f => f.IndentLevel)
+                     .ThenBy(f => f.IsRoot))
         {
             dir.State = AggregateChildState(dir);
         }
@@ -637,6 +707,13 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         _childrenByPath = new Dictionary<string, List<ContextFileNodeViewModel>>(StringComparer.Ordinal);
         foreach (var node in Files)
         {
+            // ルート行（RelativePath=""）自身は誰の子でもない（あくまでツリーの最上位）。
+            // ParentPathOf("")は空文字列を返す実装のため、ここで弾かないとルートが
+            // "自分自身の子"として_childrenByPath[""]へ紛れ込んでしまう
+            // （AggregateChildState(root)がルートを自分の子として数えて無限に混在扱いになる、
+            // ApplyStateRecursive(root)が自分自身を再度辿るといった事故につながる）。
+            if (node.IsRoot) continue;
+
             var parent = ParentPathOf(node.RelativePath);
             if (!_childrenByPath.TryGetValue(parent, out var list))
             {
@@ -704,6 +781,14 @@ public sealed class ContextCollectViewModel : ObservableObject, IDisposable
         var chars = overviewAndFenceOverhead;
         foreach (var node in Files)
         {
+            // ルート（「すべて」行）はUI一覧だけの仮想行で、ContextCollector.BuildTreeTextが
+            // 実際に生成する構成ツリーには一切現れない（ツリーは常にプロジェクト直下の
+            // ノードから書き出され、ルート自身の行は無い）。ここで数えてしまうと、以前
+            // 「プレビューを押す前は7件、押した後は125件と約18倍ずれていた」不具合（課題バグ2）
+            // の再発になる（このメソッドは実出力の鏡写しであるべきという同不具合修正の方針を
+            // 参照）。RootNode.RelativePathが空文字である点を目印に確実に飛ばす。
+            if (node.IsRoot) continue;
+
             // 「出さない」（Hidden）は非除外ファイルに限りツリーから完全に除かれる
             // （BuildTreeTextのhiddenPaths判定と同じ。全滅したフォルダの畳み込みまでは追わない簡略化）。
             if (!node.IsExcluded && !node.IsDirectory && node.State == ContextFileState.Hidden) continue;
@@ -861,14 +946,42 @@ public sealed class ContextFileNodeViewModel : ObservableObject
     private ContextFileState? _state;
 
     public ContextFileNodeViewModel(ContextFileNode node)
+        : this(node.RelativePath, node.IsDirectory, node.IsExcluded, node.ExcludeReason, displayNameOverride: null)
     {
-        RelativePath = node.RelativePath;
-        IsDirectory = node.IsDirectory;
-        IsExcluded = node.IsExcluded;
-        ExcludeReason = node.ExcludeReason;
-        IndentLevel = node.RelativePath.Count(c => c == '/');
-        var nameStart = node.RelativePath.LastIndexOf('/') + 1;
-        DisplayName = node.RelativePath[nameStart..];
+    }
+
+    /// <summary>
+    /// 「すべて」行（プロジェクトルート、<see cref="ContextCollectViewModel.Files"/>の先頭に
+    /// 混ぜて入れる1件）専用のファクトリ。
+    ///
+    /// 【なぜ通常のコンストラクタを直接使わずファクトリを分けたか】
+    /// 通常のコンストラクタは<see cref="ContextFileNode"/>（実走査結果の1ノード）を受け取る
+    /// 前提で、DisplayNameを「RelativePathの末尾（最後の'/'より後ろ）」から機械的に導出する。
+    /// ルートのRelativePathは""（空文字）で、この導出式にそのまま通すとDisplayNameも""に
+    /// なってしまい、一覧の見出しとして意味を成さない。ルート専用の分岐をコンストラクタ内へ
+    /// if文で埋め込むより、「ルートは特別な1行」であることをファクトリの存在自体で示し、
+    /// 通常経路（ContextFileNodeからの生成）のロジックには一切触れないほうが安全と判断した。
+    ///
+    /// IsExcluded=falseで固定しているのは、ルート行そのものは走査結果に存在しない
+    /// （除外規則の対象になり得ない）架空の行のため。
+    /// </summary>
+    public static ContextFileNodeViewModel CreateRoot()
+        => new(relativePath: string.Empty, isDirectory: true, isExcluded: false, excludeReason: null, displayNameOverride: "すべて");
+
+    private ContextFileNodeViewModel(string relativePath, bool isDirectory, bool isExcluded, string? excludeReason, string? displayNameOverride)
+    {
+        RelativePath = relativePath;
+        IsDirectory = isDirectory;
+        IsExcluded = isExcluded;
+        ExcludeReason = excludeReason;
+        // ルートかどうかは「CreateRootから作られたか」で一意に決まる（displayNameOverrideを
+        // 渡すのはCreateRootだけ）。RelativePath==""でも判定できなくはないが、そちらは
+        // 「たまたま空文字パスだったから」に見えてしまい、意図（ルートという特別な行である
+        // こと）が読み手に伝わりにくい。IsRootという専用フラグで明示する。
+        IsRoot = displayNameOverride is not null;
+        IndentLevel = relativePath.Count(c => c == '/');
+        var nameStart = relativePath.LastIndexOf('/') + 1;
+        DisplayName = displayNameOverride ?? relativePath[nameStart..];
 
         // 課題3: 既定は全部「内容も出す」。ディレクトリの初期値は、ContextCollectViewModelが
         // RefreshAsync完了時にRecomputeDirectoryStatesで配下ファイルの集計へ必ず上書きするため、
@@ -877,6 +990,8 @@ public sealed class ContextFileNodeViewModel : ObservableObject
         // 要件F: ただしpackage-lock.json等のロックファイルだけは「構成だけ」を初期値にする
         // （中身は大半がAIにとって無価値なうえ数万行に及ぶこともあり、既定でトークンを
         // 浪費させないため）。チェックボックス自体は有効なままなのでユーザーが手でオンにできる。
+        // ルート行（RelativePath=""）はPath.GetFileName("")が""を返すためIsLockFileForInitialUncheck
+        // には該当せず、IsDirectory=true経由でFullになる（狙いどおり）。
         _state = IsExcluded ? null
             : IsDirectory ? ContextFileState.Full
             : ContextCollector.IsLockFileForInitialUncheck(RelativePath) ? ContextFileState.StructureOnly
@@ -887,8 +1002,28 @@ public sealed class ContextFileNodeViewModel : ObservableObject
     public bool IsDirectory { get; }
     public bool IsExcluded { get; }
     public string? ExcludeReason { get; }
+
+    /// <summary>
+    /// 「すべて」行（プロジェクトルート）かどうか。<see cref="CreateRoot"/>で作られた1件だけが
+    /// trueになる。RebuildChildrenMap（自分自身を子として数えない）・RecomputeDirectoryStates
+    /// （ルートを必ず最後に計算するタイブレーク）・EstimateTreeSectionChars（実出力に存在しない
+    /// ルート行を数えない）・DisplayIndentLevel（表示インデントを1段深くしない）で使う。
+    /// </summary>
+    public bool IsRoot { get; }
+
     public int IndentLevel { get; }
     public string DisplayName { get; }
+
+    /// <summary>
+    /// 一覧表示用のインデント段数。<see cref="IndentLevel"/>そのものは変更しない
+    /// （RecomputeDirectoryStatesの深い順ソート・EstimateTreeSectionChartsの字下げ再現の両方が
+    /// IndentLevelの値そのものに依存しているため、計算用の値と表示用の値は切り分ける）。
+    ///
+    /// ルート直下の実ノードはIndentLevel=0で、ルート自身（IndentLevel=0）と同じ深さになって
+    /// しまい、見た目上「ルートの兄弟」に見えて「ルートの配下」に見えない。表示上だけ実ノードを
+    /// 1段深く見せることで、ツリーとして自然な形にする。
+    /// </summary>
+    public int DisplayIndentLevel => IsRoot ? 0 : IndentLevel + 1;
 
     /// <summary>
     /// 3状態選択。ファイルは常に具体的な値（Full/StructureOnly/Hidden）を持ち、ディレクトリは
@@ -903,6 +1038,7 @@ public sealed class ContextFileNodeViewModel : ObservableObject
         {
             if (!SetProperty(ref _state, value)) return;
             OnPropertyChanged(nameof(StateLabel));
+            OnPropertyChanged(nameof(ToggleToolTip));
             OnPropertyChanged(nameof(AutomationLabel));
             OnPropertyChanged(nameof(IsFull));
             OnPropertyChanged(nameof(IsStructureOnly));
@@ -930,8 +1066,21 @@ public sealed class ContextFileNodeViewModel : ObservableObject
     /// <summary>フォルダの配下状態が混在している「中間状態」。ファイルでは常にfalse。</summary>
     public bool IsMixed => State is null && !IsExcluded;
 
+    /// <summary>
+    /// 3状態切替ボタンのツールチップ文言。通常の行は<see cref="StateLabel"/>のみ（既存どおり）。
+    /// ルート行だけは、これが何を表す行なのか（プロジェクト全体の一括切替）が他の行の見た目
+    /// からだけでは伝わらないため、一言添える。ContextCollectWindow.axamlのListBox.ItemTemplate
+    /// を実ノードと共有する設計上、行ごとに個別のHelpTipを出し分けられない（HelpTip.Standard/
+    /// Detailedは仮想化されたListBoxItemの1件ずつには付けられず、静的な見出し・ListBox単位でしか
+    /// 使えない）ため、ルート行の説明は代わりにここ（ToolTip.Tip。ホバーで出る標準ツールチップ）と
+    /// AutomationLabel、および見出し・ListBox自体のHelpTipへの追記で補っている。
+    /// </summary>
+    public string ToggleToolTip => IsRoot ? $"すべて（プロジェクト全体）: {StateLabel}" : StateLabel;
+
     /// <summary>8.14: スクリーンリーダー向けの読み上げ文言。種別・除外理由・現在の状態を含める。</summary>
     public string AutomationLabel => IsExcluded
         ? $"{(IsDirectory ? "フォルダ" : "ファイル")} {DisplayName}（除外: {ExcludeReason}）"
-        : $"{(IsDirectory ? "フォルダ" : "ファイル")} {DisplayName}（{StateLabel}）";
+        : IsRoot
+            ? $"すべて（プロジェクト全体、{StateLabel}）"
+            : $"{(IsDirectory ? "フォルダ" : "ファイル")} {DisplayName}（{StateLabel}）";
 }

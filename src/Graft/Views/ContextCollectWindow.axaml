@@ -72,22 +72,54 @@
                     <DockPanel Grid.Column="0">
                         <TextBlock DockPanel.Dock="Top" Text="ファイル" FontSize="{DynamicResource CaptionFontSize}"
                                    Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,4"
-                                   local:HelpTip.Standard="行のアイコンをクリック（またはSpaceキー）すると「内容も出す→構成だけ→出さない」の3状態を切り替えられます。フォルダなら配下へまとめて適用されます。"
-                                   local:HelpTip.Detailed="ファイル名の左のアイコンをクリックする、またはその行を選んでSpaceキーを押すと、「内容も出す」（チェックのアイコン。出力にファイル構成も中身も含める）「構成だけ」（ファイルのアイコン。ファイル構成には載るが中身は出力しない。lib/やnode_modules/のような、存在は知らせたいが中身は不要なフォルダを一括で切り替えるのに使う）「出さない」（×のアイコン。ファイル構成にも出力にも一切含めない）の3状態を順に切り替えられます。フォルダのアイコンをクリックすると、配下のファイル・サブフォルダすべてへ同じ状態がまとめて適用されます。配下の状態が一致していないフォルダは「混在」を示す重なったアイコンで表示され、この状態でクリックすると配下すべてが「内容も出す」に揃います。既定では全ファイルが「内容も出す」です。" />
+                                   local:HelpTip.Standard="行のアイコンをクリック（またはSpaceキー）すると「内容も出す→構成だけ→出さない」の3状態を切り替えられます。フォルダなら配下へまとめて適用されます。先頭の「すべて」行を使えば、プロジェクト直下のファイルも含めて全体を一括で切り替えられます。"
+                                   local:HelpTip.Detailed="ファイル名の左のアイコンをクリックする、またはその行を選んでSpaceキーを押すと、「内容も出す」（チェックのアイコン。出力にファイル構成も中身も含める）「構成だけ」（ファイルのアイコン。ファイル構成には載るが中身は出力しない。lib/やnode_modules/のような、存在は知らせたいが中身は不要なフォルダを一括で切り替えるのに使う）「出さない」（×のアイコン。ファイル構成にも出力にも一切含めない）の3状態を順に切り替えられます。フォルダのアイコンをクリックすると、配下のファイル・サブフォルダすべてへ同じ状態がまとめて適用されます。配下の状態が一致していないフォルダは「混在」を示す重なったアイコンで表示され、この状態でクリックすると配下すべてが「内容も出す」に揃います。既定では全ファイルが「内容も出す」です。一覧の先頭には「すべて」というプロジェクトルートを表す行があり、これも他のフォルダ行と同じ操作でプロジェクト全体（サブフォルダの中身も含む）を一括切替できます。" />
                         <Grid>
+                            <!--
+                                利用者の要望: プロジェクトルート直下のファイルには、既存のフォルダ行の
+                                ような「配下をまとめて切り替える親」が存在しなかった（Filesに入るのは
+                                ルート直下から始まる実ノードのみで、ルート自身の行が一覧に無いため）。
+
+                                【なぜ「すべて」行を一覧の外に置かず、Filesの先頭へ実ノードと
+                                同じ1行として混ぜたか】
+                                当初は一覧の外（この見出しとListBoxの間）に専用の行を追加する案で
+                                作ったが、それだと行の見た目（Button Classes="stateToggle" +
+                                IconGlyphのClasses.stateXxxの束ね方）の定義が2箇所に分かれてしまう。
+                                このリポジトリでは過去に、同じ見た目の部品が2つ存在したことが
+                                原因の不具合を踏んでいるため、定義を1箇所（下のListBox.ItemTemplate）
+                                に保てる「Filesの先頭に混ぜる」ほうを選んだ。こうすれば見た目・
+                                クリック挙動が実ノードと構造的に完全に同一であることが保証され、
+                                CycleState・ApplyStateRecursiveのようなクリック時の挙動にも
+                                一切手を入れる必要が無い（ルートはIsDirectory=trueの通常の
+                                ディレクトリ行として扱われ、_childrenByPath[""]（既存のルート
+                                キー）を辿って配下すべてへ再帰適用される）。
+
+                                3つのボタン（「すべて出す」「すべて構成だけ」「すべて出さない」）を
+                                並べる案も採らない。利用者は既に「行のアイコンをクリックすると
+                                3状態を巡回し、フォルダなら配下へまとめて適用される」という操作を
+                                覚えている。ルート行を1つ足すだけなら新しい概念も新しい操作も増えず、
+                                かつ「いま全体がどの状態か（混在しているか）」が集計アイコンとして
+                                一目で分かる副産物も得られる。
+
+                                Filesに混ぜたことでUpdateApproxTokenEstimate・EstimateTreeSectionChars・
+                                selectedPaths/hiddenPathsの算出（すべてFilesを走査する実装）への
+                                影響が生じるため、そちらはContextCollectViewModel側（EstimateTreeSectionChars・
+                                RebuildChildrenMap・RecomputeDirectoryStatesの各コメント）で個別に
+                                手当てしている。
+                            -->
                             <ListBox x:Name="FileListBox" ItemsSource="{Binding Files}"
                                      SelectedItem="{Binding SelectedFile}"
                                      AutomationProperties.Name="ファイル一覧" TabIndex="2"
                                      IsVisible="{Binding !IsEmpty}"
-                                     local:HelpTip.Standard="プロジェクト内のファイル構成です。各行のアイコンをクリックすると「内容も出す／構成だけ／出さない」を切り替えられます。"
-                                     local:HelpTip.Detailed="プロジェクトのフォルダ構成を一覧表示しています。各行のアイコンをクリック（またはSpaceキー）すると、そのファイル・フォルダの扱いを「内容も出す／構成だけ／出さない」の3状態で切り替えられます（詳細は上の見出しのツールチップ参照）。ここではまだ何もコピー・保存されておらず、選び終えたら下の「プレビュー」「コピー」「ファイルへ保存」のいずれかで実際の出力を作成します。">
+                                     local:HelpTip.Standard="プロジェクト内のファイル構成です。各行のアイコンをクリックすると「内容も出す／構成だけ／出さない」を切り替えられます。先頭の「すべて」行はプロジェクト全体をまとめて切り替えます。"
+                                     local:HelpTip.Detailed="プロジェクトのフォルダ構成を一覧表示しています。各行のアイコンをクリック（またはSpaceキー）すると、そのファイル・フォルダの扱いを「内容も出す／構成だけ／出さない」の3状態で切り替えられます（詳細は上の見出しのツールチップ参照）。一覧の先頭にある「すべて」行はプロジェクトルートに対応する仮想的な行で、他のフォルダ行とまったく同じ操作（クリック・Spaceキーで巡回、配下へ一括適用、配下が混在していれば重なったアイコンで表示）でプロジェクト全体を一括切替できます。ここではまだ何もコピー・保存されておらず、選び終えたら下の「プレビュー」「コピー」「ファイルへ保存」のいずれかで実際の出力を作成します。">
                                 <ListBox.KeyBindings>
                                     <KeyBinding Gesture="Space" Command="{Binding CycleSelectedStateCommand}" />
                                 </ListBox.KeyBindings>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="vm:ContextFileNodeViewModel">
                                         <StackPanel Orientation="Horizontal"
-                                                    Margin="{Binding IndentLevel,
+                                                    Margin="{Binding DisplayIndentLevel,
                                                              Converter={x:Static local:Converters.IndentToMargin}}"
                                                     AutomationProperties.Name="{Binding AutomationLabel}">
                                             <local:IconGlyph Data="{DynamicResource IconFolderGeometry}"
@@ -109,7 +141,7 @@
                                             <Button Classes="stateToggle" IsVisible="{Binding !IsExcluded}"
                                                     Command="{Binding DataContext.CycleStateCommand, ElementName=Root}"
                                                     CommandParameter="{Binding}"
-                                                    ToolTip.Tip="{Binding StateLabel}"
+                                                    ToolTip.Tip="{Binding ToggleToolTip}"
                                                     AutomationProperties.Name="{Binding AutomationLabel}">
                                                 <Button.IsEnabled>
                                                     <MultiBinding Converter="{x:Static local:Converters.FileCheckEnabled}">
