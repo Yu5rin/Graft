@@ -12,7 +12,7 @@
         FontSize="{DynamicResource BodyFontSize}"
         AutomationProperties.Name="初回起動ガイド">
     <!--
-        初回起動ガイド（3画面）。v2.0のWPF版からの差分: ResizeMode="NoResize" は CanResize="False"、
+        初回起動ガイド（4画面）。v2.0のWPF版からの差分: ResizeMode="NoResize" は CanResize="False"、
         Visibility は IsVisible（bool）へ。
     -->
     <Grid Margin="24" RowDefinitions="*,Auto">

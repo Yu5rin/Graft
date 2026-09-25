@@ -120,6 +120,26 @@ public class PromptTemplateCodeBlockTests
         body.Should().Contain("````text", "本文に```を含む場合はバッククォート4個にするよう具体的に示されているはず");
     }
 
+    // ------------------------------------------------------------------
+    // 利用者の実機不具合対応（インデント1文字欠落）: CommonMarkの字下げフェンス規則が
+    // 原因である可能性を踏まえ、フェンス開始行を字下げしないようAIへ指示する文言を
+    // Graft独自形式・標準SR形式の両方に追記したことの回帰テスト。
+    // ------------------------------------------------------------------
+
+    [Theory(DisplayName = "Graft独自形式の既定テンプレートはフェンス開始行を字下げしない旨の指示を含む")]
+    [InlineData("builtin-graft-full")]
+    [InlineData("builtin-graft-fix-request")]
+    [InlineData("builtin-graft-new-file")]
+    public void Graft独自形式のテンプレートはフェンス開始行の字下げ禁止を含む(string id)
+        => Body(id).Should().Contain("行頭（列0）から書き、字下げしないでください");
+
+    [Theory(DisplayName = "標準SR形式の既定テンプレートはフェンス開始行を字下げしない旨の指示を含む")]
+    [InlineData("builtin-full")]
+    [InlineData("builtin-fix-request")]
+    [InlineData("builtin-new-file")]
+    public void 標準SR形式のテンプレートはフェンス開始行の字下げ禁止を含む(string id)
+        => Body(id).Should().Contain("行頭（列0）から書き、字下げしないでください");
+
     [Fact(DisplayName = "回帰_バッククォート4個で囲み、本文にMarkdownの```例示を含むAI出力も解析できる")]
     public void バッククォート4個で囲みMarkdown例示を含む出力も解析できる()
     {
