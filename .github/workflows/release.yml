@@ -16,6 +16,22 @@
 # 実測で分かっている。発行物は実行ファイル＋ネイティブDLL3つの計4ファイル。
 # Windows 向けもLinuxランナー上で生成する。.NET はクロスOSの発行に対応しており、
 # ReadyToRun のプリコンパイルも対象OS向けに正しく行われる。
+#
+# 【配布物の形は tools/New-Release.ps1 と揃える（自動更新の前提。2026-09-25 修正）】
+# アプリの自動更新は、添付ファイルと書庫の中身について次を前提にしている。
+#   - 名前は Graft-<タグから先頭の v を除いた版>-win-x64.zip / -linux-x64.tar.gz
+#     （src/Graft/Core/Update/UpdatePlatformPolicy.cs の BuildAssetFileName。GitHub API に
+#     届かないときは、この規則でダウンロードURLを組み立てる）
+#   - Windows 版の zip の中身は src/Graft/Core/Update/UpdateFiles.cs の RequiredFileNames
+#     の6ファイルと過不足なく一致する（1つでも欠けたり余計なものがあると、更新を中止する）
+# 以前のこのワークフローはタグそのもの（v 付き）を名前に使い（Graft-v1.0.1-win-x64.zip。
+# 実際に v1.0.0・v1.0.1 の添付はこの名前）、書庫に 取扱説明書.md と
+# はじめにお読みください.txt を入れていなかった。そのため、ここで作ったリリースは
+# API に届かないときの自動更新では404になり、API で添付が見つかっても中身の検査で
+# 「必要なファイルが不足」として必ず中止されていた。v1.0.2 以降の実際のリリースは
+# tools/New-Release.ps1 で作られており、そちらの形（v なしの名前、書庫のトップは Graft/）に
+# 合わせて直した。tests/Graft.Tests/UpdatePlatformPolicyTests.cs がこのファイルを読んで、
+# 名前の付け方と中身の一覧が自動更新の前提から外れていないことを確かめている。
 name: リリース
 
 on:
@@ -41,30 +57,114 @@ jobs:
       - name: テスト
         run: dotnet test -c Release
 
-      # 発行先を配布物の名前と同じフォルダにしておく。こうしておくと書庫の中に
-      # 「Graft-v1.0.0-win-x64/」という単一のフォルダだけが入るので、利用者が
-      # ダウンロードフォルダ等でそのまま展開してもファイルが散らばらない
-      # （単一ファイル形式でも実行ファイル＋ネイティブDLL3つの計4ファイルが同梱される
-      # ため、書庫のトップに必ずフォルダを1つ挟むことが重要になる。実行ファイルだけを
-      # 取り出すと起動できない）。
+      # 版を決める。タグ（v1.0.21 等）を選んで実行したときだけ進める。workflow_dispatch を
+      # ブランチ（main 等）で実行すると github.ref_name が "main" になり、添付の名前が
+      # Graft-main-win-x64.zip になってしまうため、ここで止める。
+      # また Graft.csproj の <Version> とタグがずれていると、アプリが名乗る版と添付の名前が
+      # 食い違う（自動更新は版の比較と添付の名前の両方をタグから決める）ため、これも止める。
+      - name: 版の確認
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" != "tag" ] || [[ "${GITHUB_REF_NAME}" != v* ]]; then
+            echo "::error::v で始まるタグを選んで実行してください（今は ${GITHUB_REF_TYPE} の ${GITHUB_REF_NAME}）"
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          CSPROJ_VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/Graft/Graft.csproj | head -n 1)"
+          if [ "${VERSION}" != "${CSPROJ_VERSION}" ]; then
+            echo "::error::タグ（${GITHUB_REF_NAME}）と Graft.csproj の <Version>（${CSPROJ_VERSION}）が一致しません"
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      # 書庫の中には「Graft/」という単一のフォルダだけを入れる（tools/New-Release.ps1 と同じ）。
+      # こうしておくと利用者がダウンロードフォルダ等でそのまま展開してもファイルが散らばらない
+      # （単一ファイル形式でも実行ファイル＋ネイティブDLLが同梱されるため、書庫のトップに
+      # 必ずフォルダを1つ挟むことが重要になる。実行ファイルだけを取り出すと起動できない）。
       - name: Windows 向けに発行
         run: |
           dotnet publish src/Graft -c Release -r win-x64 --self-contained true \
-            -p:DebugType=none -o publish/Graft-${{ github.ref_name }}-win-x64
+            -p:DebugType=none -o publish/win/Graft
 
       - name: Linux 向けに発行
         run: |
           dotnet publish src/Graft -c Release -r linux-x64 --self-contained true \
-            -p:DebugType=none -o publish/Graft-${{ github.ref_name }}-linux-x64
+            -p:DebugType=none -o publish/linux/Graft
 
-      # 発行物一式（実行ファイル＋ネイティブDLL3つの計4ファイル）をまとめて圧縮する。
-      # Linux 版は zip では実行権限が失われるので tar.gz を使う。
-      - name: 配布物をまとめる
+      # 同梱物（取扱説明書.md・はじめにお読みください.txt）を置く。どちらも自動更新が
+      # 入れ替えるファイルの一覧（UpdateFiles.RequiredFileNames）に含まれており、無いと
+      # 更新が中止される。はじめにお読みください.txt の文面は tools/New-Release.ps1 の
+      # $readmeText（Windows 版）・$linuxReadmeText（Linux 版）を唯一の原本とし、ここでは
+      # そこから抜き出して、同じ形（BOM 付き UTF-8・CRLF）で書き出す。文面を二重に持たない
+      # ため。抜き出せなければ（スクリプト側の書き方が変わった等）ここで失敗させる。
+      - name: 同梱物を置く
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          cd publish && zip -9 -r ../Graft-${{ github.ref_name }}-win-x64.zip \
-            Graft-${{ github.ref_name }}-win-x64 && cd ..
-          tar -czf Graft-${{ github.ref_name }}-linux-x64.tar.gz \
-            -C publish Graft-${{ github.ref_name }}-linux-x64
+          set -euo pipefail
+          cp docs/取扱説明書.md publish/win/Graft/
+          cp docs/取扱説明書.md publish/linux/Graft/
+          python3 - <<'PY'
+          import os, re, sys
+          src = open('tools/New-Release.ps1', encoding='utf-8-sig').read()
+          title = 'Graft ' + os.environ['VERSION']
+          for var, dest in (('readmeText', 'publish/win/Graft'), ('linuxReadmeText', 'publish/linux/Graft')):
+              m = re.search(r'^\$' + var + r' = @"\r?\n(.*?)\r?\n"@', src, re.S | re.M)
+              if m is None:
+                  sys.exit(f'tools/New-Release.ps1 に ${var} が見つかりません')
+              text = m.group(1).replace('$readmeTitle', title).replace('$readmeUnderline', '=' * len(title))
+              if '$' in text:
+                  sys.exit(f'${var} に展開できない変数が残っています')
+              text = text.replace('\r\n', '\n').replace('\n', '\r\n')
+              with open(os.path.join(dest, 'はじめにお読みください.txt'), 'wb') as f:
+                  f.write(b'\xef\xbb\xbf' + text.encode('utf-8'))
+          PY
+
+      # 発行物一式をまとめて圧縮する。Linux 版は zip では実行権限が失われるので tar.gz を使う。
+      # Windows 版の zip は zip コマンドではなく Python の zipfile で作る。同梱物の名前が
+      # 日本語のため、名前が UTF-8 であることを示す印（汎用フラグの第11ビット）が要る。
+      # この開発環境の zip 3.0 で試すと印が付かず、Python の zipfile で読むと
+      # 「σÅûµë▒Φ¬¼µÿÄµ¢╕.md」のように化けた（エクスプローラーでの展開でも化けうる）。
+      # zipfile は ASCII 以外の名前に必ずこの印を付ける。tools/New-Release.ps1 の
+      # Compress-Archive で作った実物（v1.0.20）も、日本語の2ファイルには印が付いている。
+      - name: 配布物をまとめる
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - "Graft-${VERSION}-win-x64.zip" publish/win <<'PY'
+          import os, sys, zipfile
+          dest, root = sys.argv[1], sys.argv[2]
+          with zipfile.ZipFile(dest, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for name in sorted(os.listdir(os.path.join(root, 'Graft'))):
+                  z.write(os.path.join(root, 'Graft', name), 'Graft/' + name)
+          PY
+          tar -czf "Graft-${VERSION}-linux-x64.tar.gz" -C publish/linux Graft
+
+      # Windows 版の zip の中身が、自動更新の入れ替え対象（UpdateFiles.RequiredFileNames）と
+      # 過不足なく一致するかを確かめる。ずれていると、配ったあとで利用者の自動更新が
+      # 「想定外のファイル」「必要なファイルが不足」で必ず中止されるため、配る前に止める。
+      # 一覧を変えるときは UpdateFiles.cs と tools/New-Release.ps1 の $requiredFiles も合わせる。
+      - name: 配布物の中身を確かめる
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          expected="$(printf '%s\n' \
+            'Graft.exe' \
+            'av_libglesv2.dll' \
+            'libHarfBuzzSharp.dll' \
+            'libSkiaSharp.dll' \
+            '取扱説明書.md' \
+            'はじめにお読みください.txt' | LC_ALL=C sort)"
+          actual="$(python3 -c 'import sys, zipfile; print("\n".join(sorted((n.rsplit("/", 1)[-1] for n in zipfile.ZipFile(sys.argv[1]).namelist() if not n.endswith("/")), key=lambda s: s.encode())))' "Graft-${VERSION}-win-x64.zip")"
+          if [ "${expected}" != "${actual}" ]; then
+            echo "::error::Windows 版 zip の中身が自動更新の前提と一致しません"
+            diff <(echo "${expected}") <(echo "${actual}") || true
+            exit 1
+          fi
+          tar -tzvf "Graft-${VERSION}-linux-x64.tar.gz"
 
       - name: リリースを作成
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
@@ -72,8 +172,8 @@ jobs:
           name: Graft ${{ github.ref_name }}
           draft: true
           files: |
-            Graft-${{ github.ref_name }}-win-x64.zip
-            Graft-${{ github.ref_name }}-linux-x64.tar.gz
+            Graft-${{ steps.ver.outputs.version }}-win-x64.zip
+            Graft-${{ steps.ver.outputs.version }}-linux-x64.tar.gz
           body: |
             ## 導入
 
