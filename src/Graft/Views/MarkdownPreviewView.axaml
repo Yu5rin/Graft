@@ -11,6 +11,16 @@
                   HorizontalScrollBarVisibility="Disabled"
                   VerticalScrollBarVisibility="Auto"
                   AutomationProperties.Name="Markdownプレビュー本文">
-        <StackPanel x:Name="ContentPanel" Margin="20,16" />
+        <!--
+            検討書「フォント設定」の分離対応: ManualWindow.ManualContentPanelと同じ考え方で、
+            本文フォントはこのコンテナにのみ指定し、継承で配下の地の文（ManualMarkdownRenderer
+            が組み立てる見出し・段落・箇条書き・表など）へ伝播させる。コードブロック・
+            インラインコードは自身にCodeFontFamilyを明示指定しており、この継承を上書きして
+            等幅のまま保たれる（AppFontManagerのクラスコメント参照）。検索・置換オーバーレイは
+            このUserControlの外（EditorPane側）にあるため、ここでの指定の影響を受けずUIフォント
+            のままになる。
+        -->
+        <StackPanel x:Name="ContentPanel" Margin="20,16"
+                    TextElement.FontFamily="{DynamicResource BodyTextFontFamily}" />
     </ScrollViewer>
 </UserControl>

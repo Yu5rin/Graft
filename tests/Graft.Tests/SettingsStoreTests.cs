@@ -95,7 +95,10 @@ public class SettingsStoreTests
         s.Completion.Should().BeTrue();
         s.GitGutter.Should().BeTrue();
         // 検討書「フォント設定」。既定はnull（未指定＝アプリ既定のフォントを使う）。
+        // BodyTextFontFamily（v1.0.21で新設。本文フォント）もFontFamily（UIフォント）と
+        // 同じく既定null。
         s.FontFamily.Should().BeNull();
+        s.BodyTextFontFamily.Should().BeNull();
         s.MonospaceFontFamily.Should().BeNull();
     }
 
@@ -243,12 +246,16 @@ public class SettingsStoreTests
         const string tricky = @"O'Reilly's ""Font"" \Mono\";
 
         var loaded = (await store.LoadAsync()).Value;
-        var updated = loaded with { Editor = loaded.Editor with { FontFamily = tricky, MonospaceFontFamily = tricky } };
+        var updated = loaded with
+        {
+            Editor = loaded.Editor with { FontFamily = tricky, BodyTextFontFamily = tricky, MonospaceFontFamily = tricky },
+        };
         await store.SaveAsync(updated);
 
         var reloaded = await store.LoadAsync();
 
         reloaded.Value.Editor.FontFamily.Should().Be(tricky);
+        reloaded.Value.Editor.BodyTextFontFamily.Should().Be(tricky);
         reloaded.Value.Editor.MonospaceFontFamily.Should().Be(tricky);
         reloaded.Issues.Should().BeEmpty();
     }
