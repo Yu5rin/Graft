@@ -111,9 +111,29 @@ function Get-ChangelogSection([string]$ChangelogPath, [string]$Version) {
 
         $start = $heading.Index + $heading.Length
         $end = if ($i + 1 -lt $headingMatches.Count) { $headingMatches[$i + 1].Index } else { $text.Length }
-        return $text.Substring($start, $end - $start).Trim()
+        $section = $text.Substring($start, $end - $start).Trim()
+        # 変更履歴.mdの各節の末尾にある「### バージョン」「- `1.0.20`」は版上げの記録で、
+        # リリースのタイトル（タグ）と重複するためリリース本文には載せない。
+        $section = [regex]::Replace($section, '(?s)\r?\n### バージョン\r?\n- `[^`]*`\s*$', '').Trim()
+        return $section
     }
     return $null
+}
+
+# リリース本文の「ダウンロード」表に載せるサイズの表記。1024で割り、1MB以上は「12.3 MB」、
+# 未満は「456.7 KB」とする（過去のリリース本文と同じ表記）。
+function Format-ReleaseSize([long]$Bytes) {
+    $culture = [System.Globalization.CultureInfo]::InvariantCulture
+    if ($Bytes -ge 1MB) { return ($Bytes / 1MB).ToString('0.0', $culture) + ' MB' }
+    return ($Bytes / 1KB).ToString('0.0', $culture) + ' KB'
+}
+
+# リリース本文の「ダウンロード」表の1行（ファイル名・サイズ・SHA256）。
+# SHA256はGitHubがアセットに付けるdigestと同じ値（小文字16進）になる。
+function Get-DownloadRow([string]$Path) {
+    $item = Get-Item $Path
+    $hash = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    return ('| `{0}` | {1} | `{2}` |' -f $item.Name, (Format-ReleaseSize $item.Length), $hash)
 }
 
 # ============================================================================
@@ -488,7 +508,12 @@ $templatePath = Join-Path $repoRoot 'docs/リリース説明_テンプレート.
 $releaseNotesPath = Join-Path $releaseRoot 'リリース説明.md'
 if (Test-Path $templatePath) {
     $templateText = Get-Content -Path $templatePath -Raw -Encoding UTF8
-    $releaseNotesText = $templateText.Replace('{VERSION}', $resolvedVersion).Replace('{CHANGES}', $changesBlock)
+    # 自動更新はリリース本文を読まない（ファイル名とアセットのdigestだけを使う）ため、
+    # 表の並びや書き方を変えても更新の動作には影響しない。CLAUDE.md「リリース」節参照。
+    $downloadRows = @('| ファイル | サイズ | SHA256 |', '|---|---|---|', (Get-DownloadRow $resolvedZipPath))
+    if ($linuxArchiveCreated) { $downloadRows += (Get-DownloadRow $resolvedTarPath) }
+    $downloadsBlock = $downloadRows -join "`n"
+    $releaseNotesText = $templateText.Replace('{VERSION}', $resolvedVersion).Replace('{CHANGES}', $changesBlock).Replace('{DOWNLOADS}', $downloadsBlock)
     Write-Utf8NoBom -Path $releaseNotesPath -Text $releaseNotesText
     Write-Host "書き出し: $releaseNotesPath"
 } else {
@@ -508,6 +533,7 @@ Write-Host "     git push origin $tag"
 Write-Host ''
 Write-Host '2. GitHubでリリースを作成する（Targetは main を選ぶこと）:'
 Write-Host "     https://github.com/Yu5rin/Graft/releases/new?tag=$tag"
+Write-Host "     タイトルはタグと同じ $tag にする"
 Write-Host ''
 Write-Host '3. リリース本文には、下記の下書きの内容を貼り付ける:'
 Write-Host "     $releaseNotesPath"

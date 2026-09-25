@@ -66,39 +66,57 @@ jobs:
           tar -czf Graft-${{ github.ref_name }}-linux-x64.tar.gz \
             -C publish Graft-${{ github.ref_name }}-linux-x64
 
+      # リリース本文は「## 変更点」と「## ダウンロード」の2節だけにし、最後に README への
+      # 案内を1行置く（インストール・更新・機能の説明は README に置き、リリースごとに
+      # 繰り返さない。CLAUDE.md「リリース」節参照）。変更点は docs/変更履歴.md の
+      # 「## <版>」の節から取り、末尾の「### バージョン」（版上げの記録）は除く。
+      # 自動更新はリリース本文を読まない（ファイル名とアセットの digest だけを使う）ため、
+      # 本文の形を変えても更新の動作には影響しない。
+      - name: リリース本文を組み立てる
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          CHANGES="$(awk -v ver="$VERSION" '
+            /^## / { if (found) exit; if ($0 == "## " ver) { found = 1; next } }
+            found { print }
+          ' docs/変更履歴.md | awk '
+            { lines[NR] = $0 }
+            END {
+              n = NR
+              while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+              if (n >= 2 && lines[n] ~ /^- `[^`]*`$/ && lines[n-1] == "### バージョン") n -= 2
+              while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+              s = 1
+              while (s <= n && lines[s] ~ /^[[:space:]]*$/) s++
+              for (i = s; i <= n; i++) print lines[i]
+            }')"
+          if [ -z "$CHANGES" ]; then
+            echo "::warning::docs/変更履歴.md に「## $VERSION」の節が見つかりません。変更点は空欄のまま下書きにします。"
+          fi
+          row() {
+            local size
+            size=$(stat -c %s "$1")
+            printf '| `%s` | %s | `%s` |\n' "$1" \
+              "$(awk -v b="$size" 'BEGIN { if (b >= 1048576) printf "%.1f MB", b / 1048576; else printf "%.1f KB", b / 1024 }')" \
+              "$(sha256sum "$1" | cut -d' ' -f1)"
+          }
+          {
+            printf '## 変更点\n\n%s\n\n' "$CHANGES"
+            printf '## ダウンロード\n\n| ファイル | サイズ | SHA256 |\n|---|---|---|\n'
+            row "Graft-${TAG}-win-x64.zip"
+            row "Graft-${TAG}-linux-x64.tar.gz"
+            printf '\nインストールと更新の方法は [README](https://github.com/Yu5rin/Graft#インストール) をご覧ください。\n'
+          } > release-body.md
+          cat release-body.md
+
       - name: リリースを作成
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          name: Graft ${{ github.ref_name }}
+          # タイトルはタグと同じ表記にする（例: v1.0.20）。
+          name: ${{ github.ref_name }}
           draft: true
           files: |
             Graft-${{ github.ref_name }}-win-x64.zip
             Graft-${{ github.ref_name }}-linux-x64.tar.gz
-          body: |
-            ## 導入
-
-            お使いのOS向けの書庫を、展開したフォルダごと専用の場所（他のアプリと混ざらない
-            場所）へ置いてください。フォルダの中には実行ファイル（Windowsは `Graft.exe`、
-            Linuxは `Graft`）とネイティブDLLが3つ入っています。**実行ファイルだけを
-            取り出さず、フォルダごと扱ってください**（同梱のDLLがないと起動できません）。
-            実行ファイルと同じ階層に `settings.json` / `projects.json` / `back/` / `logs/`
-            を作ります。
-
-            Windowsでは、実行ファイルのショートカットをデスクトップやスタートメニューへ
-            作っておくと起動が楽になります。
-
-            Linux では実行権限の付与が必要な場合があります。
-
-            ```
-            chmod +x Graft
-            ```
-
-            .NET ランタイムの導入は要りません（自己完結型）。
-
-            ## 動作環境
-
-            - Windows 10 以降（x64）
-            - Linux（x64、X11）
-
-            変更点は下の自動生成された一覧を参照してください。
-          generate_release_notes: true
+          body_path: release-body.md

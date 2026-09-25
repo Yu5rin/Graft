@@ -76,3 +76,23 @@ git push origin v1.0.0
 ```
 
 リポジトリの場所は `C:\Users\YUGO\Graft`。
+
+## リリース
+
+- 手順は `docs/リリース手順.md`。リリースのタイトルはタグと同じ表記（例: `v1.0.20`）にする。
+- **説明は README、リリースは変更点だけ。** リリース本文の `##` 見出しは `## 変更点` と
+  `## ダウンロード`（ファイル・サイズ・SHA256 の表）の2つだけ。その版の変更の小見出しは `###` 以下。
+  本文に「# Graft 1.0.20」のような題名を書かない。最後に次の1行を置く。
+  `インストールと更新の方法は [README](https://github.com/Yu5rin/Graft#インストール) をご覧ください。`
+- インストール・更新方法・主な機能・動作環境・外部との通信・既知の制限など、版をまたいで変わらない
+  説明は README に書き、リリース本文には繰り返さない。README には現在の事実だけを書く。
+  その版に上げるときだけ必要な注意（手で入れ替える手順など）は、変更点の中に `###` で残す。
+- 本文の雛形は `docs/リリース説明_テンプレート.md`（`tools/New-Release.ps1` が `{CHANGES}` に
+  `docs/変更履歴.md` の節を、`{DOWNLOADS}` に表を差し込む）。`.github/workflows/release.yml` も同じ形で組み立てる。
+- **自動更新とリリース本文の関係**: 自動更新（`src/Graft/Core/Update/`）はリリース本文（`body`）も
+  タイトル（`name`）も読まない。API からは `tag_name`・`html_url`・`prerelease`・`assets`
+  （`name`・`browser_download_url`・`size`・`digest`）だけを、Atom フィードからは各エントリのリンク先
+  （タグ）だけを読む。したがって本文の形は自由に変えてよい。守るべきなのは次の2点。
+  - タグは `UpdateVersion` で解釈できる `v1.2.3` の形にする
+  - Windows 版の添付ファイル名は `Graft-<タグから v を除いた版>-win-x64.zip` にする
+    （API に届かないときは、この規則でダウンロード URL を組み立てる。`UpdateAtomFeedLogic.BuildWindowsAssetFileName` 参照）
