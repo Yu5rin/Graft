@@ -20,6 +20,21 @@
 
     <!-- ========== 9.4 タイポグラフィ：フォントファミリ（2.5 フォールバック列） ========== -->
     <FontFamily x:Key="UiFontFamily">Yu Gothic UI, Segoe UI Variable, Noto Sans CJK JP, IPAexGothic, sans-serif</FontFamily>
+    <!--
+        v1.0.21で新設。取扱説明書・Markdownプレビューの地の文専用のフォントキー（UiFontFamily・
+        CodeFontFamilyに続く3つ目）。
+
+        【なぜフォールバック列がUiFontFamilyと一字一句同じか】
+        利用者が本文用に選んだフォント（源ノ角ゴシック JP）がメニュー・ボタン・一覧まで
+        巻き込んでしまい、字の縦位置がずれて見える不具合の対応として設けたキーであり、
+        「何も設定していない利用者の見た目は1ピクセルも変わらない」ことが最優先の要件。
+        UiFontFamilyとBodyTextFontFamilyを最初から別々の既定フォールバック列にしてしまうと、
+        設定を一度も開いたことのない利用者でも本文とUIとで見た目のフォントが変わってしまい、
+        「今回の変更」自体が既定の見た目を変えることになる。既定値を意図的に重複させることで、
+        AppFontManager側でどちらかのキーだけを上書きした場合にだけ違いが生まれる
+        （tests/Graft.UiTests/FontSettingsTests.cs参照）。
+    -->
+    <FontFamily x:Key="BodyTextFontFamily">Yu Gothic UI, Segoe UI Variable, Noto Sans CJK JP, IPAexGothic, sans-serif</FontFamily>
     <FontFamily x:Key="CodeFontFamily">Cascadia Mono, JetBrains Mono, Noto Sans Mono CJK JP, DejaVu Sans Mono, monospace</FontFamily>
 
     <!-- ========== 9.4 タイポグラフィ：用途別サイズ・ウェイト・行間 ========== -->

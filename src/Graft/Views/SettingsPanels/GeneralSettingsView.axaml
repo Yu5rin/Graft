@@ -47,33 +47,46 @@
             </StackPanel>
 
             <!--
-                検討書「フォント設定」。本文フォント／等幅（コード）フォントを別々に選べるように
-                する。OSにインストール済みのフォントから選ぶ形にし、手入力させない
-                （FontFamilyOptions/MonospaceFontFamilyOptions。SettingsViewModel参照）。
-                列挙に失敗した環境（HasFontFamilyOptions/HasMonospaceFontFamilyOptionsがfalse）
-                だけ、ComboBoxの代わりにテキスト入力へフォールバックする（検討書の要件）。
-                各ComboBoxの項目はFontChoiceItemTemplate（Controls.Input.axaml）でそのフォント
-                自体を使って描画され、選ぶ前に見た目が分かる。プレビュー行はPaneのsettings.js
-                （renderFontField）に倣い「あア亜 Aa Bb Cc 0123」で和文・欧文・数字を一度に
-                確認できるようにした。選んだ瞬間にComboBox自体のプレビュー・下のプレビュー行・
-                画面全体の表示（AppFontManager経由）がその場で切り替わる。
+                検討書「フォント設定」。UIフォント／本文フォント／等幅（コード）フォントを
+                別々に選べるようにする。OSにインストール済みのフォントから選ぶ形にし、
+                手入力させない（FontFamilyOptions/MonospaceFontFamilyOptions。
+                SettingsViewModel参照）。列挙に失敗した環境（HasFontFamilyOptions/
+                HasMonospaceFontFamilyOptionsがfalse）だけ、ComboBoxの代わりにテキスト入力へ
+                フォールバックする（検討書の要件）。各ComboBoxの項目はFontChoiceItemTemplate
+                （Controls.Input.axaml）でそのフォント自体を使って描画され、選ぶ前に見た目が
+                分かる。プレビュー行はPaneのsettings.js（renderFontField）に倣い
+                「あア亜 Aa Bb Cc 0123」で和文・欧文・数字を一度に確認できるようにした。
+                選んだ瞬間にComboBox自体のプレビュー・下のプレビュー行・画面全体の表示
+                （AppFontManager経由）がその場で切り替わる。
+
+                【並び順（UI→本文→等幅）】 影響範囲の広い順に並べてある。UIフォントは画面
+                ほぼ全体（メニュー・ボタン・一覧・本文の地の文の既定値）に効き、本文フォントは
+                取扱説明書・Markdownプレビューの地の文だけに効き、等幅フォントはコード扱いの
+                文字だけに効く。
+
+                【利用者からの指摘対応: 「本文フォント」の分割】 v1.0.20までの「本文フォント」欄は
+                名前と実態が合っておらず、選んだフォントがMarkdownプレビューの本文だけでなく
+                メニュー・ボタン・一覧など画面全体のUI文字まで巻き込んでしまい、字の縦位置が
+                ずれて見える問題があった。v1.0.21でこの欄を実態どおり「UIフォント」へ改名し、
+                取扱説明書・Markdownプレビューの地の文専用の「本文フォント」欄を新設して
+                分離した（Settings.FontFamily/BodyTextFontFamilyのコメント参照）。
             -->
             <TextBlock Text="フォント" Classes="sectionHeading" />
             <StackPanel Classes="fieldRow">
-                <TextBlock Text="本文フォント" Classes="fieldLabel" />
+                <TextBlock Text="UIフォント" Classes="fieldLabel" />
                 <ComboBox IsVisible="{Binding HasFontFamilyOptions}"
                           ItemsSource="{Binding FontFamilyOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource FontChoiceItemTemplate}"
                           SelectedValue="{Binding SelectedFontFamily}"
-                          AutomationProperties.Name="本文フォント"
-                          views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='本文フォント: {0}'}"
-                          views:HelpTip.Standard="Markdownプレビューや画面全体の文字に使うフォントを選びます。既定は「(既定)」（アプリの既定フォント）です。"
-                          views:HelpTip.Detailed="Markdownプレビューの本文や、画面全体のUIの文字（ボタン・メニュー等）に使うフォントを、OSにインストール済みのフォントから選びます。「(既定)」を選ぶとアプリの既定フォント（プラットフォームごとのフォールバック列）に戻ります。選んだ瞬間にその場で画面へ反映されます。コード表示に使うフォントは別枠の「等幅フォント」で選びます。" />
+                          AutomationProperties.Name="UIフォント"
+                          views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='UIフォント: {0}'}"
+                          views:HelpTip.Standard="メニュー・ボタン・一覧など、画面全体のUIの文字に使うフォントを選びます。既定は「(既定)」（アプリの既定フォント）です。"
+                          views:HelpTip.Detailed="メニュー・ボタン・タブの一覧・設定画面など、画面全体のUIの文字に使うフォントを、OSにインストール済みのフォントから選びます。「(既定)」を選ぶとアプリの既定フォント（プラットフォームごとのフォールバック列）に戻ります。選んだ瞬間にその場で画面へ反映されます。取扱説明書やMarkdownプレビューの地の文（見出し・段落・箇条書きなど）には、この欄ではなく下の「本文フォント」が使われます。コード表示に使うフォントは別枠の「等幅フォント」で選びます。" />
                 <TextBox IsVisible="{Binding !HasFontFamilyOptions}"
                          Text="{Binding SelectedFontFamily, UpdateSourceTrigger=LostFocus}" Width="240"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="本文フォント（手入力）"
-                         views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='本文フォント: {0}'}"
+                         AutomationProperties.Name="UIフォント（手入力）"
+                         views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='UIフォント: {0}'}"
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
             </StackPanel>
@@ -86,7 +99,33 @@
             <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="{DynamicResource PreviewSampleFontSize}"
                        Foreground="{DynamicResource TextPrimary}"
                        FontFamily="{Binding SelectedFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                       AutomationProperties.Name="UIフォントのプレビュー" />
+
+            <!-- v1.0.21で新設。UIフォント欄と同じ作り（ComboBox＋列挙失敗時のTextBoxフォールバック
+                 ＋プレビュー行）。 -->
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="本文フォント" Classes="fieldLabel" />
+                <ComboBox IsVisible="{Binding HasFontFamilyOptions}"
+                          ItemsSource="{Binding FontFamilyOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource FontChoiceItemTemplate}"
+                          SelectedValue="{Binding SelectedBodyTextFontFamily}"
+                          AutomationProperties.Name="本文フォント"
+                          views:HelpTip.Minimal="{Binding SelectedBodyTextFontFamily, StringFormat='本文フォント: {0}'}"
+                          views:HelpTip.Standard="取扱説明書とMarkdownプレビューの地の文に使うフォントを選びます。既定は「(既定)」（UIフォントと同じ既定フォント）です。"
+                          views:HelpTip.Detailed="取扱説明書とMarkdownプレビューの地の文（見出し・段落・箇条書き・表など）に使うフォントを、OSにインストール済みのフォントから選びます。「(既定)」を選ぶとアプリの既定フォント（上の「UIフォント」と同じフォールバック列）に戻ります。選んだ瞬間にその場で画面へ反映されます。コードブロック・インラインコードはこの欄の影響を受けず、常に「等幅フォント」の設定に従います。すでに「UIフォント」に好みのフォントを設定している場合、その設定は引き続きメニュー・ボタン・一覧などUI全体に効きますが、取扱説明書やMarkdownプレビューの地の文には効かなくなるため、両方に同じフォントを使いたいときはこちらにも同じものを選んでください。" />
+                <TextBox IsVisible="{Binding !HasFontFamilyOptions}"
+                         Text="{Binding SelectedBodyTextFontFamily, UpdateSourceTrigger=LostFocus}" Width="240"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="本文フォント（手入力）"
+                         views:HelpTip.Minimal="{Binding SelectedBodyTextFontFamily, StringFormat='本文フォント: {0}'}"
+                         views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
+                         views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
+            </StackPanel>
+            <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="{DynamicResource PreviewSampleFontSize}"
+                       Foreground="{DynamicResource TextPrimary}"
+                       FontFamily="{Binding SelectedBodyTextFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
                        AutomationProperties.Name="本文フォントのプレビュー" />
+
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="等幅フォント（コード用）" Classes="fieldLabel" />
                 <ComboBox IsVisible="{Binding HasMonospaceFontFamilyOptions}"

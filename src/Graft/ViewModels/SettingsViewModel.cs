@@ -112,7 +112,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // 検討書「フォント設定」。""は「未指定＝アプリ既定のフォントを使う」を表す
     // （settings.jsonのnullと相互変換する。PopulateEditorFields/BuildSettingsFromFields参照）。
+    // _selectedFontFamilyはv1.0.21で意味をUIフォントへ確定させた（Settings.FontFamilyの
+    // コメント参照）。C#側のプロパティ名・フィールド名はsettings.jsonのキー名（fontFamily）に
+    // 合わせて据え置き、新設した本文フォント用に_selectedBodyTextFontFamilyを別途持つ。
     private string _selectedFontFamily = string.Empty;
+    private string _selectedBodyTextFontFamily = string.Empty;
     private string _selectedMonospaceFontFamily = string.Empty;
     private bool _exportSettingsOnly = true;
     private string _jsonText = string.Empty;
@@ -462,7 +466,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 検討書「フォント設定」。本文フォント。ComboBoxの選択が変わった瞬間にsetterへ届き、
+    /// 検討書「フォント設定」。UIフォント（メニュー・ボタン・一覧など画面全体のUI文字）。
+    /// v1.0.20までは「本文フォント」という名前・意味だったが、本文用に選んだフォントが
+    /// メニュー・ボタン・一覧まで巻き込んでしまう不具合の指摘を受け、v1.0.21で本文用
+    /// （<see cref="SelectedBodyTextFontFamily"/>）と分離した。settings.jsonのキー名
+    /// （fontFamily）は変えていないため、このC#プロパティ名も据え置いている
+    /// （Settings.FontFamilyのコメント参照）。ComboBoxの選択が変わった瞬間にsetterへ届き、
     /// <see cref="AppFontManager"/>経由で即時プレビュー反映しつつ、他の項目と同じ経路で
     /// 保存もスケジュールする（<see cref="SelectedTheme"/>と同じ作法）。""は
     /// 「未指定＝アプリ既定のフォントを使う」（<see cref="FontFamilyOptions"/>の
@@ -474,7 +483,24 @@ public sealed partial class SettingsViewModel : ObservableObject
         set
         {
             if (!SetEditableProperty(ref _selectedFontFamily, value)) return;
-            AppFontManager.SetBodyFontFamily(value);
+            AppFontManager.SetUiFontFamily(value);
+        }
+    }
+
+    /// <summary>
+    /// 検討書「フォント設定」。本文フォント（v1.0.21で新設）。取扱説明書・Markdownプレビューの
+    /// 地の文（見出し・段落・箇条書き・表など）にのみ効き、コードブロックは
+    /// <see cref="SelectedMonospaceFontFamily"/>（等幅フォント）に従うため影響を受けない。
+    /// 選択肢は<see cref="SelectedFontFamily"/>と同じ<see cref="FontFamilyOptions"/>
+    /// （全フォント）を再利用する。それ以外は<see cref="SelectedFontFamily"/>と同じ作法。
+    /// </summary>
+    public string SelectedBodyTextFontFamily
+    {
+        get => _selectedBodyTextFontFamily;
+        set
+        {
+            if (!SetEditableProperty(ref _selectedBodyTextFontFamily, value)) return;
+            AppFontManager.SetBodyTextFontFamily(value);
         }
     }
 
@@ -490,10 +516,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 本文フォントの選択肢（先頭に「未指定＝既定を使う」を表す空文字の項目を1つ持つ）。
-    /// <see cref="IFontCatalog.AllFamilyNames"/>への実際のアクセスはここで初めて発生する
-    /// （Lazy化されているため、設定画面のフォント欄を開くまでフォント列挙・等幅判定の
-    /// コストがかからない。コンストラクタのコメント参照）。
+    /// UIフォント・本文フォント共通の選択肢（先頭に「未指定＝既定を使う」を表す空文字の項目を
+    /// 1つ持つ）。<see cref="IFontCatalog.AllFamilyNames"/>への実際のアクセスはここで初めて
+    /// 発生する（Lazy化されているため、設定画面のフォント欄を開くまでフォント列挙・等幅判定の
+    /// コストがかからない。コンストラクタのコメント参照）。本文フォント（
+    /// <see cref="SelectedBodyTextFontFamily"/>）もこの選択肢をそのまま再利用する
+    /// （用途は違っても選べるフォントの母集合はUIフォントと同じ「OSにインストール済みの
+    /// 全フォント」であるため、別リストを持つ理由が無い）。
     /// </summary>
     public IReadOnlyList<ChoiceOption> FontFamilyOptions => BuildFontOptions(_fontCatalog.AllFamilyNames);
 
@@ -504,6 +533,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// 検討書「フォントの列挙に失敗してもアプリが落ちないこと。失敗時は…設定欄はテキスト入力へ
     /// フォールバックする」。列挙が空（未対応環境・列挙失敗のいずれか）ならfalseになり、
     /// 画面側はComboBoxの代わりにテキスト入力を表示する（GeneralSettingsView.axaml参照）。
+    /// <see cref="SelectedBodyTextFontFamily"/>の欄も同じ<see cref="FontFamilyOptions"/>を
+    /// 使うため、このフラグをそのまま共用する。
     /// </summary>
     public bool HasFontFamilyOptions => _fontCatalog.AllFamilyNames.Count > 0;
 
@@ -921,6 +952,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         EditorColorPreviewInCode = e.ColorPreviewInCode;
         SelectedIndentGuideMode = e.IndentGuideMode;
         SelectedFontFamily = e.FontFamily ?? string.Empty;
+        SelectedBodyTextFontFamily = e.BodyTextFontFamily ?? string.Empty;
         SelectedMonospaceFontFamily = e.MonospaceFontFamily ?? string.Empty;
     }
 
@@ -977,6 +1009,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ColorPreviewInCode = _editorColorPreviewInCode,
             IndentGuideMode = _selectedIndentGuideMode,
             FontFamily = string.IsNullOrWhiteSpace(_selectedFontFamily) ? null : _selectedFontFamily,
+            BodyTextFontFamily = string.IsNullOrWhiteSpace(_selectedBodyTextFontFamily) ? null : _selectedBodyTextFontFamily,
             MonospaceFontFamily = string.IsNullOrWhiteSpace(_selectedMonospaceFontFamily) ? null : _selectedMonospaceFontFamily,
         },
     };

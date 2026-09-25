@@ -51,8 +51,19 @@
                           VerticalScrollBarVisibility="Auto">
                 <!-- 見出し・段落・リスト・コードブロック・表などの各ブロックは、
                      コードビハインドがManualMarkdownRendererで組み立ててここへ追加する
-                     （ShortcutsWindow.axamlのShortcutListPanelと同じ構成）。 -->
-                <StackPanel x:Name="ManualContentPanel" Margin="16,12" />
+                     （ShortcutsWindow.axamlのShortcutListPanelと同じ構成）。
+
+                     検討書「フォント設定」の分離対応: 本文フォントはこのコンテナにだけ
+                     指定し、FontFamilyが継承プロパティであることを利用して配下の地の文
+                     （見出し・段落・箇条書き・表など、明示的にFontFamilyを持たない各ブロック）
+                     へ伝播させる（個々のTextBlockを書き換える方式は取らない）。コードブロック・
+                     インラインコード（ManualMarkdownRenderer.BuildCodeBlock/BuildCodeRun）は
+                     自身にCodeFontFamilyを明示指定しているため、この継承を上書きして等幅の
+                     ままになる。上のツールバー・下のボタン行（コピー・閉じる）はこのStackPanel
+                     の外（Windowの兄弟要素）にあるため継承の対象にならず、Window自身に指定した
+                     UiFontFamily（1行目のFontFamily属性）のまま保たれる。 -->
+                <StackPanel x:Name="ManualContentPanel" Margin="16,12"
+                            TextElement.FontFamily="{DynamicResource BodyTextFontFamily}" />
             </ScrollViewer>
         </Border>
 

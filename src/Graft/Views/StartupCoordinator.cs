@@ -277,10 +277,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 検討書「フォント設定」。テーマと同じ理由（この後SettingsViewModelを生成するまでの
         // 間に表示されうるダイアログ・ShellWindow自体の初回描画にも正しいフォントを効かせる
         // ため）で、ここでも早期に反映しておく。SettingsViewModel.InitializeAsync側の
-        // PopulateEditorFields経由でも同じ値がSelectedFontFamily/SelectedMonospaceFontFamilyへ
-        // 反映され、そちらのsetterが再度AppFontManagerを呼ぶが、同じ値を2回適用するだけで
-        // 副作用は無い。
-        Themes.AppFontManager.SetBodyFontFamily(_settings.Editor.FontFamily);
+        // PopulateEditorFields経由でも同じ値がSelectedFontFamily/SelectedBodyTextFontFamily/
+        // SelectedMonospaceFontFamilyへ反映され、そちらのsetterが再度AppFontManagerを呼ぶが、
+        // 同じ値を2回適用するだけで副作用は無い。
+        Themes.AppFontManager.SetUiFontFamily(_settings.Editor.FontFamily);
+        Themes.AppFontManager.SetBodyTextFontFamily(_settings.Editor.BodyTextFontFamily);
         Themes.AppFontManager.SetCodeFontFamily(_settings.Editor.MonospaceFontFamily);
 
         // 課題3: 自動起動が有効なら、毎起動時に登録し直して現在の実行ファイルパスへ追従させる。

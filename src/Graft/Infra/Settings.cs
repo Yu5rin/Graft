@@ -136,19 +136,42 @@ public sealed record EditorSettings
     public double FontSize { get; init; } = 13;
 
     /// <summary>
-    /// 本文フォント（検討書「フォント設定」）。既定null（未指定＝アプリ既定のフォント
+    /// UIフォント（検討書「フォント設定」）。既定null（未指定＝アプリ既定のフォント
     /// フォールバック列 <see cref="Graft.Themes.Tokens"/> の UiFontFamily をそのまま使う）。
-    /// Markdownプレビューの本文や画面全体のUI文字に効く（<see cref="Graft.Themes.AppFontManager"/>
+    /// メニュー・ボタン・一覧など画面全体のUI文字に効く（<see cref="Graft.Themes.AppFontManager"/>
     /// 参照）。<see cref="FontSize"/>とは独立した項目で、フォントの種類だけを選ぶ
     /// （文字サイズは変更しない）。
+    ///
+    /// 【キー名がbodyFontFamilyのままである理由（利用者の困りごと対応）】
+    /// このキーはv1.0.20までは「本文フォント」という名前・意味で、Markdownプレビューの
+    /// 本文にも画面全体のUIにも同時に効いていた。しかし本文用に選んだフォントがメニュー・
+    /// ボタン・一覧まで巻き込んでしまい、字の縦位置がずれて見えるという指摘を受け、
+    /// v1.0.21でUI用と本文用（<see cref="BodyTextFontFamily"/>）の2つに分割した。
+    /// JSON上のキー名（camelCase変換後は"fontFamily"）自体は変更していない
+    /// （既にこのキーを設定している利用者の設定ファイルをそのまま読めるようにするため。
+    /// 移行処理も不要になる）。効果の実態（画面全体のUI）に合わせて、C#側のプロパティ名は
+    /// 変えずコメントの意味だけをUIフォントへ更新した。
     /// </summary>
     public string? FontFamily { get; init; }
 
     /// <summary>
+    /// 本文フォント（検討書「フォント設定」・v1.0.21で新設）。既定null（未指定＝
+    /// <see cref="Graft.Themes.Tokens"/> の BodyTextFontFamily をそのまま使う。既定値は
+    /// UiFontFamilyと同じフォールバック列のため、これを設定していない利用者の見た目は
+    /// v1.0.21では一切変わらない）。取扱説明書（<see cref="Graft.Views.ManualWindow"/>）と
+    /// Markdownプレビュー（<see cref="Graft.Views.MarkdownPreviewView"/>）の地の文
+    /// （見出し・段落・箇条書き・表など）にのみ効く。コードブロック・インラインコードは
+    /// 引き続き<see cref="MonospaceFontFamily"/>（等幅）に従うため、この設定の影響を受けない。
+    /// <see cref="FontFamily"/>（UIフォント）とは別枠の設定で、ボタン・検索欄などのUI部品には
+    /// 効かない（<see cref="Graft.Themes.AppFontManager"/>参照）。
+    /// </summary>
+    public string? BodyTextFontFamily { get; init; }
+
+    /// <summary>
     /// 等幅（コード用）フォント（検討書「フォント設定」）。既定null（未指定＝アプリ既定の
     /// CodeFontFamilyをそのまま使う）。コードエディタ（AvaloniaEdit）とMarkdownプレビューの
-    /// コードブロック、diff表示等の「コード扱いの文字」に効く（<see cref="FontFamily"/>とは
-    /// 別枠。<see cref="Graft.Themes.AppFontManager"/>参照）。
+    /// コードブロック、diff表示等の「コード扱いの文字」に効く（<see cref="FontFamily"/>・
+    /// <see cref="BodyTextFontFamily"/>とは別枠。<see cref="Graft.Themes.AppFontManager"/>参照）。
     /// </summary>
     public string? MonospaceFontFamily { get; init; }
 
