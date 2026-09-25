@@ -34,6 +34,14 @@ public static class UpdateFiles
     public const string WindowsAssetNameSuffix = "-win-x64.zip";
 
     /// <summary>
+    /// 配布アセット名のうちLinux版を見分けるための接尾辞。Linux版はzipでは実行権限が失われる
+    /// ためtar.gzで配布している（<c>tools/New-Release.ps1</c>・<c>.github/workflows/release.yml</c>）。
+    /// Linuxでは自動の入れ替えを行わないため、今のところリリースの添付を選ぶ判断
+    /// （<see cref="UpdatePlatformPolicy"/>）でしか使わない。
+    /// </summary>
+    public const string LinuxAssetNameSuffix = "-linux-x64.tar.gz";
+
+    /// <summary>
     /// 自動更新のダウンロード・展開に使う一時作業フォルダの、<c>%TEMP%</c>直下でのフォルダ名。
     /// 実際の作業フォルダは<c>%TEMP%\GraftUpdate\&lt;GUID&gt;\</c>
     /// （<see cref="Graft.ViewModels.SettingsViewModel"/>のRunUpdateAsyncが起動のたびに新しい
