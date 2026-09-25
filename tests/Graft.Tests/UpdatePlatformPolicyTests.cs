@@ -118,6 +118,9 @@ public class UpdatePlatformPolicyTests
 
         // 不具合の再発防止: 以前は Graft-${{ github.ref_name }}-win-x64.zip（v付き）だった。
         workflow.Should().NotMatchRegex(@"Graft-\$\{\{\s*github\.ref_name\s*\}\}");
+        // 本文の表を作る段も同じ名前で探す。main 側でタグ（v付き）の名前で表を作る段が入り、
+        // この修正と合わさったときに「Graft-${TAG}-win-x64.zip」が見つからず止まる形になりかけた。
+        workflow.Should().NotContain("Graft-${TAG}");
         workflow.Should().Contain("VERSION=\"${GITHUB_REF_NAME#v}\"");
         workflow.Should().Contain("\"Graft-${VERSION}-win-x64.zip\"");
         workflow.Should().Contain("\"Graft-${VERSION}-linux-x64.tar.gz\"");
