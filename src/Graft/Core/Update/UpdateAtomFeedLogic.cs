@@ -124,29 +124,27 @@ public static class UpdateAtomFeedLogic
     /// （URLのパス部分（タグそのもの）とファイル名（"v"を落とした版）とで表記が異なる点を
     /// 混同しないこと。<see cref="TryBuildDownloadUrl"/>参照。）
     ///
-    /// 【<c>tools/New-Release.ps1</c>との整合（このメソッドが前提にしていること）】
-    /// 同スクリプトはZIPのファイル名を <c>"Graft-$resolvedVersion-win-x64.zip"</c> として作り
-    /// （同ファイル199行目付近）、<c>$resolvedVersion</c>には<c>Graft.csproj</c>の
-    /// <c>&lt;Version&gt;</c>の値（"v"を付けない、例: "1.0.17"）をそのまま使う（桁を補わない）。
-    /// このメソッドはその命名と一致する形（タグから"v"を落とすだけ）で組み立てている。
-    /// <b>将来<c>tools/New-Release.ps1</c>側でファイル名の付け方を変えるなら、ここも合わせて
-    /// 直す必要がある。</b>（ずれた場合の実害は「組み立てたURLが404になり自動更新に失敗する」
-    /// だけで、誤ったファイルが入ることはない。）
+    /// 規則そのものは<see cref="UpdatePlatformPolicy.BuildAssetFileName"/>（Windows・Linux共通の
+    /// 単一の情報源）に置いてあり、ここはそのWindows版を呼ぶだけ。
     ///
-    /// 【<c>.github/workflows/release.yml</c>とは命名が食い違うが、それでよい】 同ワークフローは
-    /// <c>github.ref_name</c>（タグそのもの。"v"が付いたまま）をファイル名にも使っており、
-    /// ここでの組み立てとは一致しない。ただしこのワークフローは<c>workflow_dispatch</c>
-    /// （Actions画面からの手動実行）専用であり、タグpushでは動かない設定になっている
-    /// （かつて<c>tools/New-Release.ps1</c>による手作業のリリースと二重に動き、同じ版の書庫が
-    /// 命名違いで並んで公開される事故が起きたため、release.yml側のコメントに経緯が残っている）。
-    /// 実際のリリースは<c>tools/New-Release.ps1</c>の手作業でのみ行われる運用のため、ここでは
-    /// そちらの命名に合わせている。
+    /// 【配布物を作る2つの経路との整合】
+    /// <list type="bullet">
+    /// <item><c>tools/New-Release.ps1</c>: ZIPのファイル名を<c>"Graft-$resolvedVersion-win-x64.zip"</c>
+    /// として作り、<c>$resolvedVersion</c>には<c>Graft.csproj</c>の<c>&lt;Version&gt;</c>
+    /// （"v"を付けない、例: "1.0.17"）をそのまま使う。v1.0.2以降の実際のリリースはすべてこちら。</item>
+    /// <item><c>.github/workflows/release.yml</c>: 以前は<c>github.ref_name</c>（タグそのもの。
+    /// "v"付き）をファイル名に使っており、<c>Graft-v1.0.1-win-x64.zip</c>のような名前を作って
+    /// いた（v1.0.0・v1.0.1の実物）。この名前ではここで組み立てたURLが404になり、APIに
+    /// 届かないときの自動更新が必ず失敗する。ワークフロー側をタグから"v"を除いた
+    /// <c>VERSION</c>で名前を付けるよう直し、この規則に揃えた（2026-09-25）。</item>
+    /// </list>
+    /// <b>どちらかの経路でファイル名の付け方を変えるなら、ここ（<see cref="UpdatePlatformPolicy.BuildAssetFileName"/>）も
+    /// 合わせて直す必要がある。</b>（ずれた場合の実害は「組み立てたURLが404になり自動更新に
+    /// 失敗する」だけで、誤ったファイルが入ることはない。）<c>UpdatePlatformPolicyTests</c>が
+    /// 両経路のファイルを読んで、この規則との一致を確かめている。
     /// </summary>
     public static string BuildWindowsAssetFileName(string tag)
-    {
-        var stripped = tag.Length > 0 && (tag[0] == 'v' || tag[0] == 'V') ? tag[1..] : tag;
-        return $"Graft-{stripped}-win-x64.zip";
-    }
+        => UpdatePlatformPolicy.BuildAssetFileName(tag, UpdatePlatform.Windows)!;
 
     /// <summary>
     /// GitHub Releases APIを使わずに、Windows版配布物のダウンロードURLを規則から組み立てる。

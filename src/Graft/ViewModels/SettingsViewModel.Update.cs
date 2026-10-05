@@ -54,6 +54,20 @@ public sealed partial class SettingsViewModel
     /// </summary>
     public Func<Task<bool>>? ConfirmUnsavedDocumentsAsync { get; set; }
 
+    /// <summary>
+    /// 自動更新の判断に使うOSの区分。既定は実行中のOSから決める。
+    ///
+    /// 【不具合対応（Linuxでは自動更新が必ず失敗して巻き戻っていた）】 以前はOSによる分岐が
+    /// 無く、Linuxでも「今すぐ更新」を出してWindows版のzipを取りに行き、入れ替えで
+    /// <c>Graft.exe</c>が見つからず失敗して巻き戻っていた（経緯と、Linuxで入れ替えを
+    /// 提供しない理由は<see cref="UpdatePlatformPolicy"/>のクラスコメント参照）。
+    /// 判断そのものは<see cref="UpdatePlatformPolicy"/>（純粋な関数。Graft.Testsで固定）に置き、
+    /// ここはその入力を持つだけ。テスト（Graft.UiTests）からOSを差し替えられるよう
+    /// internalで書き込めるようにしてある。
+    /// </summary>
+    internal UpdatePlatform UpdatePlatform { get; set; } =
+        UpdatePlatformPolicy.Detect(OperatingSystem.IsWindows(), OperatingSystem.IsLinux());
+
     /// <summary>「今すぐ更新を確認」ボタン。</summary>
     public AsyncRelayCommand CheckForUpdateNowCommand { get; private set; } = null!;
 
@@ -250,6 +264,25 @@ public sealed partial class SettingsViewModel
     /// </summary>
     private async Task OfferUpdateAsync(GitHubReleaseInfo release)
     {
+        // 不具合対応（Linuxでは自動更新が必ず失敗して巻き戻っていた）: 入れ替えを提供しない
+        // OSでは「今すぐ更新」ボタンを出さず、新しい版があることとリリースページだけを案内する。
+        // 失敗すると分かっている操作を利用者に選ばせない（UpdatePlatformPolicyのクラスコメント参照）。
+        // RunUpdateAsyncへ進む経路はここ1箇所だけなので、ここで分ければ漏れはない。
+        if (!UpdatePlatformPolicy.CanSelfInstall(UpdatePlatform))
+        {
+            Logger?.Info("update",
+                $"更新の案内: このOS（{UpdatePlatform}）では自動の入れ替えに対応していないため、リリースページを案内します（{release.TagName}）。");
+            await OfferManualUpdateViaReleasePageAsync(
+                "新しい版があります",
+                $"新しいバージョン {release.TagName} が利用可能です（現在: {CurrentVersionText}）。" +
+                $"{Environment.NewLine}{Environment.NewLine}" +
+                "このOSでは自動更新に対応していません。リリースページからお使いのOS向けの配布物を" +
+                "ダウンロードし、今のフォルダの中身と置き換えてください（settings.json などの" +
+                "データはそのまま残してください）。",
+                release.HtmlUrl).ConfigureAwait(true);
+            return;
+        }
+
         var message =
             $"新しいバージョン {release.TagName} が利用可能です（現在: {CurrentVersionText}）。" +
             $"ダウンロードして更新しますか？{Environment.NewLine}{Environment.NewLine}リリースページ: {release.HtmlUrl}";
@@ -323,7 +356,8 @@ public sealed partial class SettingsViewModel
             return;
         }
 
-        var asset = release.FindAssetByNameSuffix(UpdateFiles.WindowsAssetNameSuffix);
+        // OSに合った添付を選ぶ（ここへ来るのはCanSelfInstallがtrue＝Windowsのときだけ）。
+        var asset = UpdatePlatformPolicy.SelectAsset(release, UpdatePlatform);
         if (asset is null)
         {
             await _dialogService.ShowMessageAsync(

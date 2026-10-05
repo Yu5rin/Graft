@@ -220,6 +220,11 @@ public sealed class UpdateChecker
                     // 最初からLinux版を扱えない（既存の制約であり、今回のURL組み立てで
                     // 新たに生まれた制約ではない）。合成するアセットをWindows版1つに限ることで、
                     // この既存の制約を超えて「対応していないふりをする」ことがないようにしている。
+                    // Linuxで動いている場合でもここはWindows版を合成したAvailableを返すが、
+                    // 画面側（SettingsViewModel.Update.csのOfferUpdateAsync）が
+                    // UpdatePlatformPolicy.CanSelfInstallで入れ替えを提供しないと判断し、
+                    // リリースページの案内だけを出す（Windows版zipをLinuxでダウンロードする
+                    // ことはない）。OSの判断を画面側の1箇所にまとめるため、ここでは分けない。
                     var builtAsset = new GitHubReleaseAsset
                     {
                         Name = UpdateAtomFeedLogic.BuildWindowsAssetFileName(atomTag.TagName),
