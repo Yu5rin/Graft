@@ -51,7 +51,9 @@ public sealed class DryRunPlanner
             plans.Add(await PlanDeleteAsync(block, ctx, renamedFrom, fileProbes, ct).ConfigureAwait(false));
         }
 
-        var dupIssues = await CheckDuplicateAsync(ctx, patchHash, ct).ConfigureAwait(false);
+        // E302は結果レベルのissues、E305は該当プランのIssuesへ付く（理由はCheckDuplicateAsync参照）。
+        // そのためplansを渡し、E305の付与でplansの要素が差し替わる。ComputeStatsより前に呼ぶこと。
+        var dupIssues = await CheckDuplicateAsync(ctx, patchHash, plans, ct).ConfigureAwait(false);
         var stats = ComputeStats(patch, plans, ctx);
         var result = new DryRunResult
         {
@@ -314,15 +316,154 @@ public sealed class DryRunPlanner
     // 6.2 二重適用検知
     // ------------------------------------------------------------------
 
-    private async Task<IReadOnlyList<GraftIssue>> CheckDuplicateAsync(ApplyContext ctx, string patchHash, CancellationToken ct)
+    /// <summary>
+    /// 二重適用の検知。E302（パッチ本文のハッシュ一致）とE305（適用後の内容の一致）を、
+    /// 過去リビジョンの一覧を<b>1回だけ</b>読んで両方判定する。
+    /// <para>
+    /// 【なぜ1回に寄せたか】 E302の判定に使っていた<see cref="RevisionStore.FindByPatchHashAsync"/>は
+    /// 内部で<see cref="RevisionStore.ListAsync"/>を呼び、全リビジョンのmanifest.jsonを読み込む。
+    /// E305のために別メソッドを足して同じ一覧をもう一度読むと、リビジョンが多い
+    /// プロジェクト（世代管理の上限は設定で無制限にもできる）ではドライランのたびに
+    /// manifestの読み込みが倍になる。ドライランはパッチを貼るたびに走るため、ここのI/Oは
+    /// 増やさない。そこで一覧を1回だけ取り、その結果から両方を判定する。
+    /// E302の判定条件（Status=success かつ patchHash一致、一覧の先頭側を採る）は
+    /// <see cref="RevisionStore.FindByPatchHashAsync"/>と同一に保ち、挙動を変えない。
+    /// </para>
+    /// <para>
+    /// 一覧の取得に失敗したときは、従来（E302のみ）と同じく何も出さない。二重適用の検知は
+    /// あくまで補助情報であり、取得失敗でドライラン全体を止めてはならないため。
+    /// </para>
+    /// <para>
+    /// 【E302とE305で付け先が違う理由】 E302は従来どおり結果レベルのissues（戻り値）に載せる。
+    /// 適用時に<see cref="ApplyEngine"/>が同じ判定をやり直して止めるため、挙動を変えない。
+    /// 一方E305は戻り値ではなく、該当ファイルの最終プランの<see cref="BlockPlan.Issues"/>へ付ける
+    /// （<paramref name="plans"/>の要素を差し替える）。結果レベルのissuesは、MainViewModel.RunDryRunAsync
+    /// が成功時に読んでおらず（失敗時に<c>Errors.FirstOrDefault()</c>を使うだけ）、載せても利用者の
+    /// 画面に出ないため。ブロック行（BlockItemViewModel）は<c>Plan.Issues</c>を
+    /// HasIssue/IssueLinesとして表示しているので、プランに付ければUIを変えずに該当の行へ出る。
+    /// </para>
+    /// </summary>
+    private async Task<IReadOnlyList<GraftIssue>> CheckDuplicateAsync(
+        ApplyContext ctx, string patchHash, List<BlockPlan> plans, CancellationToken ct)
     {
-        var found = await _revisions.FindByPatchHashAsync(ctx.ProjectId, patchHash, ct).ConfigureAwait(false);
-        if (!found.IsSuccess || found.Value is null) return Array.Empty<GraftIssue>();
+        var listed = await _revisions.ListAsync(ctx.ProjectId, ct).ConfigureAwait(false);
+        if (!listed.IsSuccess) return Array.Empty<GraftIssue>();
 
-        var revisionNo = found.Value.Manifest.Revision;
-        var severity = ctx.ForceReapply ? Severity.Warning : Severity.Error;
-        var issue = GraftIssue.Of(ErrorCode.E302, $"このパッチはr{revisionNo}で適用済みです", severity: severity);
-        return new[] { issue };
+        // 成功したリビジョンだけが対象。rolled_backやin_progressは「実際には反映されて
+        // いない（または途中の）状態」であり、その内容と一致しても「適用済み」とは言えない。
+        var successful = listed.Value.Where(s => s.Manifest.Status == RevisionStatus.Success).ToList();
+
+        var sameBody = successful.FirstOrDefault(s =>
+            string.Equals(s.Manifest.PatchHash, patchHash, StringComparison.OrdinalIgnoreCase));
+        if (sameBody is not null)
+        {
+            var severity = ctx.ForceReapply ? Severity.Warning : Severity.Error;
+            var issue = GraftIssue.Of(ErrorCode.E302, $"このパッチはr{sameBody.Manifest.Revision}で適用済みです", severity: severity);
+            return new[] { issue };
+        }
+
+        // E302が出ているときはE305を出さない。パッチ本文が完全に同じなら、適用後の内容が
+        // 同じになるのは当然であり、同じことを2つのコードで二重に言うことになる。しかも
+        // E302のほうが情報として強く（既定では適用を止める）、利用者が取るべき行動も
+        // E302の表示だけで足りる。上のreturnで抜けているのはそのため。
+        AttachSameResultIssues(plans, successful, ctx);
+        return Array.Empty<GraftIssue>();
+    }
+
+    /// <summary>
+    /// E305: 適用後のファイル内容が、過去の成功リビジョンの適用後の内容と同じになるファイルを探す。
+    /// <para>
+    /// パッチ本文が違っても（summaryの文言変更、SR形式からFULL形式への書き直し、ブロックの
+    /// 順序変更など）、結果のファイル内容が同じなら、利用者にとっては「前に適用したのと
+    /// 同じ変更」である。比較にはmanifestのHashAfter（<see cref="FileTextIO.ComputeHash"/>
+    /// で作られる形式。"sha256:"の接頭辞は付かない）をそのまま使うため、過去の本文を
+    /// 読み直す必要は無い。
+    /// </para>
+    /// <para>
+    /// ファイルごとの最終状態: SR形式では同じパスに複数のBlockPlan（ペア単位）が並び、それぞれが
+    /// 自分の時点の適用後の全文を持つ。途中の状態は最終結果ではないため、そのパスで
+    /// AfterTextがnullでない<b>最後</b>のものだけを採る。削除・MKDIR・RENAMEはAfterTextが
+    /// nullなので対象外（ファイルの内容が残らず、比べるものが無い）。CanApplyでないブロックは
+    /// 実際には書き込まれないため、最終状態の判定から外す。
+    /// </para>
+    /// <para>
+    /// 該当するリビジョンが複数あるときは、最も新しい1件を示す（利用者が見るべきは直近の
+    /// 同じ状態であり、古いものを並べても判断材料が増えない）。複数ファイルが該当したら
+    /// ファイルごとに1件ずつ、そのファイルの最終プランの<see cref="BlockPlan.Issues"/>へ付ける。
+    /// Severityは常にWarning（巻き戻した内容をもう一度戻す等の正当な操作もあるため、適用は止めない）。
+    /// </para>
+    /// </summary>
+    private static void AttachSameResultIssues(
+        List<BlockPlan> plans, IReadOnlyList<RevisionSummary> successfulRevisions, ApplyContext ctx)
+    {
+        if (successfulRevisions.Count == 0) return;
+
+        // パスごとの「最終プランの添字」。AfterTextを持つ最後のものを採るため、後のものが前のものを上書きする。
+        var finalIndexByPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < plans.Count; i++)
+        {
+            if (plans[i].CanApply && plans[i].AfterText is not null) finalIndexByPath[plans[i].Path] = i;
+        }
+
+        foreach (var index in finalIndexByPath.Values)
+        {
+            var plan = plans[index];
+            var hash = FileTextIO.ComputeHash(ReconstructWrittenText(plan, ctx));
+            var latest = successfulRevisions
+                .Where(r => r.Manifest.Entries.Any(e =>
+                    e.HashAfter is not null
+                    && RevisionStore.EntryPathEquals(e.Path, plan.Path)
+                    && string.Equals(e.HashAfter, hash, StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(r => r.Manifest.Revision)
+                .FirstOrDefault();
+            if (latest is null) continue;
+
+            var issue = GraftIssue.Of(ErrorCode.E305,
+                $"{plan.Path} は適用後の内容がr{latest.Manifest.Revision}と同じになります",
+                severity: Severity.Warning, path: plan.Path);
+
+            // 付けるのはIssuesだけ。CanApply・IsSelected・NeedsConfirmationには一切触れない。
+            // E305は参考情報であり、確認を強制したりチェックを外したりしてはならない
+            // （巻き戻した内容をもう一度戻すなど、結果が過去と同じになるのが正しい場合があるため）。
+            // withで差し替えるので、DiffやAfterText等ほかの値はそのまま引き継がれる。
+            plans[index] = plan with { Issues = plan.Issues.Append(issue).ToList() };
+        }
+    }
+
+    /// <summary>
+    /// ドライランの<see cref="BlockPlan.AfterText"/>から、<b>実際にディスクへ書かれる本文</b>を復元する。
+    /// <para>
+    /// 【なぜAfterTextをそのままハッシュしてはいけないか】 AfterTextは行を"\n"で連結しただけの
+    /// 比較・差分表示用の文字列で、末尾改行も改行コードも持たない。一方manifestのHashAfterは、
+    /// <see cref="ApplyEngine"/>が書き込んだあとに読み戻した本文のハッシュで、その本文は
+    /// ComposeFinalText（ApplyEngine.Text.cs）が<see cref="TextShape"/>に従って組み立てたもの
+    /// （新規行は<see cref="TextShape.NewLine"/>、最終行の後ろには
+    /// <see cref="TextShape.EndsWithNewLine"/>が真のときだけ改行を付ける）。実測では、
+    /// 「same result」という1行のFULLパッチは、AfterTextが<c>same result</c>、ディスク上の本文が
+    /// 既定（CRLF・末尾改行あり）の<c>same result\r\n</c>になり、ハッシュが食い違って
+    /// E305が1件も出なかった。そこで同じ規則でここで復元する。
+    /// </para>
+    /// <para>
+    /// 割り切り: ComposeFinalTextは、変更しなかった行について元ファイルの改行文字を
+    /// そのまま使う。1つのファイルにCRLFとLFが混在している場合、AfterTextからは行ごとの
+    /// 元の改行を復元できないため、全行を<see cref="TextShape.NewLine"/>で組み立てる。
+    /// その場合はハッシュが一致せずE305が出ない（見逃す側に倒れる）。混在ファイルは稀で、
+    /// 誤って「同じ」と警告する（誤検知）ことは起きないため、この割り切りを選んだ。
+    /// </para>
+    /// <para>
+    /// ComposeFinalTextの規則を変えるときは、ここも合わせること
+    /// （SameResultDetectionTestsの改行・末尾改行の組み合わせのテストが食い違いを検出する）。
+    /// </para>
+    /// </summary>
+    private static string ReconstructWrittenText(BlockPlan plan, ApplyContext ctx)
+    {
+        var after = plan.AfterText!;
+        // 行が1本も無いファイル（空ファイル）はComposeFinalTextも空文字列を返す。
+        if (after.Length == 0) return string.Empty;
+
+        var shape = plan.Shape ?? DefaultShapeFor(ctx);
+        var text = after.Replace("\n", shape.NewLine);
+        return shape.EndsWithNewLine ? text + shape.NewLine : text;
     }
 
     // ------------------------------------------------------------------

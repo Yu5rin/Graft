@@ -155,4 +155,37 @@ public class BlockItemViewModelTests
 
         vm.IsSelected.Should().BeFalse("失敗ブロックはトグル操作の対象外のため変化しない");
     }
+
+    /// <summary>
+    /// E305（適用後の内容が過去のリビジョンと同じになる）は、結果レベルのissuesではなく該当プランの
+    /// <see cref="BlockPlan.Issues"/>に付く（DryRunPlanner.CheckDuplicateAsync参照。結果レベルは
+    /// MainViewModelが成功時に読まず、画面に出ない）。MainViewModel.ReplaceBlocksは各プランを
+    /// <see cref="BlockItemViewModel"/>で包むだけなので、プランに付けばUIを変えずにブロック行へ出る。
+    /// DryRunPlannerが実際にE305をプランへ付けること自体は、Graft.Tests側のSameResultDetectionTestsが
+    /// 本物の履歴で確認している（このテストはその出口側）。
+    /// </summary>
+    [Fact(DisplayName = "E305（警告）が付いた適用可のプランは、HasIssueがtrueでIssueTextにE305の文面が出て、状態は「適用可」のまま")]
+    public void E305のプランはブロック行に表示され状態は変わらない()
+    {
+        var e305 = GraftIssue.Of(ErrorCode.E305, "a.txt は適用後の内容がr1と同じになります",
+            severity: Severity.Warning, path: "a.txt");
+        var plan = new BlockPlan
+        {
+            Block = new DeleteBlock { Path = "a.txt" },
+            Path = "a.txt",
+            Operation = EntryOperation.Modify,
+            CanApply = true,
+            NeedsConfirmation = false,
+            IsSelected = true,
+            Issues = new[] { e305 },
+        };
+
+        var vm = new BlockItemViewModel(plan);
+
+        vm.HasIssue.Should().BeTrue();
+        vm.IssueText.Should().Contain("E305").And.Contain("a.txt は適用後の内容がr1と同じになります");
+        vm.IssueLines.Should().ContainSingle().Which.Should().Contain("対処:", "対処方法も併記される");
+        vm.Status.Should().Be(BlockStatusKind.Ok, "E305は参考情報であり、状態を「要確認」や「失敗」にしてはならない");
+        vm.IsSelected.Should().BeTrue("E305のためにチェックが外れてはならない");
+    }
 }
