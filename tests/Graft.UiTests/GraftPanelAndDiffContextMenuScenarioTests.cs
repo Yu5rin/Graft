@@ -148,8 +148,10 @@ public class GraftPanelAndDiffContextMenuScenarioTests : IDisposable
         var errorMenuItem = errorRow.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Single(m => Equals(m.Header?.ToString(), "修正依頼プロンプトをコピー"));
         errorMenuItem.IsEnabled.Should().BeTrue("失敗ブロックの行では有効になっている必要がある");
-        errorMenuItem.Command.Should().BeSameAs(shell.Graft.CopyRecoveryPromptCommand,
-            "既存のCopyRecoveryPromptCommandを再利用する必要がある");
+        errorMenuItem.Command.Should().BeSameAs(shell.CopyBlockRecoveryPromptCommand,
+            "メニューは「このブロックだけ」をコピーするコマンドを使う（全失敗ブロックをコピーするCopyRecoveryPromptCommandではない）");
+        errorMenuItem.CommandParameter.Should().BeSameAs(errorBlock,
+            "どのブロックの行で押したかをコマンドへ渡す必要がある");
     }
 
     [AvaloniaFact(DisplayName = "「対象ファイルを開く」を実行すると対象ファイルがエディタで開く")]

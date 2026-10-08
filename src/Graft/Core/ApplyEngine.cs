@@ -366,6 +366,8 @@ public sealed partial class ApplyEngine
             {
                 Path = group.Key, Operation = existedBefore ? EntryOperation.Modify : EntryOperation.Create,
                 Desc = plansForFile[0].Description, MatchStage = (int)stage, HashBefore = hashBefore, HashAfter = hashAfter,
+                // 8.7: 差分画面で利用者がSEARCH部を書き換えたペアの数（RevisionEntry.InlineEditedPairs参照）。
+                InlineEditedPairs = plansForFile.Count(p => p.Pair is { IsSearchEdited: true }),
             });
         }
         return GraftResult<bool>.Ok(true, writeIssues);

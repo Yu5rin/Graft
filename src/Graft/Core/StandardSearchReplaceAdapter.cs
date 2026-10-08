@@ -622,8 +622,10 @@ public static class StandardSearchReplaceAdapter
             var patch = new Patch
             {
                 Meta = new PatchMeta { Summary = ImportSummary, Type = ImportType },
-                Blocks = _blocks,
+                // 修正依頼文が「受け取ったのと同じ形式で」と頼めるよう、形式をブロックとパッチの両方に刻む。
+                Blocks = _blocks.Select(b => b with { SourceFormat = PatchFormat.StandardSearchReplace }).ToList(),
                 RawText = patchText,
+                Format = PatchFormat.StandardSearchReplace,
                 IsTruncated = _truncated,
                 TailLines = tailLines,
             };
