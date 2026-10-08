@@ -13,12 +13,32 @@ namespace Graft.ViewModels;
 /// </summary>
 public sealed class HistoryDiffFileViewModel
 {
-    public HistoryDiffFileViewModel(BlockPlan plan, Settings settings, IUiServices ui)
+    /// <param name="openFile">
+    /// 「ファイルを開く」の要求先（相対パスを受け取る）。省略時は押しても何も起きない。
+    /// 実際にエディタで開くのはShellViewModelで、<see cref="HistoryDiffViewModel.OpenFileRequested"/>
+    /// 経由でつながる（DiffViewModel.JumpRequestedと同じ「Viewへ委譲する」設計）。
+    /// </param>
+    public HistoryDiffFileViewModel(BlockPlan plan, Settings settings, IUiServices ui, Action<string>? openFile = null)
     {
         Plan = plan ?? throw new ArgumentNullException(nameof(plan));
         Diff = new DiffViewModel(settings, ui);
         Diff.Load(plan);
+        OpenFileCommand = new RelayCommand(() => openFile?.Invoke(Plan.Path), () => CanOpenFile);
     }
+
+    /// <summary>
+    /// このファイルをエディタで開けるか。削除されたファイルは（そのリビジョンの時点で）もう無く、
+    /// フォルダ作成は開く対象が「ファイル」ではないため、どちらも開けない（ボタンも出さない）。
+    /// 移動・改名は移動先のパス（<see cref="BlockPlan.Path"/>）を開く。接ぎ木パネルの
+    /// ブロック一覧の「対象ファイルを開く」（ShellViewModel.OpenBlockInEditorCommand）が
+    /// Mkdirを除外しているのと同じ考え方で、こちらは削除も除く。
+    /// 「後のリビジョンで削除・移動された」場合はディスクを見ないと分からないため、
+    /// 押した時点で確認する（ShellViewModel.OnHistoryDiffOpenFileRequested）。
+    /// </summary>
+    public bool CanOpenFile => Plan.Operation is not (EntryOperation.Delete or EntryOperation.Mkdir);
+
+    /// <summary>見出しの「ファイルを開く」ボタン。既存の接ぎ木パネルと同じエディタの経路で開く。</summary>
+    public System.Windows.Input.ICommand OpenFileCommand { get; }
 
     /// <summary>この行のもとになったドライラン結果相当のBlockPlan（History.BuildDiffPlansAsync参照）。</summary>
     public BlockPlan Plan { get; }
@@ -100,6 +120,12 @@ public sealed class HistoryDiffViewModel : ObservableObject
     public event EventHandler<(string RelativePath, int Line)>? JumpRequested;
 
     /// <summary>
+    /// 各ファイル見出しの「ファイルを開く」要求を中継する（引数はプロジェクトルートからの相対パス）。
+    /// JumpRequestedと同じ理由で、HistoryDiffViewModel自体が使い回されるため購読は一度で済む。
+    /// </summary>
+    public event EventHandler<string>? OpenFileRequested;
+
+    /// <summary>
     /// 機能改善: 各ファイルのdiff表示でのCtrl+マウスホイールによるフォントサイズ確定を
     /// まとめて中継する（JumpRequestedと同じ考え方。ShellViewModelはこのインスタンス自体が
     /// 使い回されるため、コンストラクタ相当のタイミングで一度だけ購読すればよい）。
@@ -128,7 +154,8 @@ public sealed class HistoryDiffViewModel : ObservableObject
 
         foreach (var plan in plans)
         {
-            var file = new HistoryDiffFileViewModel(plan, _settings, _ui);
+            var file = new HistoryDiffFileViewModel(
+                plan, _settings, _ui, path => OpenFileRequested?.Invoke(this, path));
             file.Diff.JumpRequested += OnFileJumpRequested;
             file.Diff.FontSizeChangeCommitted += OnFileFontSizeChangeCommitted;
             file.Diff.SideBySideChangeCommitted += OnFileSideBySideChangeCommitted;

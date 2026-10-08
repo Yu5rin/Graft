@@ -97,6 +97,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
         Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
         Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
+        Graft.HistoryDiff.OpenFileRequested += OnHistoryDiffOpenFileRequested; // 履歴差分タブの「ファイルを開く」。
         // 機能改善: エディタ本文・差分表示（通常＋履歴）いずれかでのCtrl+マウスホイールに
         // よるフォントサイズ確定を1つのイベントへ集約し、StartupCoordinatorへ伝える
         // （そこから常駐のSettingsViewModel経由で永続化・全画面への同期を行う）。
@@ -156,6 +157,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         });
         AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
         InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
+        InitializeAppliedChangeNavigation(); // 適用した変更を開く・見る導線（ShellViewModel.AppliedChangeNavigation.cs）。
         InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
         ToggleClipboardWatchPauseCommand = new RelayCommand(ToggleClipboardWatchPause); // 機能改善2・ShellViewModel.ClipboardWatch.cs参照。
     }
@@ -463,24 +465,29 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
     private async void OnDiffJumpRequested(object? sender, (string RelativePath, int Line) target)
-        => await SafeHandler.RunAsync("差分からのジャンプ", async () =>
-        {
-            var root = Graft.ProjectPane.SelectedItem?.Project.Root;
-            if (root is null) return;
-            var fullPath = Path.Combine(root, target.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-            await Editor.OpenFileAsync(fullPath, preview: true, line: target.Line).ConfigureAwait(true);
-        }).ConfigureAwait(true);
+        => await SafeHandler.RunAsync("差分からのジャンプ", () =>
+            OpenProjectFileAsync(target.RelativePath, target.Line)).ConfigureAwait(true);
+
+    /// <summary>
+    /// プロジェクト内のファイル（ルートからの相対パス）をエディタのプレビュータブで開く。
+    /// 接ぎ木パネルのブロックの「対象ファイルを開く」・diffの行ジャンプ・履歴差分タブの
+    /// 「ファイルを開く」の3つが、同じこの経路を通る（開き方を揃えるため1か所に集約）。
+    /// プロジェクト未選択のときは何もしない。
+    /// </summary>
+    private async Task OpenProjectFileAsync(string relativePath, int? line = null)
+    {
+        var root = Graft.ProjectPane.SelectedItem?.Project.Root;
+        if (root is null) return;
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        await Editor.OpenFileAsync(fullPath, preview: true, line: line).ConfigureAwait(true);
+    }
 
     /// <summary>4.8: ブロック一覧の「エディタで開く」。マッチ位置（無ければ先頭）をエディタで開く。</summary>
     private async void OpenBlockInEditor(BlockItemViewModel? block)
         => await SafeHandler.RunAsync("ブロックをエディタで開く", async () =>
         {
-            var root = Graft.ProjectPane.SelectedItem?.Project.Root;
-            if (block is null || root is null) return;
-
-            var fullPath = Path.Combine(root, block.Plan.Path.Replace('/', Path.DirectorySeparatorChar));
-            var line = FirstChangedLine(block.Plan.Diff);
-            await Editor.OpenFileAsync(fullPath, preview: true, line: line).ConfigureAwait(true);
+            if (block is null) return;
+            await OpenProjectFileAsync(block.Plan.Path, FirstChangedLine(block.Plan.Diff)).ConfigureAwait(true);
         }).ConfigureAwait(true);
 
     // 変更後の行番号を優先し、無ければ変更前を使う（4.8のdiffジャンプと同じ考え方）。

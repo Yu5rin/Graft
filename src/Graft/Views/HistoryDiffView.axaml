@@ -41,14 +41,36 @@
                                     BorderBrush="{DynamicResource BorderSubtle}"
                                     BorderThickness="0,1"
                                     Padding="8,4">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding PathText}"
-                                               FontWeight="SemiBold"
-                                               Foreground="{DynamicResource TextPrimary}"
-                                               TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding OperationText}" Margin="8,0,0,0"
-                                               Foreground="{DynamicResource TextSecondary}" />
-                                </StackPanel>
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding PathText}"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimary}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding OperationText}" Margin="8,0,0,0"
+                                                   Foreground="{DynamicResource TextSecondary}" />
+                                    </StackPanel>
+
+                                    <!--
+                                        このリビジョンで変更したファイルを、いまの内容でエディタに開く。接ぎ木パネルの
+                                        ブロックの「対象ファイルを開く」と同じエディタの経路を使う。適用直後はブロック一覧が
+                                        空になるため、ここが「適用したファイルを開く」入口になる。
+                                        削除（と、開く対象がファイルでないフォルダ作成）は開けないので出さない。
+                                    -->
+                                    <Button Grid.Column="1" Margin="8,0,0,0" Padding="6,2"
+                                            Command="{Binding OpenFileCommand}"
+                                            IsVisible="{Binding CanOpenFile}"
+                                            views:HelpTip.Standard="このファイルを、いまの内容でエディタに開きます。"
+                                            views:HelpTip.Detailed="このリビジョンで変更したファイルを、現在のディスク上の内容でエディタに開きます。差分に表示しているのはこのリビジョンの時点の変更で、開くのは今のファイルです。その後のリビジョンで削除・移動されたファイルは開けません。"
+                                            AutomationProperties.Name="このファイルをエディタで開く">
+                                        <StackPanel Orientation="Horizontal">
+                                            <views:IconGlyph Data="{DynamicResource IconFileCodeGeometry}"
+                                                             Width="14" Height="14" Margin="0,0,4,0"
+                                                             Stroke="{DynamicResource TextSecondary}" />
+                                            <TextBlock Text="ファイルを開く" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
                             </Border>
 
                             <!-- 1ファイルぶんの差分。高さを固定し、ListBoxの仮想化を保つ。 -->

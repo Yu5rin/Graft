@@ -139,6 +139,26 @@
                         local:HelpTip.Standard="適用直後に数秒だけ表示される通知です。クリックすると直前のリビジョンを元に戻せます。"
                         local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Zからいつでも元に戻せます。"
                         ToolTip.Tip="クリックすると直前に適用したリビジョンを元に戻します。" />
+
+                <!--
+                    適用直後は接ぎ木パネルのブロック一覧が空になり、変更したファイルを開く入口が
+                    無かった。この通知と同じ数秒間だけ「変更を見る」を並べ、たった今のリビジョンを
+                    履歴で選んで履歴差分タブ（各ファイルに「ファイルを開く」あり）を表示する
+                    （ShellViewModel.AppliedChangeNavigation.cs）。
+                -->
+                <Button Content="変更を見る"
+                        Command="{Binding ShowAppliedRevisionCommand}"
+                        Margin="4,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Graft.HasApplyUndoNotice}"
+                        AutomationProperties.Name="適用した変更を履歴で見る"
+                        local:HelpTip.Standard="適用直後に数秒だけ表示されます。クリックすると、いま適用したリビジョンを履歴で開き、変更したファイルの差分を表示します。"
+                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示されます。クリックすると、サイドバーの履歴でいま適用したリビジョンが選ばれ、エディタ領域に変更したファイルの差分が開きます。差分の各ファイルの見出しにある「ファイルを開く」から、変更したファイルをそのままエディタで開けます。数秒で自動的に消えますが、消えた後も履歴から同じ操作ができます。"
+                        ToolTip.Tip="クリックすると、いま適用したリビジョンの変更を履歴で表示します。" />
             </StackPanel>
 
             <!--

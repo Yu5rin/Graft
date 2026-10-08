@@ -53,11 +53,12 @@ public sealed class DryRunPlanner
 
         // E302は結果レベルのissues、E305は該当プランのIssuesへ付く（理由はCheckDuplicateAsync参照）。
         // そのためplansを渡し、E305の付与でplansの要素が差し替わる。ComputeStatsより前に呼ぶこと。
-        var dupIssues = await CheckDuplicateAsync(ctx, patchHash, plans, ct).ConfigureAwait(false);
+        var (dupIssues, alreadyApplied) = await CheckDuplicateAsync(ctx, patchHash, plans, ct).ConfigureAwait(false);
         var stats = ComputeStats(patch, plans, ctx);
         var result = new DryRunResult
         {
             Patch = patch, Plans = plans, PatchHash = patchHash, Stats = stats, FileProbes = fileProbes,
+            AlreadyAppliedRevision = alreadyApplied,
         };
         return GraftResult<DryRunResult>.Ok(result, dupIssues);
     }
@@ -342,12 +343,23 @@ public sealed class DryRunPlanner
     /// 画面に出ないため。ブロック行（BlockItemViewModel）は<c>Plan.Issues</c>を
     /// HasIssue/IssueLinesとして表示しているので、プランに付ければUIを変えずに該当の行へ出る。
     /// </para>
+    /// <para>
+    /// 【E302を<see cref="DryRunResult.AlreadyAppliedRevision"/>としても返す理由】 結果レベルのissuesは
+    /// 成功時にMainViewModelが読まないため、E302だけでは利用者は要約入力と適用確認の窓を
+    /// 通り抜けた後、適用時の再判定（ApplyEngine）で初めて止められていた（実機の指摘。しかも
+    /// 止められた時点でリビジョン番号が1つ消費される）。そこで「止まる（Error）」場合に限り、
+    /// 適用済みのリビジョン番号を構造化して返し、プレビューの時点で画面に出せるようにする。
+    /// issues側のE302はこれまでどおり載せる（挙動を変えない）。ForceReapplyで警告に落としたときは
+    /// 適用が止まらないので番号は返さない（利用者に「適用できない」と誤解させないため）。
+    /// 全ブロックを失敗扱い（CanApply=false）にしないのは、そうすると「修正を依頼」が押せるように
+    /// なってしまうため（適用済みのパッチをAIに直してもらう意味は無い）。
+    /// </para>
     /// </summary>
-    private async Task<IReadOnlyList<GraftIssue>> CheckDuplicateAsync(
+    private async Task<(IReadOnlyList<GraftIssue> Issues, int? AlreadyAppliedRevision)> CheckDuplicateAsync(
         ApplyContext ctx, string patchHash, List<BlockPlan> plans, CancellationToken ct)
     {
         var listed = await _revisions.ListAsync(ctx.ProjectId, ct).ConfigureAwait(false);
-        if (!listed.IsSuccess) return Array.Empty<GraftIssue>();
+        if (!listed.IsSuccess) return (Array.Empty<GraftIssue>(), null);
 
         // 成功したリビジョンだけが対象。rolled_backやin_progressは「実際には反映されて
         // いない（または途中の）状態」であり、その内容と一致しても「適用済み」とは言えない。
@@ -359,7 +371,7 @@ public sealed class DryRunPlanner
         {
             var severity = ctx.ForceReapply ? Severity.Warning : Severity.Error;
             var issue = GraftIssue.Of(ErrorCode.E302, $"このパッチはr{sameBody.Manifest.Revision}で適用済みです", severity: severity);
-            return new[] { issue };
+            return (new[] { issue }, severity == Severity.Error ? sameBody.Manifest.Revision : null);
         }
 
         // E302が出ているときはE305を出さない。パッチ本文が完全に同じなら、適用後の内容が
@@ -367,7 +379,7 @@ public sealed class DryRunPlanner
         // E302のほうが情報として強く（既定では適用を止める）、利用者が取るべき行動も
         // E302の表示だけで足りる。上のreturnで抜けているのはそのため。
         AttachSameResultIssues(plans, successful, ctx);
-        return Array.Empty<GraftIssue>();
+        return (Array.Empty<GraftIssue>(), null);
     }
 
     /// <summary>

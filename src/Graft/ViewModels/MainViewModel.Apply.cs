@@ -138,7 +138,11 @@ public sealed partial class MainViewModel
         await MarkProjectAppliedAsync(context.ProjectId).ConfigureAwait(true);
         await NotifyFilesRewrittenAsync(context.ProjectRoot, result.Value).ConfigureAwait(true); // 4.8/7章: 再読込フック。
         FinalizeApplyFromQueueIfNeeded(); // 4.10: キュー結合適用時はキューを空にする（MainViewModel.Queue.cs）。
-        DiscardCurrentPatch();
+        // 失敗ブロックが残った適用では、完了ダイアログが「理由は接ぎ木パネルの各ブロックに赤字で
+        // 残っています」と案内する。その前に一覧を空にしてしまうと理由も「修正を依頼」も失われるため、
+        // 失敗ブロックだけを残す（MainViewModel.PartialApply.cs）。全件成功なら従来どおり空にする。
+        if (updatedDryRun.FailedCount > 0) KeepOnlyFailedBlocks(updatedDryRun);
+        else DiscardCurrentPatch();
         await ProjectPane.LoadAsync().ConfigureAwait(true);
         if (project is not null) await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
 
@@ -174,7 +178,10 @@ public sealed partial class MainViewModel
         {
             var completionMessage =
                 $"r{result.Value.Revision} として適用しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
-                $"{Environment.NewLine}適用できなかった理由は、接ぎ木パネルの各ブロックに赤字で残っています。";
+                $"{Environment.NewLine}適用できなかった{updatedDryRun.FailedCount}件だけを接ぎ木パネルに残しています。" +
+                "理由は各ブロックに赤字で出ています。" +
+                $"「修正を依頼」で、その{updatedDryRun.FailedCount}件の修正依頼文をコピーできます。" +
+                $"{Environment.NewLine}不要なら「破棄」で消せます。";
             await _dialogs.ShowMessageAsync("適用が完了しました", completionMessage).ConfigureAwait(true);
         }
 
