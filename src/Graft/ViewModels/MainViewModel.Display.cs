@@ -47,7 +47,10 @@ public sealed partial class MainViewModel
                 ? $"{applying}件を適用（{excludedByChoice}件は対象外）"
                 : $"{applying}件適用可";
             var baseText = $"{head} / {_dryRun.ConfirmationCount}件要確認";
-            return _dryRun.FailedCount > 0 ? $"{baseText} / {_dryRun.FailedCount}件失敗" : baseText;
+            if (_dryRun.FailedCount > 0) baseText = $"{baseText} / {_dryRun.FailedCount}件失敗";
+            // 適用済みのパッチ（E302）は適用ボタンが押せない。「N件適用可」だけが出ていると
+            // 押せない理由が分からないため、先頭に理由を足す（MainViewModel.AlreadyApplied.cs）。
+            return _alreadyAppliedRevision is { } applied ? $"r{applied}で適用済み / {baseText}" : baseText;
         }
     }
 

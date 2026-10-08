@@ -134,16 +134,38 @@
         <!-- 本体: ブロック一覧（展開時のみ表示）。 -->
         <Grid Grid.Row="1" DataContext="{Binding Graft}"
               IsVisible="{Binding DataContext.IsGraftPanelOpen, ElementName=Root}"
-              RowDefinitions="Auto,*">
+              RowDefinitions="Auto,Auto,*">
+
+            <!--
+                適用済みのパッチ（E302）の通知。再投入したパッチは、要約入力・適用確認の窓を通り抜けた後に
+                適用エンジンの再判定で止められていた。プレビューの時点（解析直後）でここに1つだけ出す。
+                全ブロックを赤い失敗にしない（「修正を依頼」を押せるようにしない）ため、ブロック一覧とは
+                別の帯として置く。「適用」ボタンはこの間は押せない（MainViewModel.AlreadyApplied.cs）。
+            -->
+            <Border Grid.Row="0" Background="{DynamicResource BgElevated}"
+                    BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,0,0,1"
+                    Padding="8,6"
+                    IsVisible="{Binding HasAlreadyAppliedNotice}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <views:IconGlyph Width="16" Height="16" VerticalAlignment="Center"
+                                     Data="{DynamicResource IconAlertTriangleGeometry}"
+                                     Stroke="{DynamicResource StateWarn}" />
+                    <TextBlock Text="{Binding AlreadyAppliedNoticeText}" VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource BodyFontSize}"
+                               Foreground="{DynamicResource TextPrimary}"
+                               AutomationProperties.Name="{Binding AlreadyAppliedNoticeText}" />
+                </StackPanel>
+            </Border>
 
             <!-- 項目8: パネルヘッダー直下に用途が書かれていない空欄が1本あった（実機Xvfbで
                  確認済み）。他の検索欄と同じくWatermarkで用途を示す。 -->
-            <TextBox Grid.Row="0" Margin="8,6"
+            <TextBox Grid.Row="1" Margin="8,6"
                      Text="{Binding FilterText}"
                      Watermark="パス・変更説明で絞り込み"
                      AutomationProperties.Name="ブロック一覧を検索" />
 
-            <Grid Grid.Row="1">
+            <Grid Grid.Row="2">
                 <!-- ブロック一覧（1行目パス・2行目変更説明、状態アイコン、チェックボックス）。
                      選択すると差分がエディタ領域のタブへ開く（ShellViewModel側の配線）。 -->
                 <ListBox x:Name="BlockListBox"

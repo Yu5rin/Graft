@@ -436,7 +436,47 @@ public sealed class HistoryPaneViewModel : ObservableObject
     public void ShowHistoryForFile(string relativePath)
     {
         ArgumentNullException.ThrowIfNull(relativePath);
+        ResetFilters(relativePath);
+    }
 
+    /// <summary>
+    /// 指定したリビジョンを選択する（適用直後のステータスバー通知「変更を見る」用）。選択すると
+    /// 履歴差分タブがそのリビジョンの変更ファイルの差分を表示する。
+    /// <para>
+    /// 一覧に無いときは、キーワード・種別・期間・ファイル単位の絞り込みで隠れている可能性があるため
+    /// 全部解除して探し直す（「たった今適用したもの」を見せるという明確な意図のため、
+    /// <see cref="ShowHistoryForFile"/>と同じく他の絞り込み条件は引き継がない）。
+    /// すでにそのリビジョンを選択中でも、履歴差分タブだけを閉じていた場合に備えて表示し直す
+    /// （選択が変わらないとRevisionSelectedが発火しないため、ShowDiffCommandの入口を使う）。
+    /// 見つからなければ（世代管理で削除された等）falseを返し、何も変えない。
+    /// </para>
+    /// </summary>
+    public bool TrySelectRevision(int revision)
+    {
+        var row = Items.FirstOrDefault(i => i.Revision.Manifest.Revision == revision);
+        if (row is null && IsFiltered())
+        {
+            ResetFilters(fileFilterPath: null);
+            row = Items.FirstOrDefault(i => i.Revision.Manifest.Revision == revision);
+        }
+
+        if (row is null) return false;
+
+        if (ReferenceEquals(SelectedItem, row)) ShowDiffCommand.Execute(null);
+        else SelectedItem = row;
+        return true;
+    }
+
+    private bool IsFiltered()
+        => _keyword.Length > 0 || _typeFilter is not null || _dateFrom is not null || _dateTo is not null
+            || _fileFilterPath is not null;
+
+    /// <summary>
+    /// 絞り込み条件（キーワード・種別・期間）をすべて解除し、ファイル単位の絞り込みを
+    /// <paramref name="fileFilterPath"/>に設定する（nullなら解除）。
+    /// </summary>
+    private void ResetFilters(string? fileFilterPath)
+    {
         _keyword = string.Empty;
         _typeFilter = null;
         _dateFrom = null;
@@ -448,7 +488,11 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // FileFilterPathのsetterがApplyFilterを1回だけ走らせるため、上でフィールドを
         // 直接書き換えた分の変更通知はここでまとめて出す（各プロパティのsetter経由だと
         // ApplyFilterが複数回走ってしまう）。
-        FileFilterPath = relativePath;
+        // 注意: FileFilterPathが元から同じ値（例: null→null）だとsetterはApplyFilterを走らせない。
+        // 他の条件だけを解除した場合に一覧が更新されないため、その場合は明示的に再適用する。
+        var filterPathChanged = !string.Equals(_fileFilterPath, fileFilterPath, StringComparison.Ordinal);
+        FileFilterPath = fileFilterPath;
+        if (!filterPathChanged) ApplyFilter();
         OnPropertyChanged(nameof(Keyword));
         OnPropertyChanged(nameof(TypeFilter));
         OnPropertyChanged(nameof(SelectedTypeOption));
