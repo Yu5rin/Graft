@@ -151,7 +151,14 @@ public sealed partial class MainViewModel : ObservableObject
     public GraftIssue? CenterError
     {
         get => _centerError;
-        private set => SetProperty(ref _centerError, value);
+        // E710（AIの「このファイルも見せて」）のときだけ出す操作ボタンの文言と、その押せる・押せないが
+        // この値から決まる。CanExecuteの再評価は通常ポインタ・キー入力のたびに行われる
+        // （CommandRequery）が、エラーが出た瞬間に押せない見た目のまま残らないよう、ここでも促す。
+        private set => SetProperty(ref _centerError, value, () =>
+        {
+            OnPropertyChanged(nameof(RequestedFilesActionText));
+            CommandRequery.Invalidate();
+        });
     }
 
     /// <summary>
@@ -286,6 +293,9 @@ public sealed partial class MainViewModel : ObservableObject
     private void ApplySettingsNow(Settings settings)
     {
         _settings = settings;
+        // プロンプトコピーも設定の最新値（トークン概算比率・「選んだファイルも付ける」）を取り込む。
+        // 設定画面でオン・オフを切り替えたとき、開いているドロップダウンのチェックにも反映するため。
+        PromptCopy?.ApplySettings(settings);
 
         // マッチング（類似度しきい値・あいまい一致の可否・範囲警告行数）はApplyEngine内部の
         // MatchEngineが構築時に固定で受け取る値のため、_settingsを差し替えるだけでは

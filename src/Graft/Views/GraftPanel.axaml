@@ -282,7 +282,10 @@
                                       SecondaryActionCommand="{Binding ParseFromFileCommand}"
                                       SecondaryActionTooltip="AIの出力をクリップボードではなく、保存済みのファイル（.md/.txt/.diff/.patch）から読み込んで解析します。"
                                       SecondaryActionTooltipDetailed="AIとのやり取りをクリップボードにコピーする代わりに、あらかじめファイルへ保存してある場合に使います。.md/.txt/.diff/.patchのいずれかの形式で保存したファイルを選ぶと、その中身を「解析」ボタンを押したときと同じように読み取ります。長いやり取りを一旦保存してから読み込みたいときに便利です。"
-                                      Issue="{Binding CenterError}" />
+                                      Issue="{Binding CenterError}"
+                                      IssueActionText="{Binding RequestedFilesActionText}"
+                                      IssueActionCommand="{Binding AddRequestedFilesToContextCommand}"
+                                      IssueActionTooltip="AIが「このファイルも見せて」と求めたファイルを、コンテキスト収集の窓で「内容も出す」に設定します。そのあと窓の「コピー」でAIへ渡せます。" />
             </Grid>
         </Grid>
     </Grid>

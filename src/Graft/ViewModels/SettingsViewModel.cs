@@ -92,6 +92,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _maxFileSizeMbText = "0";
     private string _maxFilesPerRevisionText = "0";
     private bool _respectGitignore;
+    private bool _appendFilesToPrompt;
     private string _tokenRatioText = "0";
     private string _tokenWarnThresholdText = "0";
     private string _hooksTimeoutSecText = "0";
@@ -398,6 +399,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     public string MaxFileSizeMBText { get => _maxFileSizeMbText; set => SetEditableProperty(ref _maxFileSizeMbText, value); }
     public string MaxFilesPerRevisionText { get => _maxFilesPerRevisionText; set => SetEditableProperty(ref _maxFilesPerRevisionText, value); }
     public bool RespectGitignore { get => _respectGitignore; set => SetEditableProperty(ref _respectGitignore, value); }
+    /// <summary>プロンプトのコピーで、指示文の後ろにコンテキスト収集で選んだファイルも付けるか（Settings.Context.AppendFilesToPrompt）。</summary>
+    public bool AppendFilesToPrompt { get => _appendFilesToPrompt; set => SetEditableProperty(ref _appendFilesToPrompt, value); }
     public string TokenRatioText { get => _tokenRatioText; set => SetEditableProperty(ref _tokenRatioText, value); }
     public string TokenWarnThresholdText { get => _tokenWarnThresholdText; set => SetEditableProperty(ref _tokenWarnThresholdText, value); }
     public string HooksTimeoutSecText { get => _hooksTimeoutSecText; set => SetEditableProperty(ref _hooksTimeoutSecText, value); }
@@ -626,6 +629,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// （設定画面からのみオンに戻せる）。
     /// </summary>
     public void SetShowPreviewLive(bool value) => ShowPreview = value;
+
+    /// <summary>
+    /// コマンドバー「プロンプト」のドロップダウンにある「選んだファイルも付ける」チェックから、
+    /// 設定「プロンプトのコピーに、選んだファイルも付ける」を変更する。<see cref="SetSideBySideLive"/>・
+    /// <see cref="SetShowPreviewLive"/>と全く同じ考え方（画面内の別のトリガーから、設定画面と同じ
+    /// 保存・即時反映経路にそのまま乗せる）。次回起動時にも選択が効くのはこの保存による。
+    /// </summary>
+    public void SetAppendFilesToPromptLive(bool value) => AppendFilesToPrompt = value;
 
     private async Task LoadAsync(CancellationToken ct)
     {
@@ -925,6 +936,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         MaxFileSizeMBText = s.Safety.MaxFileSizeMB.ToString(CultureInfo.InvariantCulture);
         MaxFilesPerRevisionText = s.Safety.MaxFilesPerRevision.ToString(CultureInfo.InvariantCulture);
         RespectGitignore = s.Context.RespectGitignore;
+        AppendFilesToPrompt = s.Context.AppendFilesToPrompt;
         TokenRatioText = s.Context.TokenRatio.ToString(CultureInfo.InvariantCulture);
         TokenWarnThresholdText = s.Context.TokenWarnThreshold.ToString(CultureInfo.InvariantCulture);
         HooksTimeoutSecText = s.Hooks.TimeoutSec.ToString(CultureInfo.InvariantCulture);
@@ -993,6 +1005,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Context = new ContextSettings
         {
             RespectGitignore = _respectGitignore,
+            AppendFilesToPrompt = _appendFilesToPrompt,
             TokenRatio = ParseDouble(_tokenRatioText),
             TokenWarnThreshold = ParseInt(_tokenWarnThresholdText),
         },

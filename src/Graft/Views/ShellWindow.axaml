@@ -327,6 +327,18 @@
                                        FontSize="{DynamicResource CaptionFontSize}"
                                        IsVisible="{Binding StatusMessage,
                                                    Converter={x:Static views:Converters.NotEmptyString}}" />
+                            <!--
+                                指示文と選んだファイルを1回のコピーで渡すための選択肢。テンプレートの本文は
+                                書き換えず、コピーのたびに「指示文の後ろにファイルを付けるか」だけを選ぶ。
+                                既定はオフ（従来どおり指示文だけ）。設定にも保存される
+                                （PromptCopyViewModel.AppendSelectedFiles参照）。
+                            -->
+                            <CheckBox Content="選んだファイルも付ける"
+                                      IsChecked="{Binding AppendSelectedFiles, Mode=TwoWay}"
+                                      Margin="0,8,0,0"
+                                      AutomationProperties.Name="選んだファイルも付ける"
+                                      views:HelpTip.Standard="指示文の後ろに、「ファイル」画面で選んだファイルの内容も付けてコピーします。指示文とファイルを1回の貼り付けでAIへ渡せます。"
+                                      views:HelpTip.Detailed="オンにすると、テンプレートをコピーするとき、指示文の後ろに「ファイル」画面（コンテキスト収集）で選んだファイルの内容も続けてコピーします。指示文とファイルを別々に2回コピーして貼る手間が要りません。テンプレートの本文に変数 {{files}} がある場合はそこへファイルが入るため、二重には付きません。既定はオフ（従来どおり指示文だけ）で、切り替えは保存され次回も効きます。" />
                             <Button Content="コピー"
                                     Command="{Binding CopyCommand}"
                                     HorizontalAlignment="Right"

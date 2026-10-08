@@ -23,13 +23,27 @@ public partial class ContextCollectWindow : Window
         Loaded += (_, _) => ModeComboBox.Focus();
     }
 
-    public ContextCollectWindow(ContextCollectViewModel viewModel) : this()
+    /// <param name="viewModel">コンテキスト収集のViewModel。</param>
+    /// <param name="requestedPaths">
+    /// AIが「このファイルも見せて」（E710）と求めたパス。空でなければ、初回の走査が終わったあとに
+    /// そのファイルを「内容も出す」に設定し、結果（見つからない・除外されている等）を
+    /// ステータス欄に出す。走査の前に設定すると、走査が選択状態を作り直して失われるため、
+    /// 必ず<see cref="ContextCollectViewModel.InitializeAsync"/>の後に行う。
+    /// </param>
+    public ContextCollectWindow(ContextCollectViewModel viewModel, IReadOnlyList<string>? requestedPaths = null) : this()
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         DataContext = viewModel;
         Loaded += async (_, _) =>
+        {
             await SafeHandler.RunAsync("コンテキスト収集の初期化", () => viewModel.InitializeAsync())
                 .ConfigureAwait(true);
+            if (requestedPaths is { Count: > 0 })
+            {
+                await SafeHandler.RunAsync("要求されたファイルの反映", () => viewModel.ApplyRequestedFilesAsync(requestedPaths))
+                    .ConfigureAwait(true);
+            }
+        };
     }
 
     private void OnTunnelKeyDown(object? sender, KeyEventArgs e)

@@ -7,14 +7,35 @@ namespace Graft.Core;
 /// </summary>
 public sealed class PatchParser
 {
+    /// <summary>E710の表示に使う、要求されたファイルの一覧文。無ければnull（従来どおり固定文のみ）。</summary>
+    /// <remarks>
+    /// 数十件を要求されても1行のエラー表示が画面幅を食い尽くさないよう、先頭の数件だけ並べて
+    /// 残りは件数にまとめる。全件は <see cref="GraftIssue.RequestedPaths"/> が持つ。
+    /// </remarks>
+    internal static string? DescribeRequestedFiles(IReadOnlyList<string> requestedPaths)
+    {
+        if (requestedPaths.Count == 0) return null;
+
+        const int maxListed = 8;
+        var listed = string.Join("、", requestedPaths.Take(maxListed));
+        return requestedPaths.Count > maxListed
+            ? $"要求されたファイル: {listed} ほか{requestedPaths.Count - maxListed}件"
+            : $"要求されたファイル: {listed}";
+    }
+
     /// <summary>パッチ全文を解析する。</summary>
     public GraftResult<Patch> Parse(string patchText)
     {
         // AIが「SEARCHを正確に作れない＝情報が足りない」と申告した場合（5.2の運用規定で
-        // NEED_MORE_CONTEXT の1行だけを返す約束になっている）。E001（ブロックが存在しない）
-        // として扱うと状況を取り違えるため、どの形式の判定よりも先に確定させる。
-        if (StandardSearchReplaceAdapter.IsNeedMoreContext(patchText))
-            return GraftResult<Patch>.Fail(GraftIssue.Of(ErrorCode.E710, line: 1));
+        // 「NEED_MORE_CONTEXT: <ファイルパス>」の行だけを返す約束になっている。語だけの1行や
+        // 複数行も受け付ける）。E001（ブロックが存在しない）として扱うと状況を取り違えるため、
+        // どの形式の判定よりも先に確定させる。求められたファイルは、表示用に Detail へ整形して
+        // 載せるほか、コンテキスト収集へそのまま反映できるよう RequestedPaths にも持たせる。
+        if (StandardSearchReplaceAdapter.TryParseNeedMoreContext(patchText, out var requestedPaths))
+        {
+            var issue = GraftIssue.Of(ErrorCode.E710, DescribeRequestedFiles(requestedPaths), line: 1);
+            return GraftResult<Patch>.Fail(requestedPaths.Count == 0 ? issue : issue with { RequestedPaths = requestedPaths });
+        }
 
         // Graft形式のマーカーが1つも無く、unified diff として解釈できる場合はアダプタへ委譲する。
         // Graft形式のマーカーが混在する場合は従来どおりこのメソッドで解析する（マーカー優先）。

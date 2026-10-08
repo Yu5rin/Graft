@@ -77,6 +77,17 @@
             エラー状態: 赤い帯ではなく、アイコン＋エラーコード＋対処方法のインライン表示（8.8）。
             色だけに依存しないよう x-circle アイコン（形状）とテキストを併用する（8.14）。
         -->
+        <!--
+            ScrollViewerで包む理由: 接ぎ木パネルのように高さの小さい場所では、エラー文・対処・操作ボタンが
+            合わせて高さを超え、下側のボタン（特にE710の「要求されたファイルを収集に追加」）が
+            見えないまま切れて押せなくなる（既定のウィンドウ高さ800pxで実際に確認した）。
+            収まるときは従来どおり中央に置かれ、収まらないときだけ縦スクロールで届くようになる。
+            表示の切り替えは、従来のErrorPanelと同じくApplyState（コードビハインド）が行う。
+        -->
+        <ScrollViewer x:Name="ErrorScroll"
+                      IsVisible="False"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="ErrorPanel"
                     IsVisible="False"
                     HorizontalAlignment="Center"
@@ -98,6 +109,22 @@
                        TextWrapping="Wrap"
                        Foreground="{DynamicResource TextSecondary}"
                        FontSize="{DynamicResource CaptionFontSize}" />
+
+            <!--
+                エラー固有の操作（例: E710「AIがファイルを求めた」の「要求されたファイルを収集に追加」）。
+                ActionText/SecondaryActionTextは空状態でも使う共通のボタンで「解析」のように
+                エラーの原因と無関係な操作だが、こちらは今表示しているエラーの次の一手そのものなので、
+                一番上（エラーの説明のすぐ下）に置く。IssueActionTextが空（多くのエラー・呼び出し元）なら
+                ApplyIssueActionTextがボタンごと隠す。
+            -->
+            <Button x:Name="IssueActionButton"
+                    Content="{Binding IssueActionText, ElementName=Root}"
+                    AutomationProperties.Name="{Binding IssueActionText, ElementName=Root}"
+                    Command="{Binding IssueActionCommand, ElementName=Root}"
+                    views:HelpTip.Standard="{Binding IssueActionTooltip, ElementName=Root}"
+                    Margin="0,16,0,0"
+                    HorizontalAlignment="Center"
+                    IsVisible="False" />
 
             <!--
                 実機で確認された指摘2: 解析がエラーで失敗すると、直前まであったEmptyPanelの
@@ -145,5 +172,6 @@
                     HorizontalAlignment="Center"
                     IsVisible="False" />
         </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

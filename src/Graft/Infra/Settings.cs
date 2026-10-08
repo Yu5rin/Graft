@@ -371,6 +371,18 @@ public sealed record ContextSettings
 
     /// <summary>トークン数警告の閾値。</summary>
     public int TokenWarnThreshold { get; init; } = 50000;
+
+    /// <summary>
+    /// プロンプトのコピー（コマンドバー「プロンプト」・Ctrl+Shift+C）で、指示文の後ろに
+    /// コンテキスト収集で選んだファイルも付けるか。既定はオフ（従来どおり指示文だけ）。
+    ///
+    /// 【既定をオフにする理由】既定の「初回用（完全版）」などは <c>{{files}}</c> を含まず、
+    /// 指示文とファイルを別々にコピーして2回貼る運用が既に定着している。既定で付けると、
+    /// 利用者が知らないうちにコピー内容が数万トークン増える。設定として保存するのは、
+    /// 一度オンにした利用者が毎回選び直さなくて済むようにするため。
+    /// テンプレートの本文自体は書き換えない（利用者が編集したものを壊さない）。
+    /// </summary>
+    public bool AppendFilesToPrompt { get; init; } = false;
 }
 
 /// <summary>適用後フック設定（6.5章）。</summary>

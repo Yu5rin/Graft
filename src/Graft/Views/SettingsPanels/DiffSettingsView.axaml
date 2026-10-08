@@ -56,6 +56,12 @@
                       AutomationProperties.Name="gitignoreを尊重する"
                       views:HelpTip.Standard="「ファイル」画面でのコンテキスト収集時、.gitignoreに書かれたファイルを一覧から除外します。既定はオンです。"
                       views:HelpTip.Detailed="コマンドバーの「ファイル」から開くコンテキスト収集画面で、プロジェクト内のファイル一覧を作るときに.gitignoreの指定を尊重するかどうかです。オンにすると（既定）、node_modulesやビルド成果物などGit管理対象外のファイルが一覧から自動的に除外され、AIへ渡す内容を絞り込みやすくなります。オフにすると、.gitignoreに関わらず全ファイルが一覧に出ます。" />
+            <!-- コマンドバー「プロンプト」のドロップダウンの「選んだファイルも付ける」と同じ設定。
+                 そちらで切り替えるとここにも即座に反映される（PromptCopyViewModel.AppendSelectedFiles参照）。 -->
+            <CheckBox Classes="settingRow" Content="プロンプトのコピーに、選んだファイルも付ける" IsChecked="{Binding AppendFilesToPrompt}"
+                      AutomationProperties.Name="プロンプトのコピーに選んだファイルも付ける"
+                      views:HelpTip.Standard="プロンプトをコピーするとき、指示文の後ろにコンテキスト収集で選んだファイルの内容も付けます。既定はオフです。"
+                      views:HelpTip.Detailed="コマンドバー「プロンプト」・Ctrl+Shift+Cでテンプレートをコピーするとき、指示文の後ろに「ファイル」画面（コンテキスト収集）で選んだファイルの内容も続けてコピーします。指示文とファイルを1回のコピー・1回の貼り付けでAIへ渡せます。テンプレートが本文に変数 {{files}} を含んでいる場合は、そこへファイルが入るため二重には付きません。既定はオフ（従来どおり指示文だけ）です。テンプレートの本文自体は書き換わりません。「プロンプト」のドロップダウンにある同名のチェックと同じ設定です。" />
             <StackPanel Classes="fieldRow">
                 <TextBlock Text="トークン概算比率（文字数÷この値）" Classes="fieldLabel" />
                 <TextBox Text="{Binding TokenRatioText, UpdateSourceTrigger=LostFocus}" Width="120"
