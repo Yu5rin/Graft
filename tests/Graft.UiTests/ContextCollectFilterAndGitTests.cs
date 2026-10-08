@@ -363,7 +363,7 @@ public class ContextCollectFilterAndGitTests : IDisposable
 
         filterBox.Watermark.Should().Contain("絞り込み");
         excludeBox.Watermark.Should().NotBe(filterBox.Watermark);
-        ToolTip.GetTip(filterBox).Should().NotBeNull();
+        HelpTip.GetStandard(filterBox).Should().NotBeNullOrWhiteSpace();
         TipText(filterBox).Should().Contain("除外しません", "絞り込みは表示を絞るだけで除外ではないと明記する");
     }
 
@@ -708,9 +708,9 @@ public class ContextCollectFilterAndGitTests : IDisposable
 
         repoButton.IsEffectivelyEnabled.Should().BeTrue();
         plainButton.IsEffectivelyEnabled.Should().BeFalse();
-        ToolTip.GetTip(plainButton).Should().NotBeNull();
+        HelpTip.GetStandard(plainButton).Should().NotBeNullOrWhiteSpace();
         TipText(plainButton).Should().Contain("リポジトリ");
-        ToolTip.GetTip(repoButton).Should().NotBeNull();
+        HelpTip.GetStandard(repoButton).Should().NotBeNullOrWhiteSpace();
         TipText(repoButton).Should().Contain("構成だけ");
     }
 
@@ -722,8 +722,20 @@ public class ContextCollectFilterAndGitTests : IDisposable
         => vm.Files.Single(f => f.RelativePath == path).State;
 
     /// <summary>ツールチップの文字列。HelpTipはTextBlockに包んで設定するため、その中身を読む。</summary>
-    private static string TipText(Control control)
-        => ToolTip.GetTip(control) is TextBlock block ? block.Text ?? string.Empty : ToolTip.GetTip(control)?.ToString() ?? string.Empty;
+    /// <summary>
+    /// 部品に宣言された「標準」のツールチップの文面を返す。
+    /// <para>
+    /// 【なぜ表示中のツールチップ（<c>ToolTip.GetTip</c>）を読まないのか】 実際に表示される文面は、
+    /// ツールチップの詳しさ（<see cref="HelpTip.SetLevel"/>。オフ／簡易／標準／詳細）で変わる。この値は
+    /// アプリ全体で1つの静的な値で、<c>HelpTipTests</c>や<c>SettingsAutoSaveTests</c>が「詳細」「オフ」へ
+    /// 変えたまま戻さないテストを含む。同じプロセスでそれらが先に走ると、ここで読む文面が「詳細」版
+    /// （「除外しません」の語を含まない）や空になり、単独では通るのに全件実行では順番しだいで落ちた
+    /// （実測: 全件実行で1回失敗・単独では通過。詳しさを「詳細」にしてから読むと必ず失敗することで再現を確認）。
+    /// ここで確かめたいのは「その部品の説明として何が書いてあるか」なので、表示の詳しさに左右されない
+    /// 宣言値（<see cref="HelpTip.GetStandard"/>）を読む。既存の「HelpTip.Standardを持つ」系のテストと同じ作法。
+    /// </para>
+    /// </summary>
+    private static string TipText(Control control) => HelpTip.GetStandard(control) ?? string.Empty;
 
     private static Button FindGitButton(Window window)
         => window.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "gitの変更ファイルだけ"));
