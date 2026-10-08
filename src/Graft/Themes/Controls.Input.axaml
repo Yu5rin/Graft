@@ -129,6 +129,37 @@
         <Style Selector="^:pointerover /template/ Border#PART_Box">
             <Setter Property="Background" Value="{DynamicResource BgHover}" />
         </Style>
+        <!--
+            利用者からの指摘対応（チェック済みにマウスを乗せると、チェックしていないように見える）:
+            上の^:checkedと^:pointeroverは、どちらも「疑似クラス1個＋/template/＋Border#PART_Box」
+            という同じ詳細度で、同じPART_BoxのBackgroundを奪い合う。Avaloniaは同じ詳細度の
+            スタイルを「後に宣言された方が勝つ」で解決するため、チェック済みでホバー中は後ろの
+            ^:pointerover（BgHover）がAccentの塗りを上書きしていた。BorderBrushは^:pointerover
+            が触らないのでAccentのまま残り、「枠は紫、中は暗い無地」になる。チェックマーク
+            （PART_CheckMark）は背景色BgSurfaceで抜く作法（上のControlTemplateのコメント参照）
+            なので、BgSurface色のマークがBgHoverの上に描かれ、両者の色が近いほどマークが
+            見えなくなる（Darkはどちらも暗色で、BgHoverは#2B2F35。実測で、修正前はホバー中の箱の
+            塗りがDarkで#2B2F35、LightでBgHoverの#E8E8E3になっていた）。
+
+            対応は、ここ（^:pointerover の「後ろ」）に、チェック済み×ホバー中の組み合わせ専用の
+            スタイルを足して、塗りをAccentへ戻すこと。宣言順が意味を持つので、必ず
+            ^:pointerover より後ろに置くこと。同じ優先度のスタイルが同じPART_BoxのBackgroundを
+            設定するときは後に書かれた方が勝つため、^:pointerover より前に置くとBgHoverが
+            勝ち直して不具合が再発する（CheckBoxHoverAppearanceTestsが捕まえる）。
+
+            ホバー中の塗りを変えるためのAccentHover相当のトークンは、9テーマのどこにも無い。
+            新設すると9テーマ全部に色を足し、チェックマーク（BgSurface）との組み合わせの
+            コントラスト比の実測もやり直しになる。そのためトークンは作らず、「チェック済みの
+            ホバー中は塗りを変えない」と割り切る（未チェックの箱はこれまでどおりBgHoverになる）。
+
+            BorderBrushはここでは触らない（^:checkedのAccentがそのまま効く）。下の^:disabled
+            （BorderBrushをTextDisabledへ）とも干渉しない。こちらはBackgroundしか、^:disabledは
+            BorderBrushしか設定しないため、チェック済み×無効（ホバーが重なった場合を含む）では
+            塗りはAccent・枠線はTextDisabledのままで、並べる順序にも依らない。
+        -->
+        <Style Selector="^:checked:pointerover /template/ Border#PART_Box">
+            <Setter Property="Background" Value="{DynamicResource Accent}" />
+        </Style>
         <Style Selector="^:focus /template/ Border#PART_FocusRing">
             <Setter Property="Opacity" Value="1" />
         </Style>
