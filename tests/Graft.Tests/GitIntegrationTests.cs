@@ -159,6 +159,106 @@ public class GitIntegrationTests
         psi.ArgumentList.Count(a => a == "テスト用の変更 (r1)").Should().Be(1);
     }
 
+    // ------------------------------------------------------------------
+    // コンテキスト収集の「gitの変更ファイルだけ」: GetChangedFilesAsync（実際のgitで検証する）
+    // ------------------------------------------------------------------
+
+    /// <summary>初期コミット済みのリポジトリを作る（a.txt・sub/b.txt・名前 変更.txt・del.txt が追跡済み）。</summary>
+    private static async Task<TempWorkspace> CreateCommittedRepoAsync()
+    {
+        var ws = new TempWorkspace();
+        await InitRepoAsync(ws.RootPath);
+        ws.WriteText("a.txt", "a\n");
+        ws.WriteText("sub/b.txt", "b\n");
+        ws.WriteText("del.txt", "d\n");
+        ws.WriteText("old name.txt", "this content is long enough for rename detection\nline2\nline3\n");
+        await RunGitAsync(ws.RootPath, "add", "-A");
+        await RunGitAsync(ws.RootPath, "commit", "-q", "-m", "初期");
+        return ws;
+    }
+
+    [Fact(DisplayName = "gitの変更ファイル: 変更・追加・未追跡（フォルダの中も1つずつ）が取れ、削除は件数だけ数えて含めない")]
+    public async Task 変更ファイルが実際のgitから取れる()
+    {
+        using var ws = await CreateCommittedRepoAsync();
+        ws.WriteText("a.txt", "a changed\n"); // 変更
+        ws.WriteText("added.txt", "new\n"); // 追加（ステージ済み）
+        await RunGitAsync(ws.RootPath, "add", "added.txt");
+        ws.WriteText("newdir/deep/untracked.txt", "u\n"); // 未追跡のフォルダの中
+        File.Delete(ws.Combine("del.txt")); // 削除
+
+        var result = await new GitIntegration().GetChangedFilesAsync(ws.RootPath);
+
+        result.State.Should().Be(GitChangedFilesState.Ready);
+        result.Paths.Should().BeEquivalentTo(new[] { "a.txt", "added.txt", "newdir/deep/untracked.txt" });
+        result.DeletedCount.Should().Be(1);
+    }
+
+    [Fact(DisplayName = "gitの変更ファイル: 名前変更は新しい側だけが取れ、空白を含む名前も引用符なしで取れる")]
+    public async Task 名前変更と空白を含む名前が取れる()
+    {
+        using var ws = await CreateCommittedRepoAsync();
+        await RunGitAsync(ws.RootPath, "mv", "old name.txt", "new name 日本語.txt");
+
+        var result = await new GitIntegration().GetChangedFilesAsync(ws.RootPath);
+
+        result.State.Should().Be(GitChangedFilesState.Ready);
+        result.Paths.Should().Equal("new name 日本語.txt");
+        result.DeletedCount.Should().Be(0, "名前変更の古い側は削除として数えない");
+    }
+
+    [Fact(DisplayName = "gitの変更ファイル: プロジェクトのルートがリポジトリのサブフォルダなら、サブフォルダ相対のパスで返り、外の変更は含まない")]
+    public async Task サブフォルダのルートではサブフォルダ相対で返る()
+    {
+        using var ws = await CreateCommittedRepoAsync();
+        ws.WriteText("sub/b.txt", "b changed\n"); // サブフォルダの中の変更
+        ws.WriteText("sub/inner/new.txt", "n\n"); // サブフォルダの中の未追跡
+        ws.WriteText("a.txt", "a changed\n"); // サブフォルダの外の変更（含まれてはならない）
+        ws.WriteText("subway/other.txt", "o\n"); // 名前が前方一致するだけの別フォルダ（含まれてはならない）
+
+        var result = await new GitIntegration().GetChangedFilesAsync(ws.Combine("sub"));
+
+        result.State.Should().Be(GitChangedFilesState.Ready);
+        result.Paths.Should().BeEquivalentTo(new[] { "b.txt", "inner/new.txt" });
+    }
+
+    [Fact(DisplayName = "gitの変更ファイル: 変更が無ければReadyで0件")]
+    public async Task 変更が無ければ0件()
+    {
+        using var ws = await CreateCommittedRepoAsync();
+
+        var result = await new GitIntegration().GetChangedFilesAsync(ws.RootPath);
+
+        result.State.Should().Be(GitChangedFilesState.Ready);
+        result.Paths.Should().BeEmpty();
+        result.DeletedCount.Should().Be(0);
+    }
+
+    [Fact(DisplayName = "gitの変更ファイル: .gitignoreで無視されるファイルは変更ファイルに含まれない")]
+    public async Task 無視されるファイルは含まれない()
+    {
+        using var ws = await CreateCommittedRepoAsync();
+        ws.WriteText(".gitignore", "*.log\n");
+        ws.WriteText("noise.log", "x\n");
+        ws.WriteText("a.txt", "a changed\n");
+
+        var result = await new GitIntegration().GetChangedFilesAsync(ws.RootPath);
+
+        result.Paths.Should().BeEquivalentTo(new[] { ".gitignore", "a.txt" });
+    }
+
+    [Fact(DisplayName = "gitの変更ファイル: gitリポジトリでないフォルダではNotARepositoryを返す（例外にしない）")]
+    public async Task リポジトリでなければNotARepository()
+    {
+        using var ws = new TempWorkspace();
+        ws.WriteText("a.txt", "x\n"); // git init しない。
+
+        var result = await new GitIntegration().GetChangedFilesAsync(ws.RootPath);
+
+        result.State.Should().Be(GitChangedFilesState.NotARepository);
+        result.Paths.Should().BeEmpty();
+    }
+
     /// <summary>git init と、テスト実行環境のグローバル設定に依存しないローカルのuser設定を行う。</summary>
     private static async Task InitRepoAsync(string root)
     {

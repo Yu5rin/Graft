@@ -65,7 +65,7 @@
             </Border>
         </StackPanel>
 
-        <TabControl Grid.Row="2" Margin="16,0,16,8" Background="Transparent" BorderThickness="0">
+        <TabControl x:Name="MainTabs" Grid.Row="2" Margin="16,0,16,8" Background="Transparent" BorderThickness="0">
             <TabItem Header="ファイル選択" AutomationProperties.Name="ファイル選択タブ">
                 <Grid Margin="0,8,0,0" ColumnDefinitions="2*,Auto,1*">
 
@@ -74,6 +74,46 @@
                                    Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,4"
                                    local:HelpTip.Standard="行のアイコンをクリック（またはSpaceキー）すると「内容も出す→構成だけ→出さない」の3状態を切り替えられます。フォルダなら配下へまとめて適用されます。先頭の「すべて」行を使えば、プロジェクト直下のファイルも含めて全体を一括で切り替えられます。"
                                    local:HelpTip.Detailed="ファイル名の左のアイコンをクリックする、またはその行を選んでSpaceキーを押すと、「内容も出す」（チェックのアイコン。出力にファイル構成も中身も含める）「構成だけ」（ファイルのアイコン。ファイル構成には載るが中身は出力しない。lib/やnode_modules/のような、存在は知らせたいが中身は不要なフォルダを一括で切り替えるのに使う）「出さない」（×のアイコン。ファイル構成にも出力にも一切含めない）の3状態を順に切り替えられます。フォルダのアイコンをクリックすると、配下のファイル・サブフォルダすべてへ同じ状態がまとめて適用されます。配下の状態が一致していないフォルダは「混在」を示す重なったアイコンで表示され、この状態でクリックすると配下すべてが「内容も出す」に揃います。既定では全ファイルが「内容も出す」です。一覧の先頭には「すべて」というプロジェクトルートを表す行があり、これも他のフォルダ行と同じ操作でプロジェクト全体（サブフォルダの中身も含む）を一括切替できます。" />
+                        <!--
+                            ファイル名の絞り込みと、gitの変更ファイルだけを選ぶ操作。
+                            この窓には入力欄がもう1つ（右側の「追加の除外パターン」）あり、見た目が
+                            同じTextBoxのため取り違えやすい。役割が混ざらないよう、こちらには
+                            虫眼鏡アイコン（ExplorerView.axamlの絞り込み欄と同じ）・「ファイル名で
+                            絞り込み」のウォーターマーク・「表示を絞るだけで除外ではない」旨の
+                            ツールチップを付け、除外パターンの欄の側にも「一覧の表示を絞るのは
+                            左の欄」と書いて、両側から区別する。
+                        -->
+                        <Grid DockPanel.Dock="Top" Margin="0,0,0,4" ColumnDefinitions="Auto,*,Auto,Auto">
+                            <local:IconGlyph Grid.Column="0"
+                                             Data="{DynamicResource IconSearchGeometry}"
+                                             Width="14" Height="14" Margin="4,0,4,0"
+                                             Stroke="{DynamicResource TextSecondary}" />
+                            <TextBox x:Name="FileFilterBox" Grid.Column="1"
+                                     Text="{Binding FilterText}"
+                                     Watermark="ファイル名で絞り込み（例: view .cs）"
+                                     AutomationProperties.Name="ファイル名で一覧を絞り込む" TabIndex="2"
+                                     local:HelpTip.Standard="一覧に出すファイルを、パスに入力した文字を含むものだけへ絞ります（Ctrl+Fでここへ移動、Escで空にします）。表示を絞るだけで、AIへ渡す内容からは除外しません。"
+                                     local:HelpTip.Detailed="一覧を、フォルダ名を含むパスに入力した文字を含むファイルだけへ絞ります。大文字小文字は区別せず、「/」と「\」も同じに扱います。空白で区切って複数の語を入れると、すべてを含むファイルだけに絞ります（例: 「api user」）。絞り込み中はフォルダ行を出さず、見えているファイルだけを平らに並べます（フォルダ行を押すと見えていないファイルまで切り替わってしまうため）。各ファイルの「内容も出す／構成だけ／出さない」は絞り込み中も通常どおり切り替えられ、欄を空にすると、切り替えた結果がツリーに反映されて戻ります。ここは見た目を絞るだけで、AIへ渡す内容から外す設定ではありません。外したいときは右の「追加の除外パターン」を使ってください。Ctrl+Fでこの欄へ移動し、欄に文字があるときのEscで空にできます（欄が空のときのEscは窓を閉じます）。" />
+                            <Button Grid.Column="2" Content="×"
+                                    Command="{Binding ClearFilterCommand}"
+                                    Padding="6,0" Margin="4,0,0,0"
+                                    Background="Transparent" BorderThickness="0"
+                                    IsVisible="{Binding HasFilterText}"
+                                    AutomationProperties.Name="絞り込みを解除"
+                                    ToolTip.Tip="絞り込みを解除して、ツリー表示に戻します" />
+                            <Button Grid.Column="3" Content="gitの変更ファイルだけ" Margin="8,0,0,0"
+                                    Command="{Binding SelectGitChangedCommand}"
+                                    TabIndex="3"
+                                    local:HelpTip.Standard="{Binding GitSelectToolTip}"
+                                    local:HelpTip.Detailed="{Binding GitSelectDetailedToolTip}"
+                                    AutomationProperties.Name="gitの変更ファイルだけを内容も出す状態にする" />
+                        </Grid>
+                        <TextBlock DockPanel.Dock="Top" Margin="26,0,0,4"
+                                   Text="{Binding FilterSummary}"
+                                   FontSize="{DynamicResource CaptionFontSize}"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   IsVisible="{Binding IsFiltering}"
+                                   AutomationProperties.Name="絞り込みの一致件数" />
                         <Grid>
                             <!--
                                 利用者の要望: プロジェクトルート直下のファイルには、既存のフォルダ行の
@@ -107,9 +147,14 @@
                                 RebuildChildrenMap・RecomputeDirectoryStatesの各コメント）で個別に
                                 手当てしている。
                             -->
-                            <ListBox x:Name="FileListBox" ItemsSource="{Binding Files}"
+                            <!--
+                                ItemsSourceはFilesではなくDisplayedFiles。絞り込みが無いときはFilesと
+                                同じインスタンス、絞り込み中は一致したファイルだけの平らな一覧になる
+                                （ContextCollectViewModel.Filter.csのDisplayedFilesのコメント参照）。
+                            -->
+                            <ListBox x:Name="FileListBox" ItemsSource="{Binding DisplayedFiles}"
                                      SelectedItem="{Binding SelectedFile}"
-                                     AutomationProperties.Name="ファイル一覧" TabIndex="2"
+                                     AutomationProperties.Name="ファイル一覧" TabIndex="4"
                                      IsVisible="{Binding !IsEmpty}"
                                      local:HelpTip.Standard="プロジェクト内のファイル構成です。各行のアイコンをクリックすると「内容も出す／構成だけ／出さない」を切り替えられます。先頭の「すべて」行はプロジェクト全体をまとめて切り替えます。"
                                      local:HelpTip.Detailed="プロジェクトのフォルダ構成を一覧表示しています。各行のアイコンをクリック（またはSpaceキー）すると、そのファイル・フォルダの扱いを「内容も出す／構成だけ／出さない」の3状態で切り替えられます（詳細は上の見出しのツールチップ参照）。一覧の先頭にある「すべて」行はプロジェクトルートに対応する仮想的な行で、他のフォルダ行とまったく同じ操作（クリック・Spaceキーで巡回、配下へ一括適用、配下が混在していれば重なったアイコンで表示）でプロジェクト全体を一括切替できます。ここではまだ何もコピー・保存されておらず、選び終えたら下の「プレビュー」「コピー」「ファイルへ保存」のいずれかで実際の出力を作成します。">
@@ -119,7 +164,7 @@
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="vm:ContextFileNodeViewModel">
                                         <StackPanel Orientation="Horizontal"
-                                                    Margin="{Binding DisplayIndentLevel,
+                                                    Margin="{Binding RowIndentLevel,
                                                              Converter={x:Static local:Converters.IndentToMargin}}"
                                                     AutomationProperties.Name="{Binding AutomationLabel}">
                                             <local:IconGlyph Data="{DynamicResource IconFolderGeometry}"
@@ -159,9 +204,11 @@
                                                  ツールチップも無かった（実機Xvfbで確認済み）。エクスプローラは
                                                  横スクロールで追えるが、この一覧には横スクロールバーが無いため
                                                  実害がより大きい。 -->
-                                            <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
+                                            <!-- RowText/RowToolTipは、通常は名前、ファイル名の絞り込み中は相対パス
+                                                 （ContextFileNodeViewModel.ShowFullPathのコメント参照）。 -->
+                                            <TextBlock Text="{Binding RowText}" VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
-                                                       ToolTip.Tip="{Binding DisplayName}" />
+                                                       ToolTip.Tip="{Binding RowToolTip}" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
@@ -188,13 +235,13 @@
                                  空欄になっていた（実機Xvfbで確認済み）。HelpTipの例示と同じ文言にする。 -->
                             <TextBox Grid.Column="0" Text="{Binding NewExcludePattern}"
                                      Watermark="例: *.log、node_modules/"
-                                     AutomationProperties.Name="追加する除外パターン" TabIndex="3"
+                                     AutomationProperties.Name="追加する除外パターン" TabIndex="5"
                                      local:HelpTip.Standard="AIへ渡す内容から除外したいファイル・フォルダのパターンを入力します（例: *.log、node_modules/）。"
-                                     local:HelpTip.Detailed="ここに入力したパターンに一致するファイル・フォルダを、このプロジェクトでは常にファイル一覧・出力から除外できます（例: *.log で全てのログファイル、node_modules/ でそのフォルダ全体）。.gitignoreと似た書き方です。入力したら右の「追加」ボタンで確定します。" />
+                                     local:HelpTip.Detailed="ここに入力したパターンに一致するファイル・フォルダを、このプロジェクトでは常にファイル一覧・出力から除外できます。（左の一覧の上にある「ファイル名で絞り込み」は表示を絞るだけの別の欄で、除外は行いません。）（例: *.log で全てのログファイル、node_modules/ でそのフォルダ全体）。.gitignoreと似た書き方です。入力したら右の「追加」ボタンで確定します。" />
                             <Button Grid.Column="1" Content="追加" Command="{Binding AddExcludeCommand}" Margin="6,0,0,0"
                                     local:HelpTip.Standard="入力した除外パターンをこのプロジェクト専用の除外リストへ追加します。次回以降のファイル一覧・収集結果から外れます。"
                                     local:HelpTip.Detailed="左のテキストボックスに入力したパターン（例: *.log や node_modules/）を、このプロジェクト専用の除外リストへ追加します。追加すると、左側のファイル一覧やAIへ渡す内容から、パターンに一致するファイルが除かれるようになります。AIに読ませたくない大きなファイルや秘密情報を含むファイルを外すのに使います。"
-                                    AutomationProperties.Name="除外パターンを追加" TabIndex="4" />
+                                    AutomationProperties.Name="除外パターンを追加" TabIndex="6" />
                         </Grid>
                         <!-- 項目7個別: 除外パターン0件のとき何も出ない「空箱」だった（4系統目、
                              「何も出さない」パターン。実機Xvfbで確認済み）。他と同じEmptyStateViewを
@@ -202,7 +249,7 @@
                              アクションボタンは付けない。 -->
                         <Grid>
                             <ListBox ItemsSource="{Binding ExtraExcludes}"
-                                     AutomationProperties.Name="プロジェクト単位の除外パターン一覧" TabIndex="5"
+                                     AutomationProperties.Name="プロジェクト単位の除外パターン一覧" TabIndex="7"
                                      local:HelpTip.Standard="このプロジェクトに登録済みの除外パターンの一覧です。各行の「削除」で取り除けます。"
                                      local:HelpTip.Detailed="上で追加した除外パターンの一覧です。このプロジェクトを開いている間はずっと有効で、ファイル一覧・出力プレビューに反映されます。不要になったパターンは各行の「削除」ボタンで取り除けます。">
                                 <ListBox.ItemTemplate>
@@ -279,16 +326,16 @@
             <Button Grid.Column="1" Content="プレビュー" Command="{Binding PreviewCommand}" Margin="0,0,8,0"
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、プレビュータブと推定トークン数で確認します。クリップボードへはコピーしません。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、実際にAIへ渡す文章としてどう組み立てられるかを「プレビュー」タブで確認できます。おおよそのトークン数（AIへの負荷の目安）もここで分かります。この操作ではクリップボードには何もコピーされないため、内容を確認するだけのときに使ってください。"
-                    AutomationProperties.Name="推定トークン数をプレビュー" TabIndex="6" />
+                    AutomationProperties.Name="推定トークン数をプレビュー" TabIndex="8" />
             <Button Grid.Column="2" Content="コピー" Command="{Binding CopyCommand}" Margin="0,0,8,0"
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、クリップボードへコピーします。推定トークン数が大きい場合でも必ずコピーしたうえで、目安として大きさを知らせます。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、AIへ渡す文章としてクリップボードへコピーします。コピーしたら、そのままChatGPTやClaudeなどのAIとの会話に貼り付けて質問してください。推定トークン数が設定の目安値を超えている場合でも内容は必ずコピーされ、そのうえで「AIへ一度に渡すには大きいかもしれません」という助言がステータスに添えられます（気になる場合は除外パターンでファイルを減らしてください）。"
-                    AutomationProperties.Name="コンテキストをクリップボードへコピー" TabIndex="7" />
+                    AutomationProperties.Name="コンテキストをクリップボードへコピー" TabIndex="9" />
             <Button Grid.Column="3" Content="ファイルへ保存" Command="{Binding SaveToFileCommand}"
                     Margin="0,0,8,0"
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、名前を付けてMarkdownファイルへ保存します。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、Markdown形式のテキストファイルとして好きな場所へ保存します。既定のファイル名はプロジェクト名と保存日時から自動で組み立てます（例: デモ_20260808_1530.md）。保存したファイルはそのままAIチャットへ添付・貼り付けして使えます。推定トークン数が設定の目安値を超えている場合でも保存は必ず行われ、そのうえで大きさについての助言が表示されます。"
-                    AutomationProperties.Name="コンテキストをファイルへ保存" TabIndex="8" />
+                    AutomationProperties.Name="コンテキストをファイルへ保存" TabIndex="10" />
             <!--
                 実機で確認された指摘7: 設定・キュー・取扱説明書にはある「閉じる」ボタンが
                 このウィンドウにだけ無く、マウスだけの利用者にはタイトルバーの×しか無かった
