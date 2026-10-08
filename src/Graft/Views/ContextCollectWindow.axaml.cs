@@ -46,9 +46,51 @@ public partial class ContextCollectWindow : Window
         };
     }
 
+    /// <summary>
+    /// 窓全体のキー操作（トンネル＝子より先に受ける）。
+    ///
+    /// 【Esc】従来どおり窓を閉じる。ただしファイル名の絞り込み欄にフォーカスがあり、中身が
+    /// あるときだけは、窓を閉じずに欄を空にする（絞り込みを解いてツリーへ戻す）。
+    /// 入力欄でEscを押す利用者の意図は「入力を取り消す」であり、絞り込み途中のつもりで
+    /// 押して窓ごと閉じる（選択途中の状態を失ったように感じる）のを避けるため。
+    /// 欄が空のとき、または別の部品にフォーカスがあるときは、これまでと変わらず窓を閉じる
+    /// （Escで必ず閉じられる、という他のダイアログとの一貫性を保つ）。
+    /// 絞り込み欄の中身の有無は、ViewModelではなく欄自身のTextで見る。DataContextを持たない
+    /// 既定コンストラクタ（デザイナ・一部のテスト）でも同じ挙動になるようにするため。
+    ///
+    /// 【Ctrl+F】絞り込み欄へ移る（この窓には、ほかにCtrl+Fを使う操作が無い。エディタの検索の
+    /// Ctrl+Fは別のウィンドウの話で、このモーダルの中では衝突しない）。プレビュータブを
+    /// 見ているときも、ファイル選択タブへ切り替えてから移る。すでに欄にいるときは、
+    /// 全選択して打ち直しやすくする（多くのアプリのCtrl+Fの挙動に合わせる）。
+    /// </summary>
     private void OnTunnelKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) Close();
+        if (e.Key == Key.Escape)
+        {
+            if (FileFilterBox.IsKeyboardFocusWithin && !string.IsNullOrEmpty(FileFilterBox.Text))
+            {
+                FileFilterBox.Text = string.Empty;
+                e.Handled = true;
+                return;
+            }
+
+            Close();
+            return;
+        }
+
+        if (e.Key == Key.F && e.KeyModifiers == KeyModifiers.Control)
+        {
+            FocusFileFilter();
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>ファイル選択タブを表示して、絞り込み欄へフォーカスを移す。</summary>
+    private void FocusFileFilter()
+    {
+        MainTabs.SelectedIndex = 0;
+        FileFilterBox.Focus();
+        FileFilterBox.SelectAll();
     }
 
     /// <summary>

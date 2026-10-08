@@ -60,8 +60,13 @@ public enum GitCommitPreflight
 /// 仕様書7.5 Git連携。git コマンドを子プロセスとして呼び出す（外部ライブラリは追加しない）。
 /// git が見つからない、またはリポジトリでない場合はエラーとせず <see cref="GitStatus.IsRepository"/>
 /// を false として返す。
+///
+/// 非sealedで、<see cref="CheckCommitPreflightAsync"/>と<see cref="GetChangedFilesAsync"/>だけが
+/// virtualなのは、コンテキスト収集の窓のテストが「gitが見つからない」「状態の取得に失敗した」を
+/// 再現するため。実際にgitを消す（PATHを書き換える）と、並行して走る他のテストのgit呼び出しまで
+/// 巻き込む。ほかのメンバーは従来どおり差し替え不可。
 /// </summary>
-public sealed class GitIntegration
+public class GitIntegration
 {
     /// <summary>
     /// 課題3: <see cref="CommitAsync"/>を呼ぶ前に前提条件を確認する。<c>git rev-parse
@@ -69,7 +74,7 @@ public sealed class GitIntegration
     /// git はあるがリポジトリでなければ非0の終了コードを返す（Started=true）ため、
     /// この2つを区別できる。
     /// </summary>
-    public async Task<GitCommitPreflight> CheckCommitPreflightAsync(string projectRoot, CancellationToken ct = default)
+    public virtual async Task<GitCommitPreflight> CheckCommitPreflightAsync(string projectRoot, CancellationToken ct = default)
     {
         var inside = await RunGitAsync(projectRoot, new[] { "rev-parse", "--is-inside-work-tree" }, ct)
             .ConfigureAwait(false);
@@ -110,6 +115,62 @@ public sealed class GitIntegration
             BranchName = branch.ExitCode == 0 ? branch.Output.Trim() : null,
             ChangedPaths = changedPaths,
         });
+    }
+
+    /// <summary>
+    /// コンテキスト収集の「gitの変更ファイルだけ」用。未コミットの変更があるファイル
+    /// （変更・追加・未追跡・名前変更の新しい側）を、**プロジェクトのルートからの相対パス**で返す。
+    ///
+    /// 【<see cref="GetStatusAsync"/>の<see cref="GitStatus.ChangedPaths"/>を使い回さない理由】
+    /// 実装の点検で、そのままでは次の 4 点で今回の用途に使えないと分かったため、別のメソッドにした
+    /// （既存の<see cref="GetStatusAsync"/>とそのテストの挙動は変えない）。
+    /// <list type="number">
+    /// <item>パスがリポジトリルート相対。プロジェクトのルートがリポジトリのサブフォルダだと、
+    /// 走査結果（プロジェクトルート相対）と一致しない。<c>git rev-parse --show-prefix</c> で
+    /// 接頭辞を求めて外す（<see cref="GitChangedFilesParser"/>）。</item>
+    /// <item>未追跡のフォルダが、中身のファイルではなく <c>dir/</c> の 1 行で返る
+    /// （<c>--untracked-files=all</c> で中身を 1 つずつ出させる）。</item>
+    /// <item>空白や日本語を含むパスが引用符で囲まれる、名前変更が <c>old -&gt; new</c> の 1 行になる。
+    /// <c>-z</c>（NUL 区切り）にすれば引用符も矢印も無い。</item>
+    /// <item>削除されたファイルも含まれる。選ぶ対象は「今も存在するもの」なので除く。</item>
+    /// </list>
+    /// 作業が重い大きなリポジトリでも他の場所の変更を数えないよう、<c>-- .</c> でプロジェクトの
+    /// フォルダ配下に限って調べる。
+    ///
+    /// git が無い・リポジトリでない場合は例外やエラーにせず、<see cref="GitChangedFiles.State"/>で
+    /// 区別して返す（<see cref="CheckCommitPreflightAsync"/>と同じ区別。窓がボタンを無効にして
+    /// 理由を示すために必要）。
+    /// </summary>
+    public virtual async Task<GitChangedFiles> GetChangedFilesAsync(string projectRoot, CancellationToken ct = default)
+    {
+        var inside = await RunGitAsync(projectRoot, new[] { "rev-parse", "--is-inside-work-tree" }, ct)
+            .ConfigureAwait(false);
+        if (!inside.Started) return new GitChangedFiles { State = GitChangedFilesState.GitNotFound, Detail = inside.Output };
+        // .git の中などでは終了コード 0 で "false" が返るため、出力も見る。
+        if (inside.ExitCode != 0 || !inside.Output.TrimStart().StartsWith("true", StringComparison.Ordinal))
+        {
+            return new GitChangedFiles { State = GitChangedFilesState.NotARepository };
+        }
+
+        var prefixResult = await RunGitAsync(projectRoot, new[] { "rev-parse", "--show-prefix" }, ct)
+            .ConfigureAwait(false);
+        if (!prefixResult.Started || prefixResult.ExitCode != 0)
+        {
+            return new GitChangedFiles { State = GitChangedFilesState.Failed, Detail = prefixResult.Output };
+        }
+
+        var status = await RunGitAsync(
+            projectRoot, new[] { "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "." }, ct)
+            .ConfigureAwait(false);
+        if (!status.Started || status.ExitCode != 0)
+        {
+            return new GitChangedFiles { State = GitChangedFilesState.Failed, Detail = status.Output };
+        }
+
+        // 出力の先頭 1 行だけが接頭辞（警告が標準エラーから続いても読み違えない）。
+        var prefix = prefixResult.Output.Split('\n')[0].TrimEnd('\r');
+        var (paths, deleted) = GitChangedFilesParser.Parse(status.Output, prefix);
+        return new GitChangedFiles { State = GitChangedFilesState.Ready, Paths = paths, DeletedCount = deleted };
     }
 
     /// <summary>

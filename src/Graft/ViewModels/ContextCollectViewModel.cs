@@ -43,6 +43,8 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     private readonly IUiServices _ui;
     private readonly IDialogService _dialogs;
     private readonly IUiTimer _persistTimer;
+    private readonly IUiTimer _filterTimer;
+    private readonly GitIntegration _git;
     private Project _project; private readonly Settings _settings;
 
     private ContextMode _selectedMode = ContextMode.TreeAndSelected;
@@ -63,8 +65,13 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     /// <summary>相対パス（ディレクトリは"" =ルート）→直下の子ノード一覧。フォルダの一括切替・集計計算に使う。</summary>
     private Dictionary<string, List<ContextFileNodeViewModel>> _childrenByPath = new(StringComparer.Ordinal);
 
+    /// <param name="git">
+    /// 「gitの変更ファイルだけ」で使う git 連携。省略時は既定の実装。引数にしているのは、
+    /// テストが git の有無・出力を差し替えられるようにするため（ほかの呼び出し元は渡さなくてよい）。
+    /// </param>
     public ContextCollectViewModel(
-        AppPaths appPaths, ProjectStore projectStore, Project project, Settings settings, IUiServices ui, IDialogService dialogs)
+        AppPaths appPaths, ProjectStore projectStore, Project project, Settings settings, IUiServices ui, IDialogService dialogs,
+        GitIntegration? git = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -75,6 +82,8 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         _collector = new ContextCollector(appPaths);
         _revisionStore = new RevisionStore(appPaths);
         _persistTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(PersistDebounceMs), OnPersistTick);
+        _filterTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(FilterDebounceMs), OnFilterTick);
+        _git = git ?? new GitIntegration();
 
         Modes = new ObservableCollection<ModeOption>
         {
@@ -83,6 +92,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         };
         Revisions = new ObservableCollection<RevisionOption>();
         Files = new ObservableCollection<ContextFileNodeViewModel>();
+        _displayedFiles = Files;
         ExtraExcludes = new ObservableCollection<string>(project.Overrides.Excludes);
 
         RefreshCommand = new AsyncRelayCommand(() => RefreshAsync(), context: "コンテキスト対象の再走査");
@@ -96,6 +106,10 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         AddExcludeCommand = new AsyncRelayCommand(
             AddExcludeAsync, () => !string.IsNullOrWhiteSpace(_newExcludePattern), context: "除外パターンの追加");
         RemoveExcludeCommand = new RelayCommand<string>(pattern => _ = RemoveExcludeAsync(pattern));
+        ClearFilterCommand = new RelayCommand(() => FilterText = string.Empty, () => _filterText.Length > 0);
+        SelectGitChangedCommand = new AsyncRelayCommand(
+            SelectGitChangedAsync, () => _gitAvailability == GitAvailability.Available && !_isScanning,
+            context: "gitの変更ファイルの選択");
     }
 
     public Project Project => _project;
@@ -263,11 +277,42 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         private set => SetProperty(ref _statusMessage, value);
     }
 
-    /// <summary>初期表示時に一度呼び出し、ファイルツリーを走査する。</summary>
-    public Task InitializeAsync(CancellationToken ct = default) => RefreshAsync(ct);
+    /// <summary>
+    /// 初期表示時に一度呼び出し、ファイルツリーを走査する。あわせて「gitの変更ファイルだけ」が
+    /// 使えるか（git が見つかり、プロジェクトがリポジトリの中か）を調べる。
+    ///
+    /// git の確認は走査と**並行**で始める（どちらも別スレッドの仕事で、互いに待つ理由が無いため、
+    /// 窓を開くまでの時間を git の起動ぶん延ばさない）。確認が終わるまでボタンは無効のまま
+    /// （<see cref="GitAvailability.Checking"/>）。
+    /// </summary>
+    public async Task InitializeAsync(CancellationToken ct = default)
+    {
+        var gitCheck = _git.CheckCommitPreflightAsync(_project.Root, ct);
+        try
+        {
+            await RefreshAsync(ct).ConfigureAwait(true);
+        }
+        finally
+        {
+            // 走査が失敗・中断しても、起動済みの git の確認は必ず待って結果を反映する
+            // （待たずに放置すると、例外が観測されないタスクとして残る）。
+            try
+            {
+                ApplyGitAvailability(await gitCheck.ConfigureAwait(true));
+            }
+            catch (OperationCanceledException)
+            {
+                // 窓を閉じるなどで中断された。確認の結果は不要なので、元の中断をそのまま伝える。
+            }
+        }
+    }
 
     /// <summary>デバウンス用タイマーを止める。プロジェクト切替でこのインスタンスを捨てる際に呼ぶ。</summary>
-    public void Dispose() => _persistTimer.Dispose();
+    public void Dispose()
+    {
+        _persistTimer.Dispose();
+        _filterTimer.Dispose();
+    }
 
     private void OnModeChanged()
     {
@@ -309,6 +354,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
                 Files.Clear();
                 _lastScan = Array.Empty<ContextFileNode>();
                 IsEmpty = false;
+                ApplyFilter();
                 return;
             }
 
@@ -339,6 +385,10 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             RecomputeDirectoryStates();
             UpdateApproxTokenEstimate();
             WarnIfDefaultSelectionIsLarge();
+
+            // Filesを作り直したので、入力中の絞り込みがあれば新しいノードに対して掛け直す
+            // （除外パターンの追加・削除で再走査したあとも、絞り込みが生きたまま一覧が最新になる）。
+            ApplyFilter();
         }
         finally
         {
@@ -1025,6 +1075,45 @@ public sealed class ContextFileNodeViewModel : ObservableObject
     /// </summary>
     public int DisplayIndentLevel => IsRoot ? 0 : IndentLevel + 1;
 
+    private bool _showFullPath;
+
+    /// <summary>
+    /// ファイル名の絞り込み中に、この行を「相対パスつきの平らな行」として見せているか。
+    ///
+    /// 【なぜ行ごとのフラグか（一覧の見た目の定義を1箇所に保つ）】
+    /// 絞り込み中は、ツリーのインデント付きの名前ではなく、フォルダ名を含む相対パスで並べる
+    /// （同名のファイルが別フォルダに複数あっても見分けられるように）。ツリー用と絞り込み用で
+    /// ListBoxやItemTemplateを2つ持つと、アイコンの束ね方の定義が2箇所に分かれる（
+    /// ContextCollectWindow.axamlの「すべて」行のコメントと同じ理由で避けている）。
+    /// そこで同じテンプレートのまま、表示する文字列とインデントだけをこのフラグで切り替える。
+    /// ViewModel側（<see cref="ContextCollectViewModel"/>）が絞り込みの適用・解除のたびに、
+    /// 一致した行にだけ立て、外れた行から下ろす。
+    /// </summary>
+    public bool ShowFullPath
+    {
+        get => _showFullPath;
+        set
+        {
+            if (!SetProperty(ref _showFullPath, value)) return;
+            OnPropertyChanged(nameof(RowText));
+            OnPropertyChanged(nameof(RowToolTip));
+            OnPropertyChanged(nameof(RowIndentLevel));
+            OnPropertyChanged(nameof(AutomationLabel));
+        }
+    }
+
+    /// <summary>一覧に出す文字列。通常は名前だけ、絞り込み中は相対パス。</summary>
+    public string RowText => _showFullPath ? RelativePath : DisplayName;
+
+    /// <summary>
+    /// 一覧の行のツールチップ。長い名前が省略されたときに全体を読めるようにするためのもの
+    /// （通常は名前、絞り込み中は相対パス）。
+    /// </summary>
+    public string RowToolTip => RowText;
+
+    /// <summary>一覧のインデント段数。絞り込み中は平らに並べるので 0。</summary>
+    public int RowIndentLevel => _showFullPath ? 0 : DisplayIndentLevel;
+
     /// <summary>
     /// 3状態選択。ファイルは常に具体的な値（Full/StructureOnly/Hidden）を持ち、ディレクトリは
     /// 配下の非除外ファイル・非除外サブディレクトリの集計結果を持つ（全部一致なら同じ値、
@@ -1079,8 +1168,8 @@ public sealed class ContextFileNodeViewModel : ObservableObject
 
     /// <summary>8.14: スクリーンリーダー向けの読み上げ文言。種別・除外理由・現在の状態を含める。</summary>
     public string AutomationLabel => IsExcluded
-        ? $"{(IsDirectory ? "フォルダ" : "ファイル")} {DisplayName}（除外: {ExcludeReason}）"
+        ? $"{(IsDirectory ? "フォルダ" : "ファイル")} {RowText}（除外: {ExcludeReason}）"
         : IsRoot
             ? $"すべて（プロジェクト全体、{StateLabel}）"
-            : $"{(IsDirectory ? "フォルダ" : "ファイル")} {DisplayName}（{StateLabel}）";
+            : $"{(IsDirectory ? "フォルダ" : "ファイル")} {RowText}（{StateLabel}）";
 }
