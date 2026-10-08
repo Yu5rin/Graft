@@ -60,7 +60,7 @@ public static class StandardSearchReplaceAdapter
     private const string EndFileMarker = ">>>>>>> END_FILE";
 
     /// <summary>
-    /// SEARCHを正確に作れないときにAIが1行だけ返す合図（会社ルールの運用規定）。
+    /// SEARCHを正確に作れないときにAIが返す合図（会社ルールの運用規定）。
     /// これを黙って「ブロックが存在しない」（E001）として扱うと、利用者には
     /// 「AIが変な出力をした」としか見えず、実際には「AIが情報不足を訴えている」という
     /// 全く違う状況であることが伝わらないため、専用のエラーコード（E710）で区別する。
@@ -72,20 +72,90 @@ public static class StandardSearchReplaceAdapter
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// テキストが「NEED_MORE_CONTEXT の1行だけ」かどうか。コードフェンス行・空行は無視する
-    /// （会社ルールでは出力全体を1つの text フェンスで囲むため、フェンス付きで届くのが通常）。
-    /// 誤検知を避けるため、その1行以外の内容が1つでもあれば false とする。
+    /// テキストが「NEED_MORE_CONTEXT の行だけ」かどうか。詳細は
+    /// <see cref="TryParseNeedMoreContext"/>。
     /// </summary>
-    public static bool IsNeedMoreContext(string text)
+    public static bool IsNeedMoreContext(string text) => TryParseNeedMoreContext(text, out _);
+
+    /// <summary>
+    /// テキストが「AIが追加のファイルを求める合図」だけで構成されているかを判定し、
+    /// 求められたファイルのパスを取り出す。
+    ///
+    /// 【受け付ける形】次のどれも、またはその複数行の並び（1行に1ファイル）。
+    /// <code>
+    /// NEED_MORE_CONTEXT
+    /// NEED_MORE_CONTEXT: src/a.cs
+    /// NEED_MORE_CONTEXT : `src/a.cs`
+    /// </code>
+    /// 区切りの <c>:</c>（全角 <c>：</c> も可）の前後の空白、パスを囲むバッククォート・引用符、
+    /// 行全体をインラインコードにした <c>`NEED_MORE_CONTEXT: src/a.cs`</c>、行頭・行末の空白、
+    /// CRLF は吸収する。コードフェンス行（<c>```</c> で始まる行）と空行は無視する
+    /// （会社ルールでは出力全体を1つの text フェンスで囲むため、フェンス付きで届くのが通常）。
+    ///
+    /// 【なぜパス付きも受け付けるか】Graft独自形式のテンプレートは AI に
+    /// 「NEED_MORE_CONTEXT: &lt;ファイルパス&gt;」と返すよう指示している。以前の判定は語だけの
+    /// 1行にしか反応しなかったため、指示どおりに返ってきた回答が E001（ブロックが存在しない）に
+    /// なり、クリップボード監視でも検知されなかった。
+    ///
+    /// 【誤検知の防止（以前から守っている性質）】コードフェンス行・空行を除いた**すべての行**が
+    /// <c>NEED_MORE_CONTEXT</c> で始まり、直後が行末か区切りの <c>:</c> であるときだけ true とする。
+    /// ほかの内容が1行でも混じれば false。したがって
+    /// <list type="bullet">
+    /// <item>プロンプトテンプレートの本文（説明文の中に NEED_MORE_CONTEXT を含むが、見出し・
+    /// 箇条書き・他の規則文が多数の行として並ぶ）</item>
+    /// <item>SEARCH/REPLACE ブロックの中に語が現れるだけのパッチ</item>
+    /// <item>「NEED_MORE_CONTEXT_EXTRA」のように語が別の識別子の前半になっている行</item>
+    /// </list>
+    /// はいずれも検知しない。複数行を許したことで広がる誤検知の余地は、「全行が合図の行」という
+    /// 条件が閉じている（1行でも別の行があれば全体が false）ため、テンプレート本文のような
+    /// 通常の文章には及ばない。
+    ///
+    /// 【プレースホルダの扱い】AIが指示文の <c>&lt;ファイルパス&gt;</c> をそのまま返した場合は、
+    /// 実在しない「&lt;ファイルパス&gt;」というパスを要求されたことにせず、パス無しの合図として扱う。
+    /// </summary>
+    /// <param name="text">判定するテキスト。</param>
+    /// <param name="requestedPaths">
+    /// 求められたパス（出現順・重複なし・前後の記号を除去済み。区切り文字は変換しない）。
+    /// 語だけの合図ならば空。戻り値が false のときも空。
+    /// </param>
+    public static bool TryParseNeedMoreContext(string text, out IReadOnlyList<string> requestedPaths)
     {
+        requestedPaths = Array.Empty<string>();
         if (string.IsNullOrEmpty(text)) return false;
 
-        var meaningful = PatchTextUtil.SplitRawLines(text)
-            .Select(l => l.Trim())
-            .Where(l => l.Length > 0 && !l.StartsWith("```", StringComparison.Ordinal))
-            .ToList();
+        var paths = new List<string>();
+        var signalLines = 0;
+        foreach (var raw in PatchTextUtil.SplitRawLines(text))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith("```", StringComparison.Ordinal)) continue;
 
-        return meaningful.Count == 1 && meaningful[0] == NeedMoreContextToken;
+            // 行全体をインラインコード（`...`）で囲む書き癖。フェンス行は上で除外済み。
+            line = line.Trim('`').Trim();
+
+            if (!line.StartsWith(NeedMoreContextToken, StringComparison.Ordinal)) return false;
+            var rest = line[NeedMoreContextToken.Length..].TrimStart();
+            signalLines++;
+            if (rest.Length == 0) continue; // 語だけ
+
+            // 語の直後は区切りの ':' だけを認める。"NEED_MORE_CONTEXT_EXTRA" や
+            // "NEED_MORE_CONTEXT を返してください" のような文章・別の識別子は合図ではない。
+            if (rest[0] is not (':' or '：')) return false;
+
+            var path = CleanRequestedPath(rest[1..]);
+            if (path.Length > 0 && !paths.Contains(path, StringComparer.Ordinal)) paths.Add(path);
+        }
+
+        if (signalLines == 0) return false;
+        requestedPaths = paths;
+        return true;
+    }
+
+    /// <summary>求められたパスの前後の空白・バッククォート・引用符を除く。指示文のプレースホルダは空扱い。</summary>
+    private static string CleanRequestedPath(string rawPath)
+    {
+        var path = rawPath.Trim().Trim('`', '"', '\'', '「', '」').Trim();
+        return path.Length >= 2 && path[0] == '<' && path[^1] == '>' ? string.Empty : path;
     }
 
     /// <summary>

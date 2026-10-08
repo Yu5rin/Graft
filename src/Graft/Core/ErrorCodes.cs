@@ -175,12 +175,15 @@ public enum ErrorCode
     E709,
     /// <summary>
     /// AIが「SEARCHを正確に作れないので情報が足りない」と申告した（v2.1 仕様書5.2・17章）。
-    /// 標準SEARCH/REPLACE形式の運用規定では、AIはSEARCH部を正確に作れない場合に
-    /// <c>NEED_MORE_CONTEXT</c> の1行だけを返す。これを黙ってE001（ブロックが存在しない）と
+    /// 運用規定では、AIはSEARCH部を正確に作れない場合に
+    /// 「<c>NEED_MORE_CONTEXT: &lt;ファイルパス&gt;</c>」の行だけ（必要なファイルごとに1行。
+    /// パス無しの語だけも可）を返す。これを黙ってE001（ブロックが存在しない）と
     /// して扱うと、利用者には「AIが変な出力をした」としか見えず、実際には
     /// 「AIが情報不足を訴えているので、対象ファイルを渡し直せば解決する」という
     /// 全く別の状況であることが伝わらないため、専用のコードで区別する
-    /// （<see cref="StandardSearchReplaceAdapter.IsNeedMoreContext"/>参照）。
+    /// （<see cref="StandardSearchReplaceAdapter.TryParseNeedMoreContext"/>参照）。
+    /// 求められたファイルは <see cref="GraftIssue.RequestedPaths"/> に入り、コンテキスト収集の
+    /// 選択へそのまま反映できる。
     ///
     /// 【E707ではなくE710を使う理由】 附録B項目19のとおりE707は「欠番」と正式に訂正されている
     /// （17章「E707 は欠番」の明文）。欠番を別用途へ転用すると附録Bの経緯の記録と矛盾するため、

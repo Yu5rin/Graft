@@ -87,6 +87,23 @@ public partial class EmptyStateView : UserControl
     public static readonly StyledProperty<string?> SecondaryActionTooltipDetailedProperty =
         AvaloniaProperty.Register<EmptyStateView, string?>(nameof(SecondaryActionTooltipDetailed));
 
+    /// <summary>
+    /// エラー状態にだけ出す、そのエラー固有の操作のラベル。空ならボタンごと非表示。
+    /// <see cref="ActionText"/>（空状態・エラー状態で共通の主要アクション）とは別に持つのは、
+    /// こちらが「表示中のエラーに応える操作」（例: E710で求められたファイルを収集に追加）であり、
+    /// エラーの種類によって出たり出なかったりするため。
+    /// </summary>
+    public static readonly StyledProperty<string> IssueActionTextProperty =
+        AvaloniaProperty.Register<EmptyStateView, string>(nameof(IssueActionText), string.Empty);
+
+    /// <summary><see cref="IssueActionText"/>のボタンのコマンド。</summary>
+    public static readonly StyledProperty<ICommand?> IssueActionCommandProperty =
+        AvaloniaProperty.Register<EmptyStateView, ICommand?>(nameof(IssueActionCommand));
+
+    /// <summary><see cref="IssueActionText"/>のボタンのツールチップ。<see cref="ActionTooltipProperty"/>と同じ考え方。</summary>
+    public static readonly StyledProperty<string?> IssueActionTooltipProperty =
+        AvaloniaProperty.Register<EmptyStateView, string?>(nameof(IssueActionTooltip), string.Empty);
+
     public static readonly StyledProperty<GraftIssue?> IssueProperty =
         AvaloniaProperty.Register<EmptyStateView, GraftIssue?>(nameof(Issue));
 
@@ -106,7 +123,29 @@ public partial class EmptyStateView : UserControl
         ApplyState(State);
         ApplyActionText(ActionText);
         ApplySecondaryActionText(SecondaryActionText);
+        ApplyIssueActionText(IssueActionText);
         ApplyIssue(Issue);
+    }
+
+    /// <summary>エラー状態にだけ出す、エラー固有の操作のラベル。空ならボタンごと非表示。</summary>
+    public string IssueActionText
+    {
+        get => GetValue(IssueActionTextProperty);
+        set => SetValue(IssueActionTextProperty, value);
+    }
+
+    /// <summary>エラー固有の操作のコマンド。</summary>
+    public ICommand? IssueActionCommand
+    {
+        get => GetValue(IssueActionCommandProperty);
+        set => SetValue(IssueActionCommandProperty, value);
+    }
+
+    /// <summary>エラー固有の操作のツールチップ。</summary>
+    public string? IssueActionTooltip
+    {
+        get => GetValue(IssueActionTooltipProperty);
+        set => SetValue(IssueActionTooltipProperty, value);
     }
 
     /// <summary>現在の表示状態。</summary>
@@ -203,7 +242,14 @@ public partial class EmptyStateView : UserControl
         if (change.Property == StateProperty) ApplyState(change.GetNewValue<EmptyStateMode>());
         else if (change.Property == ActionTextProperty) ApplyActionText(change.GetNewValue<string>());
         else if (change.Property == SecondaryActionTextProperty) ApplySecondaryActionText(change.GetNewValue<string>());
+        else if (change.Property == IssueActionTextProperty) ApplyIssueActionText(change.GetNewValue<string>());
         else if (change.Property == IssueProperty) ApplyIssue(change.GetNewValue<GraftIssue?>());
+    }
+
+    private void ApplyIssueActionText(string text)
+    {
+        IssueActionButton.IsVisible = !string.IsNullOrEmpty(text);
+        AutomationProperties.SetName(IssueActionButton, text);
     }
 
     private void ApplyActionText(string text)
@@ -259,6 +305,7 @@ public partial class EmptyStateView : UserControl
         LoadingBar.IsVisible = false;
         EmptyPanel.IsVisible = false;
         ErrorPanel.IsVisible = false;
+        ErrorScroll.IsVisible = false;
 
         switch (mode)
         {
@@ -270,6 +317,7 @@ public partial class EmptyStateView : UserControl
                 break;
             case EmptyStateMode.Error:
                 ErrorPanel.IsVisible = true;
+                ErrorScroll.IsVisible = true;
                 break;
             case EmptyStateMode.None:
             default:

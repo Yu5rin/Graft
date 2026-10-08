@@ -172,11 +172,13 @@ public partial class ShellWindow : Window
     }
 
     /// <summary>10章: コンテキスト収集ウィンドウを開く（コマンドバー「ファイル」ボタン）。</summary>
-    private void OnRequestOpenContextCollect(object? sender, EventArgs e)
+    private void OnRequestOpenContextCollect(object? sender, ContextCollectOpenEventArgs e)
     {
         if (ViewModel.Graft.ContextCollect is null) return;
 
-        var window = new ContextCollectWindow(ViewModel.Graft.ContextCollect);
+        // AIの「このファイルも見せて」（E710）から開かれた場合は、窓の初期化が終わったあとに
+        // 求められたファイルを「内容も出す」へ設定する（ContextCollectWindowのコンストラクタ参照）。
+        var window = new ContextCollectWindow(ViewModel.Graft.ContextCollect, e.RequestedPaths);
         _ = window.ShowDialog(this);
     }
 

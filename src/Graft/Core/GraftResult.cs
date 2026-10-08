@@ -33,6 +33,17 @@ public sealed record GraftIssue
     /// <summary>関係するプロジェクト相対パス。不明な場合は null。</summary>
     public string? Path { get; init; }
 
+    /// <summary>
+    /// AIが追加で見せるよう求めたファイルのプロジェクト相対パス（E710のときだけ設定する）。
+    ///
+    /// 【Detail（表示用の文字列）とは別に構造化して持つ理由】利用者向けの文面は
+    /// 「a.cs、b.cs」のように読みやすさのために整形・省略するが、コンテキスト収集の選択へ
+    /// 反映する操作（「要求されたファイルを収集に追加」）には整形前の一覧がそのまま要る。
+    /// 文面から逆に切り出すと、省略表記やパス中の区切りで取りこぼすため。
+    /// 求められたファイルが無い（語だけの合図）ときは null。
+    /// </summary>
+    public IReadOnlyList<string>? RequestedPaths { get; init; }
+
     /// <summary>内容の短い説明。</summary>
     public string Summary => ErrorCatalog.SummaryOf(Code);
 

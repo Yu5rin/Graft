@@ -14,7 +14,7 @@ namespace Graft.ViewModels;
 /// 構成だけ／出さない）、除外規則の確認、出力前の概算トークン数表示（10.4）と目安超過時の
 /// 助言表示、クリップボードへのコピー・ファイルへの保存を行う。
 /// </summary>
-public sealed class ContextCollectViewModel : ObservableObject, IDisposable
+public sealed partial class ContextCollectViewModel : ObservableObject, IDisposable
 {
     // 10.3出力形式のファイル見出し「# 相対パス  (ハッシュ)」を検出する正規表現（前提・ツリー見出しは末尾の(ハッシュ)が無く誤検出しない）。
     private static readonly Regex FileHeaderPattern = new(@"^# (?<path>.+?)  \((?<hash>[0-9a-fA-F]+)\)$", RegexOptions.Compiled);
