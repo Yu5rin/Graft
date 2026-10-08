@@ -203,6 +203,14 @@ public sealed partial class DiffViewModel : ObservableObject
     /// <summary>マッチ失敗ブロックのインライン編集対象（SEARCH/REPLACEペア単位）。</summary>
     public ObservableCollection<InlineEditViewModel> InlineEdits { get; } = new();
 
+    /// <summary>
+    /// インライン編集で書き換えたSEARCH部を「適用に含める」ときの受け皿（現在のブロックの計画・
+    /// 元のペア・編集後のペアを受け取る）。接ぎ木パネルの <c>MainViewModel</c> だけが設定する。
+    /// null のまま（適用前プレビューや履歴の差分など）だと、インライン編集の「適用に含める」は
+    /// 出ない。差し替えの意味が無い画面で押せてしまうのを避けるため。
+    /// </summary>
+    public Func<BlockPlan, SearchReplacePair, SearchReplacePair, Task>? InlineEditAdopter { get; set; }
+
     /// <summary>インライン編集が1件以上あるかどうか。</summary>
     public bool HasInlineEdits => InlineEdits.Count > 0;
 
@@ -335,8 +343,15 @@ public sealed partial class DiffViewModel : ObservableObject
             var result = engine.Match(fileText, pair, srBlock.Occurrence);
             if (result.IsSuccess) continue;
 
+            // 受け皿が配線されている画面（接ぎ木パネル）でだけ「適用に含める」を出す。
+            // adopter は Load 時点の値を取り込む（Load のたびに作り直されるため、後から設定されても次の Load で効く）。
+            var adopter = InlineEditAdopter;
+            Func<SearchReplacePair, Task>? adoptHandler = adopter is null
+                ? null
+                : edited => adopter(plan, pair, edited);
+
             InlineEdits.Add(new InlineEditViewModel(
-                plan.Path, pair, fileText, srBlock.Occurrence, options, _settings.Syntax.Enabled, _ui));
+                plan.Path, pair, fileText, srBlock.Occurrence, options, _settings.Syntax.Enabled, _ui, adoptHandler));
         }
     }
 

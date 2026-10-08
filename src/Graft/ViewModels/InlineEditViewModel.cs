@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using Graft.Core;
 using Graft.Platform;
 
@@ -28,6 +29,15 @@ public sealed class FileLineViewModel
 /// <see cref="MatchEngine"/> で再判定する。編集内容はそのリビジョンにのみ適用する想定であり、
 /// このクラス自身は元のパッチ本文（<see cref="PatchBlock"/>）を一切変更しない
 /// （<see cref="BuildEditedPair"/> は新しい <see cref="SearchReplacePair"/> を都度生成して返す）。
+///
+/// 【書き換えたSEARCHを適用へ反映する経路（<see cref="AdoptCommand"/>）】
+/// 以前は再判定で「一致した」と分かっても、その結果を適用へ渡す経路が無く
+/// （<see cref="BuildEditedPair"/> の呼び出し元が1つも無かった）、利用者は一致まで確認できても
+/// 結局AIに依頼し直すしかなかった。<see cref="AdoptCommand"/> は、書き換えたSEARCHが
+/// <b>確定的に</b>一致しているときだけ押せる操作で、押すと呼び出し元（<c>MainViewModel</c>）が
+/// メモリ上の現在のパッチの該当ペアを差し替えてドライランをやり直す。このクラス自身は
+/// 差し替えもドライランも行わない（<see cref="Func{T, TResult}"/> で渡されたハンドラへ編集後のペアを
+/// 渡すだけ）。
 /// </summary>
 public sealed class InlineEditViewModel : ObservableObject, IDisposable
 {
@@ -38,15 +48,28 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
     private readonly OccurrenceSpec _occurrence;
     private readonly MatchEngine _matchEngine;
     private readonly IUiTimer _debounceTimer;
+    private readonly Func<SearchReplacePair, Task>? _adoptHandler;
     private string _searchText;
     private string _resultSummary = string.Empty;
     private bool _isMatchSuccessful;
     private MatchStage _resultStage = MatchStage.None;
 
+    // 入力してから再判定が走るまでの200msの間は、画面の「一致」表示が古い入力に対するものである。
+    // この間に「適用に含める」を押せてしまうと、直前に消した文字を含む古い判定で差し替えかねない。
+    private bool _isMatchPending;
+
+    /// <param name="adoptHandler">
+    /// 「この修正で適用に含める」が押されたときに、<b>編集後のペア</b>を受け取って差し替えと
+    /// ドライランのやり直しを行う処理。null のとき（適用前プレビューなど、差し替えの意味が無い
+    /// 場所）は <see cref="CanAdopt"/> が常に false になり、操作自体が出ない。
+    /// </param>
     public InlineEditViewModel(string filePath, SearchReplacePair originalPair, string fileText,
-        OccurrenceSpec occurrence, MatchOptions matchOptions, bool syntaxEnabled, IUiServices ui)
+        OccurrenceSpec occurrence, MatchOptions matchOptions, bool syntaxEnabled, IUiServices ui,
+        Func<SearchReplacePair, Task>? adoptHandler = null)
     {
         ArgumentNullException.ThrowIfNull(ui);
+        _adoptHandler = adoptHandler;
+        AdoptCommand = new AsyncRelayCommand(AdoptAsync, () => CanAdopt, context: "SEARCH部の修正の取り込み");
         FilePath = filePath;
         _originalPair = originalPair;
         _fileText = fileText;
@@ -87,6 +110,8 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
         {
             if (!SetProperty(ref _searchText, value)) return;
             OnPropertyChanged(nameof(HasEdits));
+            _isMatchPending = true;
+            NotifyCanAdoptChanged();
             _debounceTimer.Restart();
         }
     }
@@ -103,8 +128,54 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
     /// <summary>再判定結果のマッチ段階。未成功時は <see cref="MatchStage.Failed"/> または <see cref="MatchStage.None"/>。</summary>
     public MatchStage ResultStage { get => _resultStage; private set => SetProperty(ref _resultStage, value); }
 
-    /// <summary>編集後のペアを返す。元のパッチ本文は変更せず、このリビジョンへの適用時にのみ使う。</summary>
-    public SearchReplacePair BuildEditedPair() => _originalPair with { SearchText = _searchText };
+    /// <summary>
+    /// 編集後のペアを返す。元のパッチ本文は変更せず、新しいインスタンスを都度作る。REPLACE部・説明・
+    /// 行番号などSEARCH部以外はすべて元のまま引き継ぎ、書き換えられたことが分かる印
+    /// （<see cref="SearchReplacePair.IsSearchEdited"/>）だけを立てる。編集していなければ元のペアを
+    /// そのまま返す（印を立てない。履歴に「書き換えた」と嘘を残さないため）。
+    /// </summary>
+    public SearchReplacePair BuildEditedPair()
+        => HasEdits ? _originalPair with { SearchText = _searchText, IsSearchEdited = true } : _originalPair;
+
+    /// <summary>
+    /// 「この修正で適用に含める」を押せるかどうか。次のすべてを満たすときだけ true。
+    /// <list type="bullet">
+    /// <item>差し替え先のハンドラがある。</item>
+    /// <item>SEARCH部が元から変わっている（変わっていなければ差し替える意味が無い。しかも元のSEARCHは
+    /// 失敗しているので、ここが一致することもあり得ない）。</item>
+    /// <item>現在のSEARCH部が一致している（<see cref="IsMatchSuccessful"/>）。複数箇所に一致して
+    /// OCCURRENCE未指定の場合は <see cref="MatchEngine"/> が E102 で失敗を返すため、ここには
+    /// 含まれない（「一意に一致」はエンジンの判定に任せ、独自の数え直しをしない）。OCCURRENCE=ALL を
+    /// 明示したブロックが複数箇所に一致するのは書き手の意図どおりなので押せる。</item>
+    /// <item>入力後の再判定が済んでいる（<c>_isMatchPending</c> でない）。</item>
+    /// </list>
+    /// 類似度による一致（<see cref="MatchStage.Similarity"/>）も押せるが、差し替え後のドライランで
+    /// 通常の「要確認」扱いになり、利用者の確認なしには適用されない。
+    /// </summary>
+    public bool CanAdopt => _adoptHandler is not null && HasEdits && IsMatchSuccessful && !_isMatchPending;
+
+    /// <summary>差し替えの受け皿がある画面かどうか。false の画面では「適用に含める」ボタン自体を出さない。</summary>
+    public bool HasAdoptHandler => _adoptHandler is not null;
+
+    /// <summary>「この修正で適用に含める」。実体は <see cref="AdoptAsync"/>。</summary>
+    public ICommand AdoptCommand { get; }
+
+    /// <summary>
+    /// 書き換えたSEARCHを適用へ反映する。押された瞬間の入力で必ず再判定し直してから、まだ一致して
+    /// いるときだけハンドラへ編集後のペアを渡す（画面の判定が古い・直前に別の経路で状態が変わった、
+    /// といった取りこぼしを防ぐ二重の確認）。ハンドラ側もさらに、実際のドライラン
+    /// （安全検査すべてを含むE217など）でこのペアを改めて検証する。
+    /// </summary>
+    public async Task AdoptAsync()
+    {
+        if (_adoptHandler is null) return;
+
+        _debounceTimer.Stop();
+        RunMatch();
+        if (!CanAdopt) return;
+
+        await _adoptHandler(BuildEditedPair()).ConfigureAwait(true);
+    }
 
     public void Dispose() => _debounceTimer.Dispose();
 
@@ -115,6 +186,21 @@ public sealed class InlineEditViewModel : ObservableObject, IDisposable
     }
 
     private void RunMatch()
+    {
+        _isMatchPending = false;
+        RunMatchCore();
+        NotifyCanAdoptChanged();
+    }
+
+    private void NotifyCanAdoptChanged()
+    {
+        OnPropertyChanged(nameof(CanAdopt));
+        // ボタンの有効/無効は CommandRequery（ポインタ・キー操作のたびの再評価）に任せていると、
+        // 「入力 → 200ms後に一致」の時点では次の操作が来るまで古い状態のままになる。
+        ((AsyncRelayCommand)AdoptCommand).RaiseCanExecuteChanged();
+    }
+
+    private void RunMatchCore()
     {
         if (string.IsNullOrEmpty(_searchText))
         {

@@ -201,9 +201,10 @@
                                                   views:HelpTip.Standard="このブロックの変更内容を、unified diff形式でクリップボードへコピーします。AIへ「この変更のここを直して」と貼り戻せる形です。"
                                                   AutomationProperties.Name="このブロックの差分をコピー" />
                                         <MenuItem Header="修正依頼プロンプトをコピー"
-                                                  Command="{Binding DataContext.Graft.CopyRecoveryPromptCommand, ElementName=Root}"
+                                                  Command="{Binding DataContext.CopyBlockRecoveryPromptCommand, ElementName=Root}"
+                                                  CommandParameter="{Binding}"
                                                   IsEnabled="{Binding IsError}"
-                                                  views:HelpTip.Standard="このブロックが失敗した理由と、現在のファイルの中身を含む修正依頼文をクリップボードへコピーします。失敗したブロックのときだけ使えます。"
+                                                  views:HelpTip.Standard="このブロックが失敗した理由と、AIが出したSEARCH部、現在のファイルの中身を含む修正依頼文を、このブロックの分だけクリップボードへコピーします。失敗したブロックのときだけ使えます。"
                                                   AutomationProperties.Name="修正依頼プロンプトをコピー" />
                                         <Separator />
                                         <MenuItem Header="{Binding ToggleLabel}"

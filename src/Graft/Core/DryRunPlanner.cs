@@ -21,7 +21,10 @@ public sealed class DryRunPlanner
     /// <summary>パッチ全体のドライラン計画を作成する。</summary>
     public async Task<GraftResult<DryRunResult>> PlanAsync(Patch patch, ApplyContext ctx, CancellationToken ct)
     {
-        var patchHash = RevisionStore.ComputePatchHash(patch.RawText);
+        // 通常はパッチ本文のハッシュ。一部適用の後の「残りのパッチ」だけは、直前のリビジョンと同じパッチと
+        // 誤判定されないよう別の基準テキストを持つ（PatchIdentity参照）。ApplyEngineの適用時の再判定は
+        // ここで求めた plan.PatchHash を使うので、そちらも同じ基準になる。
+        var patchHash = RevisionStore.ComputePatchHash(patch.PatchHashSource ?? patch.RawText);
         var renamedFrom = CollectRenamedFromPaths(patch);
         var renameSourceFor = patch.Blocks.OfType<RenameBlock>()
             .ToDictionary(r => NormalizeKey(r.ToPath), r => r.FromPath, StringComparer.OrdinalIgnoreCase);

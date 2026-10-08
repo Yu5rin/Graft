@@ -52,7 +52,9 @@ public sealed partial class MainViewModel
             return;
         }
 
-        var continuation = RecoveryPrompt.BuildContinuation(patch.TailLines);
+        // 受け取った形式（Graft独自／標準SR／unified diff）に合わせて続きを頼む。
+        // 常に「同じGraft形式で」と頼んでいた頃は、標準SR形式の出力の続きまでGraft形式で返ってきた。
+        var continuation = RecoveryPrompt.BuildContinuation(patch.TailLines, patch.Format);
         TrySetClipboardText(continuation);
     }
 
@@ -117,10 +119,33 @@ public sealed partial class MainViewModel
         _dryRunFromQueue = false;
     }
 
-    /// <summary>11章: 適用に失敗したブロックについて、現在のコードを添えた修正依頼文をコピーする。</summary>
+    /// <summary>
+    /// 11章: 適用に失敗した<b>すべての</b>ブロックについて、失敗したSEARCH部と現在のコードを添えた
+    /// 修正依頼文をコピーする（「修正を依頼」ボタン）。
+    /// </summary>
     private async Task CopyRecoveryPromptAsync()
     {
         var failedPlans = Blocks.Where(b => !b.Plan.CanApply).Select(b => b.Plan).ToList();
+        await CopyRecoveryPromptForPlansAsync(failedPlans).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 右クリックメニュー「修正依頼プロンプトをコピー」用。<b>指定した1ブロックだけ</b>の修正依頼文を
+    /// コピーする。メニューのヘルプ文は「このブロックの」と謳っているのに、以前は引数を持たない
+    /// <see cref="CopyRecoveryPromptCommand"/> をそのまま使っていたため、どの行で押しても
+    /// 失敗ブロックすべてがコピーされていた。失敗していないブロックが渡されたら何もしない
+    /// （メニュー側も無効化しているが、キー操作などの別経路からの呼び出しに備えた二重の防御）。
+    /// </summary>
+    public Task CopyRecoveryPromptForBlockAsync(BlockItemViewModel block)
+    {
+        ArgumentNullException.ThrowIfNull(block);
+        return block.Plan.CanApply
+            ? Task.CompletedTask
+            : CopyRecoveryPromptForPlansAsync(new[] { block.Plan });
+    }
+
+    private async Task CopyRecoveryPromptForPlansAsync(IReadOnlyList<BlockPlan> failedPlans)
+    {
         if (failedPlans.Count == 0) return;
 
         var projectRoot = ProjectPane.SelectedItem?.Project.Root;
@@ -128,9 +153,10 @@ public sealed partial class MainViewModel
 
         var prompt = RecoveryPrompt.Build(failedPlans, path => ReadCurrentTextForRecovery(projectRoot, path));
         TrySetClipboardText(prompt);
-        await _dialogs.ShowMessageAsync("修正依頼プロンプトをコピーしました",
-            $"{failedPlans.Count}件の失敗ブロックについて、現在のコードを含む修正依頼文をクリップボードへコピーしました。")
-            .ConfigureAwait(true);
+        var message = failedPlans.Count == 1
+            ? $"「{failedPlans[0].Path}」の失敗ブロックについて、失敗したSEARCH部と現在のコードを含む修正依頼文をクリップボードへコピーしました。"
+            : $"{failedPlans.Count}件の失敗ブロックについて、失敗したSEARCH部と現在のコードを含む修正依頼文をクリップボードへコピーしました。";
+        await _dialogs.ShowMessageAsync("修正依頼プロンプトをコピーしました", message).ConfigureAwait(true);
     }
 
     /// <summary>

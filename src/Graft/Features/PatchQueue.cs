@@ -112,6 +112,11 @@ public sealed class PatchQueue
             Meta = MergeMeta(),
             Blocks = blocks,
             RawText = rawText,
+            // 結合元の形式がすべて同じならそれを引き継ぐ。混在していたら Graft 形式とみなすが、
+            // 修正依頼文はブロックごとの SourceFormat を見るため、混在でも形式を取り違えない。
+            Format = blocks.Select(b => b.SourceFormat).Distinct().Count() == 1
+                ? blocks[0].SourceFormat
+                : PatchFormat.Graft,
         };
         return GraftResult<Patch>.Ok(patch);
     }

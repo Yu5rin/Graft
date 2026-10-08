@@ -60,6 +60,20 @@ public sealed record RevisionEntry
     public string? HashAfter { get; init; }
     /// <summary>RENAME の移動元。それ以外は null。</summary>
     public string? RenamedFrom { get; init; }
+
+    /// <summary>
+    /// このファイルへ適用したSEARCH/REPLACEペアのうち、差分画面のインライン編集（仕様書8.7）で
+    /// 利用者がSEARCH部を書き換えたもの（<see cref="SearchReplacePair.IsSearchEdited"/>）の数。
+    ///
+    /// 【なぜ件数だけか・なぜ0を書かないか】履歴の目的は「AIの出力と違う内容が適用された」ことを
+    /// 後から気づけるようにすること。書き換え前後の本文までは、パッチ本文（ハッシュで二重適用検知に
+    /// 使うため元のまま保持する）と実際のファイル差分から辿れるので、ここには置かない。
+    /// 0のときは出力しない（<see cref="JsonIgnoreCondition.WhenWritingDefault"/>）ため、
+    /// 既存のmanifest.jsonの形は変わらず、この機能を使わないリビジョンには1バイトも増えない。
+    /// 古い版が読んでもプロパティは読み飛ばされるだけで壊れない。
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int InlineEditedPairs { get; init; }
 }
 
 /// <summary>適用後フックの実行結果。仕様書6.5・7.1。</summary>
