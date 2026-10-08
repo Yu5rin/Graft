@@ -22,6 +22,27 @@ public enum BlockKind
 }
 
 /// <summary>
+/// パッチ本文の記法（どの形式で書かれていたか）。仕様書4章（Graft独自形式）・5.1（unified diff）・
+/// 5.2（標準SEARCH/REPLACE形式）に対応する。
+///
+/// 【なぜ解析結果に持たせるか】失敗したブロックの修正依頼文（<c>Features.RecoveryPrompt</c>）と
+/// 途中で切れたパッチの継続依頼文は、AIへ「受け取ったのと同じ形式で出し直して」と頼む必要がある。
+/// 形式の判別は <see cref="PatchParser.Parse"/> の振り分け（Graft独自ヘッダの有無・unified diffの
+/// ヘッダ）がすでに行っており、その結果は解析後に捨てられていた。本文を後から再判定すると
+/// 振り分け規則を二重に持つことになり、片方だけ直したときに食い違うため、解析した時点で
+/// 確定した値をそのまま持たせる。
+/// </summary>
+public enum PatchFormat
+{
+    /// <summary>Graft独自形式（<c>&lt;&lt;&lt;&lt; FILE:</c> 等。仕様書4章）。既定値。</summary>
+    Graft = 0,
+    /// <summary>標準SEARCH/REPLACE形式（パスだけの行＋<c>&lt;&lt;&lt;&lt;&lt;&lt;&lt; SEARCH</c>。仕様書5.2）。</summary>
+    StandardSearchReplace = 1,
+    /// <summary>unified diff（<c>---</c>/<c>+++</c>/<c>@@</c>。仕様書5.1）。</summary>
+    UnifiedDiff = 2,
+}
+
+/// <summary>
 /// マッチ段階。仕様書5章の表に対応する。
 /// </summary>
 public enum MatchStage
@@ -122,6 +143,18 @@ public sealed record SearchReplacePair
 
     /// <summary>パッチ本文中の SEARCH マーカー行の行番号（1始まり）。</summary>
     public int SourceLine { get; init; }
+
+    /// <summary>
+    /// SEARCH部が、AIの出力そのままではなく、差分画面のインライン編集（仕様書8.7）で利用者が
+    /// 書き換えたものに差し替えられているかどうか。パーサは常に false で生成し、
+    /// <c>InlineEditViewModel.BuildEditedPair</c> だけが true にする。
+    ///
+    /// 【なぜ印を持たせるか】履歴（manifest）に「このリビジョンにはAIの出力と違うSEARCHが含まれる」
+    /// ことを残すため。印が無いと、後から履歴を見た人が、パッチ本文（AIの出力）と実際に
+    /// 適用された内容の食い違いに気づけない。パッチ本文（<c>Patch.RawText</c>）は書き換えない
+    /// 方針なので、差し替えの事実はこの印だけが運ぶ。
+    /// </summary>
+    public bool IsSearchEdited { get; init; }
 }
 
 /// <summary>
@@ -146,6 +179,16 @@ public abstract record PatchBlock
 
     /// <summary>OCCURRENCE 指定。</summary>
     public OccurrenceSpec Occurrence { get; init; } = OccurrenceSpec.Single;
+
+    /// <summary>
+    /// このブロックが書かれていた記法。各アダプタが解析の最後に確定させる（<see cref="PatchFormat"/>）。
+    ///
+    /// 【ブロック単位で持つ理由】パッチキューは別々に貼られたパッチのブロックを1つの
+    /// <see cref="Patch"/> へ結合するため、結合後のパッチは形式が混在しうる。修正依頼文は
+    /// 「そのブロックを出したときの形式」で頼み直すのが正しいので、パッチ単位ではなく
+    /// ブロック単位で持つ。
+    /// </summary>
+    public PatchFormat SourceFormat { get; init; } = PatchFormat.Graft;
 
     /// <summary>適用順序。仕様書6.6の並び順。</summary>
     public int ApplyOrder => Kind switch
@@ -239,6 +282,12 @@ public sealed record Patch
 
     /// <summary>元のパッチテキスト。</summary>
     public required string RawText { get; init; }
+
+    /// <summary>
+    /// パッチ全体の記法。ブロックが1つも取れなかった（切断が最初のブロックの途中だった）パッチでも
+    /// 継続依頼文が形式を言えるよう、<see cref="PatchBlock.SourceFormat"/> とは別にパッチ単位でも持つ。
+    /// </summary>
+    public PatchFormat Format { get; init; } = PatchFormat.Graft;
 
     /// <summary>出力が途中で切れていると判定されたかどうか。</summary>
     public bool IsTruncated { get; init; }

@@ -20,23 +20,36 @@
             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
                 <views:IconGlyph Data="{DynamicResource IconXCircleGeometry}"
                                  Stroke="{DynamicResource StateError}" Margin="0,0,8,0" />
-                <TextBlock Text="マッチ失敗: SEARCH部を編集して再判定できます"
+                <TextBlock Text="マッチ失敗: SEARCH部を編集して再判定し、そのまま適用に含められます"
                            FontWeight="{DynamicResource PaneHeadingFontWeight}" />
                 <TextBlock Text="{Binding Description}" Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
             </StackPanel>
 
-            <!-- 再判定結果 -->
+            <!--
+                再判定結果。一致したときだけ「この修正で適用に含める」を押せる（AdoptCommand。
+                CanAdoptがfalseの間は無効）。押すと、メモリ上の現在のパッチのこのペアが書き換え後のSEARCH部に
+                差し替わり、ドライランがやり直される。REPLACE部・クリップボード・元のテキストは変わらない。
+                ボタンは差し替えの受け皿が無い画面（HasAdoptHandlerがfalse）には出さない。
+            -->
             <Border Grid.Row="1" Margin="0,0,0,8" Padding="8,4" Background="{DynamicResource BgSurface}">
-                <StackPanel Orientation="Horizontal">
-                    <views:IconGlyph Data="{DynamicResource IconCheckGeometry}"
-                                     Stroke="{DynamicResource StateOk}" Margin="0,0,8,0"
-                                     IsVisible="{Binding IsMatchSuccessful}" />
-                    <views:IconGlyph Data="{DynamicResource IconXCircleGeometry}"
-                                     Stroke="{DynamicResource StateError}" Margin="0,0,8,0"
-                                     IsVisible="{Binding !IsMatchSuccessful}" />
-                    <TextBlock Text="{Binding ResultSummary}" VerticalAlignment="Center"
-                               AutomationProperties.Name="再判定結果" />
-                </StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <views:IconGlyph Data="{DynamicResource IconCheckGeometry}"
+                                         Stroke="{DynamicResource StateOk}" Margin="0,0,8,0"
+                                         IsVisible="{Binding IsMatchSuccessful}" />
+                        <views:IconGlyph Data="{DynamicResource IconXCircleGeometry}"
+                                         Stroke="{DynamicResource StateError}" Margin="0,0,8,0"
+                                         IsVisible="{Binding !IsMatchSuccessful}" />
+                        <TextBlock Text="{Binding ResultSummary}" VerticalAlignment="Center"
+                                   AutomationProperties.Name="再判定結果" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="この修正で適用に含める" Margin="8,0,0,0"
+                            Command="{Binding AdoptCommand}"
+                            IsVisible="{Binding HasAdoptHandler}"
+                            AutomationProperties.Name="この修正で適用に含める"
+                            views:HelpTip.Standard="書き換えたSEARCH部で一致したときに押せます。このブロックの変更前のコードを書き換え後の内容に差し替えて、もう一度判定し、適用できる状態にします。"
+                            views:HelpTip.Detailed="書き換えたSEARCH部がファイルの1箇所に確実に一致しているときだけ押せます。押すと、いま画面にある解析結果の中で、このブロックの変更前のコード（SEARCH部）だけを書き換え後の内容に差し替えて、適用前の判定をやり直します。変更後のコード（REPLACE部）は変わらず、貼り付けた元のパッチやクリップボードの内容にも触れません。やり直した判定で問題が見つかれば、通常のブロックと同じようにここで知らせます。ファイルへはまだ書き込まれず、適用ボタンを押したときに初めて書き込まれます。" />
+                </Grid>
             </Border>
 
             <!-- 左: SEARCH部の編集 / 右: 実ファイル内容 -->

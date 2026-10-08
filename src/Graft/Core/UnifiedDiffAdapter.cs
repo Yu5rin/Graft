@@ -80,7 +80,15 @@ public static class UnifiedDiffAdapter
         }
 
         var meta = new PatchMeta { Summary = ImportSummary, Type = ImportType };
-        var patch = new Patch { Meta = meta, Blocks = blocks, RawText = patchText, IsTruncated = false };
+        // 修正依頼文が「受け取ったのと同じ形式で」と頼めるよう、形式をブロックとパッチの両方に刻む。
+        var patch = new Patch
+        {
+            Meta = meta,
+            Blocks = blocks.Select(b => b with { SourceFormat = PatchFormat.UnifiedDiff }).ToList(),
+            RawText = patchText,
+            Format = PatchFormat.UnifiedDiff,
+            IsTruncated = false,
+        };
         return GraftResult<Patch>.Ok(patch, issues);
     }
 
