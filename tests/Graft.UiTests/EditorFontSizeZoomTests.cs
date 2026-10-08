@@ -133,6 +133,19 @@ public class EditorFontSizeZoomTests : IDisposable
 
         // 保存成功後にonLiveSettingsChanged経由でMainViewModel.UpdateSettings/EditorPaneViewModel.
         // UpdateSettingsへ伝播し、差分表示のフォントサイズも再起動なしで追従するはず。
+        //
+        // 【なぜファイルだけでなく、検証するUIプロパティ自体も待つのか】
+        // 上の待ちが見ているのは settings.json の中身だが、ここで検証するのはViewModelの
+        // プロパティ（Diff.CodeFontSize）で、両者は別の時点で確定する。
+        // SettingsViewModel.CommitAndSaveAsync は「ファイルへ保存 → ApplyLoadedResultAsync →
+        // onLiveSettingsChanged（MainViewModel.UpdateSettings → DiffViewModel.UpdateSettings）」の
+        // 順で進むため、ファイルが18になってもDiffへの反映は「その後」になる。この間は
+        // 「ファイルは既に18、UIはまだ13」という窓が開き、遅いランナーではその窓の中で検証が
+        // 走ってしまう（逆方向のテストが main の CI で実際にその形で失敗した:
+        // 「Expected shell.Editor.FontSize to be 10.0 ... but found 13.0」。845件中この1件だけで、
+        // ローカルでは再現しないタイミング競合）。
+        // 待ち時間を延ばしても待つ対象が違うままなので直らない。検証対象そのものを待つ。
+        await WaitUntilAsync(() => Task.FromResult(shell.Graft.Diff.CodeFontSize == 18)).ConfigureAwait(true);
         shell.Graft.Diff.CodeFontSize.Should().Be(18, "エディタ本文と差分表示は同じSettings.Editor.FontSizeを共有するはず");
 
         // 後から設定画面を開いても（新しいSettingsViewModelインスタンスでも）食い違わない。
@@ -153,6 +166,19 @@ public class EditorFontSizeZoomTests : IDisposable
         await WaitUntilAsync(async () => (await store.LoadAsync().ConfigureAwait(true)).Value.Editor.FontSize == 10)
             .ConfigureAwait(true);
 
+        // 【なぜファイルだけでなく、検証するUIプロパティ自体も待つのか】
+        // 上の待ちが見ているのは settings.json の中身だが、ここで検証するのはViewModelの
+        // プロパティ（Editor.FontSize）で、両者は別の時点で確定する。
+        // SettingsViewModel.CommitAndSaveAsync は「ファイルへ保存 → ApplyLoadedResultAsync →
+        // onLiveSettingsChanged（EditorPaneViewModel.UpdateSettings）」の順で進むため、
+        // ファイルが10になってもエディタ本文への反映は「その後」になる。この間は
+        // 「ファイルは既に10、UIはまだ13」という窓が開き、遅いランナーではその窓の中で検証が
+        // 走ってしまう（main の CI で実際に
+        // 「Expected shell.Editor.FontSize to be 10.0 ... but found 13.0」と1件だけ落ちた。
+        // ローカルでは通る、タイミング競合）。
+        // ファイルの確認は保存経路そのものを確かめる意味があるので残し、そのうえで検証対象を待つ。
+        // 待ち時間を延ばすだけでは待つ対象が違うままなので直らない。
+        await WaitUntilAsync(() => Task.FromResult(shell.Editor.FontSize == 10)).ConfigureAwait(true);
         shell.Editor.FontSize.Should().Be(10, "差分表示側の変更もエディタ本文へ同期するはず");
     }
 
