@@ -109,6 +109,19 @@ public sealed record DryRunResult
     /// <summary>診断用: ドライラン中に確認した対象ファイルごとの記録（MainViewModelがログへ出力する）。</summary>
     public IReadOnlyList<DryRunFileProbe> FileProbes { get; init; } = Array.Empty<DryRunFileProbe>();
 
+    /// <summary>
+    /// このパッチ本文がすでに適用済みで、適用がE302で止まるときの、適用済みのリビジョン番号。
+    /// 止まらないとき（未適用、または<see cref="ApplyContext.ForceReapply"/>で警告に落としたとき）はnull。
+    /// <para>
+    /// 【なぜ結果レベルのIssuesとは別に持つか】 同じ情報は<see cref="GraftResult{T}.Issues"/>にもE302として
+    /// 載るが、MainViewModelは成功時にそれを読まず（失敗時に<c>Errors.FirstOrDefault()</c>を使うだけ）、
+    /// 文字列の「適用済みです」を解析して番号を取り出すのも脆い。利用者が要約入力と適用確認の窓を
+    /// 通り抜けた後に、適用時の再判定（<see cref="ApplyEngine.ApplyAsync"/>）で初めて止められる、
+    /// という実機の指摘への対応として、プレビューの時点で画面に出せるよう構造化して持つ。
+    /// </para>
+    /// </summary>
+    public int? AlreadyAppliedRevision { get; init; }
+
     /// <summary>適用可能なブロック数。</summary>
     public int ApplicableCount => Plans.Count(p => p.CanApply);
 

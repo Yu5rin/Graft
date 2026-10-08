@@ -106,14 +106,20 @@ public sealed partial class MainViewModel : ObservableObject
 
         PasteAndParseCommand = new AsyncRelayCommand(PasteAndParseAsync, context: "貼り付けと解析");
         PreviewCommand = new AsyncRelayCommand(RunDryRunAsync, () => _currentPatch is not null, context: "適用前プレビュー");
-        ApplyCommand = new AsyncRelayCommand(ApplyAsync, () => _dryRun is { ApplicableCount: > 0 }, context: "パッチの適用");
+        // 適用済みのパッチ（E302）は、適用できるブロックがあっても押せない。押しても要約入力と
+        // 確認の窓を通った後にApplyEngineの再判定で必ず止まる（しかも止まった時点で
+        // リビジョン番号を1つ消費する）ため、プレビューの時点で閉じる（MainViewModel.AlreadyApplied.cs）。
+        ApplyCommand = new AsyncRelayCommand(
+            ApplyAsync, () => _dryRun is { ApplicableCount: > 0 } && _alreadyAppliedRevision is null, context: "パッチの適用");
         UndoCommand = new AsyncRelayCommand(UndoLastAsync, context: "適用の取り消し");
         OpenSettingsCommand = new RelayCommand(() => _openSettingsRequested());
         // 修正3: 接ぎ木パネルのヘッダーに露出させる「破棄」ボタン用。解析結果が無いときは無効化する
         // （PreviewCommand/ApplyCommandと同じ、_currentPatch/_dryRunを見るだけの簡易判定。
         // CanExecuteの再評価はCommandRequery.Invalidateがポインタ・キー操作のたびに全コマンドへ
         // 促す既存の仕組みに乗る）。
-        DiscardCommand = new RelayCommand(DiscardCurrentPatch, () => _currentPatch is not null);
+        // 一部だけ適用できた後は、失敗ブロックだけが_dryRunと共に残り_currentPatchはnullになる
+        // （MainViewModel.PartialApply.cs）。その残りも「破棄」で消せるよう_dryRunも条件に含める。
+        DiscardCommand = new RelayCommand(DiscardCurrentPatch, () => _currentPatch is not null || _dryRun is not null);
         ShowHistoryCommand = new RelayCommand(() => RequestFocusHistory?.Invoke(this, EventArgs.Empty));
         AddCurrentPatchToQueueCommand = new AsyncRelayCommand(
             AddCurrentPatchToQueueAsync, () => _currentPatch is not null, context: "キューへの追加");
@@ -532,6 +538,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         _lastContext = context;
         _dryRun = dryRun.Value;
+        // 適用済みのパッチ（E302）はここ＝プレビューの時点で利用者に見せる（MainViewModel.AlreadyApplied.cs）。
+        SetAlreadyAppliedRevision(dryRun.Value.AlreadyAppliedRevision);
         LogDryRunFileProbes(dryRun.Value, context); // 依頼4対応: MainViewModel.DryRunDiagnostics.cs参照
         ReplaceBlocks(dryRun.Value.Plans);
         OnPropertyChanged(nameof(StatusSummaryText));
@@ -549,6 +557,7 @@ public sealed partial class MainViewModel : ObservableObject
         _dryRun = null;
         _lastContext = null;
         CenterError = null;
+        SetAlreadyAppliedRevision(null);
         ReplaceBlocks(Array.Empty<BlockPlan>());
         OnPropertyChanged(nameof(StatusSummaryText));
         OnPropertyChanged(nameof(HasFailedBlocks));

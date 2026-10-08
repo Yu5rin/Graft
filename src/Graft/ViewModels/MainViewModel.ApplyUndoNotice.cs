@@ -32,6 +32,14 @@ public sealed partial class MainViewModel
     /// </summary>
     public bool HasApplyUndoNotice { get => _hasApplyUndoNotice; private set => SetProperty(ref _hasApplyUndoNotice, value); }
 
+    /// <summary>
+    /// 直近に適用したリビジョン番号。通知の「変更を見る」（ShellViewModel.ShowAppliedRevisionCommand、
+    /// ShellViewModel.AppliedChangeNavigation.cs）が、どのリビジョンを履歴で選ぶかの手がかりに使う。
+    /// 通知が消えた後も値は残る（コマンドの有効条件は<see cref="HasApplyUndoNotice"/>も見るため、
+    /// 消えた後は押せない）。まだ一度も適用していなければnull。
+    /// </summary>
+    public int? LastAppliedRevision { get; private set; }
+
     /// <summary>適用直後の通知文言（例:「r12 として適用しました — 元に戻す」）。</summary>
     public string ApplyUndoNoticeText { get => _applyUndoNoticeText; private set => SetProperty(ref _applyUndoNoticeText, value); }
 
@@ -42,6 +50,7 @@ public sealed partial class MainViewModel
     private void ShowApplyUndoNotice(int revision)
     {
         ApplyUndoNoticeText = $"r{revision} として適用しました — 元に戻す";
+        LastAppliedRevision = revision;
         HasApplyUndoNotice = true;
         _applyUndoNoticeTimer.Restart();
     }
