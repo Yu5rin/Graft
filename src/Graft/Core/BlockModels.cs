@@ -284,6 +284,13 @@ public sealed record Patch
     public required string RawText { get; init; }
 
     /// <summary>
+    /// 二重適用検知（仕様書6.2）のハッシュを求める基準テキスト。null のときは <see cref="RawText"/> を使う。
+    /// 一部適用の後に残りの失敗ブロックを直して適用し直すパッチだけが設定する（<see cref="PatchIdentity"/>）。
+    /// <see cref="RawText"/> 自体は常に元のAI出力のままで、これは書き換えない。
+    /// </summary>
+    public string? PatchHashSource { get; init; }
+
+    /// <summary>
     /// パッチ全体の記法。ブロックが1つも取れなかった（切断が最初のブロックの途中だった）パッチでも
     /// 継続依頼文が形式を言えるよう、<see cref="PatchBlock.SourceFormat"/> とは別にパッチ単位でも持つ。
     /// </summary>

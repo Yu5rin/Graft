@@ -47,28 +47,65 @@ public sealed partial class MainViewModel
     /// </summary>
     private async Task AdoptInlineEditAsync(BlockPlan plan, SearchReplacePair original, SearchReplacePair edited)
     {
-        if (_currentPatch is not { } oldPatch) return;
+        // 差し替え対象のパッチを決める。通常は解析したばかりの現在のパッチ（_currentPatch）。
+        // 一部だけ適用できた後は、_currentPatch が null で、_dryRun に「失敗したブロックだけ」が
+        // 残っている（MainViewModel.PartialApply.cs の KeepOnlyFailedBlocks）。利用者がいちばん
+        // やりたい「一部適用 → 残りのSEARCHを直す → 適用に含める → 適用」の流れはこちらなので、
+        // 黙って何もせず終わらないよう、残りのパッチからも差し替えられるようにする。
+        var oldCurrent = _currentPatch;
+        var fromRemainder = oldCurrent is null;
+        Patch basePatch;
+        IReadOnlyList<PatchBlock> planBlocks; // 画面のプランが指すブロック（参照の突き合わせ用）
+        List<PatchBlock> workBlocks;          // 実際に差し替えて使うブロック列
+        if (oldCurrent is { } current)
+        {
+            basePatch = current;
+            planBlocks = current.Blocks;
+            workBlocks = current.Blocks.ToList();
+        }
+        else if (_dryRun is { Plans.Count: > 0 } remaining)
+        {
+            basePatch = remaining.Patch;
+            (planBlocks, workBlocks) = BuildRemainingBlocks(remaining);
+        }
+        else
+        {
+            await ShowAdoptRefusalAsync("差し替える対象のパッチが残っていません。もう一度パッチを貼り付けてください。").ConfigureAwait(true);
+            return;
+        }
 
-        // 画面の表示（差分タブ）と現在のパッチが食い違っていないことを、参照の同一性で確かめる。
+        // 画面の表示（差分タブ）と対象のパッチが食い違っていないことを、参照の同一性で確かめる。
         // 別のパッチが貼られた・破棄された後に、古い画面の操作で別のブロックを書き換えてしまわないため。
-        var blockIndex = IndexOfReference(oldPatch.Blocks, plan.Block);
-        if (blockIndex < 0 || oldPatch.Blocks[blockIndex] is not SearchReplaceBlock block) return;
-        var pairIndex = IndexOfReference(block.Pairs, original);
-        if (pairIndex < 0) return;
+        var blockIndex = IndexOfReference(planBlocks, plan.Block);
+        var block = blockIndex >= 0 ? workBlocks[blockIndex] as SearchReplaceBlock : null;
+        var pairIndex = block is null ? -1 : IndexOfReference(block.Pairs, original);
+        if (block is null || pairIndex < 0)
+        {
+            await ShowAdoptRefusalAsync("この画面の内容が、いまの解析結果と一致しません。ブロックを選び直してからやり直してください。").ConfigureAwait(true);
+            return;
+        }
 
         // 差し替えるのはSEARCH部だけ、という約束の最後の砦。InlineEditViewModel.BuildEditedPair が
         // そう作っているが、ここで破れていたら適用内容が意図とずれるため、黙って進まず止める。
         if (!string.Equals(original.ReplaceText, edited.ReplaceText, StringComparison.Ordinal)
             || !edited.IsSearchEdited)
         {
+            await ShowAdoptRefusalAsync("書き換えの内容を確認できませんでした。もう一度SEARCH部を編集してください。").ConfigureAwait(true);
             return;
         }
 
         var newPairs = block.Pairs.ToList();
         newPairs[pairIndex] = edited;
-        var newBlocks = oldPatch.Blocks.ToList();
-        newBlocks[blockIndex] = block with { Pairs = newPairs };
-        var newPatch = oldPatch with { Blocks = newBlocks };
+        workBlocks[blockIndex] = block with { Pairs = newPairs };
+        var newPatch = basePatch with
+        {
+            Blocks = workBlocks,
+            // 【E302の誤判定を避ける】残りのパッチは RawText が元のAI出力のままなので、そのままだと
+            // 直前に記録したリビジョンと同じハッシュになり E302（適用済み）で「適用」が押せなくなる。
+            // 残りの中身から別の基準テキストを作って与える（PatchIdentity参照）。通常のパッチは従来どおり
+            // RawText のハッシュ。元の出力を貼り直したときは RawText のハッシュなので従来どおり E302 になる。
+            PatchHashSource = fromRemainder ? PatchIdentity.ForRemainder(basePatch, workBlocks) : basePatch.PatchHashSource,
+        };
 
         // 一覧のチェック状態を引き継ぐ。ドライランのやり直しは一覧を作り直し、全ブロックが
         // 「適用可なら選択済み」へ戻ってしまう。利用者が意図して外していたチェックまで
@@ -76,20 +113,27 @@ public sealed partial class MainViewModel
         var previousSelection = new Dictionary<object, bool>(ReferenceEqualityComparer.Instance);
         foreach (var b in Blocks) previousSelection[SelectionKey(b.Plan)] = b.IsSelected;
 
-        var matchWasEvaluated = ReferenceEquals(_matchEvaluatedPatch, oldPatch);
+        // プロジェクト判定済みの印を新しいパッチへ引き継ぐ。通常は旧パッチの参照で判定済みか分かる。
+        // 一部適用の後は、判定に使った元のパッチ（_matchEvaluatedPatch）と残りのパッチが別の参照になるが、
+        // 残りは元のパッチの一部で、判定済みのプロジェクトと同じ場所に対するもの。同じプロジェクトを
+        // 選んでいる限り判定済みとみなす（プロジェクトを切り替えれば解析結果ごと破棄される）。
+        var previousEvaluated = _matchEvaluatedPatch;
+        var matchWasEvaluated = fromRemainder
+            ? _matchEvaluatedPatch is not null && _matchEvaluatedProjectId == ProjectPane.SelectedItem?.Project.Id
+            : ReferenceEquals(_matchEvaluatedPatch, oldCurrent);
         if (matchWasEvaluated) _matchEvaluatedPatch = newPatch;
         _currentPatch = newPatch;
 
         await RunDryRunAsync().ConfigureAwait(true);
 
-        if (_currentPatch is null) return; // 判定でブロック/キャンセルされ、解析結果ごと破棄された。
+        if (_currentPatch is null && _dryRun is null) return; // 判定でブロック/キャンセルされ、解析結果ごと破棄された。
 
         if (!ReferenceEquals(_dryRun?.Patch, newPatch))
         {
             // ドライランが完走しなかった（未保存の保存確認での中止、エラーなど）。画面上の結果は
-            // 差し替え前のままなので、パッチも差し替え前へ戻して食い違いを残さない。
-            _currentPatch = oldPatch;
-            if (matchWasEvaluated) _matchEvaluatedPatch = oldPatch;
+            // 差し替え前のままなので、パッチも差し替え前（残りのパッチなら null）へ戻して食い違いを残さない。
+            _currentPatch = oldCurrent;
+            _matchEvaluatedPatch = previousEvaluated;
             return;
         }
 
@@ -120,6 +164,43 @@ public sealed partial class MainViewModel
                 .ConfigureAwait(true);
         }
     }
+
+    /// <summary>
+    /// 一部適用の後の「残りのパッチ」のブロック列を、失敗プランから作る。
+    /// <see cref="DryRunResult.Patch"/> のブロックは失敗ブロックを丸ごと（成功済みのペアも含めて）
+    /// 持っているため、そのまま再ドライランすると、すでに適用したペアのSEARCHが更新後のファイルに
+    /// 一致せず、失敗ブロックとして再び現れてしまう（あるいは別の箇所に誤一致する）。
+    /// そこでプランごとに、失敗したペアだけを残したブロックを作る。ファイル単位の失敗でペアを特定できない
+    /// プラン（Pair が null）があるブロックは、全ペアを残す。
+    /// </summary>
+    /// <returns>
+    /// PlanBlocks: プランが指す元のブロック（参照の突き合わせ用）。
+    /// WorkBlocks: 同じ順序で、失敗したペアだけに絞ったブロック（SR以外はそのまま）。
+    /// </returns>
+    private static (IReadOnlyList<PatchBlock> PlanBlocks, List<PatchBlock> WorkBlocks) BuildRemainingBlocks(DryRunResult remaining)
+    {
+        var planBlocks = new List<PatchBlock>();
+        var workBlocks = new List<PatchBlock>();
+        foreach (var group in remaining.Plans.GroupBy(p => p.Block, ReferenceEqualityComparer.Instance))
+        {
+            var sourceBlock = group.First().Block;
+            planBlocks.Add(sourceBlock);
+            if (sourceBlock is SearchReplaceBlock sr && group.All(p => p.Pair is not null))
+            {
+                var failedPairs = new HashSet<SearchReplacePair>(group.Select(p => p.Pair!), ReferenceEqualityComparer.Instance);
+                workBlocks.Add(sr with { Pairs = sr.Pairs.Where(failedPairs.Contains).ToList() });
+            }
+            else
+            {
+                workBlocks.Add(sourceBlock);
+            }
+        }
+        return (planBlocks, workBlocks);
+    }
+
+    /// <summary>差し替えられなかった理由を伝える。ボタンが押せたのに何も起きない状態を作らない。</summary>
+    private Task ShowAdoptRefusalAsync(string reason)
+        => _dialogs.ShowMessageAsync("適用に含められません", reason);
 
     /// <summary>チェック状態の引き継ぎ用キー。ペア単位のプランはペア、それ以外はブロックの参照。</summary>
     private static object SelectionKey(BlockPlan plan) => (object?)plan.Pair ?? plan.Block;

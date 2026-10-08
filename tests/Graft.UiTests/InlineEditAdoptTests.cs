@@ -281,6 +281,140 @@ public class InlineEditAdoptTests : IDisposable
     }
 
     // ------------------------------------------------------------------
+    // 一部だけ適用できた後の立て直し（claude/apply-flow-fixes の KeepOnlyFailedBlocks との組み合わせ）
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "一部適用の後: 残った失敗ブロックのSEARCHを直して適用に含め、そのまま適用でき、リビジョンが1件増える")]
+    public async Task 一部適用の後に直して適用できる()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "ok.txt"), "alpha\nbeta\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "bad.txt"), "one\ntwo\nthree\n").ConfigureAwait(true);
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
+
+        var patchText = BuildPatch(("ok.txt", "alpha", "ALPHA"), ("bad.txt", "two (AIが思い込んだ内容)", "TWO"));
+        _clipboard.Text = patchText;
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+
+        // 1回目: 適用できる ok.txt だけが適用される。失敗した bad.txt が接ぎ木パネルに残る。
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+        shell.Graft.Blocks.Should().ContainSingle().Which.Plan.Path.Should().Be("bad.txt");
+        shell.Graft.HasUnprocessedResult.Should().BeFalse("クリップボード監視の自動解析を止めてはならない");
+
+        // 残った失敗ブロックのSEARCHを直して、適用に含める。
+        var bad = shell.Graft.Blocks.Single();
+        shell.Graft.SelectedBlock = bad;
+        var edit = shell.Graft.Diff.InlineEdits.Should().ContainSingle().Subject;
+        edit.SearchText = "two";
+        _ui.FireLastDebounce();
+        edit.AdoptCommand.CanExecute(null).Should().BeTrue();
+        await ExecuteAsync(edit.AdoptCommand).ConfigureAwait(true);
+
+        // 黙って何もしないのではなく、ドライランがやり直され、直前のリビジョンと同じパッチ（E302）にもならない。
+        shell.Graft.Blocks.Should().ContainSingle().Which.IsOk.Should().BeTrue("書き換えたSEARCHで適用可能になるはず");
+        shell.Graft.HasAlreadyAppliedNotice.Should().BeFalse("残りのパッチは r1 と同じパッチではない");
+        shell.Graft.ApplyCommand.CanExecute(null).Should().BeTrue();
+        _clipboard.Text.Should().Be(patchText, "クリップボード（元のテキスト）は変わらない");
+
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+
+        (await File.ReadAllTextAsync(Path.Combine(_projectDirectory, "bad.txt")).ConfigureAwait(true))
+            .Should().Be("one\nTWO\nthree\n");
+        (await File.ReadAllTextAsync(Path.Combine(_projectDirectory, "ok.txt")).ConfigureAwait(true))
+            .Should().Be("ALPHA\nbeta\n", "1回目に適用済みのブロックを再適用しない");
+        shell.Graft.Blocks.Should().BeEmpty("全件成功したので接ぎ木パネルは空になる");
+
+        var revisions = (await new RevisionStore(new AppPaths(_appDirectory)).ListAsync(projectId).ConfigureAwait(true)).Value;
+        revisions.Select(r => r.Manifest.Revision).Should().BeEquivalentTo(new[] { 1, 2 }, "新しいリビジョンがちょうど1件増える");
+        var r1 = revisions.Single(r => r.Manifest.Revision == 1).Manifest;
+        var r2 = revisions.Single(r => r.Manifest.Revision == 2).Manifest;
+        r2.Entries.Should().ContainSingle(e => e.Path == "bad.txt").Which.InlineEditedPairs.Should().Be(1);
+        r2.PatchHash.Should().NotBe(r1.PatchHash, "残りのパッチは別のパッチとして記録される");
+    }
+
+    [AvaloniaFact(DisplayName = "一部適用の後: 元のAI出力をそのまま貼り直すと、従来どおりE302（r1で適用済み）になり適用できない")]
+    public async Task 元の出力の貼り直しは従来どおりE302()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "ok.txt"), "alpha\nbeta\n").ConfigureAwait(true);
+        await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "bad.txt"), "one\ntwo\nthree\n").ConfigureAwait(true);
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+
+        var patchText = BuildPatch(("ok.txt", "alpha", "ALPHA"), ("bad.txt", "two (AIが思い込んだ内容)", "TWO"));
+        _clipboard.Text = patchText;
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+
+        // 書き換えを経た後でも、元の出力そのものは適用済みとして扱われる。
+        shell.Graft.SelectedBlock = shell.Graft.Blocks.Single();
+        var edit = shell.Graft.Diff.InlineEdits.Single();
+        edit.SearchText = "two";
+        _ui.FireLastDebounce();
+        await ExecuteAsync(edit.AdoptCommand).ConfigureAwait(true);
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true); // 同じ元の出力を貼り直す
+        shell.Graft.AlreadyAppliedRevision.Should().Be(1);
+        shell.Graft.ApplyCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [AvaloniaFact(DisplayName = "一部適用の後: 同じブロック内で成功済みのペアは再適用されず、失敗したペアだけを直して適用できる")]
+    public async Task 同一ブロック内の成功ペアは再適用されない()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "m.txt"), "a\nb\nc\n").ConfigureAwait(true);
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
+
+        _clipboard.Text =
+            "<<<< PATCH\nsummary: test\ntype: fix\n>>>>\n\n<<<< FILE: m.txt\n" +
+            "<<<<<<< SEARCH\na\n=======\nA\n>>>>>>> REPLACE\n" +
+            "<<<<<<< SEARCH\nbb (思い込み)\n=======\nB\n>>>>>>> REPLACE\n";
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+        (await File.ReadAllTextAsync(Path.Combine(_projectDirectory, "m.txt")).ConfigureAwait(true))
+            .Should().Be("A\nb\nc\n", "成功した1つ目のペアだけが適用されている");
+
+        shell.Graft.SelectedBlock = shell.Graft.Blocks.Single();
+        var edit = shell.Graft.Diff.InlineEdits.Single();
+        edit.SearchText = "b";
+        _ui.FireLastDebounce();
+        await ExecuteAsync(edit.AdoptCommand).ConfigureAwait(true);
+
+        shell.Graft.Blocks.Should().ContainSingle("適用済みの1つ目のペアが、失敗ブロックとして再び現れてはならない")
+            .Which.IsOk.Should().BeTrue();
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+
+        (await File.ReadAllTextAsync(Path.Combine(_projectDirectory, "m.txt")).ConfigureAwait(true))
+            .Should().Be("A\nB\nc\n");
+        var revisions = (await new RevisionStore(new AppPaths(_appDirectory)).ListAsync(projectId).ConfigureAwait(true)).Value;
+        revisions.Should().HaveCount(2);
+    }
+
+    [AvaloniaFact(DisplayName = "適用に含める: 差し替える対象のパッチが残っていないときは、黙って終わらず理由を伝える")]
+    public async Task 対象が無ければ理由を伝える()
+    {
+        await File.WriteAllTextAsync(Path.Combine(_projectDirectory, "bad.txt"), "one\ntwo\nthree\n").ConfigureAwait(true);
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        _clipboard.Text = BuildPatch(("bad.txt", "two (AIが思い込んだ内容)", "TWO"));
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+        shell.Graft.SelectedBlock = shell.Graft.Blocks.Single();
+        var edit = shell.Graft.Diff.InlineEdits.Single();
+        edit.SearchText = "two";
+        _ui.FireLastDebounce();
+        edit.CanAdopt.Should().BeTrue();
+
+        // 押す前に解析結果が破棄された（別の操作・別の経路）状態を作る。画面の編集パネルだけが取り残される。
+        shell.Graft.DiscardCommand.Execute(null);
+        await edit.AdoptAsync().ConfigureAwait(true);
+
+        _dialogs.Messages.Should().ContainSingle(m => m.Title == "適用に含められません");
+        shell.Graft.Blocks.Should().BeEmpty("何も復活させない");
+    }
+
+    // ------------------------------------------------------------------
     // 部品
     // ------------------------------------------------------------------
 
