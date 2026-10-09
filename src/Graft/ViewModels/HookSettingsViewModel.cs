@@ -123,16 +123,18 @@ public sealed class HookSettingsViewModel : ObservableObject
     {
         if (_selectedProject is null) return;
 
-        var loaded = await _projectStore.LoadAsync().ConfigureAwait(true);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == _selectedProject.Id);
-        if (index < 0) return;
-
+        // 「LoadAsync → 該当行を差し替え → SaveAsync」の分離した形だと、読み込みから保存までの間に
+        // 割り込んだ別の操作（適用によるNextRevisionの更新など）をリスト丸ごとの書き戻しで
+        // 巻き戻しうる（ContextCollectViewModel.PersistFileStatesAsyncで実機に出た不具合と同じ形）。
+        // 変えたいのはPostApplyHooksだけなので、ProjectStore.UpdateAsync（ゲートの中で読み込みから
+        // 保存までを不可分に行う）でそのフィールドだけを最新の値に適用する。
         var updatedHooks = Hooks.Select(h => h.ToSource()).ToList();
-        projects[index] = projects[index] with { PostApplyHooks = updatedHooks };
-        await _projectStore.SaveAsync(projects).ConfigureAwait(true);
+        var updated = await _projectStore
+            .UpdateAsync(_selectedProject.Id, p => p with { PostApplyHooks = updatedHooks })
+            .ConfigureAwait(true);
+        if (!updated.IsSuccess) return;
 
-        _selectedProject = projects[index];
+        _selectedProject = updated.Value;
         var selectedIndex = Projects.ToList().FindIndex(p => p.Id == _selectedProject.Id);
         if (selectedIndex >= 0) Projects[selectedIndex] = _selectedProject;
         OnPropertyChanged(nameof(SelectedProject));

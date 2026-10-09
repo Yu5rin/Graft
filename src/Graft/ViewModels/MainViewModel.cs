@@ -514,6 +514,14 @@ public sealed partial class MainViewModel : ObservableObject
         if (!await ConfirmTargetsSavedAsync(project.Root).ConfigureAwait(true)) return;
 
         State = CenterPaneState.Loading;
+        // 履歴番号の見込み。ProjectPaneが持つprojectは読み込み時のスナップショットで、その後に
+        // 別の操作（コンテキスト収集画面の保存など）がprojects.jsonのnextRevisionを動かしていても
+        // 追従していない。実機ではこれが戻った番号のままドライランに渡り、ログ・プレビューに
+        // 出る番号と実際に使う番号が食い違った。ここで最新のnextRevisionと実体の最大番号+1を
+        // 見て揃える（実際の払い出しは適用の直前にReserveRevisionNumberAsyncがやり直す）。
+        var expectedRevision = await RevisionNumbering
+            .PeekNextAsync(_projectStore, _revisionStore, project.Id, project.NextRevision)
+            .ConfigureAwait(true);
         var guard = new PathGuard(project.Root, new PathGuardOptions
         {
             AllowedExtensions = _settings.Safety.AllowedExtensions,
@@ -524,7 +532,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             ProjectId = project.Id,
             ProjectRoot = project.Root,
-            Revision = project.NextRevision,
+            Revision = expectedRevision,
             Settings = _settings,
             Guard = guard,
         };

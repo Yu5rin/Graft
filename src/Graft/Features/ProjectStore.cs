@@ -640,6 +640,26 @@ public sealed class ProjectStore
     /// 何もせず、渡されたプロジェクトの現在値をそのまま返す。
     /// </summary>
     public Task<GraftResult<int>> ConsumeNextRevisionAsync(string projectId, CancellationToken ct = default)
+        => ConsumeNextRevisionAsync(projectId, minimumRevision: 0, ct);
+
+    /// <summary>
+    /// <see cref="ConsumeNextRevisionAsync(string, CancellationToken)"/>の「下限つき」版。
+    /// 払い出す番号を <c>max(projects.jsonのnextRevision, <paramref name="minimumRevision"/>)</c> にし、
+    /// nextRevision はその次の値へ進める。
+    ///
+    /// 【なぜ下限が要るか】 projects.jsonのnextRevisionは、過去にコンテキスト収集画面の保存が
+    /// 古いスナップショットで丸ごと上書きした実機不具合のように、実体（back/配下）より小さく
+    /// 戻ってしまうことがありうる。その値をそのまま払い出すと、既に存在するバックアップフォルダと
+    /// 同じ番号になり、タイムスタンプ違いの同番号フォルダが2つできる（履歴一覧は番号ごとに1件へ
+    /// まとめるため片方が見えなくなる）。呼び出し元が実体の最大番号+1
+    /// （<see cref="Graft.Core.RevisionStore.DetectMaxRevisionAsync"/>）を下限として渡せば、
+    /// nextRevisionが戻っていても払い出す番号は既存のどのフォルダとも重ならず、しかも
+    /// 払い出し後のnextRevisionは「払い出した番号+1」になるので、記録される番号と
+    /// 実際に使った番号は食い違わない。下限が0以下（または nextRevision 以下）なら
+    /// 従来どおりの動作になる。
+    /// </summary>
+    public Task<GraftResult<int>> ConsumeNextRevisionAsync(
+        string projectId, int minimumRevision, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
 
@@ -656,7 +676,7 @@ public sealed class ProjectStore
                 return GraftResult<int>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
             }
 
-            var consumed = projects[index].NextRevision;
+            var consumed = Math.Max(projects[index].NextRevision, minimumRevision);
             projects[index] = projects[index] with { NextRevision = consumed + 1 };
             await SaveCoreAsync(projects, ct).ConfigureAwait(false);
             return GraftResult<int>.Ok(consumed, loaded.Issues);

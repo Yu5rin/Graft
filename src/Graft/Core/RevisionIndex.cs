@@ -108,6 +108,44 @@ public sealed class RevisionIndex
         await File.AppendAllTextAsync(LongPath.Extended(path), json + Environment.NewLine, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// history.jsonl の全行を読み、<paramref name="map"/>で書き換えた内容で置き換える。履歴番号の重複の
+    /// 修復（<see cref="RevisionDuplicateRepairer"/>）専用。解析できない行は内容を変えずそのまま残し、
+    /// 行の並び（追記順）も保つ。同じフォルダの一時ファイルへ書いてから移すので、途中で落ちても
+    /// history.jsonl が半端な内容になることはない。ファイルが無ければ何もしない。
+    /// </summary>
+    internal async Task RewriteAsync(
+        string projectId, Func<RevisionIndexEntry, RevisionIndexEntry> map, CancellationToken ct = default)
+    {
+        var path = GetIndexPath(projectId);
+        if (!File.Exists(path)) return;
+
+        var lines = await File.ReadAllLinesAsync(LongPath.Extended(path), ct).ConfigureAwait(false);
+        var output = new List<string>(lines.Length);
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                output.Add(line);
+                continue;
+            }
+
+            try
+            {
+                var entry = JsonSerializer.Deserialize<RevisionIndexEntry>(line, LineOptions);
+                output.Add(entry is null ? line : JsonSerializer.Serialize(map(entry), LineOptions));
+            }
+            catch (JsonException)
+            {
+                output.Add(line); // 解析できない行は触らない（ReadAllAsyncも読み飛ばすだけ）。
+            }
+        }
+
+        var tempPath = $"{path}.tmp.{Guid.NewGuid():N}";
+        await File.WriteAllLinesAsync(LongPath.Extended(tempPath), output, ct).ConfigureAwait(false);
+        File.Move(LongPath.Extended(tempPath), LongPath.Extended(path), overwrite: true);
+    }
+
     private static GraftResult<IReadOnlyList<RevisionIndexEntry>> ParseLines(string path, string[] lines)
     {
         var entries = new List<RevisionIndexEntry>();

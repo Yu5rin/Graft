@@ -930,14 +930,25 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
                         && f.State.Value != DefaultStateFor(f.RelativePath))
             .ToDictionary(f => f.RelativePath, f => f.State!.Value.ToString(), StringComparer.OrdinalIgnoreCase);
 
-        var loaded = await _projectStore.LoadAsync().ConfigureAwait(true);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == _project.Id);
-        if (index < 0) return;
+        // 【実機不具合の修正】以前は「LoadAsync → _project（画面を作った時点のスナップショット）で
+        // 該当行を丸ごと差し替え → SaveAsync」としていた。_projectは古いNextRevision・LastAppliedAt
+        // などを持ったままなので、チェック状態を変えるたびに（デバウンス後に）適用で進んだ
+        // 履歴番号を巻き戻してしまった。EPSEnhanceの実機ログでは、r42まで適用したあとにこの保存が
+        // 走って次の適用が再びr36になり、r36〜r42が2つずつできた（同じ番号でタイムスタンプ違いの
+        // バックアップフォルダ。RevisionStore.ListAsyncは番号ごとに1件へまとめるため片方が履歴から
+        // 見えなくなり、「ここまで戻す」の対象も取り違えうる）。
+        // 変えたいのは Overrides.ContextFileStates だけなので、ProjectStore.UpdateAsync で
+        // 「読み込み → このフィールドだけ差し替え → 保存」をゲートの中で不可分に行う。
+        // 他のフィールドは常にその時点の最新値のまま残り、他の操作の結果を巻き戻さない。
+        var result = await _projectStore.UpdateAsync(
+                _project.Id,
+                p => p with { Overrides = p.Overrides with { ContextFileStates = nonDefault } })
+            .ConfigureAwait(true);
 
-        _project = _project with { Overrides = _project.Overrides with { ContextFileStates = nonDefault } };
-        projects[index] = _project;
-        await _projectStore.SaveAsync(projects).ConfigureAwait(true);
+        // 画面側のスナップショットも保存結果（最新値）へ揃える。揃えないと、次に_projectを
+        // 参照する処理（走査・出力）が古いNextRevision等を見続けてしまう。IsDisconnectedは
+        // 保存しない実行時だけの値（ProjectStore.SaveCoreAsync）なので、手元の値を引き継ぐ。
+        if (result.IsSuccess) _project = result.Value with { IsDisconnected = _project.IsDisconnected };
     }
 
     /// <summary>
@@ -967,14 +978,14 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
 
     private async Task PersistOverridesAsync()
     {
-        var loaded = await _projectStore.LoadAsync().ConfigureAwait(true);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == _project.Id);
-        if (index < 0) return;
-
-        _project = _project with { Overrides = _project.Overrides with { Excludes = ExtraExcludes.ToArray() } };
-        projects[index] = _project;
-        await _projectStore.SaveAsync(projects).ConfigureAwait(true);
+        // PersistFileStatesAsyncと同じ理由（古いスナップショットでの丸ごと上書きが履歴番号を
+        // 巻き戻した実機不具合）で、変更するのはExcludesだけにする。
+        var excludes = ExtraExcludes.ToArray();
+        var result = await _projectStore.UpdateAsync(
+                _project.Id,
+                p => p with { Overrides = p.Overrides with { Excludes = excludes } })
+            .ConfigureAwait(true);
+        if (result.IsSuccess) _project = result.Value with { IsDisconnected = _project.IsDisconnected };
     }
 
     /// <summary>収集モードの選択肢1件。</summary>

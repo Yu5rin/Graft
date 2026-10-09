@@ -720,7 +720,12 @@ public sealed class HistoryPaneViewModel : ObservableObject
             return false;
         }
 
-        var newRevision = await _projectStore.ConsumeNextRevisionAsync(_projectId, ct).ConfigureAwait(true);
+        // 適用（MainViewModel.ReserveRevisionNumberAsync）と同じく、projects.jsonのnextRevisionだけでなく
+        // 実体の最大番号+1も見て番号を払い出す。nextRevisionが戻っていても、既存のバックアップ
+        // フォルダと同じ番号の「ここまで戻す」を作らないため（RevisionNumbering参照）。
+        var newRevision = await RevisionNumbering
+            .ReserveAsync(_projectStore, _revisionStore, _projectId, ct: ct)
+            .ConfigureAwait(true);
         if (!newRevision.IsSuccess)
         {
             await _dialogs

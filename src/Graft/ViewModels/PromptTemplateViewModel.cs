@@ -212,13 +212,15 @@ public sealed class PromptTemplateViewModel : ObservableObject
     private async Task SetAsProjectDefaultAsync()
     {
         if (_selectedProject is null || _selectedTemplate is null) return;
-        var loaded = await _projectStore.LoadAsync().ConfigureAwait(true);
-        var projects = loaded.Value.ToList();
-        var index = projects.FindIndex(p => p.Id == _selectedProject.Id);
-        if (index < 0) return;
+        // HookSettingsViewModel.SaveAsyncと同じ理由で、リスト丸ごとの読み書きではなく
+        // ProjectStore.UpdateAsyncで該当フィールドだけを最新の値に適用する
+        // （読み込みから保存までの間に割り込んだ他の操作の結果を巻き戻さない）。
+        var templateId = _selectedTemplate.Id;
+        var updated = await _projectStore
+            .UpdateAsync(_selectedProject.Id, p => p with { PromptTemplateId = templateId })
+            .ConfigureAwait(true);
+        if (!updated.IsSuccess) return;
 
-        projects[index] = projects[index] with { PromptTemplateId = _selectedTemplate.Id };
-        await _projectStore.SaveAsync(projects).ConfigureAwait(true);
         StatusMessage = $"「{_selectedProject.DisplayName}」の既定テンプレートを「{_selectedTemplate.Name}」に設定しました。";
     }
 

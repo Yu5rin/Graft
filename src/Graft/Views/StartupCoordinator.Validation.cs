@@ -43,6 +43,12 @@ public sealed partial class StartupCoordinator
         var validated = await projectStore.ValidateAsync(loaded.Value).ConfigureAwait(false);
         lock (issues) issues.AddRange(validated.Issues);
 
+        // nextRevisionを実体の最大番号+1へ補正する「前」に、同じ番号のバックアップフォルダを
+        // 振り直す。補正は実体の最大番号を基準にするため、重複を解消して番号が増える前（例えば
+        // r36〜r42が2組とr43・r44の16件がr36〜r51になる前）に補正すると、補正後のnextRevisionが
+        // 小さすぎて次の適用が既存の番号とぶつかる。
+        await RepairDuplicateRevisionsAsync(validated.Value, issues).ConfigureAwait(false);
+
         var reconciled = await ReconcileRevisionsAsync(projectStore, revisionStore, validated.Value)
             .ConfigureAwait(false);
         var inProgress = await CollectInProgressAsync(revisionStore, reconciled).ConfigureAwait(false);
@@ -114,6 +120,35 @@ public sealed partial class StartupCoordinator
     }
 
     /// <summary>
+    /// 同じ番号のバックアップフォルダが複数ある（履歴番号の巻き戻りで実機に出た状態）プロジェクトを
+    /// 検出し、適用日時の順に番号を振り直す（<see cref="RevisionDuplicateRepairer"/>）。
+    /// 重複が無いプロジェクトではフォルダの一覧を読むだけでディスクへは書かない。
+    /// 1件でも振り直したら、旧→新の対応を1行ずつinfoでlogsへ残す。失敗は起動を止めず、
+    /// 起動時の確認事項（警告）として利用者へ伝える。
+    /// </summary>
+    private async Task RepairDuplicateRevisionsAsync(IReadOnlyList<Project> projects, List<GraftIssue> issues)
+    {
+        var repairer = new RevisionDuplicateRepairer(_appPaths);
+        foreach (var project in projects)
+        {
+            var repaired = await repairer.RepairAsync(project.Id).ConfigureAwait(false);
+            if (repaired.Issues.Count > 0)
+            {
+                lock (issues) issues.AddRange(repaired.Issues);
+            }
+
+            foreach (var change in repaired.Value)
+            {
+                _logger?.Info("startup",
+                    $"履歴番号の重複を修復しました（{project.DisplayName}）: r{change.OldRevision}（{change.OldFolderName}）" +
+                    $" → r{change.NewRevision}（{change.NewFolderName}）" +
+                    (change.HasFolder ? string.Empty : " ※フォルダは無く履歴の記録のみ"),
+                    revision: change.NewRevision);
+            }
+        }
+    }
+
+    /// <summary>
     /// 不具合調査（利用者報告「使い方を学ぶ終了後にProjectが消える」）で判明した、書き込みの
     /// 競合を避けるための実装。
     ///
@@ -150,7 +185,9 @@ public sealed partial class StartupCoordinator
             {
                 var targetRevision = reconciled.NextRevision;
                 await projectStore
-                    .UpdateAsync(project.Id, p => p with { NextRevision = targetRevision })
+                    // 補正は「上げる」方向だけ。UpdateAsyncは最新の値を読み直してから呼ばれるので、
+                    // その間に適用が番号を進めていたら、その値を targetRevision で下げてはいけない。
+                    .UpdateAsync(project.Id, p => p with { NextRevision = Math.Max(p.NextRevision, targetRevision) })
                     .ConfigureAwait(false);
             }
         }

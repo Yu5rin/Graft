@@ -8,7 +8,7 @@ namespace Graft.ViewModels;
 /// <see cref="RunDryRunAsync"/>は成功時にそれを読まなかった。利用者は適用済みと知らされないまま
 /// 「要約を入力」と「適用の確認」（または適用前プレビュー）の窓を通り抜け、
 /// <see cref="Core.ApplyEngine.ApplyAsync"/>の適用時の再判定で初めて止められていた。
-/// しかも止められた時点でリビジョン番号が1つ消費される（ConsumeRevisionNumberAsyncは失敗時も
+/// しかも止められた時点でリビジョン番号が1つ消費される（ReserveRevisionNumberAsyncは失敗時も
 /// 消費する）。UIから強制再適用（ForceReapply）する経路も無い。
 ///
 /// 【表示方法の判断】 全ブロックを失敗（CanApply=false）扱いにする案は採らない。それをすると
