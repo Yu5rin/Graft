@@ -226,6 +226,25 @@ public partial class EditorPane : UserControl
 
     // ApplyEmptyTab/ApplyDiffTab/ApplyHistoryDiffTabは EditorPane.Diff.axaml.cs（1ファイル400行上限のため分割）。
 
+    /// <summary>いま表示している文書のセッション（<see cref="WatchSessionReplacing"/>が購読している相手）。</summary>
+    private DocumentSession? _watchedSession;
+
+    /// <summary>
+    /// 表示中の文書のセッションが全体を差し替える直前（<see cref="DocumentSession.ContentReplacing"/>）に
+    /// 選択範囲を解除する購読を、表示中のセッションだけに張り替える。別のタブへ切り替えたとき・
+    /// 文書以外のタブ（差分など）を表示するとき・破棄時は<c>null</c>で外す。裏のタブの再読込は
+    /// このエディタに描画されていないので、購読する必要がない。
+    /// </summary>
+    private void WatchSessionReplacing(DocumentSession? session)
+    {
+        if (ReferenceEquals(_watchedSession, session)) return;
+        if (_watchedSession is not null) _watchedSession.ContentReplacing -= OnSessionContentReplacing;
+        _watchedSession = session;
+        if (session is not null) session.ContentReplacing += OnSessionContentReplacing;
+    }
+
+    private void OnSessionContentReplacing(object? sender, EventArgs e) => Editor.TextArea.ClearSelection();
+
     private void ApplyDocumentTab(EditorTabViewModel tab)
     {
         Editor.IsVisible = true;
@@ -244,6 +263,9 @@ public partial class EditorPane : UserControl
         // その再入区間のどの瞬間でもFoldingManagerが存在しないため、Invalid documentの
         // 温床そのものが無くなる。
         _folding.PrepareForDocumentSwap();
+        // 再読込（DocumentSession.ReloadAsync）による全体の差し替えに備え、表示中の文書の
+        // セッションだけを購読する（WatchSessionReplacingのコメント参照）。
+        WatchSessionReplacing(tab.Session);
         // 課題#72: この代入の「中で最後に」発火するTextView.DocumentChangedを
         // WrapIndentSupport自身が購読しており、素のTextFormatterで上書きされた直後に
         // 自動で入れ直す。上のPrepareForDocumentSwap（代入の"前"）とは働く時点が
@@ -894,6 +916,7 @@ public partial class EditorPane : UserControl
         DetachMarkdownDocumentWatch();
         MarkdownPreviewHost.BlockDoubleClicked -= OnMarkdownBlockDoubleClicked;
         Graft.Themes.ThemeManager.ThemeChanged -= OnThemeChangedForMarkdownPreview;
+        WatchSessionReplacing(null);
         _gitGutter.Dispose();
         _bridge.Dispose();
         _brackets.Dispose();
