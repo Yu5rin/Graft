@@ -454,7 +454,7 @@ public sealed partial class SettingsViewModel
             .ConfigureAwait(true);
         if (!restartConfirmed) return;
 
-        RestartRequested?.Invoke(this, EventArgs.Empty);
+        RestartRequested?.Invoke(this, new RestartRequestedEventArgs(RestartReason.UpdateInstalled));
     }
 
     /// <summary>ダウンロード中の「中断」ボタン用。</summary>

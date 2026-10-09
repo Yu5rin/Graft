@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Graft.Infra;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -57,9 +58,11 @@ public partial class SettingsWindow : Window
         Closed += (_, _) => viewModel.RestartRequested -= OnRestartRequested;
     }
 
-    private static void OnRestartRequested(object? sender, EventArgs e)
+    // 理由はイベントが運んでくる（RestartReasonのコメント参照）。このウィンドウは、データ保存先の
+    // 移行と自動更新の両方の再起動要求を受け取るため、ここで文言を決め打ちにはできない。
+    private static void OnRestartRequested(object? sender, RestartRequestedEventArgs e)
     {
-        if (Avalonia.Application.Current is App app) app.RequestRestart();
+        if (Avalonia.Application.Current is App app) app.RequestRestart(e.Reason);
     }
 
     private void OnCloseClicked(object? sender, RoutedEventArgs e) => _ = CloseAsync();
