@@ -159,6 +159,48 @@
                         local:HelpTip.Standard="適用直後に数秒だけ表示されます。クリックすると、いま適用したリビジョンを履歴で開き、変更したファイルの差分を表示します。"
                         local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示されます。クリックすると、サイドバーの履歴でいま適用したリビジョンが選ばれ、エディタ領域に変更したファイルの差分が開きます。差分の各ファイルの見出しにある「ファイルを開く」から、変更したファイルをそのままエディタで開けます。数秒で自動的に消えますが、消えた後も履歴から同じ操作ができます。"
                         ToolTip.Tip="クリックすると、いま適用したリビジョンの変更を履歴で表示します。" />
+
+                <!--
+                    機能追加（1.0.25）: 「確認なしで自動更新する」（設定のバージョン情報タブ）の結果を
+                    知らせる1行。ダイアログは作業を止めるので使わない。起動直後に裏で終わるため、
+                    席を外していても見逃さないよう、適用直後の通知のように数秒で消さず、利用者が
+                    「×」で閉じるか再起動するまで残す。入れ替えが済んだときは「今すぐ再起動」を添える
+                    （再起動の流れは未保存の確認を含む既存のものにつながる。勝手には再起動しない）。
+                    失敗のときは再起動のボタンを出さず、手動で更新する方法だけを控えめに伝える
+                    （ShellViewModel.UpdateNotice.cs・SettingsViewModel.AutoUpdate.cs参照）。
+                -->
+                <TextBlock Text="{Binding UpdateNoticeText}"
+                           Margin="12,0,0,0"
+                           MaxWidth="460"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding HasUpdateNotice}"
+                           AutomationProperties.Name="自動更新の通知"
+                           ToolTip.Tip="{Binding UpdateNoticeDetail}" />
+                <Button Content="今すぐ再起動"
+                        Command="{Binding RestartForUpdateCommand}"
+                        Margin="4,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding CanRestartForUpdate}"
+                        AutomationProperties.Name="更新を反映するため今すぐ再起動"
+                        local:HelpTip.Standard="自動更新で入れ替えた新しい版に、いま切り替えます。未保存の変更があれば先に確認します。"
+                        local:HelpTip.Detailed="確認なしの自動更新で新しい版への入れ替えが済んでいます。押すとGraftを再起動して新しい版に切り替えます。未保存の変更があるときは、保存するか破棄するかを先に確認し、キャンセルすれば再起動しません。押さなくても、次にGraftを起動したときから新しい版になります。" />
+                <Button Content="×"
+                        Command="{Binding DismissUpdateNoticeCommand}"
+                        Margin="2,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource TextSecondary}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding HasUpdateNotice}"
+                        AutomationProperties.Name="自動更新の通知を閉じる"
+                        local:HelpTip.Standard="この通知を閉じます。更新そのものには影響しません。" />
             </StackPanel>
 
             <!--

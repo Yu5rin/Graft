@@ -139,10 +139,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _minimizeToTray;
     private readonly Action<Settings>? _onLiveSettingsChanged;
 
-    // 機能追加（自動更新）。設定本体（settings.json）に持たせるのはこの2項目のみで、
+    // 機能追加（自動更新）。設定本体（settings.json）に持たせるのはこの3項目のみで、
     // 実際の更新確認・ダウンロード・インストールの状態はSettingsViewModel.Update.cs
     // （分割ファイル）が持つ非永続プロパティ側で扱う。上の2項目と同じ即時反映方式。
+    // _updateAutoInstallは1.0.25で追加（確認なしで自動更新する。既定オフ。AutoUpdatePolicy参照）。
     private bool _updateCheckOnStartup = true;
+    private bool _updateAutoInstall;
     private string _updateCheckUrl = new UpdateSettings().CheckUrl;
 
     /// <param name="appPaths">現在のデータ保存先。</param>
@@ -427,7 +429,33 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool MinimizeToTray { get => _minimizeToTray; set => SetEditableProperty(ref _minimizeToTray, value); }
 
     /// <summary>機能追加（自動更新）: 起動時に更新を確認するか。チェックボックスのため即時反映。既定オン。</summary>
-    public bool UpdateCheckOnStartup { get => _updateCheckOnStartup; set => SetEditableProperty(ref _updateCheckOnStartup, value); }
+    public bool UpdateCheckOnStartup
+    {
+        get => _updateCheckOnStartup;
+        set
+        {
+            if (!SetEditableProperty(ref _updateCheckOnStartup, value)) return;
+            // 「確認なしで自動更新する」は起動時の確認が前提（オフなら起動時には確認自体が行われず
+            // 意味を持たない）。画面ではこの値でチェックボックスを無効表示にしているので、
+            // 無効表示の切り替えをバインディングへ知らせる。
+            OnPropertyChanged(nameof(IsUpdateAutoInstallAvailable));
+        }
+    }
+
+    /// <summary>
+    /// 機能追加（1.0.25・確認なしの自動更新）: 新しい版が見つかったとき、確認ダイアログを出さずに
+    /// 裏でダウンロード・検証・入れ替えまで進めるか。チェックボックスのため即時反映。<b>既定オフ</b>。
+    /// 判断の詳細と、オンでもダイアログへ戻す場合は<see cref="Core.Update.AutoUpdatePolicy"/>と
+    /// SettingsViewModel.AutoUpdate.cs参照。手動の「今すぐ更新を確認」には影響しない。
+    /// </summary>
+    public bool UpdateAutoInstall { get => _updateAutoInstall; set => SetEditableProperty(ref _updateAutoInstall, value); }
+
+    /// <summary>
+    /// 「確認なしで自動更新する」を操作できるか。起動時に更新を確認しない設定のときは、確認自体が
+    /// 行われず設定が意味を持たないため、画面ではチェックボックスを無効表示にする
+    /// （値そのものは変えない。起動時の確認をまたオンにすれば、選んでいた状態のまま効く）。
+    /// </summary>
+    public bool IsUpdateAutoInstallAvailable => _updateCheckOnStartup;
 
     /// <summary>
     /// 機能追加（自動更新）: 更新確認先URL。TextBoxのため<see cref="SettingsWindow"/>側で
@@ -948,6 +976,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         SetProperty(ref _launchAtStartup, s.LaunchAtStartup, nameof(LaunchAtStartup));
         SetProperty(ref _minimizeToTray, s.MinimizeToTray, nameof(MinimizeToTray));
         SetProperty(ref _updateCheckOnStartup, s.Update.CheckOnStartup, nameof(UpdateCheckOnStartup));
+        OnPropertyChanged(nameof(IsUpdateAutoInstallAvailable));
+        SetProperty(ref _updateAutoInstall, s.Update.AutoInstall, nameof(UpdateAutoInstall));
         SetProperty(ref _updateCheckUrl, s.Update.CheckUrl, nameof(UpdateCheckUrl));
         PopulateEditorFields(s.Editor);
     }
@@ -980,7 +1010,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         CloseBehavior = _closeBehavior,
         LaunchAtStartup = _launchAtStartup,
         MinimizeToTray = _minimizeToTray,
-        Update = new UpdateSettings { CheckOnStartup = _updateCheckOnStartup, CheckUrl = _updateCheckUrl },
+        Update = new UpdateSettings { CheckOnStartup = _updateCheckOnStartup, AutoInstall = _updateAutoInstall, CheckUrl = _updateCheckUrl },
         ClipboardWatch = new ClipboardWatchSettings
         {
             Enabled = _clipboardWatchEnabled, Action = _selectedClipboardAction, AutoParse = _clipboardAutoParse,

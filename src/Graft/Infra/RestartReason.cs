@@ -26,6 +26,15 @@ public enum RestartReason
     /// 始まった更新も、設定画面から手動で始めた更新も、ここへ来る経路は同じ。
     /// </summary>
     UpdateInstalled,
+
+    /// <summary>
+    /// 「確認なしで自動更新する」設定で裏のうちに入れ替えが済み、ステータスバーの完了通知
+    /// 「Graft を x.y.z に更新しました」の「今すぐ再起動」が押された（<c>SettingsViewModel.AutoUpdate.cs</c>）。
+    /// <see cref="UpdateInstalled"/>と分けたのは、ログを読む人が「確認ダイアログに答えて再起動した」
+    /// のか「完了通知から再起動した」のかを区別できるようにするため（再起動の理由を取り違えて
+    /// 調査を誤った経緯は、このenumのクラスコメント参照）。
+    /// </summary>
+    AutoUpdateNotice,
 }
 
 /// <summary><c>SettingsViewModel.RestartRequested</c>の引数。再起動の理由を運ぶ。</summary>
@@ -51,6 +60,7 @@ public static class RestartReasonText
     {
         RestartReason.DataDirectoryMigration => "設定画面のデータ保存先移行完了ダイアログの「再起動」ボタン",
         RestartReason.UpdateInstalled => "自動更新のインストール後の「今すぐ再起動」ボタン",
+        RestartReason.AutoUpdateNotice => "確認なしの自動更新の完了通知（ステータスバー）の「今すぐ再起動」ボタン",
         _ => $"不明な理由（{reason}）",
     };
 

@@ -365,6 +365,10 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // （ShellViewModel.cs参照）と同じEditor.CloseAllAsyncをそのまま流用する。
         _settingsViewModel.ConfirmUnsavedDocumentsAsync = () => shellViewModel.Editor.CloseAllAsync();
 
+        // 機能追加（1.0.25・確認なしの自動更新）: 完了・失敗の通知をステータスバーへ橋渡しする
+        // （StartupCoordinator.AutoUpdateNotice.cs参照）。下の起動時の更新確認より前に配線する。
+        WireAutoUpdateNotice(_settingsViewModel, shellViewModel);
+
         // 機能改善: エディタ・差分表示でのCtrl+マウスホイールでの確定を、常駐の
         // SettingsViewModelへ橋渡しする（SettingsViewModel.SetEditorFontSizeLiveのコメント参照）。
         shellViewModel.EditorFontSizeChangeRequested += (_, size) => _settingsViewModel!.SetEditorFontSizeLive(size);
