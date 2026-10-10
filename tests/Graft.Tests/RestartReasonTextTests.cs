@@ -29,6 +29,16 @@ public class RestartReasonTextTests
         message.Should().NotContain("データ保存先", "実機で調査を誤らせた固定文言が残ってはならない");
     }
 
+    [Fact(DisplayName = "確認なしの自動更新の完了通知からの再起動は、ダイアログ経由の更新とも移行とも区別できる文言になる")]
+    public void 完了通知からの再起動の文言()
+    {
+        var message = RestartReasonText.BuildLogMessage(RestartReason.AutoUpdateNotice);
+
+        message.Should().Contain("自動更新").And.Contain("完了通知");
+        message.Should().NotContain("データ保存先");
+        message.Should().NotBe(RestartReasonText.BuildLogMessage(RestartReason.UpdateInstalled));
+    }
+
     [Fact(DisplayName = "未知の理由は別の理由にすり替えず、値そのものを出す")]
     public void 未知の理由は値を出す()
     {

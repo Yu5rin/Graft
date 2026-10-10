@@ -61,7 +61,23 @@
             <CheckBox Classes="settingRow" Content="起動時に更新を確認する" IsChecked="{Binding UpdateCheckOnStartup}"
                       AutomationProperties.Name="起動時に更新を確認する"
                       local:HelpTip.Standard="Graftを起動するたびにGitHubへ新しいバージョンが無いか確認します（テーマ変更・データ保存先の移動・更新の適用後などGraft自身が再起動したときは除きます）。既定はオンです。"
-                      local:HelpTip.Detailed="オンにすると（既定）、利用者がGraftを起動するたびに、GitHub（下の「チェック先URL」）へ新しいバージョンが無いか問い合わせます。見つかった場合はダイアログで知らせ、同意した場合のみダウンロードが始まります（無断でダウンロードされることはありません）。ただし、テーマ変更・データ保存先の移動・自動更新の適用後などGraft自身が自己再起動して起動したときは、この設定がオンでも確認しません（利用者が意図した起動ではないため）。オフにしても、下の「今すぐ更新を確認」はいつでも使えます。確認・ダウンロードのとき以外、Graftは外部と通信しません。" />
+                      local:HelpTip.Detailed="オンにすると（既定）、利用者がGraftを起動するたびに、GitHub（下の「チェック先URL」）へ新しいバージョンが無いか問い合わせます。見つかった場合はダイアログで知らせ、同意した場合のみダウンロードが始まります（下の「確認せずに自動で更新する」をオンにした場合を除き、無断でダウンロードされることはありません）。ただし、テーマ変更・データ保存先の移動・自動更新の適用後などGraft自身が自己再起動して起動したときは、この設定がオンでも確認しません（利用者が意図した起動ではないため）。オフにしても、下の「今すぐ更新を確認」はいつでも使えます。確認・ダウンロードのとき以外、Graftは外部と通信しません。" />
+            <!--
+                機能追加（1.0.25）: 確認なしの自動更新。既定はオフ。「起動時に更新を確認する」がオフの
+                間は、起動時には確認自体が行われず意味を持たないので無効表示にし、理由をすぐ下に
+                出す（設定画面の他の無効表示、例えば最小化でタスクトレイへ格納する、と同じ作法）。
+                値は変えないので、起動時の確認をオンに戻せば選んでいた状態のまま効く。
+                手動の「今すぐ更新を確認」は、この設定に関わらず常に確認ダイアログを出す。
+                動作の詳細はSettingsViewModel.AutoUpdate.cs・Core/Update/AutoUpdatePolicy.cs参照。
+            -->
+            <CheckBox Classes="settingRow" Content="確認せずに自動で更新する" IsChecked="{Binding UpdateAutoInstall}"
+                      IsEnabled="{Binding IsUpdateAutoInstallAvailable}"
+                      AutomationProperties.Name="確認せずに自動で更新する"
+                      local:HelpTip.Standard="新しいバージョンが見つかったとき、確認ダイアログを出さずに自動でダウンロードして入れ替えます。再起動は勝手にしません。既定はオフです。"
+                      local:HelpTip.Detailed="オンにすると、起動時の更新確認で新しいバージョンが見つかったとき、確認ダイアログを出さずに裏で自動でダウンロードし、検証したうえでファイルを入れ替えます。入れ替えが済んでも再起動は勝手にしません。画面下のステータスバーに「Graft を x.y.z に更新しました」と知らせ、「今すぐ再起動」を押すか、次にGraftを起動したときから新しい版になります（再起動のときは、未保存の変更があれば先に確認します）。配布物の整合性（SHA256）を照合できないとき、更新の確認先を既定から変更しているとき、お使いのOSやフォルダの場所の都合で自分で入れ替えられないときは、自動では進めず、これまでどおりダイアログで確認します。失敗したときはいまのバージョンのまま動作を続け、控えめに知らせます（ログにも理由が残ります）。「今すぐ更新を確認」から確認したときは、この設定に関わらず必ずダイアログで確認します。既定はオフです。「起動時に更新を確認する」がオフのときは確認自体が行われないため、この設定は使えません。" />
+            <TextBlock Text="「起動時に更新を確認する」がオフのため、この設定は使われません。"
+                       Classes="fieldHint" IsVisible="{Binding !IsUpdateAutoInstallAvailable}"
+                       TextWrapping="Wrap" Margin="0,0,0,6" />
             <StackPanel Margin="0,0,0,10">
                 <TextBlock Text="チェック先URL" Margin="0,0,0,4" />
                 <TextBox Text="{Binding UpdateCheckUrl, UpdateSourceTrigger=LostFocus}"
@@ -74,7 +90,7 @@
                 <Button Content="今すぐ更新を確認" Command="{Binding CheckForUpdateNowCommand}"
                         AutomationProperties.Name="今すぐ更新を確認"
                         local:HelpTip.Standard="今すぐGitHubへ問い合わせて、新しいバージョンが無いか確認します。"
-                        local:HelpTip.Detailed="「起動時に更新を確認する」がオフでも、また自己再起動の直後であっても、押した瞬間に必ずGitHubへ問い合わせます。新しいバージョンが見つかった場合はダイアログで案内し、同意した場合のみダウンロードへ進みます。" />
+                        local:HelpTip.Detailed="「起動時に更新を確認する」がオフでも、また自己再起動の直後であっても、押した瞬間に必ずGitHubへ問い合わせます。新しいバージョンが見つかった場合はダイアログで案内し、同意した場合のみダウンロードへ進みます（「確認せずに自動で更新する」をオンにしていても、ここから確認したときは必ずダイアログで確認します）。" />
                 <Button Content="中断" Command="{Binding CancelUpdateDownloadCommand}" Margin="8,0,0,0"
                         IsVisible="{Binding IsUpdateDownloading}"
                         AutomationProperties.Name="更新のダウンロードを中断"

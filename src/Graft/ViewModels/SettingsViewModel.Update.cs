@@ -236,6 +236,17 @@ public sealed partial class SettingsViewModel
                 case UpdateCheckStatus.UpdateAvailable:
                     UpdateStatusMessage = $"新しいバージョン {result.Release!.TagName} が利用可能です（現在: {CurrentVersionText}）。";
                     Logger?.Info("update", $"{trigger}: 確認しました。新しいバージョンが見つかりました（{result.Release!.TagName}、現在: {CurrentVersionText}）。");
+                    // 機能追加（1.0.25）: 「確認なしで自動更新する」がオンの起動時の確認だけ、
+                    // ダイアログを出さずに裏で進める。手動の「今すぐ更新を確認」は利用者が自分で
+                    // 押した操作なので、この設定に関わらず従来どおり確認ダイアログを出す。
+                    // 自動で進められなかった（ダイアログへ戻す）場合はfalseが返り、そのまま
+                    // 従来の案内へ進む（理由はTryAutoInstallAsyncがログに残す）。
+                    if (!isManual && _updateAutoInstall
+                        && await TryAutoInstallAsync(result.Release!).ConfigureAwait(true))
+                    {
+                        break;
+                    }
+
                     await OfferUpdateAsync(result.Release!).ConfigureAwait(true);
                     break;
                 case UpdateCheckStatus.UpdateAvailableNoDetails:
@@ -245,6 +256,11 @@ public sealed partial class SettingsViewModel
                     // あること・リリースページの場所）は必ず伝える。
                     UpdateStatusMessage = result.ErrorMessage;
                     Logger?.Warn("update", $"{trigger}: {result.ErrorMessage}（{result.Release!.TagName}）。{DiagnosticSuffix(result)}");
+                    if (!isManual && _updateAutoInstall)
+                    {
+                        Logger?.Info("update",
+                            $"自動更新: 配布物の詳細を取得できず入れ替えに進めないため、従来どおりリリースページを案内します（{result.Release!.TagName}）。");
+                    }
                     await OfferManualUpdateViaReleasePageAsync(
                         "新しい版があります", result.ErrorMessage!, result.Release!.HtmlUrl).ConfigureAwait(true);
                     break;
@@ -264,6 +280,17 @@ public sealed partial class SettingsViewModel
     /// </summary>
     private async Task OfferUpdateAsync(GitHubReleaseInfo release)
     {
+        // 同じ版の入れ替えがこの起動中にすでに済んでいる（確認なしの自動更新、または以前の
+        // 「今すぐ更新」で、再起動だけが済んでいない）場合は、もう一度ダウンロードして入れ替えず、
+        // 再起動の案内へ進む。実行中の版は古いままなので「新しい版がある」と判定され続けるが、
+        // ファイルはすでに新しい版になっている。
+        if (IsInstalledAndWaitingForRestart(release))
+        {
+            Logger?.Info("update", $"更新の案内: {release.TagName} は入れ替え済みのため、再起動の案内に進みます。");
+            await FinishInstallAndRequestRestartAsync(release).ConfigureAwait(true);
+            return;
+        }
+
         // 不具合対応（Linuxでは自動更新が必ず失敗して巻き戻っていた）: 入れ替えを提供しない
         // OSでは「今すぐ更新」ボタンを出さず、新しい版があることとリリースページだけを案内する。
         // 失敗すると分かっている操作を利用者に選ばせない（UpdatePlatformPolicyのクラスコメント参照）。
@@ -322,6 +349,71 @@ public sealed partial class SettingsViewModel
 
     private async Task RunUpdateAsync(GitHubReleaseInfo release)
     {
+        // 入れ替えの場所・添付の決定は、確認なしの自動更新（TryAutoInstallAsync）と共有する
+        // ResolveInstallPlanに集約した。ここでは、決まらなかった理由ごとに従来のダイアログを出す。
+        var plan = ResolveInstallPlan(release);
+        switch (plan.Problem)
+        {
+            case InstallPlanProblem.NoInstallDirectory:
+                await _dialogService.ShowMessageAsync(
+                    "自動更新できません",
+                    "実行ファイルの場所を特定できなかったため、自動更新できませんでした。" +
+                    "リリースページから配布物をダウンロードし、手動で置き換えてください。")
+                    .ConfigureAwait(true);
+                return;
+            case InstallPlanProblem.NotWritable:
+                await OfferManualUpdateViaReleasePageAsync(
+                    "自動更新できません",
+                    $"実行ファイルのフォルダ（{plan.InstallDirectory}）へ書き込めないため、自動更新できませんでした。" +
+                    "Program Files 等、書き込みが制限されたフォルダに置かれている可能性があります。" +
+                    "リリースページから配布物をダウンロードし、手動で置き換えてください。",
+                    release.HtmlUrl).ConfigureAwait(true);
+                return;
+            case InstallPlanProblem.NoAsset:
+                await _dialogService.ShowMessageAsync(
+                    "更新できません", "このリリースにWindows版の配布物（-win-x64.zip）が見つかりませんでした。").ConfigureAwait(true);
+                return;
+        }
+
+        var installResult = await ExecuteInstallAsync(release, plan).ConfigureAwait(true);
+        if (!installResult.Success)
+        {
+            if (installResult.Status != UpdateInstallStatus.Cancelled)
+            {
+                await _dialogService.ShowMessageAsync("更新に失敗しました", UpdateStatusMessage!).ConfigureAwait(true);
+            }
+            return;
+        }
+
+        await FinishInstallAndRequestRestartAsync(release).ConfigureAwait(true);
+    }
+
+    /// <summary>入れ替えの計画を立てられなかった理由。</summary>
+    private enum InstallPlanProblem
+    {
+        None,
+
+        /// <summary>実行ファイルのフォルダを特定できない。</summary>
+        NoInstallDirectory,
+
+        /// <summary>実行ファイルのフォルダへ書き込めない（Program Files 等）。</summary>
+        NotWritable,
+
+        /// <summary>このOS向けの配布物が見つからない。</summary>
+        NoAsset,
+    }
+
+    /// <summary>入れ替えの計画（どのフォルダへ、どの配布物を）。<see cref="Problem"/>が<c>None</c>のときだけ実行できる。</summary>
+    private sealed record InstallPlan(InstallPlanProblem Problem, string? InstallDirectory, GitHubReleaseAsset? Asset);
+
+    /// <summary>
+    /// 実行ファイルのフォルダとダウンロードする配布物を決め、書き込めるかまで確かめる。
+    /// 確認ダイアログ経由の更新（<see cref="RunUpdateAsync"/>）と、確認なしの自動更新
+    /// （<see cref="TryAutoInstallAsync"/>）の両方が使う。前提の確認を2か所に書くと、片方だけ
+    /// 直し忘れて条件がずれるため、1か所にした。
+    /// </summary>
+    private InstallPlan ResolveInstallPlan(GitHubReleaseInfo release)
+    {
         // 不具合修正（自動更新が「データ保存先をユーザーフォルダへ移動」済みの環境で
         // 必ず失敗していた件）: 以前はここで_appPaths.BaseDirectory（データ保存先。
         // datapath.txtポインタがあれば%APPDATA%\Graftを指す）を「実行ファイルのフォルダ」
@@ -329,15 +421,10 @@ public sealed partial class SettingsViewModel
         // フォルダのGraft.exeを退避しようとして必ず失敗していた（詳しい経緯は
         // AppRestart.TryResolveExecutableDirectoryのXMLコメント参照）。
         // インストール先は必ず「実行ファイルが実際に置かれているフォルダ」を使う。
-        var installDirectory = AppRestart.TryResolveExecutableDirectory();
+        var installDirectory = InstallDirectoryResolver();
         if (installDirectory is null)
         {
-            await _dialogService.ShowMessageAsync(
-                "自動更新できません",
-                "実行ファイルの場所を特定できなかったため、自動更新できませんでした。" +
-                "リリースページから配布物をダウンロードし、手動で置き換えてください。")
-                .ConfigureAwait(true);
-            return;
+            return new InstallPlan(InstallPlanProblem.NoInstallDirectory, null, null);
         }
 
         // 指示書の最重要事項: Program Files 等へ書き込めない場合は自動更新をあきらめ、
@@ -347,23 +434,27 @@ public sealed partial class SettingsViewModel
         // （課題1の書き込み権限確認）をディレクトリ引数化して再利用する）。
         if (!AppPaths.CanWriteToDirectory(installDirectory))
         {
-            await OfferManualUpdateViaReleasePageAsync(
-                "自動更新できません",
-                $"実行ファイルのフォルダ（{installDirectory}）へ書き込めないため、自動更新できませんでした。" +
-                "Program Files 等、書き込みが制限されたフォルダに置かれている可能性があります。" +
-                "リリースページから配布物をダウンロードし、手動で置き換えてください。",
-                release.HtmlUrl).ConfigureAwait(true);
-            return;
+            return new InstallPlan(InstallPlanProblem.NotWritable, installDirectory, null);
         }
 
         // OSに合った添付を選ぶ（ここへ来るのはCanSelfInstallがtrue＝Windowsのときだけ）。
         var asset = UpdatePlatformPolicy.SelectAsset(release, UpdatePlatform);
-        if (asset is null)
-        {
-            await _dialogService.ShowMessageAsync(
-                "更新できません", "このリリースにWindows版の配布物（-win-x64.zip）が見つかりませんでした。").ConfigureAwait(true);
-            return;
-        }
+        return asset is null
+            ? new InstallPlan(InstallPlanProblem.NoAsset, installDirectory, null)
+            : new InstallPlan(InstallPlanProblem.None, installDirectory, asset);
+    }
+
+    /// <summary>
+    /// ダウンロード → 検証 → 入れ替えの実行。進捗の表示・中断・ログ・状況文言を担い、
+    /// 結果を返すだけで、ダイアログも再起動の要求も行わない（それは呼び出し側の役目）。
+    /// 確認ダイアログ経由の更新と確認なしの自動更新が、同じ道筋を通るようにするために
+    /// <see cref="RunUpdateAsync"/>から切り出した。<paramref name="plan"/>は
+    /// <see cref="InstallPlanProblem.None"/>のものを渡す。
+    /// </summary>
+    private async Task<UpdateInstallResult> ExecuteInstallAsync(GitHubReleaseInfo release, InstallPlan plan)
+    {
+        var asset = plan.Asset!;
+        var installDirectory = plan.InstallDirectory!;
 
         IsUpdateBusy = true;
         IsUpdateDownloading = true;
@@ -384,6 +475,8 @@ public sealed partial class SettingsViewModel
             // 同じ方針）のため、実際に省く直前であるここで記録する。allowMissingChecksumが
             // trueになる経路はここ1箇所しか無いため、「ここで記録する」＝「実際に省かれる場合を
             // 漏れなく記録する」になる。
+            // （確認なしの自動更新はAutoUpdatePolicyでこの経路を事前に除外するので、ここへは
+            // 利用者が確認ダイアログで同意した場合だけ来る。）
             var allowMissingChecksum = release.AllowMissingChecksum;
             if (allowMissingChecksum)
             {
@@ -400,14 +493,16 @@ public sealed partial class SettingsViewModel
             if (!installResult.Success)
             {
                 UpdateStatusMessage = DescribeInstallFailure(installResult);
-                if (installResult.Status != UpdateInstallStatus.Cancelled)
-                {
-                    await _dialogService.ShowMessageAsync("更新に失敗しました", UpdateStatusMessage!).ConfigureAwait(true);
-                }
-                return;
+            }
+            else
+            {
+                // 入れ替えが済んだ版を覚えておく。実行中の版は再起動まで古いままなので、
+                // 次の更新確認でも同じ版が「新しい」と判定される。そのとき二重に入れ替えず、
+                // 再起動の案内へ進めるために使う（OfferUpdateAsync参照）。
+                _installedPendingRestartTag = release.TagName;
             }
 
-            await FinishInstallAndRequestRestartAsync(release).ConfigureAwait(true);
+            return installResult;
         }
         finally
         {
@@ -426,26 +521,7 @@ public sealed partial class SettingsViewModel
     {
         UpdateStatusMessage = "更新ファイルの準備ができました。";
 
-        // 要件: 更新には再起動が伴うため保存を促す（既存の終了時処理と同種の確認の流用）。
-        if (ConfirmUnsavedDocumentsAsync is { } confirmUnsaved)
-        {
-            var confirmed = await confirmUnsaved().ConfigureAwait(true);
-            if (!confirmed)
-            {
-                UpdateStatusMessage = "更新ファイルの準備は完了しましたが、保存の確認でキャンセルされたため再起動していません。" +
-                    "次回Graftを起動したときに反映されます。";
-                return;
-            }
-        }
-
-        if (!AppRestart.CanRestart())
-        {
-            await _dialogService.ShowMessageAsync("再起動できません",
-                "更新ファイルの準備はできましたが、実行ファイルの場所を特定できず自動的に再起動できませんでした。" +
-                "手動でGraftを再起動してください。")
-                .ConfigureAwait(true);
-            return;
-        }
+        if (!await ConfirmRestartPreconditionsAsync().ConfigureAwait(true)) return;
 
         var restartConfirmed = await _dialogService.ShowActionMessageAsync(
             "更新の準備ができました",
@@ -455,6 +531,38 @@ public sealed partial class SettingsViewModel
         if (!restartConfirmed) return;
 
         RestartRequested?.Invoke(this, new RestartRequestedEventArgs(RestartReason.UpdateInstalled));
+    }
+
+    /// <summary>
+    /// 更新のための再起動に進む前の確認: 未保存の編集の確認 → 再起動できる環境かの確認。
+    /// 確認ダイアログ経由の更新（<see cref="FinishInstallAndRequestRestartAsync"/>）と、確認なしの
+    /// 自動更新の完了通知からの再起動（<see cref="RestartForInstalledUpdateAsync"/>）が共有する。
+    /// 進めてよいときだけtrue。
+    /// </summary>
+    private async Task<bool> ConfirmRestartPreconditionsAsync()
+    {
+        // 要件: 更新には再起動が伴うため保存を促す（既存の終了時処理と同種の確認の流用）。
+        if (ConfirmUnsavedDocumentsAsync is { } confirmUnsaved)
+        {
+            var confirmed = await confirmUnsaved().ConfigureAwait(true);
+            if (!confirmed)
+            {
+                UpdateStatusMessage = "更新ファイルの準備は完了しましたが、保存の確認でキャンセルされたため再起動していません。" +
+                    "次回Graftを起動したときに反映されます。";
+                return false;
+            }
+        }
+
+        if (!AppRestart.CanRestart())
+        {
+            await _dialogService.ShowMessageAsync("再起動できません",
+                "更新ファイルの準備はできましたが、実行ファイルの場所を特定できず自動的に再起動できませんでした。" +
+                "手動でGraftを再起動してください。")
+                .ConfigureAwait(true);
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>ダウンロード中の「中断」ボタン用。</summary>

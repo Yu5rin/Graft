@@ -30,6 +30,20 @@ public sealed record UpdateCheckState
     /// </para>
     /// </summary>
     public bool? LastCheckSucceeded { get; init; }
+
+    /// <summary>
+    /// 「確認なしで自動更新する」（<see cref="Infra.UpdateSettings.AutoInstall"/>）が失敗した版の
+    /// タグ（例: "v1.0.25"）。失敗の通知を「同じ版では1回だけ」にするための記録で、無ければnull。
+    ///
+    /// 【なぜ持つか】 自動更新は利用者が見ていない裏で動くため、失敗しても次の起動でまた同じ版を
+    /// 取りに行って同じ理由で失敗しうる（例: ウイルス対策ソフトが入れ替えを止めている）。そのたびに
+    /// ステータスバーへ通知すると、直せない失敗を毎回見せることになる。ログ（update）には毎回
+    /// 残し、利用者への通知だけをこの記録で1回に絞る。次の版が出れば別の値になるので、
+    /// 新しい版の失敗は改めて通知される。
+    /// 【なぜここ（update-check.json）か】 settings.jsonは利用者が編集する「設定」であり、
+    /// 内部状態を混ぜない方針（<see cref="Infra.UpdateSettings"/>のクラスコメント参照）。
+    /// </summary>
+    public string? AutoInstallFailedTag { get; init; }
 }
 
 /// <summary><see cref="UpdateCheckState"/>の読み書き。他の内部状態と同じ<see cref="JsonFileStore"/>を使う。</summary>
@@ -53,4 +67,19 @@ public sealed class UpdateCheckStateStore
 
     public Task SaveAsync(UpdateCheckState state, CancellationToken ct = default)
         => _store.WriteAsync(_path, state, ct: ct);
+
+    /// <summary>
+    /// 現在の内容を読み、<paramref name="change"/>で変更した値を書き戻す。
+    ///
+    /// 【なぜ追加したか】 以前の保存は「確認日時と成否だけを持つ新しい状態」で丸ごと上書きしていた。
+    /// 項目を増やした（<see cref="UpdateCheckState.AutoInstallFailedTag"/>）あと、確認のたびに
+    /// 他の項目が消えてしまうのを防ぐため、書き込みは読み→変更→書きの形にそろえる。
+    /// 書き込み元は起動時の確認の直列な流れだけで、同時に2か所から書くことは無い。
+    /// </summary>
+    public async Task UpdateAsync(Func<UpdateCheckState, UpdateCheckState> change, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        var current = await LoadAsync(ct).ConfigureAwait(false);
+        await SaveAsync(change(current), ct).ConfigureAwait(false);
+    }
 }

@@ -83,7 +83,7 @@ public sealed class AppPaths
     /// 自動更新（機能追加）: 前回の更新確認日時（<see cref="Graft.Core.Update.UpdateCheckState"/>）の
     /// 保存先。settings.json（利用者が編集しうる設定本体）とは別ファイルにしているのは、
     /// 「JSON直接編集タブ」やエクスポート/インポートの対象を増やしたくないため
-    /// （settings.jsonはUpdateSettings.CheckOnStartup/CheckUrlのみを持ち、こちらは内部状態）。
+    /// （settings.jsonはUpdateSettings.CheckOnStartup/AutoInstall/CheckUrlのみを持ち、こちらは内部状態）。
     /// 他の内部状態（queue.json・layout.json）と同じくexeと同じ階層に平置きする。
     /// </summary>
     public string UpdateCheckStateFilePath => Path.Combine(BaseDirectory, "update-check.json");

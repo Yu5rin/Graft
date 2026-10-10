@@ -164,7 +164,7 @@ public sealed class UpdateChecker
     {
         var startedAt = _now();
         await _stateStore
-            .SaveAsync(new UpdateCheckState { LastCheckedAt = startedAt, LastCheckSucceeded = false }, ct)
+            .UpdateAsync(s => s with { LastCheckedAt = startedAt, LastCheckSucceeded = false }, ct)
             .ConfigureAwait(false);
 
         if (!UpdateVersion.TryParse(currentVersion, out var current))
@@ -306,7 +306,7 @@ public sealed class UpdateChecker
 
     private async Task MarkSucceededAsync(DateTimeOffset startedAt, CancellationToken ct)
         => await _stateStore
-            .SaveAsync(new UpdateCheckState { LastCheckedAt = startedAt, LastCheckSucceeded = true }, ct)
+            .UpdateAsync(s => s with { LastCheckedAt = startedAt, LastCheckSucceeded = true }, ct)
             .ConfigureAwait(false);
 
     /// <summary>
