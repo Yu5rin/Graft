@@ -20,6 +20,7 @@ public partial class EditorPane
         // 課題#82: ApplyDocumentTabと同じ理由でDocument代入の前に外す
         // （FoldingSupport.PrepareForDocumentSwapのクラスコメント【課題#82】節参照）。
         _folding.PrepareForDocumentSwap();
+        WatchSessionReplacing(null);
         // 課題#72: ApplyDocumentTabと同じく、この代入を契機にWrapIndentSupportが自動で
         // 入れ直す（WrapIndentSupportのクラスコメント参照）。
         Editor.Document = new TextDocument();
@@ -44,6 +45,7 @@ public partial class EditorPane
     /// </summary>
     private void ApplyDiffTab(EditorTabViewModel tab)
     {
+        WatchSessionReplacing(null);
         Editor.IsVisible = false;
         Editor.IsEnabled = false;
         MarkdownPreviewHost.IsVisible = false;
@@ -60,6 +62,7 @@ public partial class EditorPane
     /// </summary>
     private void ApplyHistoryDiffTab(EditorTabViewModel tab)
     {
+        WatchSessionReplacing(null);
         Editor.IsVisible = false;
         Editor.IsEnabled = false;
         MarkdownPreviewHost.IsVisible = false;

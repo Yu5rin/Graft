@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using Graft.Core;
+using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
 
@@ -112,14 +113,23 @@ public sealed partial class MainViewModel
         // 等）を必ずlogs/へ記録する。ApplyEngine.ApplyAsync自体はUIに依存しないためLoggerを
         // 引き回せず、呼び出し元であるここで記録する（MainViewModel.Git.csのLogger運用に倣う）。
         var stopwatch = Stopwatch.StartNew();
-        var result = await _applyEngine.ApplyAsync(updatedDryRun, context).ConfigureAwait(true);
-        stopwatch.Stop();
 
-        // 不具合2対応: 適用を試みた直後に、成功・失敗を問わずnextRevisionを消費して
+        // 不具合2対応: 適用を試みるにあたり、成功・失敗を問わずnextRevisionを消費して
         // projects.jsonへ永続化する（消費しないと次回も同じ番号が付与され続ける）。
         // 失敗時にも消費する理由はProjectStore.ConsumeNextRevisionAsyncのコメント参照。
         // ProjectPane.LoadAsync（下）より前に行い、再読込結果へ確実に反映させる。
-        await ConsumeRevisionNumberAsync(context.ProjectId).ConfigureAwait(true);
+        //
+        // 履歴番号が巻き戻って同じ番号のバックアップが2つできた実機不具合への対応として、
+        // 消費は以前の「適用の直後」から「適用の直前」へ移し、払い出した番号をそのまま適用に使う。
+        // 払い出す番号はprojects.jsonのnextRevisionと実体の最大番号+1の大きい方（RevisionNumbering）
+        // なので、nextRevisionが何らかの理由で戻っていても既存のフォルダとは重ならない。
+        // 払い出しと「記録されるnextRevision（払い出した番号+1）」は同じ操作で決まるため、
+        // 適用に使った番号と記録が食い違うこともない。事前に払い出すことの副作用は、適用が
+        // 例外で途中終了した場合にも番号が消費されることだが、それは「失敗しても消費する」
+        // 既存の方針（欠番を許容する）と同じ向きである。
+        context = await ReserveRevisionNumberAsync(context).ConfigureAwait(true);
+        var result = await _applyEngine.ApplyAsync(updatedDryRun, context).ConfigureAwait(true);
+        stopwatch.Stop();
 
         if (!result.IsSuccess)
         {
@@ -218,28 +228,47 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>
-    /// 不具合2対応: 適用を試みた直後に呼ぶ。projects.jsonのnextRevisionを1つ進めて永続化する。
-    /// 消費するかどうかを成功/失敗で分岐しない理由は<see cref="ProjectStore.ConsumeNextRevisionAsync"/>
-    /// のコメント参照。
+    /// 不具合2対応: 適用の直前に呼ぶ。projects.jsonのnextRevisionを1つ進めて永続化し、
+    /// 今回の適用で実際に使う番号を入れた文脈を返す。
+    /// 消費するかどうかを成功/失敗で分岐しない理由は<see cref="ProjectStore.ConsumeNextRevisionAsync(string, CancellationToken)"/>
+    /// のコメント参照。番号の決め方（nextRevisionと実体の最大番号+1の大きい方）は
+    /// <see cref="RevisionNumbering.ReserveAsync"/>のコメント参照。ドライラン時の見込み
+    /// （<see cref="ApplyContext.Revision"/>）を下限に渡すので、見込みから動いていなければ
+    /// プレビューやログに出た番号と同じになる。
     /// </summary>
-    private async Task ConsumeRevisionNumberAsync(string projectId)
+    private async Task<ApplyContext> ReserveRevisionNumberAsync(ApplyContext context)
     {
-        var consumed = await _projectStore.ConsumeNextRevisionAsync(projectId).ConfigureAwait(true);
-        if (!consumed.IsSuccess)
+        var reserved = await RevisionNumbering
+            .ReserveAsync(_projectStore, _revisionStore, context.ProjectId, context.Revision)
+            .ConfigureAwait(true);
+        if (reserved.IsSuccess)
         {
-            // projects.jsonへの書き込み不可等、想定外の状況。適用結果自体はここでは
-            // Fail扱いにしない（次回起動時のReconcileRevisionsAsyncが実体フォルダの最大値から
-            // 補正するため、番号がずれたままでも致命的にはならない）。ログにだけ残す。
-            SafeHandler.OnUnexpected?.Invoke(
-                "リビジョン番号の更新",
-                new InvalidOperationException(
-                    consumed.Errors.FirstOrDefault()?.Detail ?? "不明なエラーでprojects.jsonを更新できませんでした"));
+            if (reserved.Value != context.Revision)
+            {
+                // ドライランの見込みから動いていた（その間に別の操作が番号を進めた）。
+                // 使う番号を払い出された番号へ改め、食い違いが分かるようログに残す。
+                Logger?.Info("apply",
+                    $"リビジョン番号が見込みのr{context.Revision}からr{reserved.Value}に変わりました" +
+                    "（解析の後に別の操作が番号を進めたため）",
+                    revision: reserved.Value);
+            }
+            return context with { Revision = reserved.Value };
         }
+
+        // projects.jsonへの書き込み不可等、想定外の状況。適用結果自体はここでは
+        // Fail扱いにしない（次回起動時のReconcileRevisionsAsyncが実体フォルダの最大値から
+        // 補正するため、番号がずれたままでも致命的にはならない）。ログにだけ残し、
+        // 見込みの番号のまま続行する。
+        SafeHandler.OnUnexpected?.Invoke(
+            "リビジョン番号の更新",
+            new InvalidOperationException(
+                reserved.Errors.FirstOrDefault()?.Detail ?? "不明なエラーでprojects.jsonを更新できませんでした"));
+        return context;
     }
 
     /// <summary>
     /// 不具合3対応: <see cref="ProjectStore.MarkAppliedAsync"/>を呼ぶ薄いラッパー。失敗しても
-    /// 適用結果自体はここでは失敗にしない理由は<see cref="ConsumeRevisionNumberAsync"/>と同じ。
+    /// 適用結果自体はここでは失敗にしない理由は<see cref="ReserveRevisionNumberAsync"/>と同じ。
     /// </summary>
     private async Task MarkProjectAppliedAsync(string projectId)
     {

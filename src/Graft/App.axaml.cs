@@ -380,7 +380,7 @@ public partial class App : Application
     /// tests/Graft.UiTests/DesktopShutdownSemanticsTests.csにAvaloniaのこの挙動差そのものを
     /// 固定する回帰テストがある。
     /// </summary>
-    public void RequestRestart()
+    public void RequestRestart(RestartReason reason)
     {
         if (_restartRequested) return; // 多重クリック等での二重要求を防ぐ。
         _restartRequested = true;
@@ -389,7 +389,11 @@ public partial class App : Application
         // 無かったことが「通常のウィンドウ終了経路を通っているだけではないか」（原因候補C）を
         // 疑うきっかけになった。この行が実際に記録されていれば、少なくともRequestRestartまでは
         // 到達していることが分かる。
-        _coordinator?.Logger?.Info("restart", "再起動が要求されました（設定画面のデータ保存先移行完了ダイアログの「再起動」ボタン）。");
+        //
+        // きっかけの説明は呼び出し元が渡した理由から作る。以前は「データ保存先移行完了ダイアログの
+        // 「再起動」ボタン」の固定文言で、自動更新の後の再起動でも同じ文言が残り、ログを読んだ人が
+        // データ保存先の移行を疑って調査を誤った（RestartReasonのコメント参照）。
+        _coordinator?.Logger?.Info("restart", RestartReasonText.BuildLogMessage(reason));
         _desktop?.TryShutdown();
     }
 

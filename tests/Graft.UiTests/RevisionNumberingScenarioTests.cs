@@ -138,6 +138,47 @@ public class RevisionNumberingScenarioTests : IDisposable
         (await ReadNextRevisionAsync(projectId).ConfigureAwait(true)).Should().Be(4, "3回適用したのでnextRevisionは4になるはず");
     }
 
+    [AvaloniaFact(DisplayName = "履歴番号の巻き戻り: projects.jsonのnextRevisionが実体より小さく戻っていても、次の適用は既存のフォルダと同じ番号にならない")]
+    public async Task nextRevisionが戻っていても同じ番号のフォルダを作らない()
+    {
+        // 実機（EPSEnhance）の再現: r35〜r42まで適用したあと、コンテキスト収集画面の保存が古い
+        // スナップショットでprojects.jsonを上書きしてnextRevisionが36に戻り、次の適用が再びr36に
+        // なった。ここでは原因の書き戻しそのものではなく、「何らかの理由でnextRevisionが戻った」
+        // 状態を直接作り、適用側の防御（実体の最大番号+1との比較）が効くことを確かめる。
+        var targetPath = Path.Combine(_projectDirectory, "sample.txt");
+        await File.WriteAllTextAsync(targetPath, "v0\n").ConfigureAwait(true);
+
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+        var projectId = shell.Graft.ProjectPane.SelectedItem!.Project.Id;
+
+        foreach (var (from, to) in new[] { ("v0", "v1"), ("v1", "v2") })
+        {
+            _clipboard.Text = BuildPatch("sample.txt", from, to);
+            await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+            await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+        }
+
+        var projectStore = new ProjectStore(new AppPaths(_appDirectory));
+        (await ReadNextRevisionAsync(projectId).ConfigureAwait(true)).Should().Be(3, "前提: r1・r2を適用したのでnextRevisionは3");
+        await projectStore.UpdateAsync(projectId, p => p with { NextRevision = 1 }).ConfigureAwait(true);
+        await shell.Graft.ProjectPane.LoadAsync().ConfigureAwait(true); // 画面側も戻った値を読み込む
+
+        _clipboard.Text = BuildPatch("sample.txt", "v2", "v3");
+        await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
+        await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
+
+        var appPaths = new AppPaths(_appDirectory);
+        var folders = Directory.EnumerateDirectories(appPaths.GetProjectBackupDirectory(projectId))
+            .Select(d => BackupPathUtil.TryParseFolderName(Path.GetFileName(d))!.Value.Revision).OrderBy(r => r).ToList();
+        folders.Should().Equal(new[] { 1, 2, 3 }, "修正前は戻ったr1で適用され、r1のフォルダが2つできた");
+
+        var history = await new RevisionStore(appPaths).ListAsync(projectId).ConfigureAwait(true);
+        history.Value.Select(r => r.Manifest.Revision).Should().Equal(new[] { 3, 2, 1 });
+        (await ReadNextRevisionAsync(projectId).ConfigureAwait(true)).Should().Be(4,
+            "使った番号r3の次。記録されるnextRevisionと実際に使った番号が食い違わない");
+    }
+
     private async Task<int> ReadNextRevisionAsync(string projectId)
     {
         var projectStore = new ProjectStore(new AppPaths(_appDirectory));

@@ -219,6 +219,29 @@ public sealed class DocumentSession : IDisposable
     }
 
     /// <summary>
+    /// <see cref="ReloadAsync"/>が文書の内容を丸ごと差し替える<b>直前</b>に、UIスレッドで発火する
+    /// （内容が同じで差し替えを省く場合は発火しない）。この文書を表示しているエディタが、
+    /// 差し替えの前に選択範囲を解除するために購読する。
+    ///
+    /// 【なぜ選択範囲を先に解除するか（実機ログ v1.0.23、適用 r33 の直前）】
+    /// 適用でファイルが変わるとファイル監視が再読込を起こし、<c>Document.Text = text</c>が
+    /// 文書全体を1回のReplaceで置き換える。AvaloniaEditのTextViewは、このReplaceの間
+    /// （<c>Document.Changed</c>の処理中）に限り、削除済みの<see cref="DocumentLine"/>を
+    /// 握った古いVisualLineを<c>TextView.VisualLines</c>に残している（次のレイアウトで作り直される）。
+    /// この瞬間に選択範囲が残っていると、<c>SelectionLayer.Render</c>が
+    /// <c>BackgroundGeometryBuilder.AddSegment</c>を通じてその古い行の<c>Offset</c>に触れ、
+    /// <see cref="InvalidOperationException"/>（"Operation is not valid due to the current state of
+    /// the object."）になる。選択範囲が空なら<c>SelectionLayer</c>は行を一切見ないので、
+    /// 差し替えの前に解除しておけば窓が開いていても触れずに済む。差し替え後は元の選択を
+    /// 維持できない（文書全体が別物になる）ため、解除による利用者への影響もない。
+    ///
+    /// このクラスはエディタ（TextView/TextArea）を知らない設計のため、解除そのものは行わず、
+    /// 差し替えの直前であることだけをイベントで知らせる（<see cref="FoldingSupport.PrepareForDocumentSwap"/>
+    /// と同じく、表示側が文書の差し替えに先回りして備える形）。
+    /// </summary>
+    public event EventHandler? ContentReplacing;
+
+    /// <summary>
     /// ディスク上の内容で再読込する。呼び出し側（4.6/4.8）が未保存変更との競合有無を
     /// 判断した後に呼ぶことを想定し、本メソッド自体は確認を行わない。
     ///
@@ -251,6 +274,9 @@ public sealed class DocumentSession : IDisposable
             }
 
             Shape = shape;
+            // 全体の差し替えの「前」に、表示側（EditorPane）へ知らせる。選択範囲が残ったまま
+            // 差し替えると描画で例外が出るため（ContentReplacingのコメント参照）。
+            ContentReplacing?.Invoke(this, EventArgs.Empty);
             Document.Text = text;
             Document.UndoStack.ClearAll();
             Document.UndoStack.MarkAsOriginalFile();

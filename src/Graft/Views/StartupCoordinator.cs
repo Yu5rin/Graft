@@ -338,9 +338,11 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // SettingsViewModelの生存期間ぶんここで購読しておく。App.RequestRestart自体は
         // 二重要求を防ぐガードを持つため、SettingsWindowを開いていたときの重複購読と鉢合わせても
         // 実害はない。
-        _settingsViewModel.RestartRequested += (_, _) =>
+        // 理由（データ保存先の移行か、自動更新のインストール後か）はイベントが運んでくる。
+        // この購読は両方の経路のイベントを受け取るので、ここで固定の理由を渡してはいけない。
+        _settingsViewModel.RestartRequested += (_, e) =>
         {
-            if (Avalonia.Application.Current is App app) app.RequestRestart();
+            if (Avalonia.Application.Current is App app) app.RequestRestart(e.Reason);
         };
 
         void OpenSettings()

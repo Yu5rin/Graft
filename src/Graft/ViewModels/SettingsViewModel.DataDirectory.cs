@@ -155,17 +155,23 @@ public sealed partial class SettingsViewModel
             return;
         }
 
-        RestartRequested?.Invoke(this, EventArgs.Empty);
+        RestartRequested?.Invoke(this, new RestartRequestedEventArgs(RestartReason.DataDirectoryMigration));
     }
 
     /// <summary>
-    /// 不具合3: 移行完了ダイアログの「再起動」ボタンが押され、かつ再起動が可能と確認できたときに
-    /// 発火する。ViewModelはAvaloniaのApplication/Window型に依存させない方針のため、実際の
+    /// 不具合3: 再起動の要求（データ保存先の移行完了ダイアログの「再起動」ボタン、または自動更新の
+    /// 「今すぐ再起動」ボタンが押され、かつ再起動が可能と確認できたとき）に発火する。ViewModelはAvaloniaのApplication/Window型に依存させない方針のため、実際の
     /// 再起動処理（後始末→新プロセス起動→旧プロセス終了。多重起動防止Mutexとの競合回避を含む、
     /// <see cref="Core.RestartSequencer"/>参照）はView側（<see cref="Views.SettingsWindow"/>経由で
     /// <see cref="Graft.App"/>）が担う。
+    ///
+    /// このイベントは2か所から発火する: 本ファイルのデータ保存先の移行完了と、
+    /// <c>SettingsViewModel.Update.cs</c>の自動更新のインストール後（<see cref="RestartReason"/>）。
+    /// どちらの経路かは引数の<see cref="RestartRequestedEventArgs.Reason"/>が運ぶので、購読側は
+    /// 理由を決め打ちにせず、そのまま<c>App.RequestRestart</c>へ渡すこと（再起動のログに正しい
+    /// きっかけが残る）。
     /// </summary>
-    public event EventHandler? RestartRequested;
+    public event EventHandler<RestartRequestedEventArgs>? RestartRequested;
 
     /// <summary>
     /// 移行前の確認文言。実態は「移動」であり元の場所のデータは削除されること・

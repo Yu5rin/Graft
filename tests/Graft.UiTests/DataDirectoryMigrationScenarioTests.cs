@@ -78,6 +78,49 @@ public class DataDirectoryMigrationScenarioTests : IDisposable
             "元の場所のデータは移行操作の場では削除しない。削除は次回起動時（RunPendingCleanup）にのみ行う");
     }
 
+    [AvaloniaFact(DisplayName = "データ保存先の移行後の再起動要求は、理由が「データ保存先の移行」になる")]
+    public async Task 移行後の再起動要求の理由はデータ保存先の移行()
+    {
+        var exeDir = Path.Combine(_root, "exe-reason-migrate");
+        var appPaths = new AppPaths(exeDir);
+        appPaths.EnsureCoreDirectoriesExist();
+        await File.WriteAllTextAsync(appPaths.SettingsFilePath, "{}");
+
+        var vm = new SettingsViewModel(appPaths, new ConfirmingDialogService(), new AvaloniaUiServices(), exeDirectory: exeDir);
+        await vm.InitializeAsync();
+        var reasons = new List<RestartReason>();
+        vm.RestartRequested += (_, e) => reasons.Add(e.Reason);
+
+        await ExecuteAsync(vm.MigrateDataDirectoryCommand);
+
+        reasons.Should().Equal(new[] { RestartReason.DataDirectoryMigration },
+            "完了ダイアログの「再起動」（既定の応答は承諾）で、移行を理由とする要求が1回だけ発火する");
+    }
+
+    [AvaloniaFact(DisplayName = "自動更新のインストール後の再起動要求は、理由が「更新のインストール後」になる（データ保存先の移行ではない）")]
+    public async Task 更新後の再起動要求の理由は更新のインストール後()
+    {
+        var exeDir = Path.Combine(_root, "exe-reason-update");
+        var appPaths = new AppPaths(exeDir);
+        appPaths.EnsureCoreDirectoriesExist();
+
+        var vm = new SettingsViewModel(appPaths, new ConfirmingDialogService(), new AvaloniaUiServices(), exeDirectory: exeDir);
+        await vm.InitializeAsync();
+        var reasons = new List<RestartReason>();
+        vm.RestartRequested += (_, e) => reasons.Add(e.Reason);
+
+        // 更新のダウンロード・検証・置き換え（RunUpdateAsync）はネットワークと実行ファイルの
+        // 入れ替えを伴うため、ここでは「置き換えが済んだ後」の後始末だけを直接呼ぶ。実機で
+        // 誤った文言が出たのは、まさにこの経路の再起動要求だった。
+        var finish = typeof(SettingsViewModel).GetMethod(
+            "FinishInstallAndRequestRestartAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        finish.Should().NotBeNull("更新後の後始末のメソッド名が変わったら、このテストも合わせて直すこと");
+        var release = new Graft.Core.Update.GitHubReleaseInfo { TagName = "v9.9.9" };
+        await (Task)finish!.Invoke(vm, new object[] { release })!;
+
+        reasons.Should().Equal(new[] { RestartReason.UpdateInstalled });
+    }
+
     [AvaloniaFact(DisplayName = "確認ダイアログでキャンセルすると何もコピーされずポインタファイルも書かれない")]
     public async Task キャンセルすると何も変更されない()
     {

@@ -44,6 +44,21 @@ public sealed class BackupManager
         var folderName = AppPaths.BuildRevisionFolderName(initial.Revision, appliedAt);
         var folderPath = _paths.GetRevisionDirectory(projectId, folderName);
 
+        // 最後の防御線: 同じ番号のバックアップフォルダが（タイムスタンプ違いでも）既にあれば
+        // 作らない。フォルダ名に時刻が入るため、番号が重なっても名前は衝突せず、何も言わずに
+        // 「同じ番号のフォルダが2つ」できてしまう（実機で履歴番号が巻き戻った際にr36〜r42が2つずつ
+        // できた。RevisionStore.ListAsyncは番号ごとに1件へまとめるので片方が履歴から見えなくなる）。
+        // 番号の払い出し側（RevisionNumbering）が実体の最大番号+1を見ているため通常はここに
+        // 到達しないが、払い出しをすり抜けた場合に黙って重複を作るよりは、適用を始めない。
+        var duplicate = FindFolderWithRevision(projectId, initial.Revision);
+        if (duplicate is not null)
+        {
+            return GraftResult<BackupSession>.Fail(
+                ErrorCode.E401,
+                $"r{initial.Revision} のバックアップフォルダが既にあるため、同じ番号では作成できません（{Path.GetFileName(duplicate)}）",
+                path: duplicate);
+        }
+
         try
         {
             Directory.CreateDirectory(LongPath.Extended(folderPath));
@@ -69,6 +84,20 @@ public sealed class BackupManager
 
         var session = new BackupSession(_jsonStore, _revisionIndex, projectId, projectRoot, folderPath, manifestPath, initial.Revision);
         return GraftResult<BackupSession>.Ok(session);
+    }
+
+    /// <summary>プロジェクトのバックアップ領域から、指定番号のリビジョンフォルダを探す（無ければnull）。</summary>
+    private string? FindFolderWithRevision(string projectId, int revision)
+    {
+        var projectDir = _paths.GetProjectBackupDirectory(projectId);
+        if (!Directory.Exists(projectDir)) return null;
+
+        foreach (var folder in Directory.EnumerateDirectories(projectDir))
+        {
+            var parsed = BackupPathUtil.TryParseFolderName(Path.GetFileName(folder));
+            if (parsed is not null && parsed.Value.Revision == revision) return folder;
+        }
+        return null;
     }
 }
 
