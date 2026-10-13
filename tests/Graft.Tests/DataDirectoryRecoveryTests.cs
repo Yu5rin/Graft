@@ -86,6 +86,18 @@ public class DataDirectoryRecoveryTests
         DataDirectoryRecovery.ShouldPromptForRecovery(exeDir, userDir).Should().BeTrue();
     }
 
+    [Fact(DisplayName = "1.0.26: exe 直下の data フォルダに既知データがあれば（条件2不成立）復帰候補にならない")]
+    public void dataフォルダにデータがあれば候補にならない()
+    {
+        using var ws = new TempWorkspace();
+        var exeDir = ws.CreateDirectory("exe");
+        var userDir = ws.CreateDirectory("user-data");
+        ws.WriteText("exe/data/settings.json", "{}");
+        ws.WriteText("user-data/settings.json", "{}");
+
+        DataDirectoryRecovery.ShouldPromptForRecovery(exeDir, userDir).Should().BeFalse();
+    }
+
     [Fact(DisplayName = "ユーザーフォルダが存在しなければ（条件3不成立）復帰候補にならない")]
     public void ユーザーフォルダが存在しなければ候補にならない()
     {

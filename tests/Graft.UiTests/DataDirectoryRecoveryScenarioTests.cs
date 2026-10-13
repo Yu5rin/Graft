@@ -88,11 +88,12 @@ public class DataDirectoryRecoveryScenarioTests : IDisposable
 
         outcome.Result.Should().Be(DataDirectoryRecoveryResult.DeclinedAndMarkedPortable);
         outcome.ShouldExitProcess.Should().BeFalse("「いいえ」も従来どおり起動を続ける必要がある");
-        DataDirectoryPointer.TryRead(exeDir).Should().Be(exeDir, "「明示的なポータブル」としてexeフォルダ自身を書く");
+        DataDirectoryPointer.TryRead(exeDir).Should().Be(AppPaths.PortableDataDirectory(exeDir),
+            "「明示的なポータブル」としてexe直下のdataフォルダを書く（1.0.26）");
 
         // 以後の起動では条件1（ポインタが無い）が不成立になり、二度と尋ねられない。
         DataDirectoryRecovery.ShouldPromptForRecovery(exeDir, userDir).Should().BeFalse();
-        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(exeDir);
+        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(AppPaths.PortableDataDirectory(exeDir));
     }
 
     [AvaloniaFact(DisplayName = "キャンセル（タイトルバーの×を含む）はGraftを終了すべきと判定され、" +

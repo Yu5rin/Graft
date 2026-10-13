@@ -109,8 +109,10 @@ public static class EnvironmentSummaryLogger
 
     private static string DescribeDataDirectory(AppPaths appPaths, string exeDirectory)
     {
-        var isPortable = PathsEqual(appPaths.BaseDirectory, exeDirectory);
-        var mode = isPortable ? "ポータブル" : "ユーザーフォルダ";
+        var isPortable = PathsEqual(appPaths.BaseDirectory, AppPaths.PortableDataDirectory(exeDirectory));
+        var mode = isPortable ? "ポータブル"
+            : PathsEqual(appPaths.BaseDirectory, exeDirectory) ? "ポータブル（旧配置: 実行ファイルの横）"
+            : "ユーザーフォルダ";
         return $"{mode}（{appPaths.BaseDirectory}）";
     }
 

@@ -33,11 +33,11 @@ public class DataDirectoryMigrationScenarioTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    [AvaloniaFact(DisplayName = "既定はポータブル（exeDirectoryを省略するとAppPaths.BaseDirectoryと同じ扱いになる）")]
+    [AvaloniaFact(DisplayName = "既定はポータブル（保存先がexe直下のdataフォルダ）と表示され、ボタンは「ユーザーフォルダへ移動」")]
     public async Task 既定はポータブル表示になる()
     {
         var exeDir = Path.Combine(_root, "exe");
-        var appPaths = new AppPaths(exeDir);
+        var appPaths = new AppPaths(AppPaths.PortableDataDirectory(exeDir));
         appPaths.EnsureCoreDirectoriesExist();
 
         var vm = new SettingsViewModel(
@@ -45,15 +45,57 @@ public class DataDirectoryMigrationScenarioTests : IDisposable
         await vm.InitializeAsync();
 
         vm.IsPortableDataDirectory.Should().BeTrue();
-        vm.DataDirectoryModeLabel.Should().Contain("ポータブル");
-        vm.DataDirectoryPath.Should().Be(exeDir);
+        vm.DataDirectoryModeLabel.Should().Contain("ポータブル").And.Contain("data");
+        vm.DataDirectoryActionLabel.Should().Be("ユーザーフォルダへ移動");
+        vm.DataDirectoryPath.Should().Be(Path.Combine(exeDir, "data"));
     }
 
-    [AvaloniaFact(DisplayName = "「ユーザーフォルダへ移動」を確認すると、データをコピーしポインタファイルを書いてから再起動待ちになる")]
+    [AvaloniaFact(DisplayName = "data へ移せず旧配置（exeの横）のまま動いているときは、ボタンが「実行ファイルの data フォルダへ戻す」になる")]
+    public async Task 旧配置のままならdataへ戻すボタンになる()
+    {
+        var exeDir = Path.Combine(_root, "exe-legacy");
+        var appPaths = new AppPaths(exeDir);
+        appPaths.EnsureCoreDirectoriesExist();
+
+        var vm = new SettingsViewModel(
+            appPaths, new Graft.Platform.Null.NullDialogService(), new AvaloniaUiServices(), exeDirectory: exeDir);
+        await vm.InitializeAsync();
+
+        vm.IsPortableDataDirectory.Should().BeFalse();
+        vm.IsLegacyPortableDataDirectory.Should().BeTrue();
+        vm.DataDirectoryActionLabel.Should().Contain("data フォルダへ戻す");
+    }
+
+    [AvaloniaFact(DisplayName = "ユーザーフォルダ使用中の「戻す」は <exe>/data へ移し、確認文言にその場所が出る")]
+    public async Task 戻す操作はexe直下のdataへ移す()
+    {
+        var exeDir = Path.Combine(_root, "exe-back");
+        var userDir = Path.Combine(_root, "user-back");
+        var appPaths = new AppPaths(userDir);
+        appPaths.EnsureCoreDirectoriesExist();
+        await File.WriteAllTextAsync(appPaths.SettingsFilePath, "{}");
+        Directory.CreateDirectory(exeDir);
+        DataDirectoryPointer.TryWrite(exeDir, userDir, explicitChoice: true);
+
+        var dialogs = new ConfirmingDialogService();
+        var vm = new SettingsViewModel(appPaths, dialogs, new AvaloniaUiServices(), exeDirectory: exeDir);
+        await vm.InitializeAsync();
+        vm.DataDirectoryModeLabel.Should().Be("ユーザーフォルダ");
+        vm.DataDirectoryActionLabel.Should().Contain("data フォルダへ戻す");
+
+        await ExecuteAsync(vm.MigrateDataDirectoryCommand);
+
+        var data = Path.Combine(exeDir, "data");
+        File.Exists(Path.Combine(data, "settings.json")).Should().BeTrue();
+        File.Exists(DataDirectoryPointer.PointerFilePath(exeDir)).Should().BeFalse();
+        dialogs.LastConfirmMessage.Should().Contain(data);
+    }
+
+    [AvaloniaFact(DisplayName = "「ユーザーフォルダへ移動」を確認すると、データをコピーし「明示的に選んだ」印つきのポインタファイルを書いてから再起動待ちになる")]
     public async Task ユーザーフォルダへ移動すると再起動待ちになる()
     {
         var exeDir = Path.Combine(_root, "exe2");
-        var appPaths = new AppPaths(exeDir);
+        var appPaths = new AppPaths(AppPaths.PortableDataDirectory(exeDir));
         appPaths.EnsureCoreDirectoriesExist();
         await File.WriteAllTextAsync(appPaths.SettingsFilePath, "{}");
 
@@ -73,6 +115,7 @@ public class DataDirectoryMigrationScenarioTests : IDisposable
 
         var pointer = DataDirectoryPointer.TryRead(exeDir);
         pointer.Should().NotBeNull();
+        DataDirectoryPointer.IsExplicitChoice(exeDir).Should().BeTrue("次の起動で自動的に data へ戻されないための印");
         File.Exists(Path.Combine(pointer!, "settings.json")).Should().BeTrue("設定ファイルが新しい場所へコピーされている必要がある");
         File.Exists(appPaths.SettingsFilePath).Should().BeTrue(
             "元の場所のデータは移行操作の場では削除しない。削除は次回起動時（RunPendingCleanup）にのみ行う");
@@ -187,10 +230,12 @@ public class DataDirectoryMigrationScenarioTests : IDisposable
         public bool ConfirmResponse { get; set; } = true;
         public int ConfirmCallCount { get; private set; }
         public string? LastMessage { get; private set; }
+        public string? LastConfirmMessage { get; private set; }
 
         public Task<bool> ConfirmAsync(string title, string message)
         {
             ConfirmCallCount++;
+            LastConfirmMessage = message;
             return Task.FromResult(ConfirmResponse);
         }
 

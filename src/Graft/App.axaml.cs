@@ -131,7 +131,13 @@ public partial class App : Application
             return;
         }
 
-        _coordinator = new Views.StartupCoordinator(dataDirectoryRecoveryOutcome: recoveryOutcome);
+        // 1.0.26: データ保存先の確定と、旧配置・ユーザーフォルダ（1.0.25以前から）からの自動移行。
+        // 復帰確認（上）が書いた datapath.txt を踏まえるため後ろに置き、各ストアがファイルを開く
+        // 前・Loggerの生成前に終える（PortableDataLayoutクラスドキュメント参照）。
+        var portableDataOutcome = Infra.PortableDataLayout.Resolve(AppContext.BaseDirectory);
+
+        _coordinator = new Views.StartupCoordinator(
+            dataDirectoryRecoveryOutcome: recoveryOutcome, portableDataOutcome: portableDataOutcome);
 
         // 不具合2: 自己再起動で起動した新プロセスかどうかを起動引数から判定する
         // （AppRestart.BuildStartInfoが付与する。AppRestart.IsRestartLaunchのコメント参照）。

@@ -18,13 +18,13 @@ namespace Graft.Tests;
 /// </summary>
 public class DataDirectoryPointerTests
 {
-    [Fact(DisplayName = "ポインタファイルが無ければexeと同じ階層をそのまま使う（ポータブル）")]
+    [Fact(DisplayName = "ポインタファイルが無ければexe直下のdataフォルダを使う（ポータブル）")]
     public void ポインタファイルが無ければexe階層を使う()
     {
         using var ws = new TempWorkspace();
         var exeDir = ws.CreateDirectory("exe");
 
-        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(exeDir);
+        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(AppPaths.PortableDataDirectory(exeDir));
     }
 
     [Fact(DisplayName = "ポインタファイルがあればその中身のパスを使う")]
@@ -38,17 +38,17 @@ public class DataDirectoryPointerTests
         AppPaths.ResolveBaseDirectory(exeDir).Should().Be(userDir);
     }
 
-    [Fact(DisplayName = "ポインタファイルが空行のみならexeと同じ階層にフォールバックする")]
+    [Fact(DisplayName = "ポインタファイルが空行のみならexe直下のdataフォルダにフォールバックする")]
     public void ポインタファイルが空ならexe階層にフォールバックする()
     {
         using var ws = new TempWorkspace();
         var exeDir = ws.CreateDirectory("exe");
         File.WriteAllText(Path.Combine(exeDir, DataDirectoryPointer.FileName), "   " + Environment.NewLine);
 
-        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(exeDir);
+        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(AppPaths.PortableDataDirectory(exeDir));
     }
 
-    [Fact(DisplayName = "TryClearでポインタファイルを消すと、以後は再びexeと同じ階層に解決される")]
+    [Fact(DisplayName = "TryClearでポインタファイルを消すと、以後は再びexe直下のdataフォルダに解決される")]
     public void TryClearでポータブルへ戻る()
     {
         using var ws = new TempWorkspace();
@@ -59,7 +59,7 @@ public class DataDirectoryPointerTests
 
         DataDirectoryPointer.TryClear(exeDir).Should().BeTrue();
 
-        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(exeDir);
+        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(AppPaths.PortableDataDirectory(exeDir));
         File.Exists(DataDirectoryPointer.PointerFilePath(exeDir)).Should().BeFalse();
     }
 
@@ -84,5 +84,30 @@ public class DataDirectoryPointerTests
         var exeDir = ws.CreateDirectory("exe");
 
         DataDirectoryPointer.TryClear(exeDir).Should().BeTrue();
+    }
+
+    [Fact(DisplayName = "1.0.25以前が書いた「exe自身を指す」ポインタ（明示的なポータブル）も、dataフォルダに解決される")]
+    public void 旧版のexe自身を指すポインタはdataに解決される()
+    {
+        using var ws = new TempWorkspace();
+        var exeDir = ws.CreateDirectory("exe");
+        DataDirectoryPointer.TryWrite(exeDir, exeDir).Should().BeTrue();
+
+        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(AppPaths.PortableDataDirectory(exeDir));
+    }
+
+    [Fact(DisplayName = "「明示的に選んだ」印は2行目に書かれ、1行目の保存先の読み取りを妨げない。印の無いポインタは明示扱いにならない")]
+    public void 明示印は2行目で保存先の読み取りを妨げない()
+    {
+        using var ws = new TempWorkspace();
+        var exeDir = ws.CreateDirectory("exe");
+        var userDir = ws.CreateDirectory("user-data");
+
+        DataDirectoryPointer.TryWrite(exeDir, userDir).Should().BeTrue();
+        DataDirectoryPointer.IsExplicitChoice(exeDir).Should().BeFalse();
+
+        DataDirectoryPointer.TryWrite(exeDir, userDir, explicitChoice: true).Should().BeTrue();
+        DataDirectoryPointer.IsExplicitChoice(exeDir).Should().BeTrue();
+        DataDirectoryPointer.TryRead(exeDir).Should().Be(userDir, "1.0.25以前の版が読んでも保存先は変わらない");
     }
 }

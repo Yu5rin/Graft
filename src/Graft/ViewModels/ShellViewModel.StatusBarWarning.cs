@@ -45,7 +45,7 @@ public sealed partial class ShellViewModel
         (
             () => Graft.IsDataDirectoryReadOnly,
             "書き込み不可のため設定・履歴・バックアップは保存されません",
-            "実行ファイルと同じフォルダへ書き込む権限がありません。書き込み権限のあるフォルダへGraftのフォルダ一式を移動してから起動し直してください。"
+            "データの保存先（実行ファイルのフォルダ直下の data フォルダ、または旧い配置の実行ファイルの横）へ書き込む権限がありません。書き込み権限のあるフォルダへGraftのフォルダ一式を移動してから起動し直してください。"
         ),
         (
             () => _hotkeyRegistrationWarning is not null,

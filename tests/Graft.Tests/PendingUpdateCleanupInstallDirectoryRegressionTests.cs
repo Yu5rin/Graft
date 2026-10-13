@@ -93,7 +93,7 @@ public class PendingUpdateCleanupInstallDirectoryRegressionTests
         Directory.GetFileSystemEntries(userDataDir).Should().BeEmpty("掃除はデータ保存先を一切経由しないはず");
     }
 
-    [Fact(DisplayName = "ポータブル運用（移行していない）なら、修正前後どちらの解決経路でも同じ結果になる")]
+    [Fact(DisplayName = "ポータブル運用でも、実行ファイルのフォルダを渡せば.oldが掃除され、dataフォルダには触れない")]
     public void ポータブル運用では修正前後で差が無い()
     {
         using var ws = new TempWorkspace();
@@ -107,7 +107,10 @@ public class PendingUpdateCleanupInstallDirectoryRegressionTests
         var dataDirectory = AppPaths.ResolveBaseDirectory(exeDir);
         var executableDirectory = AppRestart.TryResolveExecutableDirectory(fakeExePath);
 
-        dataDirectory.Should().Be(executableDirectory, "ポータブル運用では両者が一致するため、この不具合は表面化しない");
+        // 1.0.26 から、ポータブルのデータ保存先は exe 直下の data フォルダ。両者は一致しないが、
+        // 掃除は実行ファイルのフォルダを渡す限り正しく働く（data を渡す不具合は起きない）。
+        dataDirectory.Should().Be(AppPaths.PortableDataDirectory(exeDir));
+        executableDirectory.Should().Be(exeDir);
 
         var removed = PendingUpdateCleanup.Run(executableDirectory!);
         removed.Should().BeEquivalentTo(UpdateFiles.RequiredFileNames);

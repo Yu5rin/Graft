@@ -79,6 +79,9 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     // DataDirectoryRecovery.csのLogDataDirectoryRecoveryOutcome参照）。
     private readonly DataDirectoryRecoveryOutcome _dataDirectoryRecoveryOutcome;
 
+    // 1.0.26: data フォルダへの自動移行の結果（無ければ null＝テスト）。ログと通知に使う。
+    private readonly PortableDataOutcome? _portableDataOutcome;
+
     /// <param name="baseDirectory">
     /// settings.json 等の基準ディレクトリ。省略時は<see cref="AppPaths.ResolveBaseDirectory"/>
     /// （データ保存先の選択機能。既定は実行ファイルの場所、ポインタファイルがあればそちら）で決める。
@@ -91,10 +94,19 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
     /// <paramref name="baseDirectory"/>を明示するときはこの確認自体を一切呼ばないため、
     /// 省略時の既定値のままになる。
     /// </param>
-    public StartupCoordinator(string? baseDirectory = null, DataDirectoryRecoveryOutcome? dataDirectoryRecoveryOutcome = null)
+    /// <param name="portableDataOutcome">
+    /// 起動時のデータ保存先の確定結果（<see cref="PortableDataLayout.Resolve"/>）。本番は常に渡す。
+    /// 渡した場合は exe のフォルダと基準ディレクトリをこの結果から決める
+    /// （移行に失敗して旧配置・ユーザーフォルダのまま起動する場合があるため）。
+    /// </param>
+    public StartupCoordinator(
+        string? baseDirectory = null,
+        DataDirectoryRecoveryOutcome? dataDirectoryRecoveryOutcome = null,
+        PortableDataOutcome? portableDataOutcome = null)
     {
-        _exeDirectory = baseDirectory ?? AppContext.BaseDirectory;
-        _appPaths = new AppPaths(baseDirectory);
+        _portableDataOutcome = portableDataOutcome;
+        _exeDirectory = portableDataOutcome?.ExeDirectory ?? baseDirectory ?? AppContext.BaseDirectory;
+        _appPaths = new AppPaths(portableDataOutcome?.BaseDirectory ?? baseDirectory);
         _dataDirectoryRecoveryOutcome = dataDirectoryRecoveryOutcome ?? DataDirectoryRecoveryOutcome.NotApplicable;
     }
 
@@ -190,6 +202,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 各クラスドキュメント参照）。
         LogDataDirectoryRecoveryOutcome(_dataDirectoryRecoveryOutcome);
         LogPendingCleanupOutcome(pendingCleanupOutcome);
+        await ReportPortableDataOutcomeAsync(dialogService).ConfigureAwait(true);
 
         // 機能追加（自動更新）: 前回の自動更新で残った*.old（旧ファイルの退避、
         // Core.Update.SelfUpdateInstaller参照）を掃除する。指示書の設計どおり
