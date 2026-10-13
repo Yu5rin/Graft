@@ -9,7 +9,7 @@ namespace Graft.ViewModels;
 /// <summary>
 /// <see cref="SettingsViewModel"/> の分割ファイル（1ファイル400行上限のため）。
 ///
-/// 機能3（データ保存先の選択。「一般」タブ）: 「ポータブル（実行ファイルと同じフォルダ）」と
+/// 機能3（データ保存先の選択。「一般」タブ）: 「ポータブル（実行ファイルのフォルダ直下の data フォルダ）」と
 /// 「ユーザーフォルダ（%APPDATA%\Graft 等）」を切り替える。利用者からは「移動」として見える
 /// 操作だが、実処理は<see cref="DataDirectoryMigrator"/>（純粋なコピー・検証・ポインタ切り替え
 /// ロジック。単体テスト対象）に委ね、ここではダイアログでの確認・実行中表示・結果の通知だけを
@@ -42,25 +42,35 @@ public sealed partial class SettingsViewModel
     private bool _dataDirectoryMigrationPending;
 
     /// <summary>
-    /// 現在のデータ保存先が「ポータブル」（exeと同じ階層）かどうか。falseなら「ユーザーフォルダ」。
-    /// <see cref="_appPaths"/>のBaseDirectoryと<see cref="_exeDirectory"/>を実際に比較して求める
+    /// 現在のデータ保存先が「ポータブル」（exe のフォルダ直下の data フォルダ）かどうか。
+    /// falseなら「ユーザーフォルダ」、または data へ自動で移せなかった旧配置（exe の横。
+    /// <see cref="IsLegacyPortableDataDirectory"/>）。
+    /// <see cref="_appPaths"/>のBaseDirectoryと<see cref="AppPaths.PortableDataDirectory"/>を実際に比較して求める
     /// （設定値としては持たない。設定に保存先を書くと循環になる問題は<see cref="DataDirectoryPointer"/>
     /// のコメントを参照）。
     /// </summary>
-    public bool IsPortableDataDirectory => PathsEqual(_appPaths.BaseDirectory, _exeDirectory);
+    public bool IsPortableDataDirectory => PathsEqual(_appPaths.BaseDirectory, AppPaths.PortableDataDirectory(_exeDirectory));
+
+    /// <summary>旧配置（exe の横）のまま起動している（data フォルダへの自動移行に失敗した、または書き込めない）か。</summary>
+    public bool IsLegacyPortableDataDirectory => PathsEqual(_appPaths.BaseDirectory, _exeDirectory);
 
     /// <summary>現在のデータ保存先（絶対パス）。画面に「どこに保存されているか」を示すために使う。</summary>
     public string DataDirectoryPath => _appPaths.BaseDirectory;
 
     /// <summary>現在のモードの表示名。</summary>
     public string DataDirectoryModeLabel => IsPortableDataDirectory
-        ? "ポータブル（実行ファイルと同じフォルダ）"
-        : "ユーザーフォルダ";
+        ? "ポータブル（実行ファイルのフォルダ直下の data フォルダ）"
+        : IsLegacyPortableDataDirectory
+            ? "実行ファイルと同じフォルダ（旧い配置。data フォルダへ移せていません）"
+            : "ユーザーフォルダ";
 
-    /// <summary>移行ボタンのラベル。現在のモードに応じて「移動」か「戻す」かが変わる。</summary>
+    /// <summary>
+    /// 移行ボタンのラベル。現在のモードに応じて「移動」か「戻す」かが変わる。
+    /// 戻す先は常に実行ファイルのフォルダ直下の data フォルダ。
+    /// </summary>
     public string DataDirectoryActionLabel => IsPortableDataDirectory
         ? "ユーザーフォルダへ移動"
-        : "ポータブルへ戻す";
+        : "実行ファイルの data フォルダへ戻す";
 
     /// <summary>
     /// 直前の移行操作が成功し、再起動待ちの状態かどうか。trueの間は
@@ -77,7 +87,7 @@ public sealed partial class SettingsViewModel
         }
     }
 
-    /// <summary>データ保存先の切り替え（「ユーザーフォルダへ移動」／「ポータブルへ戻す」）。</summary>
+    /// <summary>データ保存先の切り替え（「ユーザーフォルダへ移動」／「実行ファイルの data フォルダへ戻す」）。</summary>
     public AsyncRelayCommand MigrateDataDirectoryCommand { get; private set; } = null!;
 
     /// <summary>機能2: logs/フォルダをファイルマネージャで開く。</summary>
@@ -87,13 +97,15 @@ public sealed partial class SettingsViewModel
     public AsyncRelayCommand ShowLatestLogCommand { get; private set; } = null!;
 
     /// <summary>
-    /// 「ユーザーフォルダへ移動」／「ポータブルへ戻す」の実処理。実態は「移動」で、元の場所の
+    /// 「ユーザーフォルダへ移動」／「実行ファイルの data フォルダへ戻す」の実処理。ユーザーフォルダへ移動すると
+    /// datapath.txt に「明示的に選んだ」印が付き、次の起動で自動的に data へ戻されることは無い
+    /// （<see cref="DataDirectoryPointer.TryWrite"/>・<see cref="PortableDataLayout"/>参照）。実態は「移動」で、元の場所の
     /// データは次回起動時に削除される破壊的操作のため必ず確認し、実行中はIsBusyを立てる。
     /// </summary>
     private async Task MigrateDataDirectoryAsync()
     {
         var switchingToPortable = !IsPortableDataDirectory;
-        var target = switchingToPortable ? _exeDirectory : AppPaths.DefaultUserDataDirectory();
+        var target = switchingToPortable ? AppPaths.PortableDataDirectory(_exeDirectory) : AppPaths.DefaultUserDataDirectory();
 
         if (PathsEqual(_appPaths.BaseDirectory, target))
         {
@@ -103,7 +115,7 @@ public sealed partial class SettingsViewModel
             return;
         }
 
-        var confirmTitle = switchingToPortable ? "ポータブルへ戻す" : "ユーザーフォルダへ移動";
+        var confirmTitle = switchingToPortable ? "data フォルダへ戻す" : "ユーザーフォルダへ移動";
         var confirmed = await _dialogService.ConfirmAsync(confirmTitle, BuildMigrationConfirmText(target))
             .ConfigureAwait(true);
         if (!confirmed) return;

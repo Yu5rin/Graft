@@ -43,6 +43,17 @@ public sealed partial class StartupCoordinator
     /// </summary>
     private async Task<Logger> InitializeDataDirectoryAsync(IDialogService dialogService)
     {
+        // data フォルダが無ければ作る（ユーザーフォルダ等へ解決された場合も同じ）。作れなければ
+        // 下の書き込み確認が失敗として拾う。
+        try
+        {
+            Directory.CreateDirectory(_appPaths.BaseDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 書き込み確認に任せる。
+        }
+
         _isDataDirectoryWritable = _appPaths.CanWriteToBaseDirectory();
         if (!_isDataDirectoryWritable)
         {
@@ -84,12 +95,14 @@ public sealed partial class StartupCoordinator
     private string BuildWriteProtectedWarningText() =>
         "このフォルダへ書き込めません。" + Environment.NewLine +
         _appPaths.BaseDirectory + Environment.NewLine + Environment.NewLine +
-        "Graftは実行ファイルと同じフォルダに設定・プロジェクトの履歴・バックアップ・ログを保存します。" +
+        "Graftは設定・プロジェクトの履歴・バックアップ・ログを、実行ファイルのフォルダ直下の " +
+        AppPaths.PortableDataDirectoryName + " フォルダ（旧い版のデータが実行ファイルの横にある場合はそこ）に保存します。" +
         "このままでは設定を変更しても保存されず、パッチ適用前のバックアップも作成できません。" +
         "変更内容は次回起動時にすべて失われます。" + Environment.NewLine + Environment.NewLine +
         "対処: 書き込み権限のあるフォルダ（例: ドキュメントフォルダやデスクトップなど）へ、" +
         "Graftのフォルダ一式を移動してから起動し直してください。" +
         "（Windowsで「Program Files」配下に置いている場合、この状態になっている可能性があります。）" +
+        (_portableDataOutcome?.Detail is { } detail ? Environment.NewLine + Environment.NewLine + detail : string.Empty) +
         Environment.NewLine + Environment.NewLine +
         "このまま起動は続行しますが、保存できない状態が続いていることはステータスバーに表示され続けます。";
 }

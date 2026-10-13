@@ -149,12 +149,13 @@ public class DataDirectoryMigratorTests
         ws.WriteText("user-data/settings.json", "{}");
         DataDirectoryPointer.TryWrite(exeDir, userDir);
 
-        var portableTarget = exeDir; // ポータブル＝exeと同じ階層へ戻す
+        var portableTarget = AppPaths.PortableDataDirectory(exeDir); // ポータブル＝exe直下のdataフォルダへ戻す
         var result = DataDirectoryMigrator.MigrateAndSwitchPointer(exeDir, userDir, portableTarget, switchToPortable: true);
 
         result.IsSuccess.Should().BeTrue();
         File.Exists(DataDirectoryPointer.PointerFilePath(exeDir)).Should().BeFalse();
-        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(exeDir);
+        AppPaths.ResolveBaseDirectory(exeDir).Should().Be(portableTarget);
+        File.Exists(Path.Combine(portableTarget, "settings.json")).Should().BeTrue("data フォルダへ移っている");
 
         // 元の場所（ユーザーフォルダ）のデータは残したまま（安全側）。
         File.Exists(Path.Combine(userDir, "settings.json")).Should().BeTrue();

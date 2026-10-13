@@ -69,7 +69,8 @@ public sealed partial class StartupCoordinator
             // 「いいえ」: 毎回聞かれると鬱陶しいため、以後は尋ねない状態にする。datapath.txtへ
             // exeフォルダ自身のパスを書けば「明示的にポータブル」となり、次回以降は
             // ShouldPromptForRecoveryの条件1（ポインタが無い）が不成立になり候補から外れる。
-            var written = DataDirectoryPointer.TryWrite(exeDirectory, exeDirectory);
+            // 1.0.26: ポータブルの保存先は exe の横ではなく data フォルダ。
+            var written = DataDirectoryPointer.TryWrite(exeDirectory, AppPaths.PortableDataDirectory(exeDirectory));
             return new DataDirectoryRecoveryOutcome(
                 written ? DataDirectoryRecoveryResult.DeclinedAndMarkedPortable : DataDirectoryRecoveryResult.DeclinedPointerWriteFailed,
                 userDataDirectory);
@@ -94,6 +95,9 @@ public sealed partial class StartupCoordinator
     private static string BuildRecoveryPromptText(string userDataDirectory) =>
         "以前ユーザーフォルダに保存したデータが見つかりました。こちらを使いますか？" +
         Environment.NewLine + Environment.NewLine + userDataDirectory +
+        Environment.NewLine + Environment.NewLine +
+        "「はい」を選ぶと、このデータを実行ファイルのフォルダの data フォルダへ移して使います" +
+        "（移せない場合は、ユーザーフォルダのまま使います）。" +
         Environment.NewLine + Environment.NewLine + "（キャンセルするとGraftを終了します）";
 
     /// <summary>
@@ -119,7 +123,7 @@ public sealed partial class StartupCoordinator
                 return;
             case DataDirectoryRecoveryResult.DeclinedAndMarkedPortable:
                 _logger?.Info("startup",
-                    $"ユーザーフォルダのデータ復帰を見送り、ポータブルとして明示しました（以後は尋ねません）: {outcome.UserDataDirectory}");
+                    $"ユーザーフォルダのデータ復帰を見送り、ポータブル（dataフォルダ）として明示しました（以後は尋ねません）: {outcome.UserDataDirectory}");
                 return;
             case DataDirectoryRecoveryResult.DeclinedPointerWriteFailed:
                 _logger?.Warn("startup",

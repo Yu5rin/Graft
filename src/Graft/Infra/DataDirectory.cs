@@ -19,6 +19,24 @@ public static class DataDirectoryPointer
     /// <summary>ポインタファイル名。中身はデータ保存先の絶対パス1行のみ。</summary>
     public const string FileName = "datapath.txt";
 
+    /// <summary>「利用者が明示的に選んだ保存先」を示す 2 行目の印（<see cref="TryWrite"/>参照）。</summary>
+    public const string ExplicitMarker = "explicit";
+
+    /// <summary>ポインタファイルに「明示的に選んだ」印があるか。読み取れなければ false（自動で移す側に倒す）。</summary>
+    public static bool IsExplicitChoice(string exeDirectory)
+    {
+        try
+        {
+            var path = PointerFilePath(exeDirectory);
+            if (!File.Exists(path)) return false;
+            return File.ReadAllLines(path).Skip(1).Any(l => string.Equals(l.Trim(), ExplicitMarker, StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>exeディレクトリからポインタファイルの絶対パスを組み立てる。</summary>
     public static string PointerFilePath(string exeDirectory) => Path.Combine(exeDirectory, FileName);
 
@@ -53,11 +71,20 @@ public static class DataDirectoryPointer
     /// falseを返す。呼び出し側はこの戻り値がfalseの間は「移行できなかった」ものとして扱うこと
     /// （コピーしたデータ自体は残るが、次回起動時には従来の場所が使われ続ける）。
     /// </summary>
-    public static bool TryWrite(string exeDirectory, string dataDirectory)
+    /// <param name="explicitChoice">
+    /// 利用者が設定画面の「ユーザーフォルダへ移動」で明示的に選んだ場所なら true。2 行目に
+    /// <see cref="ExplicitMarker"/> を書く。1.0.26 以降、印の無いポインタ（1.0.25 以前が書いたもの、
+    /// 復帰確認で書いたもの）は起動時に一度だけ data フォルダへ自動で移され（<see cref="PortableDataLayout"/>）、
+    /// 印のあるものは自動では移されない。印を 2 行目にしたのは、<see cref="TryRead"/> が最初の
+    /// 空でない行だけを保存先として読むため、1.0.25 以前の版が読んでも保存先は変わらず壊れないから。
+    /// </param>
+    public static bool TryWrite(string exeDirectory, string dataDirectory, bool explicitChoice = false)
     {
         try
         {
-            File.WriteAllText(PointerFilePath(exeDirectory), dataDirectory + Environment.NewLine);
+            var text = dataDirectory + Environment.NewLine;
+            if (explicitChoice) text += ExplicitMarker + Environment.NewLine;
+            File.WriteAllText(PointerFilePath(exeDirectory), text);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -229,6 +256,10 @@ public static class DataDirectoryMigrator
         yield return paths.QueueFilePath;
         yield return paths.OnboardingMarkerFilePath;
         yield return paths.WindowLayoutFilePath;
+
+        // 1.0.26: 更新確認の内部状態もデータ保存先に置く（AppPaths.UpdateCheckStateFilePath参照）。
+        // 以前はここに挙げ忘れていて、保存先の移行で取り残されていた。
+        yield return paths.UpdateCheckStateFilePath;
     }
 
     // 移行対象のディレクトリ（バックアップ一式・ログ一式）。
@@ -336,7 +367,7 @@ public static class DataDirectoryMigrator
 
         var pointerOk = switchToPortable
             ? DataDirectoryPointer.TryClear(exeDirectory)
-            : DataDirectoryPointer.TryWrite(exeDirectory, targetDirectory);
+            : DataDirectoryPointer.TryWrite(exeDirectory, targetDirectory, explicitChoice: true);
 
         if (!pointerOk)
         {
@@ -438,6 +469,15 @@ public static class DataDirectoryMigrator
             return new PendingCleanupOutcome(PendingCleanupResult.MigrateFailed, oldDirectory, detail);
         }
 
+        // 【削除の前の再検証】Migrateの検証は「存在するか」だけ。元を消す直前なので、ファイルの
+        // 大きさまで照合する（半端に書けたコピーを残して元を消す事故を避ける）。この時点では
+        // 旧保存先はどのプロセスも使っておらず（起動の最初期）、大きさが変わる心配は無い。
+        if (!VerifyDeep(oldDirectory, currentBaseDirectory))
+        {
+            return new PendingCleanupOutcome(PendingCleanupResult.MigrateFailed, oldDirectory,
+                "コピーしたファイルの大きさが元と一致しませんでした。");
+        }
+
         var deleteFailures = DeleteKnownContents(oldDirectory);
         DataDirectoryPendingCleanupMarker.TryClear(currentBaseDirectory);
 
@@ -537,6 +577,40 @@ public static class DataDirectoryMigrator
         return KnownFilePaths(paths).Any(File.Exists) || KnownDirectoryPaths(paths).Any(Directory.Exists);
     }
 
+    /// <summary>
+    /// 元（<paramref name="sourceDirectory"/>）の既知のファイル・フォルダ配下のすべてのファイルが、
+    /// コピー先に同じ大きさで存在するか。
+    /// </summary>
+    private static bool VerifyDeep(string sourceDirectory, string targetDirectory)
+    {
+        var source = new AppPaths(sourceDirectory);
+        var target = new AppPaths(targetDirectory);
+        try
+        {
+            foreach (var (src, dst) in BuildFilePairs(source, target))
+            {
+                if (!File.Exists(src)) continue;
+                if (!File.Exists(dst) || new FileInfo(src).Length != new FileInfo(dst).Length) return false;
+            }
+
+            foreach (var (src, dst) in BuildDirectoryPairs(source, target))
+            {
+                if (!Directory.Exists(src)) continue;
+                foreach (var file in Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories))
+                {
+                    var copy = Path.Combine(dst, Path.GetRelativePath(src, file));
+                    if (!File.Exists(copy) || new FileInfo(file).Length != new FileInfo(copy).Length) return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private static bool Verify(
         IReadOnlyList<(string Src, string Dst)> filePairs, IReadOnlyList<(string Src, string Dst)> directoryPairs)
     {
@@ -610,8 +684,8 @@ public static class DataDirectoryMigrator
 /// 保存したデータを使いますか？」と尋ねる（<see cref="Views.StartupCoordinator.
 /// ResolveDataDirectoryRecoveryAsync"/>が実際の確認・ポインタ書き込みを行う）。
 ///   1. exeと同じ階層にdatapath.txtが無い（<see cref="DataDirectoryPointer.TryRead"/>がnull）。
-///   2. exeフォルダ自体にGraftの既知のデータが1つも無い（<see cref="DataDirectoryMigrator.
-///      HasKnownContents"/>がfalse）。
+///   2. exeフォルダ自体にも、その data フォルダ（<see cref="AppPaths.PortableDataDirectory"/>）にも
+///      Graftの既知のデータが1つも無い（<see cref="DataDirectoryMigrator.HasKnownContents"/>がfalse）。
 ///   3. 既定のユーザーフォルダ（<see cref="AppPaths.DefaultUserDataDirectory"/>）に既知のデータが
 ///      1つ以上ある。
 ///
@@ -642,8 +716,11 @@ public static class DataDirectoryRecovery
         // 条件1: exeと同じ階層のポインタファイルが無い（＝保存先が未確定）。
         if (DataDirectoryPointer.TryRead(exeDirectory) is not null) return false;
 
-        // 条件2（最重要の安全弁）: exeフォルダ自体に既知のデータが1つも無い。
+        // 条件2（最重要の安全弁）: exeフォルダ自体にも、その data フォルダ（1.0.26 からの
+        // ポータブルの保存先）にも、既知のデータが1つも無い。旧配置（exeの横）と新配置（data）の
+        // どちらにあっても「既にポータブルで運用されている」と判断する。
         if (DataDirectoryMigrator.HasKnownContents(exeDirectory)) return false;
+        if (DataDirectoryMigrator.HasKnownContents(AppPaths.PortableDataDirectory(exeDirectory))) return false;
 
         // 条件3: 既定のユーザーフォルダに既知のデータが1つ以上ある。
         return DataDirectoryMigrator.HasKnownContents(userDataDirectory);

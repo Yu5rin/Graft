@@ -56,7 +56,7 @@ public class UpdateInstallDirectoryRegressionTests
             "この食い違いこそが今回の不具合の直接の原因");
     }
 
-    [Fact(DisplayName = "ポータブル運用（移行していない）なら両者は一致する")]
+    [Fact(DisplayName = "ポータブル運用では、データ保存先はexe直下のdataで、実行ファイルの場所とは別")]
     public void ポータブル運用では両者が一致する()
     {
         using var ws = new TempWorkspace();
@@ -66,10 +66,10 @@ public class UpdateInstallDirectoryRegressionTests
         var resolvedDataDirectory = AppPaths.ResolveBaseDirectory(exeDir);
         var resolvedInstallDirectory = AppRestart.TryResolveExecutableDirectory(fakeExePath);
 
-        resolvedDataDirectory.Should().Be(exeDir);
+        resolvedDataDirectory.Should().Be(AppPaths.PortableDataDirectory(exeDir));
         resolvedInstallDirectory.Should().Be(exeDir);
-        resolvedDataDirectory.Should().Be(resolvedInstallDirectory,
-            "ポータブル運用ではデータ保存先＝実行ファイルの場所なので、従来どおり区別する必要がない");
+        resolvedDataDirectory.Should().NotBe(resolvedInstallDirectory,
+            "1.0.26から、ポータブルでもデータ保存先（exe直下のdata）と実行ファイルの場所は別。更新はexeの場所だけを触る");
     }
 
     [Fact(DisplayName = "不具合そのものの再現: installDirectoryへデータ保存先を渡すと実機と同じ失敗（Graft.exeを退避できない）になる")]

@@ -4,7 +4,8 @@ namespace Graft.Infra;
 
 /// <summary>
 /// 2.2章のフォルダ構成に基づく各種パスを提供する。
-/// exe と同じ階層（<see cref="BaseDirectory"/>）を基準とし、テストから差し替えられる
+/// 基準ディレクトリ（<see cref="BaseDirectory"/>）は、ポータブル運用では exe のフォルダ直下の
+/// data フォルダ（<see cref="PortableDataDirectory"/>）。テストから差し替えられる
 /// よう基準ディレクトリをコンストラクタ引数で受け取れるようにしている。
 /// </summary>
 public sealed class AppPaths
@@ -22,14 +23,34 @@ public sealed class AppPaths
         BaseDirectory = baseDirectory ?? ResolveBaseDirectory();
     }
 
+    /// <summary>ポータブル運用時のデータ保存先フォルダ名（exe のフォルダ直下）。</summary>
+    public const string PortableDataDirectoryName = "data";
+
+    /// <summary>
+    /// ポータブル運用時のデータ保存先（<c>&lt;exeのフォルダ&gt;/data</c>）。
+    ///
+    /// 【なぜ exe の横ではなく data フォルダか】PC の引っ越しで exe のフォルダごとコピーすれば
+    /// 設定・プロジェクト一覧・履歴・バックアップ・ログが一緒に移るようにしたい一方、それらが
+    /// Graft.exe やランタイムの DLL と同じ階層に散らばると、どれが配布物でどれが利用者のデータか
+    /// 見分けにくく、自動更新の入れ替え対象（<see cref="Core.Update.UpdateFiles.RequiredFileNames"/>）との
+    /// 境界も曖昧になる。データを 1 つのフォルダにまとめれば、自動更新が触れない範囲も
+    /// 「data フォルダ全体」と一言で言える。
+    /// </summary>
+    public static string PortableDataDirectory(string exeDirectory)
+        => Path.Combine(exeDirectory, PortableDataDirectoryName);
+
     /// <summary>
     /// 機能3（データ保存先の選択）: 実際のデータ保存先を決める。
     ///
     /// settings.json自体に保存先を書くと「settings.jsonの場所がsettings.jsonの中身に
     /// 依存する」循環に陥るため、代わりにexeと同じ階層に置く小さなポインタファイル
     /// （<see cref="DataDirectoryPointer"/>、既定名 datapath.txt）だけを読んで決める。
-    /// ポインタファイルが無い・空・読み取れない場合は、従来どおりexeと同じ階層
-    /// （ポータブル）を使う。
+    /// ポインタファイルが無い・空・読み取れない場合は、ポータブル（<see cref="PortableDataDirectory"/>）を使う。
+    /// ポインタが exe のフォルダ自身を指している場合（1.0.25 以前の「いいえ」で書かれた
+    /// 「明示的にポータブル」）も同様に data を返す。1.0.26 以降は exe の横にデータを置かないため。
+    ///
+    /// 注意: 旧配置（exe の横）からの移行に失敗して旧配置のまま起動する場合の基準は、この関数ではなく
+    /// 起動時の <see cref="PortableDataLayout.Resolve"/> が決める（失敗の状態を持つため）。
     /// </summary>
     /// <param name="exeDirectory">
     /// exeのあるフォルダ。省略時は <see cref="AppContext.BaseDirectory"/>。
@@ -38,7 +59,17 @@ public sealed class AppPaths
     public static string ResolveBaseDirectory(string? exeDirectory = null)
     {
         var exeDir = exeDirectory ?? AppContext.BaseDirectory;
-        return DataDirectoryPointer.TryRead(exeDir) ?? exeDir;
+        var pointer = DataDirectoryPointer.TryRead(exeDir);
+        if (pointer is null || PathsEqual(pointer, exeDir)) return PortableDataDirectory(exeDir);
+        return pointer;
+    }
+
+    internal static bool PathsEqual(string a, string b)
+    {
+        var fullA = Path.TrimEndingDirectorySeparator(Path.GetFullPath(a));
+        var fullB = Path.TrimEndingDirectorySeparator(Path.GetFullPath(b));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return string.Equals(fullA, fullB, comparison);
     }
 
     /// <summary>
@@ -84,7 +115,10 @@ public sealed class AppPaths
     /// 保存先。settings.json（利用者が編集しうる設定本体）とは別ファイルにしているのは、
     /// 「JSON直接編集タブ」やエクスポート/インポートの対象を増やしたくないため
     /// （settings.jsonはUpdateSettings.CheckOnStartup/AutoInstall/CheckUrlのみを持ち、こちらは内部状態）。
-    /// 他の内部状態（queue.json・layout.json）と同じくexeと同じ階層に平置きする。
+    /// 他の内部状態（queue.json・layout.json）と同じくデータ保存先に平置きする。
+    /// 1.0.26 から、ポータブル運用ではこれも data フォルダに入る。exe のフォルダごとコピーする
+    /// 引っ越しで一緒に移ってよく（前回確認日時は引っ越し先でも意味がある）、
+    /// データ保存先に依存してはいけない理由も無いため、exe の横には残さない。
     /// </summary>
     public string UpdateCheckStateFilePath => Path.Combine(BaseDirectory, "update-check.json");
 
