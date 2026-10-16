@@ -301,6 +301,22 @@ public static class StandardSearchReplaceAdapter
             return SkipBlock(lines, index, markerLine, state);
         }
 
+        // 【プレースホルダーのパスは適用させない】実機で、handoff.md を NEW_FILE で作るパッチの本文に
+        // 「書き方の説明」として標準SR形式のマーカーがそのまま入っていた。標準SR形式には本文の
+        // エスケープ規則が無く、本文は最初の ">>>>>>> END_FILE" で途切れる。残りの説明例は
+        // "path/to/file" に対するブロックとして読まれ、全体が E303（プロジェクト一致率0%）になって
+        // 原因が分からなかった。"path/to/" は説明用の定番の仮パスで、実在のプロジェクトでこの
+        // 名前のフォルダに書き込ませる正当な理由は無い。"<...>" を含むパスも同様に仮置きの書き方
+        // （そもそもパス指定行として認識される文字に <・> は含まれないが、LastPath 経由でも
+        // 取りこぼさないよう防御的に見る）。誤検知は「実在するパスの先頭が path/to/」の場合に
+        // 限られ、その場合も E010 の案内で原因は分かる。
+        if (IsPlaceholderPath(path))
+        {
+            state.NoteContamination(headerLine,
+                $"{headerLine}行目のブロックの対象が \"{path}\" になっていますが、これは説明用の仮のパスです。" +
+                "別のファイルの本文に書かれた書き方の例が、本物のブロックとして読まれた可能性があります。");
+        }
+
         state.LastPath = rawPath;
 
         return markerLine.StartsWith(SearchMarker, StringComparison.Ordinal)
@@ -363,6 +379,22 @@ public static class StandardSearchReplaceAdapter
         {
             state.MarkTruncated();
             return lines.Length;
+        }
+
+        // 【本文の中に NEW_FILE/WHOLE_FILE/DELETE_FILE の開始行がある = 本文にパッチの記号が混じっている】
+        // 本文は最初の END_FILE までで確定する。その途中に同じ種類の開始行（"<<<<<<< NEW_FILE" 等）が
+        // あるなら、本文の中に別のブロックの例が書かれており、いま見えている END_FILE はその例の
+        // 終端であって本来の終端ではない。ブロックは入れ子にできないため、正しいパッチではこの形は
+        // 起こらない（誤検知の余地が無い）。パス名が仮置きでない例（src/foo.cs 等）でも検出できる。
+        // SEARCH の開始行は見ない: SEARCH 部・REPLACE 部の例だけを書いた文書は END_FILE を伴わず、
+        // 従来どおり正しく取り込めるものを弾いてしまうため。
+        var nested = body.Lines.Select((l, k) => (Line: l.TrimEnd(), No: index + 2 + k))
+            .FirstOrDefault(x => IsWholeFileOpenMarker(x.Line));
+        if (nested.Line is not null)
+        {
+            state.NoteContamination(headerLine,
+                $"{headerLine}行目の \"{markerLine.Trim()}\" ブロックの本文の中（{nested.No}行目）に " +
+                $"\"{nested.Line.Trim()}\" があります。本文の中に書き方の例が含まれている可能性があります。");
         }
 
         if (markerLine.StartsWith(DeleteFileMarker, StringComparison.Ordinal))
@@ -428,6 +460,17 @@ public static class StandardSearchReplaceAdapter
     // ------------------------------------------------------------------
     // 行の判定
     // ------------------------------------------------------------------
+
+    private static bool IsWholeFileOpenMarker(string trimmed)
+        => trimmed.StartsWith(NewFileMarker, StringComparison.Ordinal)
+        || trimmed.StartsWith(WholeFileMarker, StringComparison.Ordinal)
+        || trimmed.StartsWith(DeleteFileMarker, StringComparison.Ordinal);
+
+    /// <summary>説明用の仮のパス（"path/to/..."、または "&lt;...&gt;" を含む）かどうか。</summary>
+    private static bool IsPlaceholderPath(string normalizedPath)
+        => normalizedPath.StartsWith("path/to/", StringComparison.OrdinalIgnoreCase)
+        || normalizedPath.Contains('<')
+        || normalizedPath.Contains('>');
 
     private static bool IsBlockOpenMarker(string trimmed)
         => trimmed.StartsWith(SearchMarker, StringComparison.Ordinal)
@@ -556,6 +599,17 @@ public static class StandardSearchReplaceAdapter
 
         public void MarkTruncated() => _truncated = true;
 
+        /// <summary>
+        /// 本文にパッチの記号が混じっている疑い（E010）。最初に見つけた1件だけ覚える
+        /// （後続の誤読ブロックは連鎖で出るだけで、最初の1件が原因の入口になるため）。
+        /// </summary>
+        public GraftIssue? Contamination { get; private set; }
+
+        public void NoteContamination(int line, string reason)
+            => Contamination ??= GraftIssue.Of(ErrorCode.E010,
+                reason,
+                line: line);
+
         public void AddPair(string path, int headerLine, OccurrenceSpec? occurrence, SearchReplacePair pair)
         {
             if (!_pairsByPath.TryGetValue(path, out var pairs))
@@ -589,6 +643,11 @@ public static class StandardSearchReplaceAdapter
 
         public GraftResult<Patch> Build(string patchText)
         {
+            // 本文にパッチの記号が混じっている疑いがあれば、取り込んだブロックは信用できないため
+            // 部分的にも採用せず、原因が分かるエラーで失敗させる。ここで返すので、利用者に
+            // 「プロジェクト一致率が低い」（E303）のような無関係なエラーは届かない。
+            if (Contamination is not null) return GraftResult<Patch>.Fail(Contamination);
+
             // まとめて溜めたペアを最終的な件数で確定させる。
             foreach (var (path, index) in _blockIndexByPath)
             {

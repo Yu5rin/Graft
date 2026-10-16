@@ -1,0 +1,5 @@
+<<<< APPEND: notes.txt FENCE=Q
+<<<< FILE: x
+=======
+>>>> END:Qx
+>>>> END:Q

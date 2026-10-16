@@ -1,0 +1,20 @@
+handoff.md
+<<<<<<< NEW_FILE
+# 引き継ぎメモ
+
+## パッチの書き方
+
+path/to/file
+<<<<<<< SEARCH
+古い行
+=======
+新しい行
+>>>>>>> REPLACE
+
+path/to/newfile
+<<<<<<< NEW_FILE
+新しい本文
+>>>>>>> END_FILE
+
+以上です。
+>>>>>>> END_FILE

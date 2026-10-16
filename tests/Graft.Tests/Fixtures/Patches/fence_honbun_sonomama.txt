@@ -1,0 +1,8 @@
+<<<< FILE: doc/syntax.md MODE=FULL FENCE=Q
+# 書き方
+<<<< FILE: x
+=======
+>>>> END
+>>>>>>> REPLACE
+\<<<< 行頭のバックスラッシュも残る
+>>>> END:Q
