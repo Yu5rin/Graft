@@ -82,7 +82,7 @@ public sealed class BackupManager
                 ErrorCode.E401, $"manifest.json の書き込みに失敗しました: {ExceptionMessages.Describe(ex)}", path: manifestPath);
         }
 
-        var session = new BackupSession(_jsonStore, _revisionIndex, projectId, projectRoot, folderPath, manifestPath, initial.Revision);
+        var session = new BackupSession(_jsonStore, _revisionIndex, projectId, projectRoot, folderPath, manifestPath, initial.Revision, manifest);
         return GraftResult<BackupSession>.Ok(session);
     }
 

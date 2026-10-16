@@ -51,7 +51,7 @@ public sealed partial class StartupCoordinator
 
         var reconciled = await ReconcileRevisionsAsync(projectStore, revisionStore, validated.Value)
             .ConfigureAwait(false);
-        var inProgress = await CollectInProgressAsync(revisionStore, reconciled).ConfigureAwait(false);
+        var inProgress = await CollectInProgressAsync(revisionStore, reconciled, _logger).ConfigureAwait(false);
 
         if (_logger is not null)
         {
@@ -195,21 +195,38 @@ public sealed partial class StartupCoordinator
         return updated;
     }
 
+    /// <summary>
+    /// 取り消しを勧める対象は、そのプロジェクトの最新の成功リビジョンより新しい in_progress だけ。
+    /// 後から成功した適用がある古い in_progress は、勧めると後の変更を古いバックアップで上書きして
+    /// 失う危険があり、キャンセルしても毎回出続けるため、ログに残すだけにする
+    /// （判定は <see cref="RevisionStore.SplitInProgress"/>）。履歴ペインには従来どおり一覧されるので、
+    /// 利用者は内容を確認できる。
+    /// </summary>
     private static async Task<IReadOnlyList<InProgressRevisionIssue>> CollectInProgressAsync(
-        RevisionStore revisionStore, IReadOnlyList<Project> projects)
+        RevisionStore revisionStore, IReadOnlyList<Project> projects, Logger? logger)
     {
         var result = new List<InProgressRevisionIssue>();
         foreach (var project in projects.Where(p => !p.IsDisconnected))
         {
-            var found = await revisionStore.FindInProgressAsync(project.Id).ConfigureAwait(false);
-            if (found.IsSuccess && found.Value.Count > 0)
+            var found = await revisionStore.FindInterruptedAsync(project.Id).ConfigureAwait(false);
+            if (!found.IsSuccess) continue;
+
+            if (found.Value.Superseded.Count > 0)
+            {
+                var numbers = string.Join("、", found.Value.Superseded.Select(r => $"r{r.Manifest.Revision}"));
+                logger?.Info("startup",
+                    $"プロジェクト「{project.DisplayName}」の{numbers}は未完了のまま残っていますが、" +
+                    "その後に成功した適用があるため、取り消しは提案しません");
+            }
+
+            if (found.Value.Offer.Count > 0)
             {
                 result.Add(new InProgressRevisionIssue
                 {
                     ProjectId = project.Id,
                     ProjectName = project.DisplayName,
                     ProjectRoot = project.Root,
-                    Revisions = found.Value,
+                    Revisions = found.Value.Offer,
                 });
             }
         }

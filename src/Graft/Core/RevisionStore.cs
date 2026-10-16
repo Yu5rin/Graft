@@ -130,6 +130,52 @@ public sealed partial class RevisionStore
     }
 
     /// <summary>
+    /// 起動時にロールバックを勧めてよい in_progress と、勧めてはいけない（後から成功した適用がある）
+    /// in_progress に振り分けた結果。
+    /// </summary>
+    public sealed record InterruptedRevisions(
+        IReadOnlyList<RevisionSummary> Offer, IReadOnlyList<RevisionSummary> Superseded);
+
+    /// <summary>
+    /// in_progress のリビジョンを、起動時に取り消しを勧めるもの（<see cref="InterruptedRevisions.Offer"/>）と
+    /// 勧めないもの（<see cref="InterruptedRevisions.Superseded"/>）に分ける。
+    ///
+    /// 【なぜ分けるか】 in_progress が残る原因は「適用中にアプリが落ちた」だけではない。後から同じ
+    /// プロジェクトで別の適用が成功している（番号が大きい、または適用日時が新しい success がある）なら、
+    /// 中断後もそのプロジェクトで作業が続いており、古い in_progress は実害の無い残骸である。
+    /// そこで force: true の復元（起動時のOK）を許すと、後の適用が同じファイルを変えていれば
+    /// その変更を古いバックアップで上書きして失う。そのため後に success があるものは勧めない。
+    /// 番号と日時のどちらか一方でも後の success があれば「後がある」とみなす（番号の振り直しや
+    /// 時計のずれでどちらかが逆転しても、後から成功した適用を巻き戻す事故を避ける側に倒す）。
+    /// </summary>
+    public async Task<GraftResult<InterruptedRevisions>> FindInterruptedAsync(string projectId, CancellationToken ct = default)
+    {
+        var listResult = await ListAsync(projectId, ct).ConfigureAwait(false);
+        if (!listResult.IsSuccess)
+        {
+            return GraftResult<InterruptedRevisions>.Fail(listResult.Issues);
+        }
+
+        return GraftResult<InterruptedRevisions>.Ok(SplitInProgress(listResult.Value), listResult.Issues);
+    }
+
+    /// <summary><see cref="FindInterruptedAsync"/> の振り分け本体（純ロジック）。</summary>
+    public static InterruptedRevisions SplitInProgress(IEnumerable<RevisionSummary> all)
+    {
+        var list = all.ToList();
+        var successes = list.Where(s => s.Manifest.Status == RevisionStatus.Success).ToList();
+        var offer = new List<RevisionSummary>();
+        var superseded = new List<RevisionSummary>();
+        foreach (var r in list.Where(s => s.Manifest.Status == RevisionStatus.InProgress))
+        {
+            var hasLaterSuccess = successes.Any(s =>
+                s.Manifest.Revision > r.Manifest.Revision || s.Manifest.AppliedAt > r.Manifest.AppliedAt);
+            (hasLaterSuccess ? superseded : offer).Add(r);
+        }
+        return new InterruptedRevisions(offer, superseded);
+    }
+
+    /// <summary>
     /// 7.4の世代管理。上限超過分を古い順にゴミ箱（対応OS。未対応環境では通常削除）へ送る。
     /// </summary>
     public async Task<GraftResult<int>> EnforceRetentionAsync(string projectId, BackupSettings settings, CancellationToken ct = default)
