@@ -1,0 +1,13 @@
+handoff.md
+<<<<<<< NEW_FILE
+# メモ
+
+例:
+path/to/file
+<<<<<<< SEARCH
+古い
+=======
+新しい
+>>>>>>> REPLACE
+
+>>>>>>> END_FILE

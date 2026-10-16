@@ -216,7 +216,7 @@ public sealed class PatchParser
     private static FullContentBlock ParseFullContentBody(
         PatchScanner scanner, string path, int lineNumber, string headerText, string? fence, OccurrenceSpec? occurrence, string? description)
     {
-        var result = scanner.CollectBody(BlockEndTerminator(fence));
+        var result = scanner.CollectBody(BlockEndTerminator(fence), verbatim: fence is not null);
         if (result.Outcome == BodyOutcome.Truncated) throw new TruncatedSignal();
         if (result.Outcome == BodyOutcome.Broken) throw BrokenBodyFailure(result, lineNumber, headerText, EndMarkerText(fence));
 
@@ -380,7 +380,7 @@ public sealed class PatchParser
         var path = NormalizePathOrThrow(rawPath, lineNumber);
         scanner.Next();
 
-        var result = scanner.CollectBody(BlockEndTerminator(fence));
+        var result = scanner.CollectBody(BlockEndTerminator(fence), verbatim: fence is not null);
         if (result.Outcome == BodyOutcome.Truncated) throw new TruncatedSignal();
         if (result.Outcome == BodyOutcome.Broken)
             throw BrokenBodyFailure(result, lineNumber, headerText, EndMarkerText(fence));

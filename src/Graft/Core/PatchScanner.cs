@@ -232,10 +232,24 @@ internal sealed class PatchScanner
 
     /// <summary>
     /// 終了判定 <paramref name="isTerminator"/> が真を返す行まで本文を収集する。
-    /// エスケープ済み行は先頭の "\" を1つ取り除いて内容行として扱い、
-    /// 未エスケープのマーカー様の行が現れた場合は破損（Broken）として打ち切る。
+    /// 既定（<paramref name="verbatim"/> が false）では、エスケープ済み行は先頭の "\" を1つ取り除いて
+    /// 内容行として扱い、未エスケープのマーカー様の行が現れた場合は破損（Broken）として打ち切る。
+    ///
+    /// 【verbatim = true（FENCE 指定の本文）】終了判定に合う行だけを終端とし、それ以外は
+    /// マーカーに似ていても加工せず本文として取り込む。行頭の "\" も外さない。
+    ///
+    /// 理由は、FENCE の目的が「本文をエスケープせずにそのまま書ける」ことにあるため。
+    /// 従来は FENCE 付きでも終端の文字列が変わるだけで、本文中の "&gt;&gt;&gt;&gt; END"・"======="・
+    /// "&lt;&lt;&lt;&lt; FILE:" で始まる行は E006/E008 になっていた（main で
+    /// <c>MODE=FULL FENCE=Q</c> の本文に素の "&gt;&gt;&gt;&gt; END" を書くと E006、
+    /// <c>APPEND FENCE=Q</c> の本文に "&lt;&lt;&lt;&lt; FILE: x" を書くと E008 になることを実測）。
+    /// それではテンプレートの案内（FENCE を使えばエスケープ不要）どおりに出力しても適用できない。
+    /// "\" を外さない理由も同じで、FENCE 付きの本文は「書いたとおりがファイルの中身」という
+    /// 約束にしないと、本文に元から "\&lt;&lt;&lt;&lt;" と書かれた行（このパッチ形式自体を説明する
+    /// 文書など）を正確に書けなくなる。エスケープが必要になるのは終端と区別するためだけで、
+    /// FENCE 付きでは終端が本文に現れない文字列として利用者側で選ばれているため、不要である。
     /// </summary>
-    public BodyResult CollectBody(Func<string, bool> isTerminator)
+    public BodyResult CollectBody(Func<string, bool> isTerminator, bool verbatim = false)
     {
         var buffer = new List<string>();
         while (HasNext)
@@ -245,6 +259,13 @@ internal sealed class PatchScanner
             {
                 Next();
                 return new BodyResult(BodyOutcome.Completed, buffer, null, TerminatorLine: lineNumber);
+            }
+
+            if (verbatim)
+            {
+                buffer.Add(text);
+                Next();
+                continue;
             }
 
             var unescaped = PatchTextUtil.TryUnescapeMarkerLine(text);
