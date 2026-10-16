@@ -53,11 +53,17 @@ public class ContextCollectRevisionRegressionTests : IDisposable
 
         // チェック状態を変える（デバウンス後にprojects.jsonへ保存される）。
         vm.CycleStateCommand.Execute(vm.Files.Single(f => f.RelativePath == "a.py"));
-        await WaitUntilAsync(async () => (await LoadAsync(store, project.Id)).Overrides.ContextFileStates.Count > 0);
+        // 画面側のスナップショット（vm.Project）は、projects.jsonへの書き込みが終わった後の継続で
+        // 更新される。ファイルに書かれたことだけを待つと、全件実行の負荷で継続がまだ走っておらず、
+        // 最後の vm.Project の確認だけが落ちることがあった（1.0.28の作業中に全件実行で1回観測、
+        // 単独実行では再現せず）。両方がそろうまで待つ。
+        await WaitUntilAsync(async () =>
+            (await LoadAsync(store, project.Id)).Overrides.ContextFileStates.Count > 0
+            && vm.Project.NextRevision == 8);
 
         var after = await LoadAsync(store, project.Id);
         after.Overrides.ContextFileStates.Should().ContainKey("a.py", "チェック状態自体は保存されるはず");
-        after.NextRevision.Should().Be(8, "状態の保存で適用済みの番号を巻き戻してはいけない（修正前は1に戻っていた）");
+        after.NextRevision.Should().Be(8,"状態の保存で適用済みの番号を巻き戻してはいけない（修正前は1に戻っていた）");
         after.LastAppliedAt.Should().Be(appliedAt, "最終適用日時も巻き戻してはいけない");
         vm.Project.NextRevision.Should().Be(8, "保存の結果で画面側のスナップショットも最新に更新されるはず");
     }
