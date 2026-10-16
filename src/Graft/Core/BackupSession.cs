@@ -17,11 +17,14 @@ public sealed class BackupSession
     private readonly string _manifestPath;
     private readonly List<string> _storedPaths = new();
     private readonly List<string> _createdPaths = new();
+    private readonly RevisionManifest _beganManifest;
 
     internal BackupSession(
         JsonFileStore jsonStore, RevisionIndex revisionIndex, string projectId,
-        string projectRoot, string folderPath, string manifestPath, int revision)
+        string projectRoot, string folderPath, string manifestPath, int revision,
+        RevisionManifest beganManifest)
     {
+        _beganManifest = beganManifest;
         _jsonStore = jsonStore;
         _revisionIndex = revisionIndex;
         _projectId = projectId;
@@ -134,7 +137,26 @@ public sealed class BackupSession
         }
     }
 
-    /// <summary>退避済みファイルを元の場所へ書き戻し、適用中に新規作成されたファイルを削除する。</summary>
+    /// <summary>
+    /// 退避済みファイルを元の場所へ書き戻し、適用中に新規作成されたファイルを削除する。
+    ///
+    /// 【戻しきれたときは manifest.json を rolled_back で確定する】 BeginAsyncが書く
+    /// status: in_progress は「処理中」の印で、確定（CompleteAsync）されないまま残ると
+    /// 起動時の中断検出（RevisionStore.FindInProgressAsync）が「中断された適用」として拾い、
+    /// 取り消しを勧めるダイアログを毎回出す。ところが適用の失敗→ここでのロールバックは
+    /// 「失敗したが元に戻した」正常な終わり方で、中断ではない。以前はここで印を更新しなかったため、
+    /// 失敗した適用（実機のMAI-Historyではr4・r5）が起動のたびに「未完了」として残り続け、
+    /// OKを押すと後から成功した適用(r7・r8)の変更まで古いバックアップで上書きする危険があった。
+    ///
+    /// 戻しきれなかったとき（退避の読み取りや書き戻し、新規ファイルの削除が1件でも失敗）は
+    /// 一部のファイルだけが書き換わったままの可能性があるため、in_progress のまま残して
+    /// 起動時の検出で利用者に知らせる（これは本来の用途）。
+    ///
+    /// history.jsonl へは追記しない。失敗して元どおりになった適用は履歴に残すべき変更ではなく、
+    /// 番号は projects.json の nextRevision で消費済みなので再利用の心配も無い（フォルダが
+    /// 残るかぎりDetectMaxRevisionAsyncもフォルダから最大番号を拾う）。履歴ペインへは
+    /// フォルダ（manifest.json）側から従来どおり一覧に出るため、内容は確認できる。
+    /// </summary>
     public async Task<GraftResult<bool>> RollbackAsync(CancellationToken ct = default)
     {
         var issues = new List<GraftIssue>();
@@ -150,9 +172,26 @@ public sealed class BackupSession
             DeleteCreatedFile(relativePath, issues);
         }
 
-        return issues.Any(i => i.Severity == Severity.Error)
-            ? GraftResult<bool>.Fail(issues)
-            : GraftResult<bool>.Ok(true, issues);
+        if (issues.Any(i => i.Severity == Severity.Error))
+        {
+            return GraftResult<bool>.Fail(issues);
+        }
+
+        try
+        {
+            var rolledBack = _beganManifest with { Status = RevisionStatus.RolledBack };
+            await _jsonStore.WriteAsync(_manifestPath, rolledBack, JsonFileStore.DefaultOptions, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // ファイルは戻せているので失敗にはしない。印だけが in_progress で残り、
+            // 起動時の検出が（最新の場合に限り）知らせる。
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E401, $"ロールバック済みの印（manifest.json）を書けませんでした: {ExceptionMessages.Describe(ex)}",
+                path: _manifestPath, severity: Severity.Warning));
+        }
+
+        return GraftResult<bool>.Ok(true, issues);
     }
 
     /// <summary>
