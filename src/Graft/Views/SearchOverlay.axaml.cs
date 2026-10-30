@@ -258,7 +258,12 @@ public partial class SearchOverlay : UserControl
         public void Draw(TextView textView, DrawingContext drawingContext)
         {
             if (!_viewModel.IsOpen || _viewModel.Matches.Count == 0) return;
-            textView.EnsureVisualLines();
+
+            // 全体差し替えの最中は削除済みの行を握る可視行が残り、DocumentLine.Offsetが例外を投げる
+            // （TextViewRenderGuardのコメント参照）。検索結果は差し替え前の文書の位置のままなので、
+            // 範囲も下で確かめる。EnsureVisualLines()は外した理由がBracketSupport.Drawと同じ。
+            if (!TextViewRenderGuard.CanDraw(textView)) return;
+            var textLength = textView.Document?.TextLength ?? 0;
 
             EnsureBrushes();
             // 9テーマ全てに新設4色があることはThemeTests側（tests/Graft.UiTests）で機械的に
@@ -273,6 +278,7 @@ public partial class SearchOverlay : UserControl
                 var fill = isCurrent ? _currentFill : _matchFill;
                 var border = isCurrent ? _currentBorder : _matchBorder;
                 var match = _viewModel.Matches[i];
+                if (match.Index < 0 || match.Index + match.Length > textLength) continue;
                 DrawMatch(textView, drawingContext, fill, border, match.Index, match.Length);
             }
         }

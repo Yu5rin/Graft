@@ -235,6 +235,12 @@ public sealed class DocumentSession : IDisposable
     /// 差し替えの前に解除しておけば窓が開いていても触れずに済む。差し替え後は元の選択を
     /// 維持できない（文書全体が別物になる）ため、解除による利用者への影響もない。
     ///
+    /// 【1.0.29での位置づけ】 同じ原因で、Graft自前の背景描画（括弧・検索結果の強調）も落ちていたため、
+    /// そちらは<see cref="TextViewRenderGuard"/>で「描く前に可視行が生きているか確かめる」形に
+    /// 一本化した。ただしSelectionLayerの選択範囲の描画はAvaloniaEdit本体の実装でGraftからは
+    /// ガードを差し込めないので、この選択解除は引き続き必要（外すと
+    /// <c>EditorReloadSelectionTests</c>が再び失敗する）。
+    ///
     /// このクラスはエディタ（TextView/TextArea）を知らない設計のため、解除そのものは行わず、
     /// 差し替えの直前であることだけをイベントで知らせる（<see cref="FoldingSupport.PrepareForDocumentSwap"/>
     /// と同じく、表示側が文書の差し替えに先回りして備える形）。
