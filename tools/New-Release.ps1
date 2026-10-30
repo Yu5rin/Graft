@@ -136,6 +136,21 @@ function Get-DownloadRow([string]$Path) {
     return ('| `{0}` | {1} | `{2}` |' -f $item.Name, (Format-ReleaseSize $item.Length), $hash)
 }
 
+# 書庫と同じフォルダに「<書庫名>.sha256」を作る。中身は sha256sum と同じ書式の1行
+# （<64桁の小文字16進>  <ファイル名>、区切りは空白2個、改行はLF、BOMなし）。
+# アプリの自動更新は、GitHub APIの回数上限でdigestが取れないとき、このファイルから照合値を取って
+# SHA256を照合する（src/Graft/Core/Update/Sha256Verifier.cs の ParseChecksumFile が読む書式）。
+# .github/workflows/release.yml が作るものと同じ形にする。Windows PowerShell 5.1 で動くよう、
+# 書き出しは .NET の API（BOMなしUTF-8。Write-Utf8NoBom）で行う（Set-Content -Encoding UTF8 は
+# 5.1 だとBOMが付く）。作った値は本文の表（Get-DownloadRow）と同じく書庫の実物から計算する。
+function New-ChecksumFile([string]$ArchivePath) {
+    $item = Get-Item $ArchivePath
+    $hash = (Get-FileHash -Path $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $checksumPath = $ArchivePath + '.sha256'
+    Write-Utf8NoBom -Path $checksumPath -Text ($hash + '  ' + $item.Name + "`n")
+    return $checksumPath
+}
+
 # ============================================================================
 # 1. 前提の確認
 # ============================================================================
@@ -397,7 +412,7 @@ if (-not $tarCommand) {
 # ZIPはリポジトリ直下に作るため別途必要）。
 $gitignorePath = Join-Path $repoRoot '.gitignore'
 $gitignoreText = if (Test-Path $gitignorePath) { Get-Content -Path $gitignorePath -Raw -Encoding UTF8 } else { '' }
-foreach ($pattern in @('Graft-*-win-x64.zip', 'Graft-*-linux-x64.tar.gz')) {
+foreach ($pattern in @('Graft-*-win-x64.zip', 'Graft-*-linux-x64.tar.gz', 'Graft-*-win-x64.zip.sha256', 'Graft-*-linux-x64.tar.gz.sha256')) {
     if ($gitignoreText -notmatch [regex]::Escape($pattern)) {
         $addition = ("`n# tools\New-Release.ps1 が作るリリース用の配布物`n" + $pattern + "`n")
         Add-Content -Path $gitignorePath -Value $addition -Encoding UTF8
@@ -488,6 +503,23 @@ if ($linuxArchiveCreated) {
 }
 
 # ============================================================================
+# 照合値ファイル（.sha256）を作る
+# ============================================================================
+
+Write-Host ''
+Write-Host '=== 照合値ファイル（.sha256） ==='
+
+$resolvedZipChecksumPath = New-ChecksumFile $resolvedZipPath
+Write-Host "書き出し: $resolvedZipChecksumPath"
+Write-Host ('  ' + (Get-Content -Path $resolvedZipChecksumPath -Raw).TrimEnd())
+$resolvedTarChecksumPath = $null
+if ($linuxArchiveCreated) {
+    $resolvedTarChecksumPath = New-ChecksumFile $resolvedTarPath
+    Write-Host "書き出し: $resolvedTarChecksumPath"
+    Write-Host ('  ' + (Get-Content -Path $resolvedTarChecksumPath -Raw).TrimEnd())
+}
+
+# ============================================================================
 # リリース本文の下書きを書き出す
 # ============================================================================
 
@@ -538,10 +570,12 @@ Write-Host ''
 Write-Host '3. リリース本文には、下記の下書きの内容を貼り付ける:'
 Write-Host "     $releaseNotesPath"
 Write-Host ''
-Write-Host '4. 添付する配布物:'
+Write-Host '4. 添付する配布物（.sha256 も忘れずに。自動更新が回数上限のときの照合に使う）:'
 Write-Host "     $resolvedZipPath"
+Write-Host "     $resolvedZipChecksumPath"
 if ($linuxArchiveCreated) {
     Write-Host "     $resolvedTarPath"
+    Write-Host "     $resolvedTarChecksumPath"
 } else {
     Write-Host '     （Linux版のtar.gzは作られませんでした。上の警告を参照してください）'
 }

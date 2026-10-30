@@ -129,8 +129,11 @@ public sealed partial class SettingsViewModel
 
     private void InitializeUpdateFeature(
         AppPaths appPaths, IExternalLinkLauncher? externalLinks,
-        IReleaseFeed? releaseFeed, IUpdateDownloader? updateDownloader)
+        IReleaseFeed? releaseFeed, IUpdateDownloader? updateDownloader, IChecksumFileSource? checksumFileSource)
     {
+        // 照合値ファイルの取得手段の既定は、フィードを差し替えていない（本番）ときだけ実通信にする
+        // （SettingsViewModelのchecksumFileSource引数のコメント参照）。
+        checksumFileSource ??= releaseFeed is null ? new HttpChecksumFileSource() : null;
         _externalLinks = externalLinks ?? new NullExternalLinkLauncher();
         _releaseFeed = releaseFeed ?? new GitHubReleaseFeed();
         _updateDownloader = updateDownloader ?? new HttpUpdateDownloader();
@@ -138,7 +141,7 @@ public sealed partial class SettingsViewModel
         // 同じupdate-check.jsonを読むストアをここでも保持する（UpdateChecker自身は状態を
         // 外部へ公開しないため）。書き込みはUpdateChecker側だけが行い、ここでは読み込み専用。
         _updateCheckStateStore = new UpdateCheckStateStore(appPaths);
-        _updateChecker = new UpdateChecker(_releaseFeed, _updateCheckStateStore);
+        _updateChecker = new UpdateChecker(_releaseFeed, _updateCheckStateStore, checksumFiles: checksumFileSource);
         _updateInstallPipeline = new UpdateInstallPipeline(_updateDownloader);
 
         CheckForUpdateNowCommand = new AsyncRelayCommand(
@@ -211,6 +214,15 @@ public sealed partial class SettingsViewModel
             // （そのクラスのコメント参照）のため、Failedでも「確認しようとした」事実がここに
             // 反映される。
             await RefreshUpdateLastCheckedAsync().ConfigureAwait(true);
+
+            // 照合値ファイル（.sha256）の取得を試みていれば、その結果を残す。成功は「照合値を
+            // 得た」事実、失敗は「試みて失敗し、従来の経路に戻る」事実（UpdateChecker.
+            // TryApplyChecksumFileAsyncのコメント参照）。
+            if (result.ChecksumFileAttempt is { } attempt)
+            {
+                if (attempt.Succeeded) Logger?.Info("update", $"{trigger}: {attempt.Message}");
+                else Logger?.Warn("update", $"{trigger}: {attempt.Message}従来の経路で続行します。");
+            }
 
             switch (result.Status)
             {
@@ -478,6 +490,14 @@ public sealed partial class SettingsViewModel
             // （確認なしの自動更新はAutoUpdatePolicyでこの経路を事前に除外するので、ここへは
             // 利用者が確認ダイアログで同意した場合だけ来る。）
             var allowMissingChecksum = release.AllowMissingChecksum;
+            if (asset.DigestFromChecksumFile)
+            {
+                // 回数上限などでAPIからdigestが取れなかったが、リリースに添付された照合値ファイル
+                // （.sha256）から得られた場合。照合は省かず通常どおり行う（allowMissingChecksumは
+                // UpdateCheckerが外してあるのでfalse）。どこから得た値で照合するかを残す。
+                Logger?.Info("update",
+                    $"更新のインストール: {asset.BrowserDownloadUrl}.sha256 から取得した照合値でSHA256を照合します（{release.TagName}）。");
+            }
             if (allowMissingChecksum)
             {
                 Logger?.Warn("update",
