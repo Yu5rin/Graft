@@ -53,6 +53,43 @@ public static class UpdateHostPolicy
     private static readonly string[] DefaultAllowedDownloadHosts = { "github.com" };
 
     /// <summary>
+    /// 照合値ファイル（<c>.sha256</c>）の取得で、リダイレクト先として許可するホスト
+    /// （既定のcheckUrl使用時のみ）。
+    ///
+    /// 【実測の根拠】 書庫のダウンロード元（<c>github.com/.../releases/download/...</c>）は、上の
+    /// <see cref="DefaultAllowedDownloadHosts"/>のコメントのとおり302で
+    /// <c>release-assets.githubusercontent.com</c>へ飛び、そこが本体を返す（2026-09-06実測）。
+    /// 書庫のダウンロード（<see cref="HttpUpdateDownloader"/>）はリダイレクト先を検査しないが、
+    /// 照合値は「これと一致すれば正しい」と信じる側の入力なので、辿り先も検査する。
+    /// <c>objects.githubusercontent.com</c>は過去にGitHubが使っていた同種のホストで、今回は
+    /// 実測していない（念のための許可。外しても現在の経路には影響しない）。
+    /// <c>*.githubusercontent.com</c>の一括許可はしない（raw.githubusercontent.comなど、
+    /// 利用者がファイルを置けるホストが含まれるため）。
+    /// </summary>
+    private static readonly string[] DefaultAllowedChecksumRedirectHosts =
+    {
+        "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com",
+    };
+
+    /// <summary>
+    /// 照合値ファイルの取得で、リダイレクト先（<paramref name="redirectUrl"/>）を辿ってよいか。
+    /// 既定のcheckUrlなら<see cref="DefaultAllowedChecksumRedirectHosts"/>、変更済みなら
+    /// <paramref name="checkUrl"/>自身のホストだけ（<see cref="IsAllowedDownloadUrl"/>と同じ方針）。
+    /// HTTPS以外は常に拒否する。
+    /// </summary>
+    public static bool IsAllowedChecksumRedirectUrl(string checkUrl, Uri redirectUrl)
+    {
+        if (redirectUrl.Scheme != Uri.UriSchemeHttps) return false;
+        if (IsDefaultCheckUrl(checkUrl))
+        {
+            return DefaultAllowedChecksumRedirectHosts.Contains(redirectUrl.Host, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return Uri.TryCreate(checkUrl, UriKind.Absolute, out var check)
+            && string.Equals(check.Host, redirectUrl.Host, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// <paramref name="checkUrl"/>が既定値かどうか。前後の空白・大文字小文字の違いは
     /// 設定画面からの入力揺れとして許容するが、それ以外は完全一致を要求する
     /// （既定かどうかで許可ホストの決め方そのものを変えるため、あいまいな判定にしない）。

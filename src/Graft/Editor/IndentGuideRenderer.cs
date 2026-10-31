@@ -138,7 +138,7 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         // 生きているかをここで確認してから先へ進む。1つでも切り離されていれば、その1フレーム
         // ぶんの描画だけを（例外を発生させることなく）諦める。次のレイアウトパスが完了すれば
         // 自然に正しいVisualLinesへ入れ替わり、その次の描画から通常どおり表示される。
-        if (!VisualLinesReferenceLiveDocumentLines(textView)) return;
+        if (!TextViewRenderGuard.CanDraw(textView)) return;
 
         // 色はテーマのリソースから引く（ハードコードしない。検討書の必須要件）。
         // 9テーマすべてに"IndentGuide"/"IndentGuideHover"キーが無ければ何も描かない
@@ -152,7 +152,7 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         var columnWidth = textView.WideSpaceWidth;
         if (columnWidth <= 0) return;
 
-        // 以下のtry/catchは根治前（課題#69）の対症療法であり、上のVisualLinesReferenceLiveDocumentLines
+        // 以下のtry/catchは根治前（課題#69）の対症療法であり、上のTextViewRenderGuard.CanDraw
         // による事前チェックが根治した後も、AvaloniaEdit側の将来の変更・未知の内部状態の食い違いに
         // 対する最後の安全網として残す（このtry/catch自体が「修正」ではない点に注意。真因は
         // 上の事前チェックが塞いでいる）。Draw()は毎秒何十回も呼ばれうるため、他の想定外例外と
@@ -181,7 +181,7 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
         }
         catch (InvalidOperationException ex)
         {
-            // 上のVisualLinesReferenceLiveDocumentLinesによる事前チェックが、実機ログで
+            // 上のTextViewRenderGuard.CanDrawによる事前チェックが、実機ログで
             // 確認できていた不具合2の真因（AvaloniaEdit TextViewが文書全体の置き換え直後に
             // 古いVisualLineを指したままになる一瞬の窓）を塞いだ後も、万一AvaloniaEdit側の
             // 将来の変更・未知の内部状態の食い違いが起きた場合に備え、インデントガイド
@@ -240,27 +240,6 @@ public sealed class IndentGuideRenderer : IBackgroundRenderer, IDisposable
     /// <summary>テーマ切り替え（色の変更のみ、レイアウトは不変）も同様に測り直し無しで再描画する。</summary>
     private void OnThemeChanged(object? sender, EventArgs e)
         => TextViewRedraw.WithoutRemeasure(_editor.TextArea.TextView);
-
-    /// <summary>
-    /// 不具合2の根治本体: <c>textView.VisualLines</c>の各行が握る<see cref="DocumentLine"/>が
-    /// 実際に文書に生きている（<see cref="DocumentLine.IsDeleted"/>でない）ことを確認する。
-    /// <see cref="DocumentLine.IsDeleted"/>自体は例外を投げない安全なプロパティなので、
-    /// ここでの確認そのものにコストもリスクも無い。
-    ///
-    /// 可視行数（せいぜい数十〜百行程度、18章の性能要件と同じ前提）ぶんしか見ないため、
-    /// 呼び出し頻度（Draw()は毎秒何十回も呼ばれうる）に対しても軽い。<see cref="Draw"/>から
-    /// 呼ぶだけで、<see cref="CollectActiveFoldSegments"/>・<see cref="DrawAllIndentationLevels"/>
-    /// のどちらのモードも保護できる（両方とも<c>FirstDocumentLine</c>/<c>LastDocumentLine</c>
-    /// から<c>Offset</c>/<c>LineNumber</c>を読むため）。
-    /// </summary>
-    private static bool VisualLinesReferenceLiveDocumentLines(TextView textView)
-    {
-        foreach (var line in textView.VisualLines)
-        {
-            if (line.FirstDocumentLine.IsDeleted || line.LastDocumentLine.IsDeleted) return false;
-        }
-        return true;
-    }
 
     /// <summary>
     /// 可視範囲に懸かる、実際に折りたたみ可能な範囲の一覧を、縦線の描画に必要な位置情報

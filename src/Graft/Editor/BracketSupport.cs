@@ -82,11 +82,22 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
 
     public void Draw(TextView textView, DrawingContext drawingContext)
     {
-        if (_editor.Document is null) return;
-        textView.EnsureVisualLines();
+        var doc = _editor.Document;
+        if (doc is null) return;
+
+        // 全体差し替えの最中は、削除済みの行を握る古い可視行が残っていて、DocumentLine.Offsetが
+        // 例外を投げる（実機ログ v1.0.28。詳細はTextViewRenderGuardのコメント）。触れる前に1フレーム諦める。
+        // 以前ここにあったEnsureVisualLines()は外した: 描画の時点で可視行は測定済みのはずで、
+        // 無効なら次のレイアウト後の描画でやり直せば足りる。差し替えの最中に可視行を作り直すと、
+        // 変更通知の途中の文書でレイアウトが走ってしまう。
+        if (!TextViewRenderGuard.CanDraw(textView)) return;
 
         var pair = FindMatchingPairAtCaret();
         if (pair is null) return;
+
+        // 差し替えの直後は、キャレット位置や再スキャン結果（デバウンス200ms）が旧文書のまま残りうる。
+        // 新しい文書の範囲外のoffsetは描かない。
+        if (!IsDrawableOffset(doc, pair.Value.Open) || !IsDrawableOffset(doc, pair.Value.Close)) return;
 
         var pen = ResolvePen();
         if (pen is null) return;
@@ -233,6 +244,8 @@ public sealed class BracketSupport : IBackgroundRenderer, IDisposable
         }
         return false;
     }
+
+    private static bool IsDrawableOffset(TextDocument doc, int offset) => offset >= 0 && offset < doc.TextLength;
 
     private static void DrawBracketBox(TextView textView, DrawingContext drawingContext, IPen pen, int offset)
     {

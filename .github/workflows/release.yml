@@ -197,9 +197,41 @@ jobs:
           fi
           tar -tzvf "Graft-${VERSION}-linux-x64.tar.gz"
 
+      # 各書庫と同じ名前に .sha256 を付けた照合値ファイル（Graft-<版>-win-x64.zip.sha256 と
+      # Graft-<版>-linux-x64.tar.gz.sha256）を、上で検査を終えた実物の書庫から作ってリリースに
+      # 添付する。中身は sha256sum と同じ書式の1行（<64桁の小文字16進>  <ファイル名>）。
+      #
+      # 【なぜ添付するか（実機不具合対応、v1.0.28）】 アプリの自動更新は SHA256 を GitHub API の
+      # 添付の digest から読むが、API は未認証だと1時間60回（IP アドレス単位）の上限があり、
+      # 社内ネットワークのように通信口を共有していると上限に当たって digest が取れない。
+      # その場合、以前は SHA256 の照合を省いて更新していた（確認なしの自動更新も働かなかった）。
+      # このファイルは API ではなく releases/download/ 配下の通常のダウンロードで取れるため
+      # 回数上限の対象外で、アプリはここから照合値を取って照合する
+      # （src/Graft/Core/Update/HttpChecksumFileSource.cs、Sha256Verifier.ParseChecksumFile）。
+      # アプリは「1行・64桁の16進・ファイル名が書庫名と一致」のものだけを使うので、書式
+      # （sha256sum の出力そのまま）と名前（書庫名 + .sha256）を変えないこと。
+      # 作った直後に sha256sum -c で書庫と突き合わせて確かめ、食い違えばここで止める。
+      - name: 照合値ファイルを作る
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          for f in "Graft-${VERSION}-win-x64.zip" "Graft-${VERSION}-linux-x64.tar.gz"; do
+            sha256sum "$f" > "$f.sha256"
+            sha256sum -c "$f.sha256"
+            cat "$f.sha256"
+            # sha256sum の書式（64桁の小文字16進 + 空白2個 + ファイル名の1行）になっているか。
+            if ! grep -Eq "^[0-9a-f]{64}  ${f}$" "$f.sha256" || [ "$(wc -l < "$f.sha256")" != "1" ]; then
+              echo "::error::$f.sha256 の書式が想定と違います"
+              exit 1
+            fi
+          done
+
       # リリース本文は「## 変更点」と「## ダウンロード」の2節だけにし、最後に README への
       # 案内を1行置く（インストール・更新・機能の説明は README に置き、リリースごとに
-      # 繰り返さない。CLAUDE.md「リリース」節参照）。変更点は docs/変更履歴.md の
+      # 繰り返さない。CLAUDE.md「リリース」節参照）。表に載せるのは書庫の2行だけで、
+      # .sha256 は載せない（アプリが読む補助ファイルで、利用者が手で開くものではないため。
+      # 表の SHA256 は、上で作った .sha256 の値をそのまま使うので、添付と食い違わない）。変更点は docs/変更履歴.md の
       # 「## <版>」の節から取り、末尾の「### バージョン」（版上げの記録）は除く。
       # 自動更新はリリース本文を読まない（ファイル名とアセットの digest だけを使う）ため、
       # 本文の形を変えても更新の動作には影響しない。
@@ -233,7 +265,7 @@ jobs:
             size=$(stat -c %s "$1")
             printf '| `%s` | %s | `%s` |\n' "$1" \
               "$(awk -v b="$size" 'BEGIN { if (b >= 1048576) printf "%.1f MB", b / 1048576; else printf "%.1f KB", b / 1024 }')" \
-              "$(sha256sum "$1" | cut -d' ' -f1)"
+              "$(cut -d' ' -f1 "$1.sha256")"
           }
           {
             printf '## 変更点\n\n%s\n\n' "$CHANGES"
@@ -253,4 +285,6 @@ jobs:
           files: |
             Graft-${{ steps.ver.outputs.version }}-win-x64.zip
             Graft-${{ steps.ver.outputs.version }}-linux-x64.tar.gz
+            Graft-${{ steps.ver.outputs.version }}-win-x64.zip.sha256
+            Graft-${{ steps.ver.outputs.version }}-linux-x64.tar.gz.sha256
           body_path: release-body.md

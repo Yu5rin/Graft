@@ -19,3 +19,7 @@ Graft-*-win-x64.zip
 # tools\New-Release.ps1 が作るリリース用の配布物
 Graft-*-linux-x64.tar.gz
 
+
+# 同じく、自動更新が照合に使う SHA256 のファイル
+Graft-*-win-x64.zip.sha256
+Graft-*-linux-x64.tar.gz.sha256

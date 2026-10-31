@@ -19,6 +19,13 @@ public sealed record GitHubReleaseAsset
     /// 存在しないことがあるためnullable。<see cref="Sha256Verifier.ExtractSha256"/>で解釈する。
     /// </summary>
     public string? Digest { get; init; }
+
+    /// <summary>
+    /// <see cref="Digest"/>が、リリースに添付された照合値ファイル（<c>&lt;書庫名&gt;.sha256</c>）から
+    /// 得たものか。trueなら、API（回数上限の対象）ではなくファイルの内容を<c>sha256:</c>形式に
+    /// 直して入れてある。インストール時に「どこから得た照合値で照合したか」をログに残すために持つ。
+    /// </summary>
+    public bool DigestFromChecksumFile { get; init; }
 }
 
 /// <summary>

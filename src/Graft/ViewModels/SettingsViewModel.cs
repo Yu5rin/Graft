@@ -177,11 +177,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// 機能追加（自動更新）: 配布物ZIPのダウンロード手段。省略時は実通信を行う
     /// <see cref="Core.Update.HttpUpdateDownloader"/>。テストからフェイクへ差し替える。
     /// </param>
+    /// <param name="checksumFileSource">
+    /// 機能追加（1.0.29）: SHA256の照合値ファイル（.sha256）の取得手段。省略時は、
+    /// <paramref name="releaseFeed"/>も省略（＝本番）なら実通信を行う
+    /// <see cref="Core.Update.HttpChecksumFileSource"/>、<paramref name="releaseFeed"/>を差し替えている
+    /// （＝テスト）なら取得しない。フェイクのフィードを使うテストが、意図せず実際のGitHubへ
+    /// 通信しないようにするため。
+    /// </param>
     public SettingsViewModel(
         AppPaths appPaths, IDialogService dialogService, IUiServices ui,
         Action<Settings>? onLiveSettingsChanged = null, string? exeDirectory = null,
         IFontCatalog? fontCatalog = null, IExternalLinkLauncher? externalLinks = null,
-        Core.Update.IReleaseFeed? releaseFeed = null, Core.Update.IUpdateDownloader? updateDownloader = null)
+        Core.Update.IReleaseFeed? releaseFeed = null, Core.Update.IUpdateDownloader? updateDownloader = null,
+        Core.Update.IChecksumFileSource? checksumFileSource = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         ArgumentNullException.ThrowIfNull(ui);
@@ -197,7 +205,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settingsStore = new SettingsStore(appPaths);
         var projectStore = new ProjectStore(appPaths);
 
-        InitializeUpdateFeature(appPaths, externalLinks, releaseFeed, updateDownloader);
+        InitializeUpdateFeature(appPaths, externalLinks, releaseFeed, updateDownloader, checksumFileSource);
 
         Templates = new PromptTemplateViewModel(appPaths, projectStore, dialogService, _settings, ui);
         TokenStats = new TokenStatisticsViewModel(appPaths, projectStore);

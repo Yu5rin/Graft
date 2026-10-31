@@ -181,6 +181,51 @@ public class AutoInstallTests : IDisposable
         lines.Should().Contain(l => l.Contains("自動更新") && l.Contains("SHA256を照合できない") && l.Contains("従来どおり確認ダイアログ"));
     }
 
+    [AvaloniaFact(DisplayName = "digestがAPIから取れなくても、リリースに添付された照合値ファイル（.sha256）で照合できれば、確認なしで入れ替えまで進む（1.0.29）")]
+    public async Task 照合値ファイルで照合できれば確認なしで進む()
+    {
+        // 回数上限の環境ではAPIのdigestが取れず、以前はここでダイアログへ戻っていた。
+        var zip = BuildValidZip();
+        var hex = Convert.ToHexString(SHA256.HashData(zip)).ToLowerInvariant();
+        var h = await CreateAsync(digestOverride: "", checksumFile: ChecksumFileResult.Ok(hex));
+
+        await h.Vm.CheckForUpdateOnStartupAsync(isRestartLaunch: false);
+
+        h.Dialogs.Titles.Should().BeEmpty("照合できたので、確認ダイアログも「照合を省く」お知らせも出ない");
+        h.Downloader.CallCount.Should().Be(1);
+        foreach (var name in UpdateFiles.RequiredFileNames)
+        {
+            File.ReadAllText(Path.Combine(h.InstallDir, name)).Should().Be($"new-{name}");
+        }
+
+        var lines = await h.ReadLogLinesAsync();
+        lines.Should().Contain(l => l.Contains("\"update\"") && l.Contains(".sha256") && l.Contains("照合します"));
+    }
+
+    [AvaloniaFact(DisplayName = "照合値ファイルの内容が書庫と一致しなければ、入れ替えずに失敗する（照合を省く経路には落ちない）")]
+    public async Task 照合値ファイルが一致しなければ入れ替えない()
+    {
+        var h = await CreateAsync(digestOverride: "", checksumFile: ChecksumFileResult.Ok(new string('0', 64)));
+
+        await h.Vm.CheckForUpdateOnStartupAsync(isRestartLaunch: false);
+
+        h.AssertInstallDirUntouched();
+        h.Vm.CurrentAutoUpdateNotice!.Kind.Should().Be(AutoUpdateNoticeKind.Failed);
+    }
+
+    [AvaloniaFact(DisplayName = "照合値ファイルが取れなかったときは、取得に失敗したことをログに残し、従来のダイアログへ戻る")]
+    public async Task 照合値ファイルが取れなければログに残してダイアログへ戻る()
+    {
+        var h = await CreateAsync(digestOverride: "", checksumFile: ChecksumFileResult.Fail("HTTP 404"));
+
+        await h.Vm.CheckForUpdateOnStartupAsync(isRestartLaunch: false);
+
+        h.Dialogs.ActionLabels.Should().Equal("今すぐ更新");
+        h.Downloader.CallCount.Should().Be(0);
+        var lines = await h.ReadLogLinesAsync();
+        lines.Should().Contain(l => l.Contains(".sha256") && l.Contains("取得できませんでした") && l.Contains("404"));
+    }
+
     [AvaloniaFact(DisplayName = "配布物のdigestが無いときも、ダウンロードする前に従来のダイアログへ戻る")]
     public async Task digestが無ければダイアログへ戻る()
     {
@@ -477,7 +522,8 @@ public class AutoInstallTests : IDisposable
         bool installDirResolvesToNull = false,
         UpdatePlatform platform = UpdatePlatform.Windows,
         AppPaths? appPaths = null,
-        string tag = NewTag)
+        string tag = NewTag,
+        ChecksumFileResult? checksumFile = null)
     {
         appPaths ??= NewAppPaths();
 
@@ -508,7 +554,8 @@ public class AutoInstallTests : IDisposable
         var downloader = new FakeDownloader(zip, downloadFails);
         var dialogs = new RecordingDialogService();
         var logger = new Logger(appPaths, autoCleanupOnStart: false);
-        var vm = new SettingsViewModel(appPaths, dialogs, new AvaloniaUiServices(), releaseFeed: feed, updateDownloader: downloader)
+        var vm = new SettingsViewModel(appPaths, dialogs, new AvaloniaUiServices(), releaseFeed: feed, updateDownloader: downloader,
+            checksumFileSource: checksumFile is null ? null : new FakeChecksumFileSource(checksumFile))
         {
             UpdatePlatform = platform,
             InstallDirectoryResolver = () => installDirResolvesToNull ? null : installDir,
@@ -620,6 +667,13 @@ public class AutoInstallTests : IDisposable
             CallCount++;
             return Task.FromResult(ReleaseFetchResult.Ok(release));
         }
+    }
+
+    private sealed class FakeChecksumFileSource(ChecksumFileResult result) : IChecksumFileSource
+    {
+        public Task<ChecksumFileResult> FetchAsync(
+            string checkUrl, string archiveName, string archiveUrl, string userAgent, CancellationToken ct)
+            => Task.FromResult(result);
     }
 
     private sealed class FakeDownloader(byte[] zip, bool fail) : IUpdateDownloader

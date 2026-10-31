@@ -93,10 +93,19 @@ git push origin v1.0.0
   その版に上げるときだけ必要な注意（手で入れ替える手順など）は、変更点の中に `###` で残す。
 - 本文の雛形は `docs/リリース説明_テンプレート.md`（`tools/New-Release.ps1` が `{CHANGES}` に
   `docs/変更履歴.md` の節を、`{DOWNLOADS}` に表を差し込む）。`.github/workflows/release.yml` も同じ形で組み立てる。
+- **照合値ファイル（`.sha256`）**: リリースには書庫ごとに、同じ名前へ `.sha256` を付けたファイル
+  （`Graft-<版>-win-x64.zip.sha256`・`Graft-<版>-linux-x64.tar.gz.sha256`）を添付する。
+  `release.yml` が検査を終えた実物の書庫から `sha256sum` で作る（`tools/New-Release.ps1` も同じ書式で作る）。
+  中身は `sha256sum` と同じ書式の1行（`<64桁の小文字16進>  <ファイル名>`）。本文の「## ダウンロード」の表には
+  載せない（表は書庫だけ）。自動更新は、API から digest が取れないとき（回数上限など）に、書庫の URL に
+  `.sha256` を付けた URL（API ではないので回数上限の対象外）から照合値を取る。
 - **自動更新とリリース本文の関係**: 自動更新（`src/Graft/Core/Update/`）はリリース本文（`body`）も
   タイトル（`name`）も読まない。API からは `tag_name`・`html_url`・`prerelease`・`assets`
   （`name`・`browser_download_url`・`size`・`digest`）だけを、Atom フィードからは各エントリのリンク先
-  （タグ）だけを読む。したがって本文の形は自由に変えてよい。守るべきなのは次の2点。
+  （タグ）だけを読む。したがって本文の形は自由に変えてよい。守るべきなのは次の3点。
   - タグは `UpdateVersion` で解釈できる `v1.2.3` の形にする
   - Windows 版の添付ファイル名は `Graft-<タグから v を除いた版>-win-x64.zip` にする
     （API に届かないときは、この規則でダウンロード URL を組み立てる。`UpdateAtomFeedLogic.BuildWindowsAssetFileName` 参照）
+  - Windows 版の照合値ファイルの名前は、書庫名に `.sha256` を付けた `Graft-<版>-win-x64.zip.sha256` にし、
+    中身は書庫名と一致するファイル名の `sha256sum` 書式1行にする（`Sha256Verifier.ParseChecksumFile` が読む。
+    合わないものは使われず、SHA256 の照合を省く従来の経路に戻る）

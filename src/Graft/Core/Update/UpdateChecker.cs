@@ -39,6 +39,13 @@ public sealed record UpdateCheckResult
     /// </summary>
     public string? DiagnosticDetail { get; init; }
 
+    /// <summary>
+    /// 照合値ファイル（<c>.sha256</c>）の取得を試みた結果。試みなかったとき（APIからdigestが
+    /// 取れていた、または取得手段が無い）はnull。<see cref="UpdateChecker"/>はGraft.Infra.Loggerを
+    /// 知らないため、ログに残す内容を呼び出し側（<c>SettingsViewModel.Update.cs</c>）へ渡すために持つ。
+    /// </summary>
+    public ChecksumFileAttempt? ChecksumFileAttempt { get; init; }
+
     public static UpdateCheckResult Available(GitHubReleaseInfo release)
         => new() { Status = UpdateCheckStatus.UpdateAvailable, Release = release };
 
@@ -58,6 +65,11 @@ public sealed record UpdateCheckResult
         => new() { Status = UpdateCheckStatus.Failed, ErrorMessage = message, DiagnosticDetail = diagnosticDetail };
 }
 
+/// <summary>照合値ファイルの取得を試みた結果（ログ用）。</summary>
+/// <param name="Succeeded">照合値を得られたか。</param>
+/// <param name="Message">ログに残す日本語の説明（成功時は取得元URL、失敗時は理由）。</param>
+public sealed record ChecksumFileAttempt(bool Succeeded, string Message);
+
 /// <summary>
 /// 更新確認のオーケストレーション（Atomフィード・GitHub Releases APIとの通信・
 /// バージョンの数値比較）を担う。通信の失敗はここで吸収し、例外を外へ投げない
@@ -68,13 +80,21 @@ public sealed class UpdateChecker
     private readonly IReleaseFeed _feed;
     private readonly UpdateCheckStateStore _stateStore;
     private readonly Func<DateTimeOffset> _now;
+    private readonly IChecksumFileSource? _checksumFiles;
 
     /// <param name="now">テスト用の時刻差し替え口。省略時は<see cref="DateTimeOffset.Now"/>。</param>
-    public UpdateChecker(IReleaseFeed feed, UpdateCheckStateStore stateStore, Func<DateTimeOffset>? now = null)
+    /// <param name="checksumFiles">
+    /// SHA256の照合値ファイル（<c>.sha256</c>）の取得手段。省略（null）なら取得を試みない
+    /// （既存のテストと同じ、通信しない動き）。本番は<see cref="HttpChecksumFileSource"/>を渡す。
+    /// </param>
+    public UpdateChecker(
+        IReleaseFeed feed, UpdateCheckStateStore stateStore, Func<DateTimeOffset>? now = null,
+        IChecksumFileSource? checksumFiles = null)
     {
         _feed = feed ?? throw new ArgumentNullException(nameof(feed));
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         _now = now ?? (() => DateTimeOffset.Now);
+        _checksumFiles = checksumFiles;
     }
 
     /// <summary>
@@ -232,13 +252,19 @@ public sealed class UpdateChecker
                         Size = 0, // APIから取れないため不明。ダウンローダは応答のContent-Lengthを使うため実害は無い。
                         Digest = null, // APIからしか取れない。GitHubReleaseInfo.AllowMissingChecksum参照。
                     };
-                    return UpdateCheckResult.Available(new GitHubReleaseInfo
-                    {
-                        TagName = atomTag.TagName,
-                        HtmlUrl = atomTag.ReleasePageUrl,
-                        Assets = new[] { builtAsset },
-                        AllowMissingChecksum = true,
-                    });
+                    // 【照合値ファイルで照合を省かずに済ませる（v1.0.29）】 digestはAPIからしか
+                    // 取れないが、書庫のURLに.sha256を付けたファイルはAPIではないので回数上限の
+                    // 対象外。取れれば照合値として使い、AllowMissingChecksumを外す。取れなければ
+                    // 従来どおり照合を省く経路（AllowMissingChecksum=true）のまま。
+                    var (enriched, attempt) = await TryApplyChecksumFileAsync(
+                        new GitHubReleaseInfo
+                        {
+                            TagName = atomTag.TagName,
+                            HtmlUrl = atomTag.ReleasePageUrl,
+                            Assets = new[] { builtAsset },
+                            AllowMissingChecksum = true,
+                        }, checkUrl, userAgent, ct).ConfigureAwait(false);
+                    return UpdateCheckResult.Available(enriched) with { ChecksumFileAttempt = attempt };
                 }
 
                 return UpdateCheckResult.AvailableNoDetails(
@@ -267,7 +293,64 @@ public sealed class UpdateChecker
 
         // 【数値としての比較】文字列比較だと "1.0.10" < "1.0.9" と誤判定するため、
         // UpdateVersion.CompareToによる数値比較を必ず使う。
-        return latest.CompareTo(current) > 0 ? UpdateCheckResult.Available(release) : UpdateCheckResult.UpToDate(release);
+        if (latest.CompareTo(current) <= 0) return UpdateCheckResult.UpToDate(release);
+
+        // APIは応答したがdigestが空・読めない場合も、照合値ファイルで補えるなら補う
+        // （digestがあるふつうの経路では何もせず、通信も増やさない）。
+        var (withChecksum, apiAttempt) = await TryApplyChecksumFileAsync(release, checkUrl, userAgent, ct)
+            .ConfigureAwait(false);
+        return UpdateCheckResult.Available(withChecksum) with { ChecksumFileAttempt = apiAttempt };
+    }
+
+    /// <summary>
+    /// Windows版の書庫にSHA256の照合値が無い（API由来のdigestが空・読めない、または回数上限で
+    /// URLを規則から組み立てた）とき、書庫のURLに<c>.sha256</c>を付けたURLから照合値を取り、
+    /// 取れたらその値をdigestにして<see cref="GitHubReleaseInfo.AllowMissingChecksum"/>を外す。
+    ///
+    /// 【取得を更新確認の段階に置く理由】 (1) <see cref="AutoUpdatePolicy"/>は通信せずに
+    /// <see cref="GitHubReleaseInfo"/>だけで「確認なしで進めてよいか」を決める純粋な判断で、
+    /// ここで照合値が揃えば、ポリシー・確認ダイアログの「照合を省く」お知らせ・
+    /// <see cref="UpdateInstallPipeline"/>のどれも変更せずに、通常のdigestあり経路として扱える。
+    /// (2) 取得先は<c>RunAsync</c>の外で決まるため、パイプラインに通信の依存を増やさずに済む。
+    /// 失敗の代償は小さい（100バイト前後・1回）。
+    ///
+    /// 【失敗時】 取得できなかった・書式不正・ファイル名不一致のときは何も変えず、従来の経路
+    /// （digestが無ければ、回数上限の経路は照合を省いて続行、それ以外は中止）に任せる。
+    /// 「照合値が取れなかったから止める」と変えない理由: 古いリリースには.sha256が無く、
+    /// それで止めると回数上限の環境の更新が全て止まるため。
+    /// 照合値が取れたのに書庫と一致しない場合は、通常どおりインストール時にChecksumMismatchで止まる。
+    /// </summary>
+    private async Task<(GitHubReleaseInfo Release, ChecksumFileAttempt? Attempt)> TryApplyChecksumFileAsync(
+        GitHubReleaseInfo release, string checkUrl, string userAgent, CancellationToken ct)
+    {
+        if (_checksumFiles is null) return (release, null);
+
+        var asset = UpdatePlatformPolicy.SelectAsset(release, UpdatePlatform.Windows);
+        if (asset is null || Sha256Verifier.ExtractSha256(asset.Digest) is not null) return (release, null);
+
+        ChecksumFileResult result;
+        try
+        {
+            result = await _checksumFiles
+                .FetchAsync(checkUrl, asset.Name, asset.BrowserDownloadUrl, userAgent, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // IChecksumFileSourceは例外を投げない契約だが、実装ミスで更新確認ごと落とさない保険。
+            result = ChecksumFileResult.Fail($"取得中に想定外の例外が起きました（{ex.GetType().Name}）。");
+        }
+
+        var url = asset.BrowserDownloadUrl + ".sha256";
+        if (!result.Success)
+        {
+            return (release, new ChecksumFileAttempt(false, $"{url} から照合値を取得できませんでした: {result.FailureReason}"));
+        }
+
+        var updatedAsset = asset with { Digest = "sha256:" + result.Sha256Hex, DigestFromChecksumFile = true };
+        var assets = release.Assets.Select(a => ReferenceEquals(a, asset) ? updatedAsset : a).ToList();
+        return (
+            release with { Assets = assets, AllowMissingChecksum = false },
+            new ChecksumFileAttempt(true, $"{url} から照合値を取得しました。"));
     }
 
     /// <summary>
