@@ -404,6 +404,11 @@ public sealed partial class EditorPaneViewModel : ObservableObject
             return;
         }
 
+        // 自分の保存の直後に打鍵していた場合、未保存の文書に対する「変更通知」は自分の保存によるもの。
+        // ディスクの内容が自分の保存した内容と同じなら、外部の変更ではないので何もしない
+        // （DocumentSession.DiskMatchesLastSaveAsync参照）。
+        if (await tab.Session.DiskMatchesLastSaveAsync().ConfigureAwait(true)) return;
+
         tab.HasExternalConflict = true;
     }
 
