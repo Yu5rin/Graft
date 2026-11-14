@@ -84,6 +84,20 @@ public sealed partial class MainViewModel
             return;
         }
 
+        // チェックの組み合わせが成り立たない場合（RENAMEを外して移動先への変更だけ残した、FULLを外して
+        // それを前提にした変更だけ残した、等）は、要約入力や確認ダイアログを通した後で中止になるより前に、
+        // ここで理由と直し方を案内する。適用エンジンも書き込み前に同じ判定で止める
+        // （ApplyEngine.CheckSelection参照）ので、ここは早めに知らせるための二重の備え。
+        var selectionIssues = ApplyEngine.CheckSelection(updatedPlans);
+        if (selectionIssues.Count > 0)
+        {
+            await _dialogs
+                .ShowMessageAsync("このチェックの組み合わせでは適用できません",
+                    string.Join(Environment.NewLine + Environment.NewLine, selectionIssues.Select(i => i.Detail ?? i.ToDisplayText())))
+                .ConfigureAwait(true);
+            return;
+        }
+
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
             var input = await _dialogs.PromptAsync("要約を入力", "このリビジョンの概要を入力してください。", null).ConfigureAwait(true);

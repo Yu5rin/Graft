@@ -93,6 +93,12 @@ public sealed partial class ApplyEngine
             return GraftResult<RevisionManifest>.Fail(noneIssues);
         }
 
+        // チェックの組み合わせが成り立たない（RENAMEを外して移動先への変更だけ残した、FULLを外して
+        // それを前提にしたSRだけ残した、等）なら、書き込みを始める前に止める
+        // （ApplyEngine.Verification.cs参照）。
+        var selectionIssues = CheckSelection(plan.Plans);
+        if (selectionIssues.Count > 0) return GraftResult<RevisionManifest>.Fail(selectionIssues);
+
         if (ctx.Settings.ApplyMode != "partial")
         {
             // 「全件適用（All or Nothing）」: 選択状態を問わず、パッチ全体に1件でも適用できない
@@ -414,11 +420,28 @@ public sealed partial class ApplyEngine
             hashBefore = FileTextIO.ComputeHash(read.Value.Text);
             originalTextForVerify = read.Value.Text;
         }
-        else
+        var seen = new HashSet<PatchBlock>(ReferenceEqualityComparer.Instance);
+        var blocks = plansForFile.Select(p => p.Block).Where(seen.Add).ToList();
+        // SR形式は1ペア=1件のBlockPlanになる。同一ブロックの別ペアが選択されていても、このファイル
+        // グループに含まれないペア（＝ユーザーが選択を外した成功ペア）は再解決の対象から除く。
+        var includedPairs = new HashSet<SearchReplacePair>(
+            plansForFile.Where(p => p.Pair is not null).Select(p => p.Pair!), ReferenceEqualityComparer.Instance);
+        var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher, includedPairs);
+
+        // 再解決の結果がドライラン時のプランと一致しているかを確かめる。以前はここで resolution.Units の
+        // 成否を見ておらず、ドライランの後にファイルが変わっても、選択の組み合わせが成り立たなくても、
+        // 何も書き込まないまま（または空のファイルを作って）「成功」として記録していた
+        // （ApplyEngine.Verification.cs参照）。まだこのファイルには書き込んでいないので、中止すれば
+        // 呼び出し元（ApplyAsync）が、ここまでに書いた他のファイルをロールバックする。
+        var mismatch = VerifyResolutionMatchesPlans(path, plansForFile, resolution, existed);
+        if (mismatch is not null) return GraftResult<(bool, string?, string)>.Fail(mismatch.Issues);
+
+        if (!existed)
         {
             // 4.5: FULL形式でファイルが存在しない場合は親フォルダごと作成する。
             // 同名のファイルが既にある等で作成できない場合、例外を投げず失敗として返す
             // （附録A: ユーザー操作起因の失敗はGraftResultで扱う）。
+            // 上の突き合わせより後に置く: 食い違いで中止するときに、空の親フォルダだけを残さないため。
             var parentDir = Path.GetDirectoryName(fullPath);
             if (!string.IsNullOrEmpty(parentDir))
             {
@@ -433,14 +456,6 @@ public sealed partial class ApplyEngine
                 }
             }
         }
-
-        var seen = new HashSet<PatchBlock>(ReferenceEqualityComparer.Instance);
-        var blocks = plansForFile.Select(p => p.Block).Where(seen.Add).ToList();
-        // SR形式は1ペア=1件のBlockPlanになる。同一ブロックの別ペアが選択されていても、このファイル
-        // グループに含まれないペア（＝ユーザーが選択を外した成功ペア）は再解決の対象から除く。
-        var includedPairs = new HashSet<SearchReplacePair>(
-            plansForFile.Where(p => p.Pair is not null).Select(p => p.Pair!), ReferenceEqualityComparer.Instance);
-        var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher, includedPairs);
         var finalText = ComposeFinalText(resolution.FinalLines, originalWithTerminators, shape);
         // テスト専用フック（DebugCorruptFinalTextForTestsのコメント参照）。本番では常にnullのため
         // 素通りする。

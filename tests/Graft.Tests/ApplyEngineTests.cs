@@ -263,7 +263,11 @@ public class ApplyEngineTests
         second.Errors.Should().Contain(i => i.Code == ErrorCode.E302);
 
         var thirdCtx = harness.MakeContext(3, forceReapply: true);
-        var third = await harness.ApplyAsync(dryRun, thirdCtx);
+        // 強制再適用は、現在のファイルに対して解析し直した結果を適用する。最初の解析（dup.txtが
+        // まだ無かった時点の「新規作成」のプラン）を使い回すと、適用の時点でファイルが既にあるため、
+        // 本適用の食い違い検出（ApplyEngine.Verification.cs）が「新規作成のつもりの内容での上書き」として止める。
+        var redryRun = await harness.DryRunAsync(patchText, thirdCtx);
+        var third = await harness.ApplyAsync(redryRun, thirdCtx);
         third.IsSuccess.Should().BeTrue("ForceReapply指定時は警告付きで再適用できるはず");
         third.Issues.Should().Contain(i => i.Code == ErrorCode.E302 && i.Severity == Severity.Warning);
     }
