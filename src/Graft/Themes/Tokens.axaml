@@ -79,13 +79,12 @@
     <FontWeight x:Key="TitleFontWeight">SemiBold</FontWeight>
 
     <!--
-        GeneralSettingsView「本文フォント／等幅フォント」プレビュー行専用。BodyFontSize(13)より
-        気持ち大きく見せたい実物大サンプル表示のためのサイズで、見出しではないため上の
-        Title/Subheadingとは別に切り出す。15という値自体はUI点検前から変えていない
-        （視覚的な見た目を変えないため。フォントプレビューのForegroundは別エージェントが
-        調整中のため、このタブはFontSizeの直値をトークン化するだけに留める）。
+        GeneralSettingsView「画面のフォント／本文フォント／等幅フォント」の見本専用。
+        BodyFontSize(13)より少しだけ大きく見せたい実物大サンプル表示のためのサイズで、見出しではないため
+        上のTitle/Subheadingとは別に切り出す。以前は15だったが、周りの項目名（13px）より大きく
+        見出しのように見えたため14へ下げた（本文＋1。実機Xvfbで確認。Settings側の「見本」の枠の説明参照）。
     -->
-    <x:Double x:Key="PreviewSampleFontSize">15</x:Double>
+    <x:Double x:Key="PreviewSampleFontSize">14</x:Double>
 
     <!-- ========== 余白スケール ========== -->
     <x:Double x:Key="SpacingXs">4</x:Double>
