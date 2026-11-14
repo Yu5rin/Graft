@@ -192,6 +192,28 @@ public partial class ShellWindow
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Loaded);
         if (!_tutorialActive) return;
 
+        // 監査 H5: 6/7「取り消しを体験」で、強調する枠が履歴ペインの取り消しボタンではなく
+        // エディタのタブへずれ、サイドバーが畳まれたままになることがあった。
+        // 原因は、履歴ペインの対象（一覧・取り消しボタン）がサイドバーの中にあるのに、
+        // サイドバーが畳まれていても（利用者が途中でアイコンを押す・前の操作で閉じる等）、
+        // 対象コントロールが「表示中（IsVisible）」のまま幅0で残り、そのまま位置を測っていたこと。
+        // 履歴を指すステップでは、測る直前にもう一度サイドバーを開き直し、レイアウトの確定を
+        // 待ってから測る。履歴の選択で差分タブが開くとタブの帯が増えて位置が動くので、
+        // 選択（上の switch）より後に測る順序も守る。
+        if (step is 4 or 5)
+        {
+            ViewModel.ShowSideView(SideViewKind.History, focus: false);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+            if (!_tutorialActive) return;
+        }
+        else if (step is 1 or 2 or 3 && !ViewModel.IsGraftPanelOpen)
+        {
+            // 接ぎ木パネルを指すステップで、パネルが畳まれていると対象が見えない。
+            ViewModel.IsGraftPanelOpen = true;
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+            if (!_tutorialActive) return;
+        }
+
         // ここから先はawaitを挟まない（クラスドキュメントコメント参照）。
         _tutorialStep = step;
 
@@ -204,6 +226,22 @@ public partial class ShellWindow
             message,
             primaryLabel,
             backEnabled: _tutorialStep > 0);
+
+        // 表示した直後にレイアウトが動く場合（履歴の差分タブが開く等）に備え、少し後にもう一度測って、
+        // 位置が変わっていたら枠と吹き出しを置き直す。
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_tutorialActive || _tutorialStep != step) return;
+            var again = ResolveTutorialTarget(step);
+            if (again == target) return;
+            TutorialOverlayControl.ShowStep(
+                again,
+                $"{step + 1} / {TutorialStepCount}",
+                title,
+                message,
+                primaryLabel,
+                backEnabled: step > 0);
+        }, DispatcherPriority.Background);
     }
 
     /// <summary>
@@ -265,7 +303,9 @@ public partial class ShellWindow
             _ => null,
         };
 
-        if (control is null || !control.IsVisible || !control.IsAttachedToVisualTree()) return null;
+        // 幅や高さが0のコントロール（畳まれたサイドバーの中など）は、表示中でも指せない。
+        if (control is null || !control.IsVisible || !control.IsAttachedToVisualTree()
+            || control.Bounds.Width <= 0 || control.Bounds.Height <= 0) return null;
 
         var topLeft = control.TranslatePoint(new Point(0, 0), TutorialOverlayControl);
         return topLeft is null ? null : new Rect(topLeft.Value, control.Bounds.Size);
