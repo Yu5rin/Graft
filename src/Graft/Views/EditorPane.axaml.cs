@@ -574,6 +574,25 @@ public partial class EditorPane : UserControl
             .ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// フォーカスがエディタの外（サイドバー・接ぎ木パネル等）にあるときに、シェルから転送された
+    /// Ctrl+F／H／G／W／Tab をアクティブなタブに対して処理する（C7）。以前はエディタの中にフォーカスが
+    /// あるときしか効かず、エクスプローラで Ctrl+W を押しても何も起きなかった。
+    /// 処理した（アクティブなタブが対象になる）ときだけ true。
+    /// </summary>
+    public bool TryHandleFromShell(KeyEventArgs e)
+    {
+        if (_viewModel is null || e.KeyModifiers != KeyModifiers.Control) return false;
+        if (TryHandleTabNavigation(e, e.KeyModifiers)) return true;
+        if (TryHandleSearchShortcuts(e, e.KeyModifiers)) return true;
+        if (e.Key is Key.W or Key.G && _viewModel.ActiveTab is not null)
+        {
+            _ = SafeHandler.RunAsync("エディタのキー操作", () => HandleAsyncShortcutsAsync(e, e.KeyModifiers));
+            return true;
+        }
+        return false;
+    }
+
     /// <summary>Ctrl+Tab: 直近使用順のタブ切替。</summary>
     private bool TryHandleTabNavigation(KeyEventArgs e, KeyModifiers mods)
     {

@@ -37,6 +37,13 @@ public sealed partial class MainViewModel
     /// </summary>
     public event EventHandler<ApplyPreviewRequestedEventArgs>? ApplyPreviewRequested;
 
+    /// <summary>
+    /// 適用処理（要約確認〜書き込み〜適用後フック〜Git自動コミット）が実行中かどうか。
+    /// アプリを閉じる操作が、書き込みの途中でプロセスを終わらせてしまわないよう、
+    /// 終わるまで待つために参照する（ShellWindow.OnClosing）。
+    /// </summary>
+    public bool IsApplyInProgress => _isApplyInProgress;
+
     /// <summary>ApplyCommandの実体。要約入力・確認ダイアログを経て本適用し、6.5適用後フックを実行する。</summary>
     private async Task ApplyAsync()
     {
@@ -120,6 +127,21 @@ public sealed partial class MainViewModel
         if (!confirmed) return;
 
         var project = ProjectPane.SelectedItem?.Project;
+
+        // 書き込みの直前にもう一度、対象ファイルの未保存の編集を確かめる。未保存の確認はドライランの
+        // 開始時（RunDryRunAsync）にしか行っていなかったため、解析して差分を見ている間に対象を
+        // エディタで直し、保存しないまま適用すると、適用はディスクの内容に対して行われ、直後の
+        // 再読込でエディタの未保存の編集が消えていた（C3）。保存を拒んだ場合は適用を始めない。
+        if (project is not null)
+        {
+            var targets = updatedPlans
+                .Where(p => p.IsSelected && p.CanApply)
+                .SelectMany(p => new[] { p.Block.Path, p.Path }) // RENAMEは移動元と移動先の両方。
+                .Select(path => Path.Combine(project.Root, path.Replace('/', Path.DirectorySeparatorChar)))
+                .Distinct()
+                .ToList();
+            if (BeforeApplyAsync is not null && !await BeforeApplyAsync(targets).ConfigureAwait(true)) return;
+        }
 
         State = CenterPaneState.Loading;
         // 実機不具合対応: 適用処理（書き込み失敗を含む）がログに一切残っていなかったため、

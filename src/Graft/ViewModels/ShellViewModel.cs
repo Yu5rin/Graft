@@ -29,18 +29,6 @@ public enum GraftPanelPlacementKind
 }
 
 /// <summary>
-/// 旧キー（v1.5のショートカット）の種別。附録A「キーマップ移行」の一度きり通知に使う
-/// （9.5: 素のCtrl+V・Ctrl+Z・Ctrl+H・素の1〜9）。
-/// </summary>
-public enum LegacyKey
-{
-    PasteCtrlV,
-    UndoCtrlZ,
-    HistoryCtrlH,
-    ProjectDigit,
-}
-
-/// <summary>
 /// 新シェルレイアウト（サイドバー＋エディタ中央＋接ぎ木パネル下部、仕様書9.2）を統括する
 /// ViewModel。既存の <see cref="MainViewModel"/> の全機能をそのまま内包し（<see cref="Graft"/>）、
 /// これにエディタペイン（<see cref="Editor"/>）とサイドビュー・接ぎ木パネルの開閉状態を
@@ -55,7 +43,6 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     // v1.0.7実機不具合対応: プロジェクト切替時の環境要約ログ（EnvironmentSummaryLogger）が
     // データ保存先（ポータブル／ユーザーフォルダ）を判定するために必要。
     private readonly Graft.Infra.AppPaths _appPaths;
-    private readonly HashSet<LegacyKey> _notifiedLegacyKeys = new();
 
     private SideViewKind _selectedSideView = SideViewKind.Project;
     private bool _isSideViewCollapsed;
@@ -87,10 +74,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _settings = settings;
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
+        Graft.ProjectPane.SwitchGuardAsync = ConfirmProjectSwitchAsync;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
         // プロジェクトペイン改善（要望2）: プロジェクト名のダブルクリックでサイドビューを
         // エクスプローラへ切り替える（折りたたまれていれば展開も行う。SelectSideView参照）。
-        Graft.ProjectPane.ProjectActivated += (_, _) => SelectSideView(SideViewKind.Explorer);
+        Graft.ProjectPane.ProjectActivated += (_, _) => ShowSideView(SideViewKind.Explorer);
         // プロジェクトペイン改善（要望1）: 削除等でプロジェクトが1件も無くなった場合、
         // エディタ・エクスプローラ・検索・クイックオープンを「プロジェクト未選択」の状態へ戻す。
         Graft.ProjectPane.SelectionCleared += OnProjectSelectionCleared;
@@ -118,6 +106,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
 
         SelectSideViewCommand = new RelayCommand<SideViewKind>(SelectSideView);
+        ShowSideViewCommand = new RelayCommand<SideViewKind>(kind => ShowSideView(kind));
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
         ToggleGraftPanelPlacementCommand = new RelayCommand(() => GraftPanelPlacement =
             GraftPanelPlacement == GraftPanelPlacementKind.Bottom ? GraftPanelPlacementKind.Right : GraftPanelPlacementKind.Bottom);
@@ -276,6 +265,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>サイドバーのアイコンクリック（CommandParameterに<see cref="SideViewKind"/>）。</summary>
     public ICommand SelectSideViewCommand { get; }
 
+    /// <summary>コマンドパレット等の「開く」操作（表示してフォーカスを移す。畳まない）。<see cref="ShowSideView"/>参照。</summary>
+    public ICommand ShowSideViewCommand { get; }
+
     /// <summary>Ctrl+J・接ぎ木パネルのヘッダーボタン。</summary>
     public ICommand ToggleGraftPanelCommand { get; }
 
@@ -375,8 +367,32 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public void NotifyApplyPreviewDisableRequested() => ApplyPreviewDisableRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>
+    /// サイドビューを表示して、そこへフォーカスを移すことの要求。View（ShellWindow）が購読して
+    /// 各ビューの入力先（検索欄・ファイルツリー・一覧）へフォーカスする。
+    /// </summary>
+    public event EventHandler<SideViewKind>? RequestFocusSideView;
+
+    /// <summary>
+    /// 「開く」操作（ツールバーの「履歴」、Ctrl+Shift+H／E／F、コマンドパレットの各ビュー、
+    /// 適用後の「変更を見る」等）の挙動。そのビューを表示して、そこへフォーカスを移す。
+    ///
+    /// 【なぜ <see cref="SelectSideView"/> と分けたか】 以前はこれらも <see cref="SelectSideView"/>
+    /// （サイドバーのアイコンの再クリックで畳む）を通っていたため、すでにそのビューが表示中だと
+    /// サイドビューごと畳んでしまった。「開く」と言われて閉じるのは意味が逆で、キーを押した利用者には
+    /// 不具合に見えた。畳むのはサイドバーのアイコンをもう一度押したときだけにする。
+    /// </summary>
+    /// <param name="focus">falseなら表示だけ行いフォーカスは動かさない（チュートリアル等、フォーカスを奪いたくない呼び出し用）。</param>
+    public void ShowSideView(SideViewKind kind, bool focus = true)
+    {
+        SelectedSideView = kind;
+        IsSideViewCollapsed = false;
+        if (focus) RequestFocusSideView?.Invoke(this, kind);
+    }
+
+    /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
     /// 再クリックした場合はサイドビューを折りたたむ。それ以外は該当ビューへ切り替えて展開する。
+    /// キーボード・コマンドパレット等の「開く」操作は <see cref="ShowSideView"/> を使う。
     /// </summary>
     public void SelectSideView(SideViewKind kind)
     {
@@ -461,7 +477,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private void OnShowFileHistoryRequested(object? sender, string relativePath)
     {
         Graft.History.ShowHistoryForFile(relativePath);
-        if (!IsHistoryActive) Graft.ShowHistoryCommand.Execute(null);
+        Graft.ShowHistoryCommand.Execute(null);
     }
 
     /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
@@ -573,6 +589,37 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// （SafeHandler.RunAsyncが捕捉した場合を含む）フラグが立ちっぱなしになって以後
     /// 一切ホイールで切り替えられなくなる、という詰み方を避けるため。
     /// </summary>
+    /// <summary>
+    /// プロジェクトを切り替える前の確認（C4）。切替前のタブ構成を記憶してから、開いているタブを
+    /// すべて閉じる（未保存があれば保存／保存しない／キャンセルの確認が出る）。キャンセルされたら
+    /// falseを返し、ProjectPaneViewModelが選択を元のプロジェクトへ戻して切り替えを中止する。
+    /// 以前は<see cref="OnProjectSelected"/>の中でCloseAllAsyncの結果を見ておらず、
+    /// 「キャンセル」しても切り替わっていた。
+    /// タブ構成の記憶（CaptureProjectState）は、タブを閉じる前でなければ空になってしまうため、
+    /// 閉じる処理と同じここで先に行う。
+    /// </summary>
+    private async Task<bool> ConfirmProjectSwitchAsync(Project next)
+    {
+        IsProjectSwitchBusy = true;
+        try
+        {
+            var proceed = false;
+            await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
+            {
+                if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
+                proceed = await Editor.CloseAllAsync().ConfigureAwait(true);
+            }).ConfigureAwait(true);
+
+            // キャンセルされて閉じきれなかったときは、タブが残っている。退避しておいた
+            // 切替前のタブ構成は、いまの状態のままで正しいのでそのままにしておく。
+            return proceed;
+        }
+        finally
+        {
+            IsProjectSwitchBusy = false;
+        }
+    }
+
     private async void OnProjectSelected(object? sender, Project project)
     {
         IsProjectSwitchBusy = true;
@@ -580,8 +627,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         {
             await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
             {
-                if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
-
+                // 切替前のタブ構成の記憶と、開いているタブの全閉じ（未保存の確認を含む）は、
+                // 切り替えの前にConfirmProjectSwitchAsyncで済んでいる。ここでの呼び出しは、
+                // 確認を経ない最初の選択でも取りこぼさないための保険で、閉じるタブが
+                // 無ければ何も起きない（タブ構成の記憶を重ねて行うと、閉じ終えた空の状態で
+                // 上書きしてしまうので、ここでは行わない）。
                 await Editor.CloseAllAsync().ConfigureAwait(true);
                 Editor.SetProject(project.Root);
 
@@ -680,30 +730,4 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         foreach (var folder in layout.ExpandedFolders) await Explorer.ExpandPathAsync(folder).ConfigureAwait(true);
     }
-
-    /// <summary>
-    /// 附録A「キーマップ移行」: 旧キーがエディタ外で押された場合、初回のみ変更内容を通知する。
-    /// 通知済みフラグはメモリ保持のみ（プロセス再起動で再び通知される）。
-    /// </summary>
-    public void NotifyLegacyKey(LegacyKey key)
-    {
-        if (!_notifiedLegacyKeys.Add(key))
-        {
-            return;
-        }
-        _ = _dialogs.ShowMessageAsync("このキーは変更されました", LegacyKeyMessage(key));
-    }
-
-    private static string LegacyKeyMessage(LegacyKey key) => key switch
-    {
-        LegacyKey.PasteCtrlV =>
-            "パッチの取り込み解析は Ctrl+Shift+V に変更されました。Ctrl+V はエディタでの通常の貼り付けに使えます。",
-        LegacyKey.UndoCtrlZ =>
-            "直前リビジョンの取り消しは Ctrl+Alt+Z に変更されました。Ctrl+Z はエディタのアンドゥに使えます。",
-        LegacyKey.HistoryCtrlH =>
-            "履歴ビューを開く操作は Ctrl+Shift+H に変更されました。Ctrl+H はエディタの置換に使えます。",
-        LegacyKey.ProjectDigit =>
-            "プロジェクト切替は Ctrl+Alt+1〜9 に変更されました。数字キー単独は通常の入力に使えます。",
-        _ => "このキーの割り当てが変更されました。",
-    };
 }

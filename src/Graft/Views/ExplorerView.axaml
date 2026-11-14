@@ -162,6 +162,7 @@
                      Grid.Column="1"
                      Text="{Binding FilterText}"
                      Watermark="ファイル名で絞り込み"
+                     local:EscapeClearBehavior.Enabled="True"
                      AutomationProperties.Name="ファイル名でツリーを絞り込む"
                      local:HelpTip.Standard="入力した文字を名前に含むファイルだけをツリーに表示します。一致したファイルの親フォルダは自動的に展開されます。"
                      local:HelpTip.Detailed="ツリー上のファイルを、名前に入力した文字を含むものだけへ絞り込みます。Ctrl+Pのクイックオープンは「ファイルを開く」ための一覧ですが、こちらは「ツリーで眺める」ための絞り込みで、選んでも何も開きません。一致したファイルの親フォルダは自動的に展開され、絞り込みを空にすると元の展開状態へ戻ります。大きなプロジェクトでも入力のたびに固まらないよう、入力を少し待ってから検索します。" />

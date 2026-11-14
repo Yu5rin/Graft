@@ -176,10 +176,10 @@ public partial class ShellWindow
                 await PrepareAnalyzeAsync().ConfigureAwait(true);
                 break;
             case 4:
-                ViewModel.SelectSideView(SideViewKind.History);
+                ViewModel.ShowSideView(SideViewKind.History, focus: false);
                 break;
             case 5:
-                ViewModel.SelectSideView(SideViewKind.History);
+                ViewModel.ShowSideView(SideViewKind.History, focus: false);
                 ViewModel.Graft.History.SelectedItem = ViewModel.Graft.History.Items.FirstOrDefault();
                 break;
         }

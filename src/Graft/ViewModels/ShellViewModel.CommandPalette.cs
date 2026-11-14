@@ -93,9 +93,9 @@ public sealed partial class ShellViewModel
             new("接ぎ木パネルの開閉", ToggleGraftPanelCommand, null, Gesture("ToggleGraftPanel")),
             new("接ぎ木パネルの配置切り替え（下／右）", ToggleGraftPanelPlacementCommand, null, Gesture("ToggleGraftPanelPlacement")),
             new("ファイル名であいまい検索して開く（クイックオープン）", ToggleQuickOpenCommand, null, Gesture("QuickOpen")),
-            new("プロジェクトビューに切り替え", SelectSideViewCommand, SideViewKind.Project, Gesture("SelectProject")),
-            new("エクスプローラビューに切り替え", SelectSideViewCommand, SideViewKind.Explorer, Gesture("SelectExplorer")),
-            new("検索ビューに切り替え", SelectSideViewCommand, SideViewKind.Search, Gesture("SelectSearch")),
+            new("プロジェクトビューに切り替え", ShowSideViewCommand, SideViewKind.Project, Gesture("SelectProject")),
+            new("エクスプローラビューに切り替え", ShowSideViewCommand, SideViewKind.Explorer, Gesture("SelectExplorer")),
+            new("検索ビューに切り替え", ShowSideViewCommand, SideViewKind.Search, Gesture("SelectSearch")),
             new("直前に閉じたタブを開き直す", Editor.ReopenLastClosedTabCommand, null, Gesture("ReopenLastClosedTab")),
             // 検討書「折りたたみの機能追加」(b) 折りたたみコマンド。ShortcutCatalogは
             // レベル1〜5をまとめて1行（"Ctrl+Shift+1〜5"）にしか持たないため、レベル2〜5は

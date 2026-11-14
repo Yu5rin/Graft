@@ -39,7 +39,7 @@ public sealed partial class ShellViewModel
         // 履歴ビューを開いて一覧へフォーカスする。OnShowFileHistoryRequestedと同じ理由で、
         // すでに履歴ビューが表示中ならスキップする（再選択はサイドビューを折りたたむ
         // トグル動作に巻き込まれるため）。
-        if (!IsHistoryActive) Graft.ShowHistoryCommand.Execute(null);
+        Graft.ShowHistoryCommand.Execute(null);
     }
 
     /// <summary>

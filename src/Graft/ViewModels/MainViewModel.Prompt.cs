@@ -120,6 +120,7 @@ public sealed partial class MainViewModel
         PromptCopy = new PromptCopyViewModel(
             _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings, _ui);
         PromptCopy.AppendSelectedFilesChangeCommitted += OnAppendSelectedFilesChangeCommitted;
+        PromptCopy.Notify = text => Notice.Show(text);
         OnPropertyChanged(nameof(ContextCollect));
         OnPropertyChanged(nameof(PromptCopy));
     }

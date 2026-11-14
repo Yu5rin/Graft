@@ -94,6 +94,7 @@
                      Grid.Column="1"
                      Text="{Binding Keyword}"
                      Watermark="要約を検索"
+                     local:EscapeClearBehavior.Enabled="True"
                      AutomationProperties.Name="リビジョンの要約を検索"
                      local:HelpTip.Standard="下の履歴一覧を、summary（変更のひとこと要約）に含まれる文字で絞り込みます。"
                      local:HelpTip.Detailed="適用した変更につけられたひとこと要約（summary）の文字列で、下の履歴一覧を絞り込みます。入力すると即座に一覧が絞られ、空にすると全件表示に戻ります。過去にどんな変更を適用したか、キーワードで思い出しながら探したいときに使います。" />

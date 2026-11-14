@@ -224,6 +224,9 @@ public sealed class SettingsStore
             LogLevel = NormalizeChoice(safe.LogLevel, ValidLogLevels, "info", "logLevel", issues, context),
             CloseBehavior = NormalizeChoice(safe.CloseBehavior, ValidCloseBehaviors, "exit", "closeBehavior", issues, context),
             Hotkey = NormalizeNotEmpty(safe.Hotkey, "Ctrl+Alt+V", "hotkey", issues, context),
+            // 空文字は「OS全体には登録しない」を表す正当な値なので、NormalizeNotEmptyは使わない。
+            // JSONにnullと書かれていた場合だけ既定値へ戻す。
+            PromptHotkey = safe.PromptHotkey is null ? "Ctrl+Shift+C" : safe.PromptHotkey.Trim(),
             ClipboardWatch = ValidateClipboardWatch(safe.ClipboardWatch, issues, context),
             Backup = ValidateBackup(safe.Backup, issues, context),
             Matching = ValidateMatching(safe.Matching, issues, context),

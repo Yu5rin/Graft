@@ -228,10 +228,20 @@ public sealed class DocumentSession : IDisposable
             return GraftResult<bool>.Fail(ErrorCode.E218, FileTextIO.UnsupportedEncodingDetail, path: FullPath);
         }
 
+        // 【保存を始めた時点の内容を基準にする】 書き込みは非同期で、その間もエディタは打鍵を
+        // 受け付ける。以前は書き込みが終わった時点で無条件に「保存済み」の印（MarkAsOriginalFile）を
+        // 付けていたため、書き込み中に打った文字まで保存済み扱いになり、タブの「未保存」表示が消えて
+        // 閉じるときの確認も出なくなった（ディスクには入っていない文字が黙って消える）。
+        // ここで保存する文字列と文書の版を控え、終わったときに文書が変わっていなければ印を付ける。
+        // 変わっていれば印は付けず、未保存のまま残す（書き込み中に打った分が未保存として残るのが
+        // 正しい。副作用として、その後に保存内容まで取り消しても未保存表示は残るが、
+        // 安全側の誤差なので許容する）。
+        // 文字列と版は、UIスレッドで同時に控える（間に打鍵が入ると、版と内容が食い違うため）。
+        var (text, versionAtStart) = await ui.InvokeAsync(() => (Document.Text, Document.Version));
+
         // 文字コードで表せない文字（Shift_JISへの絵文字など）は、書くと「?」に化ける。
         // 黙って書かず、確認を取る（適用のドライランが警告で知らせるのと同じ趣旨）。
         // 確認の手段（ConfirmLossySave）が無い呼び出しでは、壊す側に倒さず保存しない。
-        var text = await ui.InvokeAsync(() => Document.Text);
         var unrepresentable = EncodingSafety.FindUnrepresentable(text, Shape.Encoding);
         if (unrepresentable.Count > 0)
         {
@@ -254,10 +264,39 @@ public sealed class DocumentSession : IDisposable
                 i => GraftIssue.Of(ErrorCode.E701, i.Detail, i.LineNumber, i.Path, i.Severity)));
         }
 
+        // 自分が書いた内容の印。保存の直後のファイル監視（250ms待ってから通知する）が、
+        // 自分の保存を「外部で変更された」と取り違えないための照合に使う
+        // （<see cref="DiskMatchesLastSaveAsync"/>）。UIスレッドを使わない計算なのでここで済ませる。
+        var savedHash = FileTextIO.ComputeHash(text);
+
         // UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う必要がある
         // （クラス冒頭のコメント参照）。
-        await ui.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
+        await ui.InvokeAsync(() =>
+        {
+            _lastSavedHash = savedHash;
+            if (versionAtStart.CompareAge(Document.Version) == 0) Document.UndoStack.MarkAsOriginalFile();
+        });
         return result;
+    }
+
+    private string? _lastSavedHash;
+
+    /// <summary>
+    /// いまディスク上にある内容が、このセッションが最後に保存した内容と同じかどうか。
+    ///
+    /// 【なぜ必要か】 保存の直後、ファイル監視は250msのまとめ待ちのあとに「変更があった」と通知する。
+    /// その間に利用者が打鍵すると、通知の時点で文書は未保存になっており、自分の保存を外部の変更と
+    /// 取り違えて衝突の表示を出していた（「再読込」を選ぶと、保存後に打った文字が消える）。
+    /// ディスクの内容が自分の保存した内容と同じなら、誰も外から書き換えていないので、通知は無視してよい。
+    /// 一度も保存していない、またはディスクを読めないときは false（従来どおり衝突として扱う）。
+    /// </summary>
+    public async Task<bool> DiskMatchesLastSaveAsync(CancellationToken ct = default)
+    {
+        var saved = _lastSavedHash;
+        if (saved is null) return false;
+
+        var read = await FileTextIO.ReadAsync(FullPath, ct).ConfigureAwait(false);
+        return read.IsSuccess && string.Equals(FileTextIO.ComputeHash(read.Value.Text), saved, StringComparison.Ordinal);
     }
 
     /// <summary>

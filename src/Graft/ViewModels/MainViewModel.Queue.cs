@@ -41,7 +41,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private async Task HandleTruncatedPatchAsync(Patch patch)
     {
-        var addResult = PatchQueue.Add(patch);
+        var addResult = PatchQueue.Add(patch, ProjectPane.SelectedItem?.Project.Id);
         Queue.Refresh();
 
         var duplicateCount = addResult.Issues.Count(i => i.Code == ErrorCode.E007);
@@ -79,20 +79,22 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>4.10: 現在解析中のパッチを手動でキューへ追加する。</summary>
-    private async Task AddCurrentPatchToQueueAsync()
+    private Task AddCurrentPatchToQueueAsync()
     {
-        if (_currentPatch is null) return;
+        if (_currentPatch is null) return Task.CompletedTask;
 
-        var result = PatchQueue.Add(_currentPatch);
+        var result = PatchQueue.Add(_currentPatch, ProjectPane.SelectedItem?.Project.Id);
         Queue.Refresh();
 
         var duplicateCount = result.Issues.Count(i => i.Code == ErrorCode.E007);
         var message = duplicateCount > 0
             ? $"{result.Value.Count}件をキューへ追加しました（うち{duplicateCount}件は同一ファイルへの重複ブロックです）。"
             : $"{result.Value.Count}件をキューへ追加しました。";
-        await _dialogs.ShowMessageAsync("キューへ追加しました", message).ConfigureAwait(true);
-
+        // 成功の知らせだけなので、OKを押すまで閉じないダイアログではなく、ステータスバーの
+        // 数秒で消える通知にする（StatusNoticeViewModel.cs）。
         DiscardCurrentPatch();
+        Notice.Show(message);
+        return Task.CompletedTask;
     }
 
     /// <summary>4.10: キュー全体を1つのパッチに結合し、通常のドライラン・適用フローに乗せる。</summary>
@@ -103,6 +105,29 @@ public sealed partial class MainViewModel
         {
             await _dialogs.ShowMessageAsync("キューが空です", "結合するブロックがありません。").ConfigureAwait(true);
             return;
+        }
+
+        // 別のプロジェクトを選んでいるときに積んだ項目が混ざっていたら、確認する（C12）。
+        // 結合はいま選んでいるプロジェクトに対して解析・適用されるため、気づかずに進めると
+        // 別のプロジェクトのファイルへ当てはめようとして、まず失敗するか、同名のファイルがあれば
+        // 意図しない場所を書き換える。
+        var currentProjectId = ProjectPane.SelectedItem?.Project.Id;
+        var otherProjects = PatchQueue.Items
+            .Where(i => i.ProjectId is not null && i.ProjectId != currentProjectId)
+            .Select(i => i.ProjectId!)
+            .Distinct()
+            .ToList();
+        if (otherProjects.Count > 0)
+        {
+            var names = otherProjects
+                .Select(id => ProjectPane.Items.FirstOrDefault(p => p.Project.Id == id)?.Project.DisplayName ?? "（削除されたプロジェクト）");
+            var currentName = ProjectPane.SelectedItem?.Project.DisplayName ?? "（未選択）";
+            var proceed = await _dialogs.ConfirmAsync(
+                "別のプロジェクトで積んだ変更が含まれています",
+                $"キューには、「{string.Join("」「", names)}」で積んだ変更が含まれています。" +
+                $"現在選んでいるのは「{currentName}」で、結合した変更はこのプロジェクトに対して解析・適用されます。" +
+                Environment.NewLine + Environment.NewLine + "このまま結合して解析しますか？").ConfigureAwait(true);
+            if (!proceed) return;
         }
 
         _currentPatch = merged.Value;
@@ -144,19 +169,22 @@ public sealed partial class MainViewModel
             : CopyRecoveryPromptForPlansAsync(new[] { block.Plan });
     }
 
-    private async Task CopyRecoveryPromptForPlansAsync(IReadOnlyList<BlockPlan> failedPlans)
+    private Task CopyRecoveryPromptForPlansAsync(IReadOnlyList<BlockPlan> failedPlans)
     {
-        if (failedPlans.Count == 0) return;
+        if (failedPlans.Count == 0) return Task.CompletedTask;
 
         var projectRoot = ProjectPane.SelectedItem?.Project.Root;
-        if (projectRoot is null) return;
+        if (projectRoot is null) return Task.CompletedTask;
 
         var prompt = RecoveryPrompt.Build(failedPlans, path => ReadCurrentTextForRecovery(projectRoot, path));
         TrySetClipboardText(prompt);
         var message = failedPlans.Count == 1
             ? $"「{failedPlans[0].Path}」の失敗ブロックについて、失敗したSEARCH部と現在のコードを含む修正依頼文をクリップボードへコピーしました。"
             : $"{failedPlans.Count}件の失敗ブロックについて、失敗したSEARCH部と現在のコードを含む修正依頼文をクリップボードへコピーしました。";
-        await _dialogs.ShowMessageAsync("修正依頼プロンプトをコピーしました", message).ConfigureAwait(true);
+        // コピーの成功はステータスバーの通知で足りる（失敗の余地がある処理ではないため、
+        // 判断を求めるダイアログにはしない）。
+        Notice.Show(message);
+        return Task.CompletedTask;
     }
 
     /// <summary>

@@ -27,6 +27,12 @@ public sealed record QueuedBlock
 
     /// <summary>元のパッチのメタデータ。</summary>
     public PatchMeta? Meta { get; init; }
+
+    /// <summary>
+    /// 積んだときに選んでいたプロジェクトのID。別のプロジェクトを選んだ状態で結合しようとしたときに
+    /// 警告するための記録（C12）。古い queue.json（記録が無い）や、プロジェクト未選択で積んだ項目は null。
+    /// </summary>
+    public string? ProjectId { get; init; }
 }
 
 /// <summary>
@@ -55,7 +61,7 @@ public sealed class PatchQueue
     /// 警告として Issues に含める（追加自体は行う。ブロックを個別に取り除きたい場合は
     /// <see cref="Remove"/> を使う）。
     /// </summary>
-    public GraftResult<IReadOnlyList<QueuedBlock>> Add(Patch patch)
+    public GraftResult<IReadOnlyList<QueuedBlock>> Add(Patch patch, string? projectId = null)
     {
         var seenPaths = new HashSet<string>(
             _slots.Select(s => NormalizedPath(s.Block.Block)), StringComparer.OrdinalIgnoreCase);
@@ -79,23 +85,39 @@ public sealed class PatchQueue
                 SourcePatchText = patch.RawText,
                 AddedAt = DateTimeOffset.Now,
                 Meta = patch.Meta,
+                ProjectId = projectId,
             };
             _slots.Add((queued, i));
             added.Add(queued);
         }
 
+        if (added.Count > 0) Changed?.Invoke(this, EventArgs.Empty);
         return GraftResult<IReadOnlyList<QueuedBlock>>.Ok(added, issues);
     }
+
+    /// <summary>
+    /// 追加・削除・クリアで中身が変わるたびに発火する。以前は正常終了のときの1回しか保存しておらず
+    /// （StartupCoordinator.Validation.cs）、強制終了や電源断で積んだ内容が消えた。変わるたびに
+    /// 保存できるよう、持ち主（MainViewModel）がこのイベントで保存を起こす（C12）。
+    /// </summary>
+    public event EventHandler? Changed;
 
     /// <summary>指定IDのブロックをキューから削除する。存在しないIDは無視する。</summary>
     public void Remove(string id)
     {
         var index = _slots.FindIndex(s => s.Block.Id == id);
-        if (index >= 0) _slots.RemoveAt(index);
+        if (index < 0) return;
+        _slots.RemoveAt(index);
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>キューを空にする。</summary>
-    public void Clear() => _slots.Clear();
+    public void Clear()
+    {
+        if (_slots.Count == 0) return;
+        _slots.Clear();
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>キュー全体を、各ブロックの出現順を保った1つの Patch として結合する。</summary>
     public GraftResult<Patch> Merge()
@@ -124,9 +146,13 @@ public sealed class PatchQueue
     /// <summary>終了時に呼び出し、キューの内容を queue.json へ保存する。</summary>
     public async Task<GraftResult<bool>> SaveAsync(CancellationToken ct = default)
     {
+        // 変わるたびに保存するため、保存が重なりうる。順番が入れ替わって古い内容が最後に残らないよう、
+        // 1本ずつ（呼ばれた順に）書く。内容は呼ばれた時点の写しを先に取る（待っている間や
+        // 別スレッドでの書き込み中にキューが変わっても、列挙が壊れないように）。
+        var dto = new QueueFileDto { Entries = _slots.Select(ToEntryDto).ToArray() };
+        await _saveGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var dto = new QueueFileDto { Entries = _slots.Select(ToEntryDto).ToArray() };
             await _store.WriteAsync(_queueFilePath, dto, ct: ct).ConfigureAwait(false);
             return GraftResult<bool>.Ok(true);
         }
@@ -134,7 +160,13 @@ public sealed class PatchQueue
         {
             return GraftResult<bool>.Fail(ErrorCode.E402, detail: ExceptionMessages.Describe(ex), path: _queueFilePath);
         }
+        finally
+        {
+            _saveGate.Release();
+        }
     }
+
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
 
     /// <summary>起動時に呼び出し、queue.json からキューの内容を復元する。</summary>
     public async Task<GraftResult<bool>> LoadAsync(CancellationToken ct = default)
@@ -176,6 +208,7 @@ public sealed class PatchQueue
             SourcePatchText = entry.SourcePatchText,
             AddedAt = entry.AddedAt,
             Meta = patch.Meta,
+            ProjectId = entry.ProjectId,
         };
         _slots.Add((queued, entry.BlockIndex));
     }
@@ -198,6 +231,7 @@ public sealed class PatchQueue
         SourcePatchText = slot.Block.SourcePatchText,
         BlockIndex = slot.SourceIndex,
         AddedAt = slot.Block.AddedAt,
+        ProjectId = slot.Block.ProjectId,
     };
 
     private static string NormalizedPath(PatchBlock block) => block.Path.Replace('\\', '/').ToLowerInvariant();
@@ -213,5 +247,6 @@ public sealed class PatchQueue
         public required string SourcePatchText { get; init; }
         public required int BlockIndex { get; init; }
         public DateTimeOffset AddedAt { get; init; }
+        public string? ProjectId { get; init; }
     }
 }

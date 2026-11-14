@@ -126,9 +126,16 @@
                     Ctrl+Zと同じUndoCommand（既存の単発復元経路）をそのまま再利用するため、
                     クリックすると取り消しの確認ダイアログを挟んだうえで直前のリビジョンを取り消す。
                 -->
-                <Button Content="{Binding Graft.ApplyUndoNoticeText}"
+                <!-- 通知の文言は通常の文字色にし、押せる「元に戻す」だけをリンクの見た目にする
+                     （全体をリンク色にすると、押せない説明文まで押せそうに見えたため）。 -->
+                <TextBlock Text="{Binding Graft.ApplyUndoNoticeMessage}"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.HasApplyUndoNotice}" />
+                <Button Content="元に戻す"
                         Command="{Binding Graft.UndoCommand}"
-                        Margin="12,0,0,0"
+                        Margin="4,0,0,0"
                         Padding="6,2"
                         Background="Transparent"
                         BorderThickness="0"
@@ -137,8 +144,32 @@
                         IsVisible="{Binding Graft.HasApplyUndoNotice}"
                         AutomationProperties.Name="{Binding Graft.ApplyUndoNoticeText}"
                         local:HelpTip.Standard="適用直後に数秒だけ表示される通知です。クリックすると直前のリビジョンを元に戻せます。"
-                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Zからいつでも元に戻せます。"
+                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Alt+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Alt+Zからいつでも元に戻せます。"
                         ToolTip.Tip="クリックすると直前に適用したリビジョンを元に戻します。" />
+
+                <!--
+                    成功を知らせるだけの短い通知（破棄しました・コピーしました・キューへ追加しました等。
+                    MainViewModel.DiscardUndo.cs・StatusNoticeViewModel.cs）。数秒で自動的に消える。
+                    文言は通常の文字色、押せる操作（「元に戻す」等）だけをリンクの見た目にする。
+                -->
+                <TextBlock Text="{Binding Graft.Notice.Text}"
+                           Margin="12,0,0,0"
+                           MaxWidth="460"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.Notice.IsVisible}"
+                           AutomationProperties.Name="{Binding Graft.Notice.Text}" />
+                <Button Content="{Binding Graft.Notice.ActionLabel}"
+                        Command="{Binding Graft.Notice.ActionCommand}"
+                        Margin="4,0,0,0"
+                        Padding="6,2"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Graft.Notice.HasAction}"
+                        AutomationProperties.Name="{Binding Graft.Notice.ActionLabel}" />
 
                 <!--
                     適用直後は接ぎ木パネルのブロック一覧が空になり、変更したファイルを開く入口が

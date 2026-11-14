@@ -69,6 +69,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _selectedApplyMode = "partial";
     private bool _showPreview; private bool _requireSummary;
     private string _hotkey = string.Empty;
+    private string _promptHotkey = string.Empty;
     private string _selectedLogLevel = "info";
     private bool _clipboardWatchEnabled;
     private string _selectedClipboardAction = "notify";
@@ -386,6 +387,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool ShowPreview { get => _showPreview; set => SetEditableProperty(ref _showPreview, value); }
     public bool RequireSummary { get => _requireSummary; set => SetEditableProperty(ref _requireSummary, value); }
     public string Hotkey { get => _hotkey; set => SetEditableProperty(ref _hotkey, value); }
+
+    /// <summary>「AIへの依頼文をコピー」のOS全体のホットキー。空ならOS全体には登録しない。</summary>
+    public string PromptHotkey { get => _promptHotkey; set => SetEditableProperty(ref _promptHotkey, value ?? string.Empty); }
     public string SelectedLogLevel { get => _selectedLogLevel; set => SetEditableProperty(ref _selectedLogLevel, value); }
     public bool ClipboardWatchEnabled { get => _clipboardWatchEnabled; set => SetEditableProperty(ref _clipboardWatchEnabled, value); }
     public string SelectedClipboardAction { get => _selectedClipboardAction; set => SetEditableProperty(ref _selectedClipboardAction, value); }
@@ -684,6 +688,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     public void SetAppendFilesToPromptLive(bool value) => AppendFilesToPrompt = value;
 
+    /// <summary>
+    /// トレイメニューの「クリップボード監視」の切り替えを、設定画面のチェックボックスと同じ経路
+    /// （<see cref="ClipboardWatchEnabled"/>のsetter→保存→onLiveSettingsChanged）に乗せて永続化する。
+    ///
+    /// 【なぜ必要か】 以前のトレイ側は、起動側(StartupCoordinator)が持つ設定の写しだけを書き換えて
+    /// settings.json へ丸ごと保存していた。常駐するこの <see cref="SettingsViewModel"/> はそれを知らず、
+    /// 古い値のまま持っている。そのため、トレイで切り替えたあとに設定画面で別の項目を1つ変えると、
+    /// このViewModelが古い値（監視の状態を含む）でsettings.jsonを丸ごと書き戻し、トレイの切り替えが
+    /// 元に戻った（1.0.24で直した「古いスナップショットの書き戻し」と同じ型）。
+    /// 保存をこのViewModelに一本化すれば、常に最新の値で書かれる。
+    /// </summary>
+    public void SetClipboardWatchEnabledLive(bool value) => ClipboardWatchEnabled = value;
+
     private async Task LoadAsync(CancellationToken ct)
     {
         await RunBusyAsync(async () =>
@@ -966,7 +983,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void PopulateEditableFieldsCore(Settings s)
     {
         SelectedTheme = s.Theme; SelectedTooltipDetail = s.TooltipDetail; SelectedApplyMode = s.ApplyMode; ShowPreview = s.ShowPreview;
-        RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; SelectedLogLevel = s.LogLevel;
+        RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; PromptHotkey = s.PromptHotkey; SelectedLogLevel = s.LogLevel;
         ClipboardWatchEnabled = s.ClipboardWatch.Enabled; SelectedClipboardAction = s.ClipboardWatch.Action;
         ClipboardAutoParse = s.ClipboardWatch.AutoParse; ClipboardActivateOnDetect = s.ClipboardWatch.ActivateOnDetect;
         MaxRevisionsText = s.Backup.MaxRevisions.ToString(CultureInfo.InvariantCulture);
@@ -1025,6 +1042,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ShowPreview = _showPreview,
         RequireSummary = _requireSummary,
         Hotkey = _hotkey,
+        PromptHotkey = _promptHotkey,
         LogLevel = _selectedLogLevel,
         CloseBehavior = _closeBehavior,
         LaunchAtStartup = _launchAtStartup,
