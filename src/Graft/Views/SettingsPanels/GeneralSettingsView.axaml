@@ -180,7 +180,7 @@
                          AutomationProperties.Name="グローバルホットキー"
                          views:HelpTip.Minimal="{Binding Hotkey, StringFormat='グローバルホットキー: {0}'}"
                          views:HelpTip.Standard="Graftがバックグラウンドにあっても、クリップボードの内容を貼り付けて解析するショートカットキーです。既定はCtrl+Alt+Vです。"
-                         views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでクリップボードの内容をGraftへ渡して解析できるショートカットキーです（コマンドバーの「解析」ボタンと同じ動作）。既定は「Ctrl+Alt+V」です。「Ctrl+Shift+K」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。他のアプリと衝突する組み合わせを入力すると、Graft側では反応しないことがあります。" />
+                         views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでクリップボードの内容をGraftへ渡して解析できるショートカットキーです（コマンドバーの「貼り付けて解析」ボタンと同じ動作）。既定は「Ctrl+Alt+V」です。「Ctrl+Shift+K」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。他のアプリと衝突する組み合わせを入力すると、Graft側では反応しないことがあります。" />
             </Grid>
             <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
                 <StackPanel Classes="settingText">

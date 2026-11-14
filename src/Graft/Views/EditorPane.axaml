@@ -398,9 +398,9 @@
                                       AutomationProperties.Name="クリップボードの内容を貼り付け" />
                             <Separator />
                             <MenuItem x:Name="CopyFixRequestPromptMenuItem"
-                                      Header="選択範囲の修正依頼プロンプトをコピー"
+                                      Header="選択範囲の修正依頼文をコピー"
                                       Click="OnCopyFixRequestPromptClicked"
-                                      AutomationProperties.Name="選択範囲の修正依頼プロンプトをコピー" />
+                                      AutomationProperties.Name="選択範囲の修正依頼文をコピー" />
                         </ContextMenu>
                     </ae:TextEditor.ContextMenu>
                 </ae:TextEditor>

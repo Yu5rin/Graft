@@ -242,7 +242,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
     /// 直近の履歴の要約（<c>{{lastRevision}}</c>）と「選んだファイルも付ける」の設定は、メイン画面の依頼文の
     /// コピー（PromptCopyViewModel）と同じものを渡す。以前はここだけ要約を空・ファイル付けなしで
     /// 展開していたため、同じテンプレートでも画面によって文面と数字が食い違っていた。
-    /// 選んだファイルそのもの（「ファイル」画面の選択）は設定画面からは分からないので含まれない。
+    /// 選んだファイルそのもの（「ファイルを選ぶ」画面の選択）は設定画面からは分からないので含まれない。
     /// </summary>
     private async Task<GraftResult<string>> RenderForCopyAsync(Project project, TemplateEntry entry)
     {

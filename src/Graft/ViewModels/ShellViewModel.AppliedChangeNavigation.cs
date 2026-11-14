@@ -63,7 +63,7 @@ public sealed partial class ShellViewModel
             {
                 await _dialogs.ShowMessageAsync(
                     "ファイルを開けません",
-                    $"{relativePath} は現在のプロジェクトにありません。このリビジョンより後に削除・移動された可能性があります。")
+                    $"{relativePath} は現在のプロジェクトにありません。この履歴より後に削除・移動された可能性があります。")
                     .ConfigureAwait(true);
                 return;
             }

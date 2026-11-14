@@ -462,7 +462,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// <summary>一覧が空のときの操作の案内（EmptyStateViewのHint）。</summary>
     public string EmptyStateHint
         => FileFilterPath is null
-            ? "ツールバーの「解析」でAIの出力を読み取り、「適用」を押すと最初の履歴ができます。"
+            ? "ツールバーの「貼り付けて解析」でAIの出力を読み取り、「適用」を押すと最初の履歴ができます。"
             : "右上の「×」（絞り込みの解除）で、すべての履歴を表示できます。";
 
     /// <summary>
@@ -744,7 +744,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         if (preview.RevisionsToUndo.Count == 0)
         {
             await _dialogs
-                .ShowMessageAsync("ここまで戻す", $"{target.RevisionLabel} は最新のリビジョンのため、取り消す対象がありません。")
+                .ShowMessageAsync("ここまで戻す", $"{target.RevisionLabel} は最新の履歴のため、取り消す対象がありません。")
                 .ConfigureAwait(true);
             return false;
         }
@@ -754,8 +754,8 @@ public sealed class HistoryPaneViewModel : ObservableObject
             await _dialogs
                 .ShowMessageAsync(
                     "ここまで戻せませんでした",
-                    $"取り消し対象にバックアップの実体が失われているリビジョンが含まれるため中止しました（{names}）。" +
-                    "順序を保ったまま取り消せないリビジョンを飛ばして続行すると内容が壊れるため、この操作は実行できません。")
+                    $"取り消し対象にバックアップの実体が失われている履歴が含まれるため中止しました（{names}）。" +
+                    "順序を保ったまま取り消せない履歴を飛ばして続行すると内容が壊れるため、この操作は実行できません。")
                 .ConfigureAwait(true);
             return false;
         }
@@ -864,13 +864,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
             }
 
             Logger?.Info("restore-through",
-                $"{target.RevisionLabel}まで戻す操作を行いましたが、ファイルは既にこの状態のため変更はありませんでした（リビジョンは記録していません）",
+                $"{target.RevisionLabel}まで戻す操作を行いましたが、ファイルは既にこの状態のため変更はありませんでした（履歴には記録していません）",
                 durationMs: stopwatch.ElapsedMilliseconds);
             // 一覧の再読み込みを行わない経路のため、ここで待機表示を明示的に下ろす。
             State = stateBeforeRestore;
             await _dialogs
                 .ShowMessageAsync("変更はありませんでした",
-                    $"ファイルは既に {target.RevisionLabel} を適用した直後の状態のため、変更はありませんでした。リビジョンは記録していません。")
+                    $"ファイルは既に {target.RevisionLabel} を適用した直後の状態のため、変更はありませんでした。履歴には記録していません。")
                 .ConfigureAwait(true);
             return true;
         }
@@ -933,9 +933,9 @@ public sealed class HistoryPaneViewModel : ObservableObject
 
         var message =
             $"{target.RevisionLabel} を適用した直後の状態まで戻します。\n\n" +
-            $"取り消すリビジョン（{preview.RevisionsToUndo.Count}件、新しい順）:\n{revisionList}\n\n" +
+            $"取り消す履歴（{preview.RevisionsToUndo.Count}件、新しい順）:\n{revisionList}\n\n" +
             $"影響を受けるファイル（{preview.AffectedPaths.Count}件）:\n{fileList}\n\n" +
-            "この操作自体も新しいリビジョンとして記録されるため、後から「このリビジョンを取り消す」で取り消せます。よろしいですか？";
+            "この操作自体も新しい履歴として記録されるため、後から「この適用を取り消す」で取り消せます。よろしいですか？";
         return _dialogs.ConfirmAsync("ここまで戻す確認", message);
     }
 

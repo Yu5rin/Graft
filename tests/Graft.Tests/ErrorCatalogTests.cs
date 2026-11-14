@@ -30,8 +30,8 @@ public class ErrorCatalogTests
 
     [Theory(DisplayName = "依頼1〜3で追加したエラーコード（E705・E706・E709）の内容が期待どおり")]
     [InlineData(ErrorCode.E705, "フォント")]
-    [InlineData(ErrorCode.E706, "利用できない")]
-    [InlineData(ErrorCode.E709, "ハイコントラスト")]
+    [InlineData(ErrorCode.E706, "使えない")]
+    [InlineData(ErrorCode.E709, "高コントラスト")]
     public void 追加した3件のエラーコードの内容が期待どおり(ErrorCode code, string expectedSummaryFragment)
     {
         ErrorCatalog.SummaryOf(code).Should().Contain(expectedSummaryFragment);

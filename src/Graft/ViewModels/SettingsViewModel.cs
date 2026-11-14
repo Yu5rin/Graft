@@ -946,7 +946,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             "既定値に戻す",
             "すべての設定を既定値に戻します。よろしいですか？" +
             "\n対象は設定（テーマ・マッチング・安全機構などsettings.jsonの内容）のみです。" +
-            "プロジェクト定義・適用後フック・プロンプトテンプレート・リビジョン履歴は変更されません。")
+            "プロジェクト定義・適用後に実行するコマンド・依頼文テンプレート・履歴は変更されません。")
             .ConfigureAwait(true);
         if (!confirmed) return;
 

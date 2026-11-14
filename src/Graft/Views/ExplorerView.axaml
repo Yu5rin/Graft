@@ -144,7 +144,7 @@
                   IsChecked="{Binding ShowExcludedFiles, Mode=TwoWay}"
                   AutomationProperties.Name="除外ファイルを表示する"
                   local:HelpTip.Standard="node_modulesなど、通常は隠しているファイル・フォルダも一覧に表示します。既定はオフです。"
-                  local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイル」画面）には影響しません。既定はオフです。" />
+                  local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイルを選ぶ」画面）には影響しません。既定はオフです。" />
 
         <!--
             細かいユーザビリティ改善4: ファイル名絞り込み。Ctrl+Pのクイックオープン（「開く」ため）
@@ -243,8 +243,8 @@
                         <MenuItem Header="このファイルの変更履歴"
                                   Command="{Binding ShowFileHistoryCommand}"
                                   CommandParameter="{Binding SelectedNode}"
-                                  local:HelpTip.Standard="このファイルに関わるリビジョンだけに絞り込んで、履歴ビューに一覧表示します。"
-                                  local:HelpTip.Detailed="サイドバーの履歴ビューを開き、このファイルの変更を含むリビジョンだけに絞り込んで一覧表示します。一覧から1件選ぶと、通常の履歴と同じくそのリビジョンでのこのファイルの差分をタブで確認できます。フォルダには使えません。絞り込みは履歴ビュー上部のバナーの「×」でいつでも解除できます。"
+                                  local:HelpTip.Standard="このファイルに関わる履歴だけに絞り込んで、履歴ビューに一覧表示します。"
+                                  local:HelpTip.Detailed="サイドバーの履歴ビューを開き、このファイルの変更を含む履歴だけに絞り込んで一覧表示します。一覧から1件選ぶと、通常の履歴と同じくその履歴でのこのファイルの差分をタブで確認できます。フォルダには使えません。絞り込みは履歴ビュー上部のバナーの「×」でいつでも解除できます。"
                                   AutomationProperties.Name="このファイルの変更履歴を表示" />
                         <Separator />
                         <MenuItem Header="パスをコピー"

@@ -273,7 +273,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         // 通知にする（MainViewModel.RebuildPromptContext）。未配線（単体で使うテスト等）の
         // ときだけ従来どおりダイアログで知らせる。
         if (Notify is not null) Notify(done);
-        else await _dialogs.ShowMessageAsync("プロンプトをコピーしました", done).ConfigureAwait(true);
+        else await _dialogs.ShowMessageAsync("依頼文をコピーしました", done).ConfigureAwait(true);
     }
 
     /// <summary>

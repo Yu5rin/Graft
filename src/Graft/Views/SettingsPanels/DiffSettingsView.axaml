@@ -33,17 +33,17 @@
             <CheckBox Classes="settingRow hinted" Content="長い行を折り返す" IsChecked="{Binding WordWrap}"
                       AutomationProperties.Name="長い行を折り返す"
                       views:HelpTip.Standard="差分表示で、1行が画面幅を超えるとき折り返して表示します。既定はオフです。"
-                      views:HelpTip.Detailed="適用前プレビューなどの差分表示で、長い1行を横スクロールではなく折り返して表示するかどうかです。既定はオフです（エディタ側の折り返しは「エディタ」タブで別途設定します）。" />
+                      views:HelpTip.Detailed="適用前の確認などの差分表示で、長い1行を横スクロールではなく折り返して表示するかどうかです。既定はオフです（エディタ側の折り返しは「エディタ」タブで別途設定します）。" />
             <TextBlock Text="1行が長いとき、横にスクロールせず折り返して表示します。" Classes="settingHint indented" />
             <CheckBox Classes="settingRow hinted" Content="空白文字を見えるようにする" IsChecked="{Binding ShowWhitespace}"
                       AutomationProperties.Name="空白文字を可視化する"
                       views:HelpTip.Standard="差分表示で、タブや行末の空白を記号で見えるようにします。既定はオフです。"
-                      views:HelpTip.Detailed="適用前プレビューなどの差分表示で、タブ文字や行末の余分な空白を記号として可視化するかどうかです。既定はオフです（エディタ側の可視化は「エディタ」タブで別途設定します）。空白だけの変更差分に気付きやすくなります。" />
+                      views:HelpTip.Detailed="適用前の確認などの差分表示で、タブ文字や行末の余分な空白を記号として可視化するかどうかです。既定はオフです（エディタ側の可視化は「エディタ」タブで別途設定します）。空白だけの変更差分に気付きやすくなります。" />
             <TextBlock Text="タブや行末の空白を、記号で見えるようにします。" Classes="settingHint indented" />
             <CheckBox Classes="settingRow hinted" Content="行番号を表示する" IsChecked="{Binding ShowLineNumbers}"
                       AutomationProperties.Name="行番号を表示する"
                       views:HelpTip.Standard="diff（差分）表示に行番号を表示します。既定はオンです。"
-                      views:HelpTip.Detailed="適用前プレビューなどのdiff（差分）表示に行番号を表示するかどうかです（エディタ側の行番号は「エディタ」タブで別途設定します）。既定はオンです。" />
+                      views:HelpTip.Detailed="適用前の確認などのdiff（差分）表示に行番号を表示するかどうかです（エディタ側の行番号は「エディタ」タブで別途設定します）。既定はオンです。" />
             <TextBlock Text="差分に行番号を表示します。" Classes="settingHint indented" />
             <CheckBox Classes="settingRow hinted" Content="コードを色分けする（シンタックスハイライト）" IsChecked="{Binding SyntaxEnabled}"
                       AutomationProperties.Name="シンタックスハイライトを有効にする"
@@ -61,7 +61,7 @@
                          AutomationProperties.Name="前後のコンテキスト行数"
                          views:HelpTip.Minimal="{Binding ContextLinesText, StringFormat='前後のコンテキスト行数: {0}'}"
                          views:HelpTip.Standard="差分表示で、変更が無い行を変更箇所の前後に何行分表示するかです。既定は3行です。"
-                         views:HelpTip.Detailed="適用前プレビューなどの差分表示で、実際に変更された行の前後に、変更の無い行（文脈を確認するための周辺コード）を何行分あわせて表示するかです。既定は3行です。増やすと変更箇所の前後の文脈を確認しやすくなりますが、表示が縦に長くなります。" />
+                         views:HelpTip.Detailed="適用前の確認などの差分表示で、実際に変更された行の前後に、変更の無い行（文脈を確認するための周辺コード）を何行分あわせて表示するかです。既定は3行です。増やすと変更箇所の前後の文脈を確認しやすくなりますが、表示が縦に長くなります。" />
             </Grid>
         </StackPanel>
     </ScrollViewer>

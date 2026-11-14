@@ -7,7 +7,7 @@
         <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
     </UserControl.Styles>
     <!--
-        「AIに渡す内容」タブ（旧: コンテキスト収集）。「ファイル」画面で集めてAIへ渡す内容の
+        「AIに渡す内容」タブ（旧: コンテキスト収集）。「ファイルを選ぶ」画面で集めてAIへ渡す内容の
         対象・除外・大きさの目安。旧「表示・コンテキスト」タブの該当4項目をそのまま移した。
         トークン概算比率は依頼文のテンプレートの推定トークン数にも使われる共通の式のため、
         説明にそのことを書いている。
@@ -27,13 +27,13 @@
             <CheckBox Classes="settingRow hinted" Content=".gitignoreを尊重する" IsChecked="{Binding RespectGitignore}"
                       AutomationProperties.Name="gitignoreを尊重する"
                       views:HelpTip.Standard="AIに渡す内容を集めるとき、.gitignoreに書かれたファイルを一覧から除外します。既定はオンです。"
-                      views:HelpTip.Detailed="コマンドバーの「ファイル」から開く画面で、プロジェクト内のファイル一覧を作るときに.gitignoreの指定を尊重するかどうかです。オンにすると（既定）、node_modulesやビルド成果物などGit管理対象外のファイルが一覧から自動的に除外され、AIへ渡す内容を絞り込みやすくなります。オフにすると、.gitignoreに関わらず全ファイルが一覧に出ます。" />
+                      views:HelpTip.Detailed="コマンドバーの「ファイルを選ぶ」から開く画面で、プロジェクト内のファイル一覧を作るときに.gitignoreの指定を尊重するかどうかです。オンにすると（既定）、node_modulesやビルド成果物などGit管理対象外のファイルが一覧から自動的に除外され、AIへ渡す内容を絞り込みやすくなります。オフにすると、.gitignoreに関わらず全ファイルが一覧に出ます。" />
             <TextBlock Text=".gitignore に書かれたファイルを、AIに渡す候補から外します。" Classes="settingHint indented" />
             <CheckBox Classes="settingRow hinted" Content="依頼文のコピーに、選んだファイルも付ける" IsChecked="{Binding AppendFilesToPrompt}"
                       AutomationProperties.Name="依頼文のコピーに選んだファイルも付ける"
-                      views:HelpTip.Standard="依頼文をコピーするとき、指示文の後ろに「ファイル」画面で選んだファイルの内容も付けます。既定はオフです。"
-                      views:HelpTip.Detailed="コマンドバー「依頼文」・Ctrl+Shift+Cでテンプレートをコピーするとき、指示文の後ろに「ファイル」画面で選んだファイルの内容も続けてコピーします。指示文とファイルを1回のコピー・1回の貼り付けでAIへ渡せます。テンプレートが本文に変数 {{files}} を含んでいる場合は、そこへファイルが入るため二重には付きません。既定はオフ（従来どおり指示文だけ）です。テンプレートの本文自体は書き換わりません。「依頼文」のドロップダウンにある同名のチェックと同じ設定です。" />
-            <TextBlock Text="依頼文をコピーするとき、「ファイル」画面で選んだファイルの内容も続けて付けます。" Classes="settingHint indented" />
+                      views:HelpTip.Standard="依頼文をコピーするとき、依頼文の後ろに「ファイルを選ぶ」画面で選んだファイルの内容も付けます。既定はオフです。"
+                      views:HelpTip.Detailed="コマンドバーの「依頼文をコピー」・Ctrl+Shift+Cでテンプレートをコピーするとき、依頼文の後ろに「ファイルを選ぶ」画面で選んだファイルの内容も続けてコピーします。依頼文とファイルを1回のコピー・1回の貼り付けでAIへ渡せます。テンプレートが本文に変数 {{files}} を含んでいる場合は、そこへファイルが入るため二重には付きません。既定はオフ（従来どおり依頼文だけ）です。テンプレートの本文自体は書き換わりません。「依頼文」のドロップダウンにある同名のチェックと同じ設定です。" />
+            <TextBlock Text="依頼文をコピーするとき、「ファイルを選ぶ」画面で選んだファイルの内容も続けて付けます。" Classes="settingHint indented" />
             <TextBlock Text="大きさの目安" Classes="sectionHeading" />
             <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
                 <StackPanel Classes="settingText">
@@ -45,7 +45,7 @@
                          AutomationProperties.Name="トークン概算比率"
                          views:HelpTip.Minimal="{Binding TokenRatioText, StringFormat='トークン概算比率: {0}'}"
                          views:HelpTip.Standard="コピーする文字数からAIのトークン数をおおまかに見積もる際の割り算の値です。既定は2.5（文字数÷2.5）です。"
-                         views:HelpTip.Detailed="「ファイル」画面や統計タブで表示する「推定トークン数」は、実際にAIへ送って数えるわけではなく、「コピーする文字数 ÷ この値」という簡易な計算で見積もっています。既定は2.5です。目安の値であり、実際にAIが消費するトークン数と厳密には一致しません。通常は変更する必要はありません。" />
+                         views:HelpTip.Detailed="「ファイルを選ぶ」画面や統計タブで表示する「推定トークン数」は、実際にAIへ送って数えるわけではなく、「コピーする文字数 ÷ この値」という簡易な計算で見積もっています。既定は2.5です。目安の値であり、実際にAIが消費するトークン数と厳密には一致しません。通常は変更する必要はありません。" />
             </Grid>
             <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
                 <StackPanel Classes="settingText">
@@ -57,7 +57,7 @@
                          AutomationProperties.Name="トークン数の警告閾値"
                          views:HelpTip.Minimal="{Binding TokenWarnThresholdText, StringFormat='トークン数の警告閾値: {0}'}"
                          views:HelpTip.Standard="AIに渡す内容としてコピー・保存する内容の推定トークン数がこれを超えると、大きいかもしれないという助言を表示します。既定は50000です。"
-                         views:HelpTip.Detailed="「ファイル」画面でファイルを選んでコピー・保存しようとしたとき、上の比率で見積もった推定トークン数がこの値を超える場合に「AIへ一度に渡すには大きいかもしれません」という助言を表示します。既定は50000です。AIへ渡すと回答が途中で切れてしまうことがある、といった事態に気付きやすくするための目安であり、この値を超えてもコピー・保存の内容が削られることはありません（あくまで目安の表示だけで、常に全文がコピー・保存されます）。" />
+                         views:HelpTip.Detailed="「ファイルを選ぶ」画面でファイルを選んでコピー・保存しようとしたとき、上の比率で見積もった推定トークン数がこの値を超える場合に「AIへ一度に渡すには大きいかもしれません」という助言を表示します。既定は50000です。AIへ渡すと回答が途中で切れてしまうことがある、といった事態に気付きやすくするための目安であり、この値を超えてもコピー・保存の内容が削られることはありません（あくまで目安の表示だけで、常に全文がコピー・保存されます）。" />
             </Grid>
         </StackPanel>
     </ScrollViewer>

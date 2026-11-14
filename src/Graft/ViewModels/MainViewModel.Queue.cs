@@ -46,7 +46,7 @@ public sealed partial class MainViewModel
 
         var duplicateCount = addResult.Issues.Count(i => i.Code == ErrorCode.E007);
         var confirmMessage = BuildTruncatedPatchConfirmMessage(addResult.Value.Count, duplicateCount);
-        var confirmed = await _dialogs.ConfirmAsync("続きを依頼するプロンプトをコピーしますか？", confirmMessage).ConfigureAwait(true);
+        var confirmed = await _dialogs.ConfirmAsync("続きの依頼文をコピーしますか？", confirmMessage).ConfigureAwait(true);
         if (!confirmed)
         {
             return;
@@ -68,8 +68,8 @@ public sealed partial class MainViewModel
     public static string BuildTruncatedPatchConfirmMessage(int addedCount, int duplicateCount)
     {
         var message = addedCount == 0
-            ? "パッチが途中で切れていました。解析できたブロックは無かったため、続きを依頼するプロンプトをクリップボードへコピーしますか？"
-            : $"パッチが途中で切れていたため、解析できた{addedCount}件をキューへ追加しました。続きを依頼するプロンプトをクリップボードへコピーしますか？";
+            ? "パッチが途中で切れていました。解析できたブロックは無かったため、続きの依頼文をクリップボードへコピーしますか？"
+            : $"パッチが途中で切れていたため、解析できた{addedCount}件をキューへ追加しました。続きの依頼文をクリップボードへコピーしますか？";
         if (duplicateCount > 0)
         {
             message += $" 同一ファイルへの重複ブロックが{duplicateCount}件あります（キュー画面で確認してください）。";

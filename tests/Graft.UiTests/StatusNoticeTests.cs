@@ -37,7 +37,7 @@ public class StatusNoticeTests
 
         await ShellHarness.ExecuteAsync(h.Shell.Graft.CopyRecoveryPromptCommand).ConfigureAwait(true);
 
-        h.Dialogs.Messages.Should().NotContain(m => m.Title == "修正依頼プロンプトをコピーしました");
+        h.Dialogs.Messages.Should().NotContain(m => m.Title == "修正依頼文をコピーしました");
         h.Shell.Graft.Notice.IsVisible.Should().BeTrue();
         h.Shell.Graft.Notice.Text.Should().Contain("修正依頼文をクリップボードへコピーしました");
         h.Clipboard.Text.Should().NotBeNullOrEmpty();

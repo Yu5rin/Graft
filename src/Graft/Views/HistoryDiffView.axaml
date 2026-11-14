@@ -61,7 +61,7 @@
                                             Command="{Binding OpenFileCommand}"
                                             IsVisible="{Binding CanOpenFile}"
                                             views:HelpTip.Standard="このファイルを、いまの内容でエディタに開きます。"
-                                            views:HelpTip.Detailed="このリビジョンで変更したファイルを、現在のディスク上の内容でエディタに開きます。差分に表示しているのはこのリビジョンの時点の変更で、開くのは今のファイルです。その後のリビジョンで削除・移動されたファイルは開けません。"
+                                            views:HelpTip.Detailed="この履歴で変更したファイルを、現在のディスク上の内容でエディタに開きます。差分に表示しているのはこの履歴の時点の変更で、開くのは今のファイルです。その後の履歴で削除・移動されたファイルは開けません。"
                                             AutomationProperties.Name="このファイルをエディタで開く">
                                         <StackPanel Orientation="Horizontal">
                                             <views:IconGlyph Data="{DynamicResource IconFileCodeGeometry}"

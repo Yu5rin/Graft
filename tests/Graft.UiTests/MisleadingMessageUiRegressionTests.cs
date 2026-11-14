@@ -236,7 +236,7 @@ public class MisleadingMessageUiRegressionTests : IDisposable
         await ExecuteAsync(shell.Graft.PasteAndParseCommand).ConfigureAwait(true);
         await ExecuteAsync(shell.Graft.ApplyCommand).ConfigureAwait(true);
 
-        var failure = dialogs.Messages.Single(m => m.Title == "適用後フックが失敗しました").Message;
+        var failure = dialogs.Messages.Single(m => m.Title == "適用後に実行するコマンドが失敗しました").Message;
         failure.Should().Contain("終了コード 1", "従来の情報は残す");
         failure.Should().Contain("BUILDFAILEDMARK", "出力の末尾を併記すること（B-5）");
         failure.Should().Contain("全7行", "抜粋であることと全体の行数を明示すること");

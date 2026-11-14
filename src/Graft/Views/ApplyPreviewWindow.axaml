@@ -3,7 +3,7 @@
         xmlns:views="clr-namespace:Graft.Views"
         x:Class="Graft.Views.ApplyPreviewWindow"
         x:Name="Root"
-        Title="適用前プレビュー"
+        Title="適用前の確認"
         Width="1120" Height="720"
         MinWidth="720" MinHeight="460"
         WindowStartupLocation="CenterOwner"
@@ -11,7 +11,7 @@
         FontFamily="{DynamicResource UiFontFamily}"
         FontSize="{DynamicResource BodyFontSize}"
         Foreground="{DynamicResource TextPrimary}"
-        AutomationProperties.Name="適用前プレビュー">
+        AutomationProperties.Name="適用前の確認">
     <!--
         課題1（設定「適用前にプレビューを表示する」/ Settings.ShowPreview）。
         v1.5仕様書6.8「プレビューとインライン編集」に基づき、書き込む前に差分を確認できる
@@ -113,8 +113,8 @@
                       Content="今後は表示しない"
                       IsChecked="{Binding DontShowAgain, Mode=TwoWay}"
                       VerticalAlignment="Center"
-                      views:HelpTip.Standard="次回からは、このプレビューを飛ばして直接適用します（設定「適用前にプレビューを表示する」をオフにします）。"
-                      AutomationProperties.Name="今後はこのプレビューを表示しない" />
+                      views:HelpTip.Standard="次回からは、この確認を飛ばして直接適用します（設定「適用前に確認画面を表示する」をオフにします）。"
+                      AutomationProperties.Name="今後はこの確認画面を表示しない" />
 
         <StackPanel Grid.Column="1"
                     Orientation="Horizontal"

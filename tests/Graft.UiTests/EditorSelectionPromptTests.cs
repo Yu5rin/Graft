@@ -17,7 +17,7 @@ using Graft.Views;
 namespace Graft.UiTests;
 
 /// <summary>
-/// エディタ本文の右クリックメニュー（選択範囲から修正依頼プロンプトをコピー、仕様書v2.1）の検証。
+/// エディタ本文の右クリックメニュー（選択範囲から修正依頼文をコピー、仕様書v2.1）の検証。
 /// 既存の<c>EditorTests</c>と同じ作法で、実際にウィンドウへ載せて例外なく描画・操作できることを
 /// 確認する。プロンプト本文そのものの組み立ては<c>PromptTemplateStoreSelectionTests</c>
 /// （tests/Graft.Tests）で純粋メソッドとして検証済みのため、ここではUI経路の配線のみを見る。
@@ -140,7 +140,7 @@ public class EditorSelectionPromptTests
 
     /// <summary>
     /// 実際の右クリックと同じ経路（<see cref="Avalonia.Controls.ContextRequestedEventArgs"/>の
-    /// ルーティングイベント）でメニューを開き、「選択範囲の修正依頼プロンプトをコピー」項目を返す。
+    /// ルーティングイベント）でメニューを開き、「選択範囲の修正依頼文をコピー」項目を返す。
     /// <see cref="ContextMenu.Open(Control)"/>を直接呼ぶ経路ではOpeningイベントが発火しないため、
     /// 本番と同じ経路を使う必要がある。
     /// </summary>
@@ -151,7 +151,7 @@ public class EditorSelectionPromptTests
 
         var contextMenu = editor.ContextMenu!;
         return contextMenu.GetLogicalDescendants().OfType<MenuItem>()
-            .Single(m => Equals(m.Header, "選択範囲の修正依頼プロンプトをコピー"));
+            .Single(m => Equals(m.Header, "選択範囲の修正依頼文をコピー"));
     }
 
     /// <summary>テストから内容を差し替えられるクリップボード。</summary>

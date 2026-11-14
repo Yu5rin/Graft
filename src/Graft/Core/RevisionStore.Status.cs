@@ -27,7 +27,7 @@ public sealed partial class RevisionStore
         var folder = FindRevisionFolder(projectDir, revision);
         if (folder is null)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E405, $"リビジョン {revision} の実体が見つかりません", path: projectDir);
+            return GraftResult<bool>.Fail(ErrorCode.E405, $"履歴 {revision} の実体が見つかりません", path: projectDir);
         }
 
         var manifestPath = Path.Combine(folder, "manifest.json");

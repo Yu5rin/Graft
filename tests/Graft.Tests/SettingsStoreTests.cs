@@ -452,7 +452,7 @@ public class SettingsStoreTests
 
         var issue = result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E406).Subject;
         issue.Remedy.Should().Be("値を修正すると自動的に保存されます");
-        issue.Summary.Should().Be("入力値が保存条件を満たしていない");
+        issue.Summary.Should().Be("入力した値は保存できません");
 
         // Detail・Remedyを組み合わせた表示（ToDisplayText + Remedy）全体で見ても、
         // 「既定値を使用する」という矛盾した記述が残っていないことを確認する。

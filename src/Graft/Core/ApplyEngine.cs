@@ -232,7 +232,7 @@ public sealed partial class ApplyEngine
 
         var notice = GraftIssue.Of(ErrorCode.E403,
             "適用の失敗後、元の状態へ戻す処理にも失敗しました。一部のファイルが書き換わったままになっている可能性があります。" +
-            "次回の起動時に、バックアップから戻すかどうかを確認します。履歴からこのリビジョンを選んで取り消すこともできます");
+            "次回の起動時に、バックアップから戻すかどうかを確認します。履歴からこの適用を選んで取り消すこともできます");
         return GraftResult<RevisionManifest>.Fail(cause.Concat(rollback.Issues).Append(notice).ToList());
     }
 

@@ -277,7 +277,7 @@ public sealed class RevisionRestorer
         revisionsToUndo = revisionsToUndo.Where(r => r.Manifest.Status != RevisionStatus.RolledBack).ToList();
         if (revisionsToUndo.Count == 0)
         {
-            return GraftResult<RevisionManifest>.Fail(ErrorCode.E201, "取り消し対象のリビジョンがありません");
+            return GraftResult<RevisionManifest>.Fail(ErrorCode.E201, "取り消し対象の履歴がありません");
         }
 
         var notRestorable = revisionsToUndo.Where(r => !r.IsRestorable).ToList();
@@ -286,8 +286,8 @@ public sealed class RevisionRestorer
             var names = string.Join("、", notRestorable.Select(r => $"r{r.Manifest.Revision}"));
             return GraftResult<RevisionManifest>.Fail(
                 ErrorCode.E405,
-                $"バックアップの実体が失われているリビジョンが含まれるため中止しました（{names}）。" +
-                "取り消し順序を保てないリビジョンを飛ばして続行すると内容が壊れるため、ここまで戻す操作自体を行いません。");
+                $"バックアップの実体が失われている履歴が含まれるため中止しました（{names}）。" +
+                "取り消し順序を保てない履歴を飛ばして続行すると内容が壊れるため、ここまで戻す操作自体を行いません。");
         }
 
         // 単発復元と同じく、取り消しを始める最初（＝最新）のリビジョンについてのみ、適用後に
@@ -396,7 +396,7 @@ public sealed class RevisionRestorer
                 $"{progressText}、r{failedAt.Manifest.Revision} の取り消し中に失敗したため中断しました。" +
                 "一部のファイルだけが書き換わった中途半端な状態になっている可能性があります。" +
                 $"今回の変更はr{newRevisionNumber}として記録したので、履歴からr{newRevisionNumber}を選び" +
-                "「このリビジョンを取り消す」を実行すれば、この「ここまで戻す」操作を行う前の状態へ戻せます。" +
+                "「この適用を取り消す」を実行すれば、この「ここまで戻す」操作を行う前の状態へ戻せます。" +
                 "解決したら、あらためて「ここまで戻す」をやり直してください。"));
             return GraftResult<RevisionManifest>.Fail(issues);
         }

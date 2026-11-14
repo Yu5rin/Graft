@@ -4,14 +4,14 @@
         xmlns:local="clr-namespace:Graft.Views"
         x:Class="Graft.Views.ContextCollectWindow"
         x:Name="Root"
-        Title="コンテキスト収集"
+        Title="AIに渡すファイルを選ぶ"
         Width="760" Height="640" MinWidth="600" MinHeight="480"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgBase}"
         Foreground="{DynamicResource TextPrimary}"
         FontFamily="{DynamicResource UiFontFamily}"
         FontSize="{DynamicResource BodyFontSize}"
-        AutomationProperties.Name="コンテキスト収集">
+        AutomationProperties.Name="AIに渡すファイルを選ぶ">
     <!--
         10章 コンテキスト収集。v2.0のWPF版からの差分:
         - Visibility は IsVisible（bool）へ。
@@ -29,7 +29,7 @@
                      IsVisible="{Binding IsScanning}" />
 
         <StackPanel Grid.Row="1" Margin="16,12,16,8">
-            <TextBlock Text="コンテキスト収集" FontSize="{DynamicResource PaneHeadingFontSize}"
+            <TextBlock Text="AIに渡すファイルを選ぶ" FontSize="{DynamicResource PaneHeadingFontSize}"
                        FontWeight="{DynamicResource PaneHeadingFontWeight}" />
             <Grid Margin="0,8,0,0" ColumnDefinitions="Auto,*,Auto,*">
                 <TextBlock Grid.Column="0" Text="収集モード" VerticalAlignment="Center" Margin="0,0,8,0" />
@@ -46,16 +46,16 @@
                           MaxWidth="220" HorizontalAlignment="Left"
                           AutomationProperties.Name="収集モード" TabIndex="0"
                           local:HelpTip.Standard="AIへ渡す内容の集め方を選びます。「ツリーのみ」はファイル構成だけ、「選択ファイル」は選んだファイルの中身だけ、「ツリー＋選択」は構成全体＋選んだファイルの中身（既定）、「差分のみ」は前回からの変更点だけです。"
-                          local:HelpTip.Detailed="下のファイル一覧・出力プレビューに何を含めるかを選びます。「ツリーのみ」はフォルダ構成だけを伝え中身は含めません。「選択ファイル」は左のファイル一覧でチェックしたファイルの中身だけを含め、構成は伝えません。「ツリー＋選択」はフォルダ構成全体を見せつつ、選んだファイルだけ中身も含めます（既定はこちらで、通常はこれを使います）。「差分のみ」は右側で選ぶ過去のリビジョンから今までの変更点だけを抜き出します（大きなプロジェクトで変更箇所だけをAIに伝えたいときに使います）。" />
-                <TextBlock Grid.Column="2" Text="対象リビジョン" VerticalAlignment="Center" Margin="16,0,8,0"
+                          local:HelpTip.Detailed="下のファイル一覧・出力プレビューに何を含めるかを選びます。「ツリーのみ」はフォルダ構成だけを伝え中身は含めません。「選択ファイル」は左のファイル一覧でチェックしたファイルの中身だけを含め、構成は伝えません。「ツリー＋選択」はフォルダ構成全体を見せつつ、選んだファイルだけ中身も含めます（既定はこちらで、通常はこれを使います）。「差分のみ」は右側で選ぶ過去の履歴から今までの変更点だけを抜き出します（大きなプロジェクトで変更箇所だけをAIに伝えたいときに使います）。" />
+                <TextBlock Grid.Column="2" Text="対象履歴" VerticalAlignment="Center" Margin="16,0,8,0"
                            IsVisible="{Binding ShowRevisionPicker}" />
                 <ComboBox Grid.Column="3" ItemsSource="{Binding Revisions}" SelectedItem="{Binding SelectedRevision}"
                           ItemTemplate="{StaticResource DisplayTextItemTemplate}"
                           MaxWidth="260" HorizontalAlignment="Left"
-                          AutomationProperties.Name="差分の基準リビジョン" TabIndex="1"
+                          AutomationProperties.Name="差分の基準履歴" TabIndex="1"
                           IsVisible="{Binding ShowRevisionPicker}"
                           local:HelpTip.Standard="「差分のみ」モードで、どの時点から今までの変更を集めるかを選びます。"
-                          local:HelpTip.Detailed="収集モードが「差分のみ」のとき、履歴（バックアップ）の中からどのリビジョンを基準にするかを選びます。ここで選んだ時点から現在までに変更されたファイルの差分だけが、AIへ渡す内容に含まれます。" />
+                          local:HelpTip.Detailed="収集モードが「差分のみ」のとき、履歴（バックアップ）の中からどの履歴を基準にするかを選びます。ここで選んだ時点から現在までに変更されたファイルの差分だけが、AIへ渡す内容に含まれます。" />
             </Grid>
 
             <Border Margin="0,10,0,0" BorderBrush="{DynamicResource StateError}" BorderThickness="1" Padding="8"
@@ -354,9 +354,9 @@
                 （上のコメント参照）ため、Margin区切りを空けてGrid.Column="4"へ独立させる。
             -->
             <Button Grid.Column="4" Content="閉じる" Click="OnCloseClicked"
-                    AutomationProperties.Name="コンテキスト収集を閉じる"
+                    AutomationProperties.Name="ファイルを選ぶ画面を閉じる"
                     local:HelpTip.Standard="このウィンドウを閉じます。"
-                    local:HelpTip.Detailed="コンテキスト収集のウィンドウを閉じます。Escapeキーでも閉じられます。" />
+                    local:HelpTip.Detailed="ファイルを選ぶ画面を閉じます。Escapeキーでも閉じられます。" />
         </Grid>
     </Grid>
 

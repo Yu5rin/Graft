@@ -130,7 +130,7 @@ public sealed partial class MainViewModel
 
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
-            var input = await _dialogs.PromptAsync("要約を入力", "このリビジョンの概要を入力してください。", null).ConfigureAwait(true);
+            var input = await _dialogs.PromptAsync("要約を入力", "この適用の概要を入力してください。", null).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(input)) return;
             var patchWithSummary = updatedDryRun.Patch with { Meta = updatedDryRun.Patch.Meta with { Summary = input } };
             updatedDryRun = updatedDryRun with { Patch = patchWithSummary };
@@ -216,7 +216,7 @@ public sealed partial class MainViewModel
             await TryAutoCommitAfterApplyAsync(project, result.Value).ConfigureAwait(true);
         }
 
-        // 実機で確認された指摘1: 既定のマウス操作だと「解析」→「適用」→プレビュー窓の「適用」→
+        // 実機で確認された指摘1: 既定のマウス操作だと「貼り付けて解析」→「適用」→プレビュー窓の「適用」→
         // 完了ダイアログの「OK」で4クリックかかり、しかもOKを押した瞬間にステータスバーへ
         // 「rN として適用しました — 元に戻す」（ShowApplyUndoNotice、下記）が出る。同じ「適用が
         // 完了した」という情報を、押しても何も増えないモーダルとステータスバーの二重で見せて
@@ -292,7 +292,7 @@ public sealed partial class MainViewModel
                 // ドライランの見込みから動いていた（その間に別の操作が番号を進めた）。
                 // 使う番号を払い出された番号へ改め、食い違いが分かるようログに残す。
                 Logger?.Info("apply",
-                    $"リビジョン番号が見込みのr{context.Revision}からr{reserved.Value}に変わりました" +
+                    $"履歴番号が見込みのr{context.Revision}からr{reserved.Value}に変わりました" +
                     "（解析の後に別の操作が番号を進めたため）",
                     revision: reserved.Value);
             }
@@ -304,7 +304,7 @@ public sealed partial class MainViewModel
         // 補正するため、番号がずれたままでも致命的にはならない）。ログにだけ残し、
         // 見込みの番号のまま続行する。
         SafeHandler.OnUnexpected?.Invoke(
-            "リビジョン番号の更新",
+            "履歴番号の更新",
             new InvalidOperationException(
                 reserved.Errors.FirstOrDefault()?.Detail ?? "不明なエラーでprojects.jsonを更新できませんでした"));
         return context;
@@ -335,7 +335,7 @@ public sealed partial class MainViewModel
     {
         DismissApplyUndoNotice();
         var undone = await History.UndoLatestAsync().ConfigureAwait(true);
-        if (!undone) await _dialogs.ShowMessageAsync("元に戻せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
+        if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消せる直前の適用がありません。").ConfigureAwait(true);
     }
 
     /// <summary>RunDryRunAsyncの冒頭から呼ぶ。フック未設定時は常にtrue。</summary>

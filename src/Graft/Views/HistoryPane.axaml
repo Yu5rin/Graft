@@ -33,9 +33,9 @@
                     Padding="4"
                     Classes="subtle"
                     BorderThickness="0"
-                    local:HelpTip.Standard="このリビジョンだけを取り消し、適用する直前の状態へ戻します。"
-                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョン（適用の記録）だけを取り消し、そのリビジョンを適用する直前の状態へファイルを戻します。それより新しいリビジョンには影響しません。選んだリビジョンより新しい変更もまとめて取り消したい場合は、隣の「ここまで戻す」ボタンを使ってください。"
-                    AutomationProperties.Name="このリビジョンを取り消す">
+                    local:HelpTip.Standard="この履歴だけを取り消し、適用する直前の状態へ戻します。"
+                    local:HelpTip.Detailed="下の一覧で選んでいる履歴（適用の記録）だけを取り消し、その履歴を適用する直前の状態へファイルを戻します。それより新しい履歴には影響しません。選んだ履歴より新しい変更もまとめて取り消したい場合は、隣の「ここまで戻す」ボタンを使ってください。"
+                    AutomationProperties.Name="この適用を取り消す">
                 <local:IconGlyph Data="{DynamicResource IconRotateCcwGeometry}" />
             </Button>
             <Button Grid.Column="2"
@@ -44,9 +44,9 @@
                     Padding="4"
                     Classes="subtle"
                     BorderThickness="0"
-                    local:HelpTip.Standard="選択したリビジョンより新しい変更をすべて取り消し、その時点まで一気に戻します。"
-                    local:HelpTip.Detailed="下の一覧で選んでいるリビジョンより新しいリビジョンをすべて新しい順に取り消し、選んだリビジョンを適用した直後の状態を再現します。「このリビジョンを取り消す」が1件だけを取り消すのに対し、こちらは選んだ地点までまとめて戻します。実行前に対象のリビジョン数と影響するファイルの一覧を確認するダイアログが出ます。この操作自体も新しいリビジョンとして記録されるため、戻しすぎた場合は「このリビジョンを取り消す」であとから元に戻せます。最新のリビジョンを選んでいるときは取り消す対象が無いため無効になります。"
-                    AutomationProperties.Name="選択したリビジョンまでまとめて戻す">
+                    local:HelpTip.Standard="選択した履歴より新しい変更をすべて取り消し、その時点まで一気に戻します。"
+                    local:HelpTip.Detailed="下の一覧で選んでいる履歴より新しい履歴をすべて新しい順に取り消し、選んだ履歴を適用した直後の状態を再現します。「この適用を取り消す」が1件だけを取り消すのに対し、こちらは選んだ地点までまとめて戻します。実行前に対象の履歴数と影響するファイルの一覧を確認するダイアログが出ます。この操作自体も新しい履歴として記録されるため、戻しすぎた場合は「この適用を取り消す」であとから元に戻せます。最新の履歴を選んでいるときは取り消す対象が無いため無効になります。"
+                    AutomationProperties.Name="選択した履歴までまとめて戻す">
                 <local:IconGlyph Data="{DynamicResource IconRewindGeometry}" />
             </Button>
         </Grid>
@@ -72,8 +72,8 @@
                         Command="{Binding ClearFileFilterCommand}"
                         Padding="6,2"
                         Margin="4,0,0,0"
-                        local:HelpTip.Standard="ファイルでの絞り込みを解除し、すべてのリビジョンを表示します。"
-                        local:HelpTip.Detailed="エクスプローラの「このファイルの変更履歴」から絞り込んだ、ファイル単位の表示を解除します。解除すると、通常どおりプロジェクト全体のリビジョンが一覧に戻ります。"
+                        local:HelpTip.Standard="ファイルでの絞り込みを解除し、すべての履歴を表示します。"
+                        local:HelpTip.Detailed="エクスプローラの「このファイルの変更履歴」から絞り込んだ、ファイル単位の表示を解除します。解除すると、通常どおりプロジェクト全体の履歴が一覧に戻ります。"
                         AutomationProperties.Name="ファイルでの絞り込みを解除" />
             </Grid>
         </Border>
@@ -95,7 +95,7 @@
                      Text="{Binding Keyword}"
                      Watermark="要約を検索"
                      local:EscapeClearBehavior.Enabled="True"
-                     AutomationProperties.Name="リビジョンの要約を検索"
+                     AutomationProperties.Name="履歴の要約を検索"
                      local:HelpTip.Standard="下の履歴一覧を、summary（変更のひとこと要約）に含まれる文字で絞り込みます。"
                      local:HelpTip.Detailed="適用した変更につけられたひとこと要約（summary）の文字列で、下の履歴一覧を絞り込みます。入力すると即座に一覧が絞られ、空にすると全件表示に戻ります。過去にどんな変更を適用したか、キーワードで思い出しながら探したいときに使います。" />
             <Button Grid.Column="2"
@@ -135,8 +135,8 @@
                       ItemsSource="{Binding AvailableTypes}"
                       SelectedItem="{Binding SelectedTypeOption, Mode=TwoWay}"
                       AutomationProperties.Name="種別で絞り込み"
-                      local:HelpTip.Standard="下の履歴一覧を、リビジョンの種類（適用・復元など）で絞り込みます。"
-                      local:HelpTip.Detailed="下の履歴一覧を、そのリビジョンがどんな操作で作られたか（パッチの適用、以前の状態への復元、など）で絞り込みます。既定は「すべての種別」で絞り込みなしです。右の「×」ボタンでいつでも解除できます。" />
+                      local:HelpTip.Standard="下の履歴一覧を、履歴の種類（適用・復元など）で絞り込みます。"
+                      local:HelpTip.Detailed="下の履歴一覧を、その履歴がどんな操作で作られたか（パッチの適用、以前の状態への復元、など）で絞り込みます。既定は「すべての種別」で絞り込みなしです。右の「×」ボタンでいつでも解除できます。" />
             <ComboBox Grid.Column="2"
                       ItemsSource="{Binding AvailableDatePresets}"
                       SelectedItem="{Binding DatePreset, Mode=TwoWay}"
@@ -168,14 +168,14 @@
             <TextBox Grid.Column="1" Text="{Binding DateFromText}"
                      Watermark="2026-01-01"
                      AutomationProperties.Name="開始日（年-月-日）"
-                     local:HelpTip.Standard="この日以降に適用されたリビジョンだけを一覧に表示します（年-月-日の形式）。"
+                     local:HelpTip.Standard="この日以降に適用された履歴だけを一覧に表示します（年-月-日の形式）。"
                      local:HelpTip.Detailed="下の履歴一覧を絞り込む期間の開始日です。「2026-01-01」のように年-月-日の形式で入力してください。空にすると開始日側の制限は無くなります。上のプリセットを選ぶと自動で入力されます。" />
             <TextBlock Grid.Column="2" Text="〜" VerticalAlignment="Center" Margin="4,0"
                        Foreground="{DynamicResource TextSecondary}" />
             <TextBox Grid.Column="3" Text="{Binding DateToText}"
                      Watermark="2026-12-31"
                      AutomationProperties.Name="終了日（年-月-日）"
-                     local:HelpTip.Standard="この日以前に適用されたリビジョンだけを一覧に表示します（年-月-日の形式）。"
+                     local:HelpTip.Standard="この日以前に適用された履歴だけを一覧に表示します（年-月-日の形式）。"
                      local:HelpTip.Detailed="下の履歴一覧を絞り込む期間の終了日です。「2026-12-31」のように年-月-日の形式で入力してください。空にすると終了日側の制限は無くなります。上のプリセットを選ぶと自動で入力されます。" />
         </Grid>
 
@@ -184,9 +184,9 @@
                      ItemsSource="{Binding Items}"
                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                      Background="Transparent"
-                     AutomationProperties.Name="リビジョン履歴一覧"
-                     local:HelpTip.Standard="これまでに適用・取り消しした変更の一覧です。選んで上の「このリビジョンを取り消す」ボタンを押すと、その時点の直前の状態に戻せます。"
-                     local:HelpTip.Detailed="これまでGraftで行った変更（パッチの適用や、以前の状態への取り消し）が新しい順に並びます。1件選ぶと、上の「このリビジョンを取り消す」ボタンでその変更を適用する直前の状態へファイルを戻せます。オレンジ色の注意文が付いている項目は、何らかの理由で取り消せない（元のファイルが既に大きく変わっている等）ことを示します。">
+                     AutomationProperties.Name="履歴一覧"
+                     local:HelpTip.Standard="これまでに適用・取り消しした変更の一覧です。選んで上の「この適用を取り消す」ボタンを押すと、その時点の直前の状態に戻せます。"
+                     local:HelpTip.Detailed="これまでGraftで行った変更（パッチの適用や、以前の状態への取り消し）が新しい順に並びます。1件選ぶと、上の「この適用を取り消す」ボタンでその変更を適用する直前の状態へファイルを戻せます。オレンジ色の注意文が付いている項目は、何らかの理由で取り消せない（元のファイルが既に大きく変わっている等）ことを示します。">
                 <!--
                     修正2: 履歴の行の右クリックメニュー。右クリック時にその行を選択状態にしてから
                     開く（既定では右クリックだけでは選択が変わらないため、HistoryPane.axaml.csの
@@ -201,25 +201,25 @@
                     <ContextMenu>
                         <MenuItem Header="ここまで戻す"
                                   Command="{Binding RestoreThroughCommand}"
-                                  local:HelpTip.Standard="選択したリビジョンより新しい変更をすべて取り消し、その時点まで一気に戻します。"
-                                  AutomationProperties.Name="選択したリビジョンまでまとめて戻す" />
-                        <MenuItem Header="このリビジョンを取り消す"
+                                  local:HelpTip.Standard="選択した履歴より新しい変更をすべて取り消し、その時点まで一気に戻します。"
+                                  AutomationProperties.Name="選択した履歴までまとめて戻す" />
+                        <MenuItem Header="この適用を取り消す"
                                   Command="{Binding RestoreCommand}"
-                                  local:HelpTip.Standard="このリビジョンだけを取り消し、適用する直前の状態へ戻します。"
-                                  AutomationProperties.Name="このリビジョンを取り消す" />
+                                  local:HelpTip.Standard="この履歴だけを取り消し、適用する直前の状態へ戻します。"
+                                  AutomationProperties.Name="この適用を取り消す" />
                         <Separator />
                         <MenuItem Header="差分を表示"
                                   Command="{Binding ShowDiffCommand}"
-                                  local:HelpTip.Standard="このリビジョンの差分を、専用のタブで表示します。選択するだけでも自動的に開きます。"
-                                  AutomationProperties.Name="このリビジョンの差分を表示" />
+                                  local:HelpTip.Standard="この履歴の差分を、専用のタブで表示します。選択するだけでも自動的に開きます。"
+                                  AutomationProperties.Name="この履歴の差分を表示" />
                         <Separator />
                         <!-- E: バックアップフォルダを開く。「本当に退避されているか」を自分の目で
                              確かめられる安心材料として、IFileManagerLauncherで back/ フォルダを開く。 -->
                         <MenuItem Header="バックアップフォルダを開く"
                                   Command="{Binding OpenBackupFolderCommand}"
-                                  local:HelpTip.Standard="このリビジョンのバックアップ（back/フォルダ）を、OSのファイルマネージャで開きます。実際に退避されているかを目で確かめられます。"
-                                  local:HelpTip.Detailed="このリビジョンを適用したときにGraftが自動で退避しておいたバックアップフォルダ（back/配下）を、OSのファイルマネージャで開きます。「復元」を押す前に、本当にバックアップが残っているかを自分の目で確認したいときに使います。バックアップの実体がディスク上に見つからない場合は無効になります。"
-                                  AutomationProperties.Name="このリビジョンのバックアップフォルダを開く" />
+                                  local:HelpTip.Standard="この履歴のバックアップ（back/フォルダ）を、OSのファイルマネージャで開きます。実際に退避されているかを目で確かめられます。"
+                                  local:HelpTip.Detailed="この履歴を適用したときにGraftが自動で退避しておいたバックアップフォルダ（back/配下）を、OSのファイルマネージャで開きます。「復元」を押す前に、本当にバックアップが残っているかを自分の目で確認したいときに使います。バックアップの実体がディスク上に見つからない場合は無効になります。"
+                                  AutomationProperties.Name="この履歴のバックアップフォルダを開く" />
                     </ContextMenu>
                 </ListBox.ContextMenu>
                 <ListBox.Styles>

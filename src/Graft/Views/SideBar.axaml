@@ -58,8 +58,8 @@
                     Classes.active="{Binding IsHistoryActive}"
                     Command="{Binding SelectSideViewCommand}"
                     CommandParameter="{x:Static vm:SideViewKind.History}"
-                    views:HelpTip.Standard="適用の履歴。過去の変更を確認して元に戻せます。"
-                    views:HelpTip.Detailed="これまでに「適用」した変更が、新しい順に一覧表示されます。それぞれの変更内容を確認できるほか、選んでその時点の状態へ復元（元に戻す）することもできます。適用した結果に問題があったときの、やり直し手段です。"
+                    views:HelpTip.Standard="適用の履歴。過去の変更を確認して取り消せます。"
+                    views:HelpTip.Detailed="これまでに「適用」した変更が、新しい順に一覧表示されます。それぞれの変更内容を確認できるほか、選んで取り消し、その適用の直前の状態へ戻すこともできます。適用した結果に問題があったときの、やり直し手段です。"
                     AutomationProperties.Name="履歴ビューを切り替え">
                 <views:IconGlyph Data="{DynamicResource IconHistoryGeometry}" />
             </Button>

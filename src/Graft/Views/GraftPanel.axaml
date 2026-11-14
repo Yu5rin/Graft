@@ -28,7 +28,7 @@
                         Command="{Binding DataContext.ToggleGraftPanelCommand, ElementName=Root}"
                         Classes="subtle" BorderThickness="0" Padding="4"
                         views:HelpTip.Standard="接ぎ木パネルを開閉します。パッチを解析すると自動的に開きます（Ctrl+J）。"
-                        views:HelpTip.Detailed="下部の接ぎ木パネル（AIの回答から抽出した変更ブロックの一覧）を開閉します。「解析」ボタンでAIの回答を読み取ると自動的に開くため、通常は自分で開く必要はありません。作業スペースを広く使いたいときにこのボタンで折りたたんでください。ショートカットはCtrl+Jです。"
+                        views:HelpTip.Detailed="下部の接ぎ木パネル（AIの回答から抽出した変更ブロックの一覧）を開閉します。「貼り付けて解析」ボタンでAIの回答を読み取ると自動的に開くため、通常は自分で開く必要はありません。作業スペースを広く使いたいときにこのボタンで折りたたんでください。ショートカットはCtrl+Jです。"
                         AutomationProperties.Name="接ぎ木パネルの開閉">
                     <Panel>
                         <views:IconGlyph Width="14" Height="14"
@@ -225,12 +225,12 @@
                                                   CommandParameter="{Binding}"
                                                   views:HelpTip.Standard="このブロックの変更内容を、unified diff形式でクリップボードへコピーします。AIへ「この変更のここを直して」と貼り戻せる形です。"
                                                   AutomationProperties.Name="このブロックの差分をコピー" />
-                                        <MenuItem Header="修正依頼プロンプトをコピー"
+                                        <MenuItem Header="修正依頼文をコピー"
                                                   Command="{Binding DataContext.CopyBlockRecoveryPromptCommand, ElementName=Root}"
                                                   CommandParameter="{Binding}"
                                                   IsEnabled="{Binding IsError}"
                                                   views:HelpTip.Standard="このブロックが失敗した理由と、AIが出したSEARCH部、現在のファイルの中身を含む修正依頼文を、このブロックの分だけクリップボードへコピーします。失敗したブロックのときだけ使えます。"
-                                                  AutomationProperties.Name="修正依頼プロンプトをコピー" />
+                                                  AutomationProperties.Name="修正依頼文をコピー" />
                                         <Separator />
                                         <MenuItem Header="{Binding ToggleLabel}"
                                                   Command="{Binding DataContext.ToggleBlockCheckCommand, ElementName=Root}"
@@ -322,18 +322,18 @@
                                               Converter={x:Static views:Converters.CenterPaneStateToEmptyState}}"
                                       IconGeometry="{DynamicResource IconCopyGeometry}"
                                       Message="AIの出力をコピーして Ctrl+Shift+V"
-                                      ActionText="解析"
+                                      ActionText="貼り付けて解析"
                                       ActionCommand="{Binding PasteAndParseCommand}"
                                       ActionTooltip="コピーしたAIの回答を読み取り、変更内容を抽出します。ここが接ぎ木の入口です（Ctrl+Shift+V）。"
                                       ActionTooltipDetailed="ChatGPTやClaudeなどのAIに修正を頼んで返ってきた回答を、まるごとコピーしてからこのボタンを押します。Graftが回答の中からコード変更の部分だけを探し出し、この一覧に表示します。この時点ではまだファイルは書き換わりません。ショートカットはCtrl+Shift+Vです。"
                                       SecondaryActionText="ファイルから解析"
                                       SecondaryActionCommand="{Binding ParseFromFileCommand}"
                                       SecondaryActionTooltip="AIの出力をクリップボードではなく、保存済みのファイル（.md/.txt/.diff/.patch）から読み込んで解析します。"
-                                      SecondaryActionTooltipDetailed="AIとのやり取りをクリップボードにコピーする代わりに、あらかじめファイルへ保存してある場合に使います。.md/.txt/.diff/.patchのいずれかの形式で保存したファイルを選ぶと、その中身を「解析」ボタンを押したときと同じように読み取ります。長いやり取りを一旦保存してから読み込みたいときに便利です。"
+                                      SecondaryActionTooltipDetailed="AIとのやり取りをクリップボードにコピーする代わりに、あらかじめファイルへ保存してある場合に使います。.md/.txt/.diff/.patchのいずれかの形式で保存したファイルを選ぶと、その中身を「貼り付けて解析」ボタンを押したときと同じように読み取ります。長いやり取りを一旦保存してから読み込みたいときに便利です。"
                                       Issue="{Binding CenterError}"
                                       IssueActionText="{Binding RequestedFilesActionText}"
                                       IssueActionCommand="{Binding AddRequestedFilesToContextCommand}"
-                                      IssueActionTooltip="AIが「このファイルも見せて」と求めたファイルを、コンテキスト収集の窓で「内容も出す」に設定します。そのあと窓の「コピー」でAIへ渡せます。" />
+                                      IssueActionTooltip="AIが「このファイルも見せて」と求めたファイルを、「ファイルを選ぶ」画面で「内容も出す」に設定します。そのあと窓の「コピー」でAIへ渡せます。" />
             </Grid>
         </Grid>
     </Grid>

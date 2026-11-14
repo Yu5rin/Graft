@@ -69,11 +69,11 @@ public sealed partial class ShellViewModel
             new("パッチキューを開く", Graft.OpenQueueCommand, null, Gesture("OpenQueue")),
             new("適用（適用を実行）", Graft.ApplyCommand, null, Gesture("Apply")),
             new("プレビュー（プレビューを再実行）", Graft.PreviewCommand, null, Gesture("Preview")),
-            new("プロンプトテンプレートを選んでコピー", Graft.OpenPromptDropdownCommand, null, Gesture("OpenPromptDropdown")),
-            new("AIへの依頼文（プロンプトテンプレート）をコピー", Graft.CopyPromptCommand, null, Gesture("CopyPrompt")),
-            new("修正を依頼（失敗ブロックの修正依頼プロンプトをコピー）", Graft.CopyRecoveryPromptCommand, null, Gesture("CopyRecoveryPrompt")),
+            new("依頼文テンプレートを選んでコピー", Graft.OpenPromptDropdownCommand, null, Gesture("OpenPromptDropdown")),
+            new("AIへの依頼文（依頼文テンプレート）をコピー", Graft.CopyPromptCommand, null, Gesture("CopyPrompt")),
+            new("修正を依頼（失敗ブロックの修正依頼文をコピー）", Graft.CopyRecoveryPromptCommand, null, Gesture("CopyRecoveryPrompt")),
             new("履歴ビューを開く", Graft.ShowHistoryCommand, null, Gesture("ShowHistory")),
-            new("直前に適用したリビジョンを元に戻す", Graft.UndoCommand, null, Gesture("Undo")),
+            new("直前に適用した履歴を元に戻す", Graft.UndoCommand, null, Gesture("Undo")),
             // 実機で確認された指摘8: 履歴の「このリビジョンを取り消す」「ここまで戻す」は、
             // ショートカットが無く右クリックメニューかラベルの無いアイコンボタンのみが到達手段で、
             // キーボードだけでは実行できなかった。ショートカットの新設は既存の割り当てと
@@ -81,8 +81,8 @@ public sealed partial class ShellViewModel
             // どちらも履歴ペインで選択中のリビジョン（HistoryPaneViewModel.SelectedItem）に対して
             // 動くコマンドで、パラメータは不要（CanExecuteは選択の有無で決まる。選択が無ければ
             // パレット上は「実行できません」と表示される。CommandPaletteItem.AutomationName参照）。
-            new("このリビジョンを取り消す（選択中のリビジョン）", Graft.History.RestoreCommand, null, Gesture("RestoreRevision")),
-            new("ここまで戻す（選択中のリビジョンまでまとめて）", Graft.History.RestoreThroughCommand, null, Gesture("RestoreThrough")),
+            new("この適用を取り消す（選択中の履歴）", Graft.History.RestoreCommand, null, Gesture("RestoreRevision")),
+            new("ここまで戻す（選択中の履歴までまとめて）", Graft.History.RestoreThroughCommand, null, Gesture("RestoreThrough")),
             new("破棄（解析結果を破棄）", Graft.DiscardCommand, null, Gesture("Discard")),
             new("設定を開く", Graft.OpenSettingsCommand, null, Gesture("OpenSettings")),
             new("キーボードショートカット一覧を開く", OpenShortcutsCommand, null, Gesture("OpenShortcuts")),

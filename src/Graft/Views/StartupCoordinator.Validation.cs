@@ -280,7 +280,7 @@ public sealed partial class StartupCoordinator
             {
                 await dialogService
                     .ShowMessageAsync(
-                        "ロールバックできませんでした",
+                        "元の状態に戻せませんでした",
                         $"プロジェクト「{issue.ProjectName}」の{label}を適用前の状態へ戻せませんでした。" +
                         "一部のファイルが書き換わったままの可能性があります。次回の起動時にもう一度確認します。" +
                         Environment.NewLine + Environment.NewLine +
@@ -294,7 +294,7 @@ public sealed partial class StartupCoordinator
             {
                 await dialogService
                     .ShowMessageAsync(
-                        "ロールバックしました（確認事項があります）",
+                        "元の状態に戻しました（確認事項があります）",
                         $"プロジェクト「{issue.ProjectName}」の{label}を適用前の状態へ戻しました。" +
                         Environment.NewLine + Environment.NewLine +
                         string.Join(Environment.NewLine, notes.Select(i => "・" + i.ToDisplayText())))

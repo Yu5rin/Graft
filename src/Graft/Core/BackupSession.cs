@@ -179,7 +179,7 @@ public sealed class BackupSession
             // ファイルは戻せているので失敗にはしない。印だけが in_progress で残り、
             // 起動時の検出が（最新の場合に限り）知らせる。
             issues.Add(GraftIssue.Of(
-                ErrorCode.E401, $"ロールバック済みの印（manifest.json）を書けませんでした: {ExceptionMessages.Describe(ex)}",
+                ErrorCode.E401, $"元に戻した印（manifest.json）を書けませんでした: {ExceptionMessages.Describe(ex)}",
                 path: _manifestPath, severity: Severity.Warning));
         }
 

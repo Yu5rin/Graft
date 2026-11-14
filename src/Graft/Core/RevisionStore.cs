@@ -79,7 +79,7 @@ public sealed partial class RevisionStore
             return GraftResult<RevisionSummary>.Ok(summary, issues);
         }
 
-        return GraftResult<RevisionSummary>.Fail(ErrorCode.E405, $"リビジョン {revision} の実体が見つかりません", path: projectDir);
+        return GraftResult<RevisionSummary>.Fail(ErrorCode.E405, $"履歴 {revision} の実体が見つかりません", path: projectDir);
     }
 
     /// <summary>

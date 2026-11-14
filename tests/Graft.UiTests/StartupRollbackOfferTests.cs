@@ -85,7 +85,7 @@ public class StartupRollbackOfferTests : IDisposable
         File.ReadAllText(Path.Combine(_projectRoot, "a.txt")).Should().Be("half-way\n");
         var store = new RevisionStore(_paths);
         (await store.ReadAsync(ProjectId, 1)).Value.Manifest.Status.Should().Be(RevisionStatus.InProgress);
-        dialogs.Messages.Should().ContainSingle().Which.Title.Should().Contain("ロールバックできませんでした");
+        dialogs.Messages.Should().ContainSingle().Which.Title.Should().Contain("元の状態に戻せませんでした");
     }
 
     [Fact(DisplayName = "承諾しなければ何も変えない")]

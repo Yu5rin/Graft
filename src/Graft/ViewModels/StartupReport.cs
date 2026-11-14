@@ -76,6 +76,6 @@ public sealed class StartupReport
     {
         var revisions = string.Join("、", issue.Revisions.Select(r => $"r{r.Manifest.Revision}"));
         return $"プロジェクト「{issue.ProjectName}」で前回の適用が完了しないまま終了しています（{revisions}）。" +
-               "中途半端な状態のまま残っている可能性があります。適用前の状態へロールバックしますか？";
+               "中途半端な状態のまま残っている可能性があります。適用前の状態に戻しますか？";
     }
 }

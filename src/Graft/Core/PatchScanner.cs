@@ -154,7 +154,7 @@ internal sealed class PatchScanner
 
             const string detail =
                 "パッチ本文に ``` が含まれているため、囲みが途中で閉じられた可能性があります。" +
-                "AIへの指示文のとおり、外側をバッククォート4個（````text 〜 ````）にして出力し直してください。";
+                "AIへの依頼文のとおり、外側をバッククォート4個（````text 〜 ````）にして出力し直してください。";
             throw new FenceAmbiguousCloseException(GraftIssue.Of(ErrorCode.E009, detail, line: closeIndex + 1));
         }
     }

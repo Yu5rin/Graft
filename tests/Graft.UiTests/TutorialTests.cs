@@ -68,7 +68,7 @@ public class TutorialTests : IDisposable
     // 「本当に次のステップまで進んだか」を判定できないため（テスト側の見かけ上の
     // 一致による誤判定を避ける）。
     private static readonly string[] ExpectedPrimaryLabels =
-        { "次へ", "次へ", "次へ", "適用する", "次へ", "元に戻す", "終了" };
+        { "次へ", "次へ", "次へ", "適用する", "次へ", "取り消す", "終了" };
 
     [AvaloniaFact(DisplayName = "「使い方を学ぶ」で開始すると7ステップが順に進み、実際に解析・適用・履歴記録・復元まで行われて完走できる")]
     public async Task 使い方を学ぶで開始すると7ステップが順に進み完走できる()

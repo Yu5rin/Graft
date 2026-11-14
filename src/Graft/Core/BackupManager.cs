@@ -238,7 +238,7 @@ internal static class BackupPathUtil
             return GraftResult<byte[]>.Fail(
                 ErrorCode.E216,
                 "旧レイアウト（v1.0.15以前）のバックアップで、このファイルの退避コピーが" +
-                "Graftのリビジョン確定処理によって上書きされており、元の内容は失われています。" +
+                "Graftの履歴確定処理によって上書きされており、元の内容は失われています。" +
                 "書き込むとファイルを壊すため復元を行いませんでした。Gitなど、Graft以外の" +
                 "バックアップ手段からこのファイルを復元してください。",
                 path: normalizedRelativePath);

@@ -90,7 +90,7 @@
             </TabItem>
             <TabItem Header="適用と履歴" AutomationProperties.Name="適用と履歴設定タブ"
                      local:HelpTip.Standard="パッチを適用するときの動き、履歴とバックアップの残し方、新規ファイルの書き方、Git、データの保存場所です。"
-                     local:HelpTip.Detailed="適用モード・適用前のプレビュー・要約の入力、履歴とバックアップをどれだけ残すか、新しく作るファイルの文字コードと改行、適用後の自動コミット、設定や履歴を置く場所を設定します。">
+                     local:HelpTip.Detailed="適用モード・適用前の確認・要約の入力、履歴とバックアップをどれだけ残すか、新しく作るファイルの文字コードと改行、適用後の自動コミット、設定や履歴を置く場所を設定します。">
                 <settings:ApplySettingsView />
             </TabItem>
             <TabItem Header="適用の制限" AutomationProperties.Name="適用の制限設定タブ"
@@ -99,7 +99,7 @@
                 <settings:SafetySettingsView />
             </TabItem>
             <TabItem Header="差分の表示" AutomationProperties.Name="差分の表示設定タブ"
-                     local:HelpTip.Standard="適用前のプレビューなどに出る差分の見え方（左右に並べる・折り返し・空白・前後の行数）です。"
+                     local:HelpTip.Standard="適用前の確認などに出る差分の見え方（左右に並べる・折り返し・空白・前後の行数）です。"
                      local:HelpTip.Detailed="変更前と変更後を左右に並べるか上下に統合するか、長い行の折り返し、空白の可視化、行番号、コードの色分け、変更箇所の前後に何行見せるかを設定します。">
                 <settings:DiffSettingsView />
             </TabItem>
@@ -109,7 +109,7 @@
                 <settings:EditorSettingsView />
             </TabItem>
             <TabItem Header="AIに渡す内容" AutomationProperties.Name="AIに渡す内容の設定タブ"
-                     local:HelpTip.Standard="「ファイル」画面でAIへ渡す内容を集めるときの、対象・除外・大きさの目安の設定です。"
+                     local:HelpTip.Standard="「ファイルを選ぶ」画面でAIへ渡す内容を集めるときの、対象・除外・大きさの目安の設定です。"
                      local:HelpTip.Detailed=".gitignoreを尊重するか、依頼文のコピーに選んだファイルも付けるか、渡す量（トークン数）をどう概算してどこから「大きすぎる」と知らせるかを設定します。">
                 <settings:ContextSettingsView />
             </TabItem>
@@ -119,8 +119,8 @@
                 <settings:ClipboardSettingsView />
             </TabItem>
             <TabItem Header="依頼文のテンプレート" AutomationProperties.Name="依頼文のテンプレート設定タブ"
-                     local:HelpTip.Standard="AIへの依頼文のひな形を追加・編集します。コマンドバーの「依頼文」ボタンで使われます。"
-                     local:HelpTip.Detailed="コマンドバーの「依頼文」ボタンでコピーされる、AIへの依頼文のひな形を管理します。Graftが読み取れる形式で回答するよう指示する文面で、プロジェクトごとに既定のテンプレートを分けることもできます。">
+                     local:HelpTip.Standard="AIへの依頼文のひな形を追加・編集します。コマンドバーの「依頼文をコピー」ボタンで使われます。"
+                     local:HelpTip.Detailed="コマンドバーの「依頼文をコピー」ボタンでコピーされる、AIへの依頼文のひな形を管理します。Graftが読み取れる形式で回答するよう指示する文面で、プロジェクトごとに既定のテンプレートを分けることもできます。">
                 <settings:TemplateSettingsView />
             </TabItem>
             <TabItem Header="適用後に実行するコマンド" AutomationProperties.Name="適用後に実行するコマンド設定タブ"

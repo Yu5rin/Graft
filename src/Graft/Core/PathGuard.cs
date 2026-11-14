@@ -550,7 +550,7 @@ public sealed class PathGuard
         if (count > _options.MaxFilesPerRevision)
         {
             return GraftResult<bool>.Fail(ErrorCode.E203,
-                $"1リビジョンあたりのファイル数上限（{_options.MaxFilesPerRevision}）を超えています");
+                $"1回の適用あたりのファイル数上限（{_options.MaxFilesPerRevision}）を超えています");
         }
         return GraftResult<bool>.Ok(true);
     }

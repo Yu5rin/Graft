@@ -45,7 +45,7 @@
                       views:HelpTip.Detailed="オンにすると、下の「コピー」で得られる文面が、初回の会話で使う説明の長いテンプレートではなく、既にGraftの回答形式を伝えたあとの2回目以降の指示に使う短縮版になります。同じAIとの会話を続けて追加の修正を頼むときはこちらを使うと、毎回長い説明を繰り返さずに済みます。" />
             <TextBlock Text="AIとの会話の2回目以降に使う、短い依頼文でコピーします。" Classes="settingHint indented" />
             <TextBlock Text="テンプレート" Classes="sectionHeading" />
-            <TextBlock Text="一覧の右の数字は、コピーされる文面の概算のトークン数です（トークンは、AIが文章を数える単位）。「ファイル」画面で選んだファイルの内容は含みません。" Classes="settingHint" />
+            <TextBlock Text="一覧の右の数字は、コピーされる文面の概算のトークン数です（トークンは、AIが文章を数える単位）。「ファイルを選ぶ」画面で選んだファイルの内容は含みません。" Classes="settingHint" />
         </StackPanel>
 
         <Grid Grid.Row="1" MinHeight="260" ColumnDefinitions="280,Auto,*">
@@ -87,7 +87,7 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
                          AutomationProperties.Name="テンプレート本文"
                          views:HelpTip.Standard="AIへコピーする実際の文面です。ここを編集して自分好みの依頼文にできます。"
-                         views:HelpTip.Detailed="コマンドバーの「依頼文」でコピーされる実際の文面です。AIに「Graftが読み取れる決まった形式で回答してください」と伝える指示文になっているため、大きく書き換えるとGraftが回答を正しく解析できなくなるおそれがあります。書式のコツを掴んだ上で、口調や追加の指示だけを調整することをおすすめします。組み込みのテンプレートは読み取り専用のため、書き換えたい場合は「コピー」で複製してから編集してください。" />
+                         views:HelpTip.Detailed="コマンドバーの「依頼文をコピー」でコピーされる実際の文面です。AIに「Graftが読み取れる決まった形式で回答してください」と伝える依頼文になっているため、大きく書き換えるとGraftが回答を正しく解析できなくなるおそれがあります。書式のコツを掴んだ上で、口調や追加の指示だけを調整することをおすすめします。組み込みのテンプレートは読み取り専用のため、書き換えたい場合は「コピー」で複製してから編集してください。" />
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="保存"
                             Command="{Binding DataContext.Templates.SaveEditCommand, ElementName=Root}"
@@ -113,11 +113,11 @@
             <Button Content="コピー" Command="{Binding CopyCommand}" Margin="0,0,8,0"
                     AutomationProperties.Name="テンプレートをコピー"
                     views:HelpTip.Standard="選んだテンプレートの内容をクリップボードへコピーします。AIとの会話に貼り付けて使います。"
-                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」の情報で展開したうえでクリップボードへコピーします。コピーした内容をChatGPTやClaudeなどのAIとの会話に貼り付けてから、直してほしい内容を伝えてください。コマンドバーの「依頼文」ボタンと同じ結果が得られます。" />
+                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」の情報で展開したうえでクリップボードへコピーします。コピーした内容をChatGPTやClaudeなどのAIとの会話に貼り付けてから、直してほしい内容を伝えてください。コマンドバーの「依頼文をコピー」ボタンと同じ結果が得られます。" />
             <Button Content="プロジェクトの既定に設定" Command="{Binding SetAsProjectDefaultCommand}" Margin="0,0,8,0"
                     AutomationProperties.Name="プロジェクトの既定テンプレートに設定"
                     views:HelpTip.Standard="選んだテンプレートを、上で選んでいるプロジェクトの既定テンプレートにします。次回以降そのプロジェクトで自動的に選ばれます。"
-                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」で選んでいるプロジェクトの既定テンプレートとして登録します。以降、そのプロジェクトを開いてコマンドバーの「依頼文」を使うときに、このテンプレートが自動的に選択された状態になります。プロジェクトごとに異なる指示文を使い分けたい場合に使います。" />
+                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」で選んでいるプロジェクトの既定テンプレートとして登録します。以降、そのプロジェクトを開いてコマンドバーの「依頼文」を使うときに、このテンプレートが自動的に選択された状態になります。プロジェクトごとに異なる依頼文を使い分けたい場合に使います。" />
             <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
         </StackPanel>
