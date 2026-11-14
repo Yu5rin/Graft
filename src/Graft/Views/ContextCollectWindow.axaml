@@ -97,7 +97,7 @@
                             <Button Grid.Column="2" Content="×"
                                     Command="{Binding ClearFilterCommand}"
                                     Padding="6,0" Margin="4,0,0,0"
-                                    Background="Transparent" BorderThickness="0"
+                                    Classes="subtle" BorderThickness="0"
                                     IsVisible="{Binding HasFilterText}"
                                     AutomationProperties.Name="絞り込みを解除"
                                     ToolTip.Tip="絞り込みを解除して、ツリー表示に戻します" />
@@ -314,7 +314,17 @@
             </TabItem>
         </TabControl>
 
+        <!--
+            実機の画面（監査 H4）: 左の説明文（警告時は5行に折り返す）が行の高さを決めるため、
+            既定でStretchのボタンが縦に約105pxまで伸びていた。ボタンは通常の高さ（ControlHeight）の
+            まま行の縦中央に置く。下のStyleは、この行のボタン4つにだけ効く。
+        -->
         <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+            <Grid.Styles>
+                <Style Selector="Button">
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                </Style>
+            </Grid.Styles>
             <StackPanel Grid.Column="0" VerticalAlignment="Center">
                 <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap"
                            Classes="statusMessage"
@@ -327,7 +337,7 @@
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、プレビュータブと推定トークン数で確認します。クリップボードへはコピーしません。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、実際にAIへ渡す文章としてどう組み立てられるかを「プレビュー」タブで確認できます。おおよそのトークン数（AIへの負荷の目安）もここで分かります。この操作ではクリップボードには何もコピーされないため、内容を確認するだけのときに使ってください。"
                     AutomationProperties.Name="推定トークン数をプレビュー" TabIndex="8" />
-            <Button Grid.Column="2" Content="コピー" Command="{Binding CopyCommand}" Margin="0,0,8,0"
+            <Button Classes="primary" Grid.Column="2" Content="コピー" Command="{Binding CopyCommand}" Margin="0,0,8,0"
                     local:HelpTip.Standard="選んだファイルからAIへ渡す内容を組み立て、クリップボードへコピーします。推定トークン数が大きい場合でも必ずコピーしたうえで、目安として大きさを知らせます。"
                     local:HelpTip.Detailed="左で選んだファイルの内容をつなぎ合わせ、AIへ渡す文章としてクリップボードへコピーします。コピーしたら、そのままChatGPTやClaudeなどのAIとの会話に貼り付けて質問してください。推定トークン数が設定の目安値を超えている場合でも内容は必ずコピーされ、そのうえで「AIへ一度に渡すには大きいかもしれません」という助言がステータスに添えられます（気になる場合は除外パターンでファイルを減らしてください）。"
                     AutomationProperties.Name="コンテキストをクリップボードへコピー" TabIndex="9" />
