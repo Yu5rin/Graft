@@ -27,9 +27,9 @@ public sealed class HookSettingsViewModel : ObservableObject
         Projects = new ObservableCollection<Project>();
         Hooks = new ObservableCollection<HookEntry>();
 
-        AddCommand = new AsyncRelayCommand(AddAsync, () => _selectedProject is not null, context: "フックの追加");
-        DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => _selectedHook is not null, context: "フックの削除");
-        SaveCommand = new AsyncRelayCommand(SaveAsync, () => _selectedProject is not null, context: "フックの保存");
+        AddCommand = new AsyncRelayCommand(AddAsync, () => _selectedProject is not null, context: "コマンドの追加");
+        DeleteCommand = new AsyncRelayCommand(DeleteAsync, () => _selectedHook is not null, context: "コマンドの削除");
+        SaveCommand = new AsyncRelayCommand(SaveAsync, () => _selectedProject is not null, context: "コマンドの保存");
     }
 
     public ObservableCollection<Project> Projects { get; }
@@ -45,8 +45,17 @@ public sealed class HookSettingsViewModel : ObservableObject
     {
         new HookFailureOption("記録のみ", HookFailureAction.Ignore),
         new HookFailureOption("警告表示", HookFailureAction.Warn),
-        new HookFailureOption("ロールバックを提案", HookFailureAction.OfferRollback),
-        new HookFailureOption("自動ロールバック", HookFailureAction.AutoRollback),
+        new HookFailureOption("適用の取り消しを確認する", HookFailureAction.OfferRollback),
+        new HookFailureOption("自動で適用を取り消す", HookFailureAction.AutoRollback),
+    };
+
+    /// <summary>保存値 → 表示名（<see cref="OnFailureOptions"/>と同じ内容。一覧の表示用）。</summary>
+    internal static readonly IReadOnlyDictionary<string, string> FailureLabels = new Dictionary<string, string>
+    {
+        [HookFailureAction.Ignore] = "記録のみ",
+        [HookFailureAction.Warn] = "警告表示",
+        [HookFailureAction.OfferRollback] = "適用の取り消しを確認する",
+        [HookFailureAction.AutoRollback] = "自動で適用を取り消す",
     };
 
     public Project? SelectedProject
@@ -98,10 +107,10 @@ public sealed class HookSettingsViewModel : ObservableObject
     {
         if (_selectedProject is null) return Task.CompletedTask;
 
-        var entry = new HookEntry(new PostApplyHook { Name = "新しいフック", Command = string.Empty, OnFailure = HookFailureAction.Warn });
+        var entry = new HookEntry(new PostApplyHook { Name = "新しいコマンド", Command = string.Empty, OnFailure = HookFailureAction.Warn });
         Hooks.Add(entry);
         SelectedHook = entry;
-        StatusMessage = "フックを追加しました。保存を押すと確定します。";
+        StatusMessage = "コマンドを追加しました。保存を押すと確定します。";
         return Task.CompletedTask;
     }
 
@@ -109,7 +118,7 @@ public sealed class HookSettingsViewModel : ObservableObject
     {
         if (_selectedHook is not { } entry) return;
         var confirmed = await _dialogService
-            .ConfirmAsync("フックの削除", $"フック「{entry.Name}」を削除します。よろしいですか？")
+            .ConfirmAsync("コマンドの削除", $"コマンド「{entry.Name}」を削除します。よろしいですか？")
             .ConfigureAwait(true);
         if (!confirmed) return;
 
@@ -139,7 +148,7 @@ public sealed class HookSettingsViewModel : ObservableObject
         if (selectedIndex >= 0) Projects[selectedIndex] = _selectedProject;
         OnPropertyChanged(nameof(SelectedProject));
 
-        StatusMessage = $"「{_selectedProject.DisplayName}」の適用後フックを保存しました。";
+        StatusMessage = $"「{_selectedProject.DisplayName}」の適用後に実行するコマンドを保存しました。";
     }
 
     private void RaiseCommandStates()
@@ -182,8 +191,18 @@ public sealed class HookEntry : ObservableObject
     public string OnFailure
     {
         get => _onFailure;
-        set => SetProperty(ref _onFailure, value);
+        set
+        {
+            if (SetProperty(ref _onFailure, value)) OnPropertyChanged(nameof(OnFailureLabel));
+        }
     }
+
+    /// <summary>
+    /// 一覧の右側に出す、失敗したときの扱いの表示名。保存値（<c>offerRollback</c> など内部の文字列）を
+    /// そのまま見せると何のことか分からないため、選択肢（<see cref="HookSettingsViewModel.OnFailureOptions"/>）と
+    /// 同じ日本語名を引く。未知の値（手で書き換えた settings 等）は値のまま出す。
+    /// </summary>
+    public string OnFailureLabel => HookSettingsViewModel.FailureLabels.TryGetValue(_onFailure, out var label) ? label : _onFailure;
 
     public PostApplyHook ToSource() => new() { Name = _name, Command = _command, OnFailure = _onFailure };
 }

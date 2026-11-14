@@ -52,37 +52,43 @@ public class SettingsHelpTipCoverageTests : IDisposable
     [AvaloniaFact(DisplayName = "設定画面「エディタ」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
     public void エディタ設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new EditorSettingsView());
 
-    [AvaloniaFact(DisplayName = "設定画面「マッチング」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
-    public void マッチング設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new MatchingSettingsView());
+    [AvaloniaFact(DisplayName = "設定画面「適用の制限」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 適用の制限設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new SafetySettingsView());
 
-    [AvaloniaFact(DisplayName = "設定画面「安全機構」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
-    public void 安全機構設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new SafetySettingsView());
+    [AvaloniaFact(DisplayName = "設定画面「適用と履歴」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 適用と履歴設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new ApplySettingsView());
 
-    [AvaloniaFact(DisplayName = "設定画面「表示・コンテキスト」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
-    public void 表示コンテキスト設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new DiffSettingsView());
+    [AvaloniaFact(DisplayName = "設定画面「差分の表示」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 差分の表示設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new DiffSettingsView());
 
-    [AvaloniaFact(DisplayName = "設定画面「プロンプトテンプレート」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
-    public void プロンプトテンプレート設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new TemplateSettingsView());
+    [AvaloniaFact(DisplayName = "設定画面「AIに渡す内容」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void AIに渡す内容設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new ContextSettingsView());
 
-    [AvaloniaFact(DisplayName = "設定画面「適用後フック」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
-    public void 適用後フック設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new HookSettingsView());
+    [AvaloniaFact(DisplayName = "設定画面「クリップボード監視」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void クリップボード監視設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new ClipboardSettingsView());
 
-    [AvaloniaFact(DisplayName = "設定画面「JSON編集」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
-    public void JSON編集設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new RawJsonSettingsView());
+    [AvaloniaFact(DisplayName = "設定画面「依頼文のテンプレート」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 依頼文のテンプレート設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new TemplateSettingsView());
+
+    [AvaloniaFact(DisplayName = "設定画面「適用後に実行するコマンド」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 適用後に実行するコマンド設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new HookSettingsView());
+
+    [AvaloniaFact(DisplayName = "設定画面「詳細（settings.json）」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 詳細設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new RawJsonSettingsView());
 
     // 機能1（オープンソースライセンス表記）: 「バージョン情報」タブの「オープンソースライセンスを
     // 表示」ボタンにHelpTip.Standardを付け忘れていないかをここで機械的に確認する。
-    [AvaloniaFact(DisplayName = "設定画面「バージョン情報」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
-    public void バージョン情報のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new AboutView());
+    [AvaloniaFact(DisplayName = "設定画面「更新とバージョン情報」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 更新とバージョン情報のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new AboutView());
 
-    [AvaloniaFact(DisplayName = "設定ウィンドウ本体（タブ・トークン統計・下部ボタン）は全てHelpTip.Standardを持つ")]
+    [AvaloniaFact(DisplayName = "設定ウィンドウ本体（タブ・統計・下部ボタン）は全てHelpTip.Standardを持つ")]
     public void 設定ウィンドウ本体のコントロールは全てHelpTipを持つ()
     {
         var window = _windows.Track(new SettingsWindow());
         window.Show();
 
         // TabItemはButton/CheckBox等ではないため対象種別に含めていないが、要望2で
-        // タブ自体にも説明を付けた（トークン統計・バージョン情報など項目名だけでは
+        // タブ自体にも説明を付けた（統計・更新とバージョン情報など項目名だけでは
         // 分かりにくいタブがあるため）。個別に確認する。
         var missingTabs = window.GetVisualDescendants().OfType<TabItem>()
             .Where(t => HelpTip.GetStandard(t) is null)

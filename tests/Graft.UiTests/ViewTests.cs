@@ -157,9 +157,12 @@ public class ViewTests : IDisposable
         // 設定画面のタブ7枚。1枚でもXAMLやリソース参照を誤ると、ここで描画に失敗する。
         RenderInWindow(new Graft.Views.SettingsPanels.GeneralSettingsView());
         RenderInWindow(new Graft.Views.SettingsPanels.EditorSettingsView());
-        RenderInWindow(new Graft.Views.SettingsPanels.MatchingSettingsView());
         RenderInWindow(new Graft.Views.SettingsPanels.SafetySettingsView());
         RenderInWindow(new Graft.Views.SettingsPanels.DiffSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.ApplySettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.ContextSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.ClipboardSettingsView());
+        RenderInWindow(new Graft.Views.SettingsPanels.HookSettingsView());
         RenderInWindow(new Graft.Views.SettingsPanels.TemplateSettingsView());
         RenderInWindow(new Graft.Views.SettingsPanels.RawJsonSettingsView());
     }
