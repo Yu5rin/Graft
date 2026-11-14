@@ -176,6 +176,49 @@ public sealed class EditorTabManager
     }
 
     /// <summary>
+    /// <paramref name="dirFullPath"/>の配下にあるドキュメントタブ（フォルダ自身は対象外）。
+    /// 区切り文字まで含めて前方一致させる（「src」の配下に「src2」を含めないため）。
+    /// </summary>
+    public IReadOnlyList<EditorTabViewModel> TabsUnder(string dirFullPath)
+    {
+        var prefix = dirFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return Tabs.Where(t => t.Session.FullPath.StartsWith(prefix, comparison)).ToList();
+    }
+
+    /// <summary>
+    /// エクスプローラでのフォルダの名前変更・移動に追従し、配下で開いているタブのパスを付け替える。
+    /// 以前はファイルのときだけタブへ通知しており、フォルダの名前を変えると配下のタブが古いパスを
+    /// 指したままになった（保存すると古い場所に新しくファイルが作られてしまう）。
+    /// </summary>
+    public void NotifyFolderRenamed(string oldDirFullPath, string newDirFullPath)
+    {
+        var oldPrefix = oldDirFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var newPrefix = newDirFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        foreach (var tab in TabsUnder(oldDirFullPath))
+        {
+            var remainder = tab.Session.FullPath[oldPrefix.Length..]; // 先頭は区切り文字。
+            tab.Session.UpdatePath(newPrefix + remainder, _projectRoot ?? string.Empty);
+            tab.NotifyPathChanged();
+        }
+    }
+
+    /// <summary>
+    /// エクスプローラでのフォルダの削除に追従し、配下で開いているタブを閉じる。未保存の編集が
+    /// あるタブは、通常のタブの閉じ方と同じ保存確認（はい／いいえ／キャンセル）を出す。
+    /// キャンセルされたら false を返し、呼び出し側は削除を中止する。
+    /// 削除の<b>前</b>に呼ぶこと（削除後では、未保存の編集を保存する先が無い）。
+    /// </summary>
+    public async Task<bool> CloseTabsUnderAsync(string dirFullPath, Func<EditorTabViewModel, Task<bool>> close)
+    {
+        foreach (var tab in TabsUnder(dirFullPath))
+        {
+            if (!await close(tab).ConfigureAwait(true)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// エクスプローラでの削除に追従し、該当タブを保存確認なしで閉じる（4.2/4.8）。
     /// 実体が既に無いファイルへの保存確認は意味を持たないため、<see cref="CloseAsync"/>とは
     /// 別に確認なしのタブ除去を行う。

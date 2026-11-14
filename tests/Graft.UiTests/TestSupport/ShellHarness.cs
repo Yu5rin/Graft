@@ -204,8 +204,11 @@ public sealed class ScriptedDialogs : IDialogService
         return Task.FromResult(ThreeWayAnswer(title, message));
     }
 
+    /// <summary>PromptAsyncの応答（title, message, initial）。未指定なら初期値（無ければ「テスト」）。</summary>
+    public Func<string, string, string?, string?>? PromptAnswer { get; set; }
+
     public Task<string?> PromptAsync(string title, string message, string? initial = null)
-        => Task.FromResult<string?>(initial ?? "テスト");
+        => Task.FromResult(PromptAnswer is null ? initial ?? "テスト" : PromptAnswer(title, message, initial));
 
     public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
 

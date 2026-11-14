@@ -1086,7 +1086,8 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (!renamed.IsSuccess) { await ShowFailureAsync("名前を変更できませんでした", renamed.Issues).ConfigureAwait(true); return; }
 
         // 開いているタブを新しいパスへ追従させる（4.2・4.3）。
-        if (!node.IsDirectory) _editor.NotifyRenamed(node.FullPath, newFullPath);
+        if (node.IsDirectory) _editor.NotifyFolderRenamed(node.FullPath, newFullPath);
+        else _editor.NotifyRenamed(node.FullPath, newFullPath);
         await ReconcileDirectoryAsync(node.Parent, CancellationToken.None).ConfigureAwait(true);
     }
 
@@ -1098,6 +1099,10 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
             .ConfirmAsync("削除の確認", $"{kind}「{node.Name}」をごみ箱へ移動します。よろしいですか？")
             .ConfigureAwait(true);
         if (!confirmed) return;
+
+        // フォルダの削除は、配下で開いているタブも道連れになる。削除より前に閉じ（未保存があれば
+        // 保存確認）、キャンセルされたら削除しない。削除後に確認しても、保存先のフォルダが無い。
+        if (node.IsDirectory && !await _editor.CloseTabsUnderAsync(node.FullPath).ConfigureAwait(true)) return;
 
         // 8.8: 確認ダイアログでOKを押してから削除が終わるまでの間、待機表示（ペイン上端の
         // 不確定プログレスバー。ExplorerView.axamlのIsVisible="{Binding IsLoading}"）を出す。

@@ -452,6 +452,20 @@ public sealed partial class EditorPaneViewModel : ObservableObject
         if (wasActive) RaiseStatusChanged(); // 拡張子変更でLanguageText等が変わりうるため
     }
 
+    /// <summary>エクスプローラでのフォルダの名前変更に追従し、配下で開いているタブのパスを付け替える。</summary>
+    public void NotifyFolderRenamed(string oldDirFullPath, string newDirFullPath)
+    {
+        _manager.NotifyFolderRenamed(oldDirFullPath, newDirFullPath);
+        RaiseStatusChanged();
+    }
+
+    /// <summary>
+    /// フォルダを削除する前に、配下で開いているタブを閉じる（未保存があれば保存確認）。
+    /// falseならキャンセルされたので、呼び出し側は削除を中止する。
+    /// </summary>
+    public Task<bool> CloseTabsUnderAsync(string dirFullPath)
+        => _manager.CloseTabsUnderAsync(dirFullPath, CloseTabAsync);
+
     /// <summary>エクスプローラでの削除に追従し、開いているタブがあれば確認なしで閉じる。</summary>
     public async Task NotifyDeletedAsync(string fullPath)
     {
