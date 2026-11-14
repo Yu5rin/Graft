@@ -187,7 +187,7 @@
                                       local:HelpTip.Standard="下の表を日ごと・週ごと・月ごとのどれで区切って表示するかです。"
                                       local:HelpTip.Detailed="下の表の「期間」列を、日単位・週単位・月単位のどの粒度でまとめるかを選びます。選び直すと表がその場で更新されます。" />
                         </Grid>
-                        <Button Content="更新" Command="{Binding RefreshCommand}"
+                        <Button Content="更新" Command="{Binding RefreshCommand}" HorizontalAlignment="Left"
                                 AutomationProperties.Name="統計を更新"
                                 local:HelpTip.Standard="履歴から最新の集計を読み直します。"
                                 local:HelpTip.Detailed="このプロジェクトの履歴を読み直し、下の表と合計を最新の内容に更新します。この画面を開いたあとに別の操作でパッチを適用した場合など、表示が古いと感じたら押してください。" />
