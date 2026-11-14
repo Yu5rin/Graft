@@ -327,6 +327,14 @@ public sealed record EncodingSettings
 
     /// <summary>新規ファイルにBOMを付与するか。</summary>
     public bool NewFileBom { get; init; } = false;
+
+    /// <summary>
+    /// 新規ファイルの改行コード。<c>auto</c>（既定）・<c>crlf</c>・<c>lf</c>。
+    /// <c>auto</c>は同じフォルダ（無ければプロジェクト）の既存テキストファイルで優勢な改行に合わせ、
+    /// 分からなければOSの既定にする（<see cref="Graft.Core.NewLineResolver"/>）。
+    /// settings.json にこの項目が無い旧版の設定ファイルは <c>auto</c> として読まれる。
+    /// </summary>
+    public string NewFileNewLine { get; init; } = "auto";
 }
 
 /// <summary>シンタックスハイライト設定（8.6章）。</summary>

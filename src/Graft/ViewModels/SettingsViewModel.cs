@@ -82,6 +82,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _rangeWarningLinesText = "0";
     private string _newFileEncoding = "utf-8";
     private bool _newFileBom;
+    private string _newFileNewLine = "auto";
     private bool _syntaxEnabled;
     private bool _showLineNumbers;
     private string _contextLinesText = "0";
@@ -398,6 +399,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     public string RangeWarningLinesText { get => _rangeWarningLinesText; set => SetEditableProperty(ref _rangeWarningLinesText, value); }
     public string NewFileEncoding { get => _newFileEncoding; set => SetEditableProperty(ref _newFileEncoding, value); }
     public bool NewFileBom { get => _newFileBom; set => SetEditableProperty(ref _newFileBom, value); }
+    public string NewFileNewLine { get => _newFileNewLine; set => SetEditableProperty(ref _newFileNewLine, value); }
+
+    /// <summary>新規ファイルの改行コードの選択肢（<see cref="EncodingSettings.NewFileNewLine"/>）。</summary>
+    public IReadOnlyList<ChoiceOption> NewFileNewLineOptions { get; } = new[]
+    {
+        new ChoiceOption("自動（周りのファイルに合わせる）", "auto"),
+        new ChoiceOption("CRLF（Windows）", "crlf"),
+        new ChoiceOption("LF（Linux / macOS）", "lf"),
+    };
     public bool SyntaxEnabled { get => _syntaxEnabled; set => SetEditableProperty(ref _syntaxEnabled, value); }
     public bool ShowLineNumbers { get => _showLineNumbers; set => SetEditableProperty(ref _showLineNumbers, value); }
     public string ContextLinesText { get => _contextLinesText; set => SetEditableProperty(ref _contextLinesText, value); }
@@ -965,6 +975,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         AllowSimilarityMatch = s.Matching.AllowSimilarityMatch;
         RangeWarningLinesText = s.Matching.RangeWarningLines.ToString(CultureInfo.InvariantCulture);
         NewFileEncoding = s.Encoding.NewFileEncoding; NewFileBom = s.Encoding.NewFileBom;
+        NewFileNewLine = s.Encoding.NewFileNewLine;
         SyntaxEnabled = s.Syntax.Enabled; ShowLineNumbers = s.Syntax.ShowLineNumbers;
         ContextLinesText = s.Diff.ContextLines.ToString(CultureInfo.InvariantCulture);
         WordWrap = s.Diff.WordWrap; ShowWhitespace = s.Diff.ShowWhitespace; SideBySide = s.Diff.SideBySide;
@@ -1031,7 +1042,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             AllowSimilarityMatch = _allowSimilarityMatch,
             RangeWarningLines = ParseInt(_rangeWarningLinesText),
         },
-        Encoding = new EncodingSettings { NewFileEncoding = _newFileEncoding, NewFileBom = _newFileBom },
+        Encoding = new EncodingSettings { NewFileEncoding = _newFileEncoding, NewFileBom = _newFileBom, NewFileNewLine = _newFileNewLine },
         Syntax = new SyntaxSettings { Enabled = _syntaxEnabled, ShowLineNumbers = _showLineNumbers },
         Diff = new DiffSettings { ContextLines = ParseInt(_contextLinesText), WordWrap = _wordWrap, ShowWhitespace = _showWhitespace, SideBySide = _sideBySide },
         Safety = new SafetySettings

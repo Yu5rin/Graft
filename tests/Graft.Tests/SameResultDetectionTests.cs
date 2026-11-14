@@ -67,7 +67,7 @@ public class SameResultDetectionTests
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);
         await ApplyAsRevisionAsync(harness, FullPatch("最初", "a.txt", "same result"), 1);
-        harness.WriteProjectText("a.txt", "other\r\n");
+        harness.WriteProjectText("a.txt", "other" + NewLineResolver.OsDefault);
 
         var result = await PlanAsync(harness, FullPatch("言い換え", "a.txt", "same result") + "\n<<<< FILE: b.txt MODE=FULL\nunrelated\n>>>> END\n", 2);
 
@@ -82,13 +82,13 @@ public class SameResultDetectionTests
         using var ws = new TempWorkspace();
         var harness = new ApplyHarness(ws);
         await ApplyAsRevisionAsync(harness, FullPatch("最初", "a.txt", "same result"), 1);
-        harness.WriteProjectText("a.txt", "other\r\n");
+        harness.WriteProjectText("a.txt", "other" + NewLineResolver.OsDefault);
         var patch = FullPatch("言い換え", "a.txt", "same result");
 
         // 比較対象: 履歴が空の別ワークスペースで、同じ内容・同じ現在のファイルにドライランしたもの（E305が付かない）
         using var ws2 = new TempWorkspace();
         var plain = new ApplyHarness(ws2);
-        plain.WriteProjectText("a.txt", "other\r\n");
+        plain.WriteProjectText("a.txt", "other" + NewLineResolver.OsDefault);
         var without = (await PlanAsync(plain, patch, 1)).Value.Plans.Single();
 
         var withE305Result = await PlanAsync(harness, patch, 2);
@@ -113,9 +113,9 @@ public class SameResultDetectionTests
         await ApplyAsRevisionAsync(harness, FullPatch("ログ出力を追加", "a.txt", "same result"), 1);
 
         // 作業者が手で別の内容へ戻した状態から、summaryだけ書き換えたパッチが来る。
-        // r1は新規作成で既定の改行（CRLF）になっているため、ここも同じ形にしておく
+        // r1は新規作成で既定の改行（設定が自動で周りのファイルも無いのでOSの既定。NewLineResolver参照）になっているため、ここも同じ形にしておく
         // （改行コードが違えばディスク上の内容も別物なので、「同じ内容」とは見なさない）
-        harness.WriteProjectText("a.txt", "something else\r\n");
+        harness.WriteProjectText("a.txt", "something else" + NewLineResolver.OsDefault);
         var result = await PlanAsync(harness, FullPatch("ログ出力の追加（言い換え）", "a.txt", "same result"), 2);
 
         result.IsSuccess.Should().BeTrue();

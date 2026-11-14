@@ -91,6 +91,16 @@
                          views:HelpTip.Standard="パッチの適用でこれまで存在しなかったファイルを新規作成するとき使う文字コードです。既定はutf-8です。"
                          views:HelpTip.Detailed="AIの回答に含まれる変更が、プロジェクト内にまだ存在しないファイルの新規作成だった場合に使う文字コードです。既定は「utf-8」です。既存ファイルを編集する場合は、そのファイル自身の文字コードがそのまま使われるため、この設定は影響しません。特別な事情がない限り既定のままで問題ありません。" />
             </StackPanel>
+            <StackPanel Classes="fieldRow">
+                <TextBlock Text="改行コード" Classes="fieldLabel" />
+                <ComboBox ItemsSource="{Binding NewFileNewLineOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}"
+                          SelectedValue="{Binding NewFileNewLine}"
+                          AutomationProperties.Name="新規ファイルの改行コード"
+                          views:HelpTip.Minimal="{Binding NewFileNewLine, StringFormat='改行コード: {0}'}"
+                          views:HelpTip.Standard="新規作成するファイルの改行コードです。既定の「自動」は、同じフォルダ（無ければプロジェクト）の既存ファイルに合わせます。"
+                          views:HelpTip.Detailed="パッチの適用で新しく作るファイル（と、改行が1つも無い既存ファイルへの追記）の改行コードです。既定の「自動」では、作る場所と同じフォルダにある既存のテキストファイル（数個）で多い方の改行に合わせ、同じフォルダに無ければ親のフォルダをプロジェクトのルートまで順に見ます。どこにも手がかりが無いときはOSの既定（Windowsは CRLF、それ以外は LF）にします。「CRLF」「LF」を選ぶと、周りのファイルに関わらず常にその改行で作ります。既存ファイルを編集する場合は、そのファイル自身の改行がそのまま使われるため、この設定は影響しません。" />
+            </StackPanel>
             <CheckBox Classes="settingRow" Content="BOMを付与する" IsChecked="{Binding NewFileBom}"
                       AutomationProperties.Name="新規ファイルにBOMを付与する"
                       views:HelpTip.Standard="新規作成するファイルの先頭に、UTF-8であることを示す目印（BOM）を付けます。既定はオフです。"

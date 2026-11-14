@@ -207,13 +207,20 @@ public sealed class DryRunPlanner
         FileCheck check, ApplyContext ctx, CancellationToken ct)
     {
         if (!check.Exists)
-            return GraftResult<(IReadOnlyList<string>, TextShape)>.Ok((Array.Empty<string>(), DefaultShapeFor(ctx)));
+            return GraftResult<(IReadOnlyList<string>, TextShape)>.Ok((Array.Empty<string>(), DefaultShapeFor(ctx, check.FullPath)));
 
         var read = await FileTextIO.ReadAsync(check.FullPath, ct).ConfigureAwait(false);
         if (!read.IsSuccess) return GraftResult<(IReadOnlyList<string>, TextShape)>.Fail(read.Issues);
 
+        // 改行が1つも無い既存ファイル（空ファイル・1行だけのファイル）は、そこから改行コードを
+        // 読み取れない。追記・全文置換で増える行の改行は、新規ファイルと同じ決め方にする
+        // （以前は常にCRLFで、LFのプロジェクトにCRLFが混ざった）。
+        var shape = read.Value.Shape;
+        if (!shape.NewLineKnown)
+            shape = shape with { NewLine = ResolveNewLine(ctx, check.FullPath), NewLineKnown = true };
+
         return GraftResult<(IReadOnlyList<string>, TextShape)>.Ok(
-            (TextNormalizer.SplitLines(read.Value.Text), read.Value.Shape));
+            (TextNormalizer.SplitLines(read.Value.Text), shape));
     }
 
     private static BlockPlan BuildBlockPlan(ChangeUnitResult unit, string path, bool fileExisted,
@@ -353,15 +360,27 @@ public sealed class DryRunPlanner
         return issues.Select(i => i.Code == ErrorCode.E205 ? i with { Severity = Severity.Error } : i);
     }
 
-    private static TextShape DefaultShapeFor(ApplyContext ctx)
+    private static TextShape DefaultShapeFor(ApplyContext ctx, string fullPath)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var name = ctx.Settings.Encoding.NewFileEncoding;
         var encoding = string.Equals(name, "shift_jis", StringComparison.OrdinalIgnoreCase)
             ? Encoding.GetEncoding(932)
             : new UTF8Encoding(false);
-        return new TextShape { Encoding = encoding, HasBom = ctx.Settings.Encoding.NewFileBom, NewLine = "\r\n", EndsWithNewLine = true };
+        return new TextShape
+        {
+            Encoding = encoding, HasBom = ctx.Settings.Encoding.NewFileBom,
+            NewLine = ResolveNewLine(ctx, fullPath), EndsWithNewLine = true,
+        };
     }
+
+    /// <summary>
+    /// 新規ファイル（および改行の無い既存ファイル）の改行コード。設定 → 同じフォルダ（無ければ
+    /// プロジェクト）の既存ファイルで優勢な改行 → OSの既定の順（<see cref="NewLineResolver"/>）。
+    /// 以前は常にCRLFで、LFで統一したプロジェクトの新規ファイルだけがCRLFになっていた。
+    /// </summary>
+    private static string ResolveNewLine(ApplyContext ctx, string fullPath)
+        => NewLineResolver.Resolve(ctx.Settings.Encoding.NewFileNewLine, fullPath, ctx.ProjectRoot);
 
     // ------------------------------------------------------------------
     // 6.2 二重適用検知
@@ -523,7 +542,7 @@ public sealed class DryRunPlanner
         // 行が1本も無いファイル（空ファイル）はComposeFinalTextも空文字列を返す。
         if (after.Length == 0) return string.Empty;
 
-        var shape = plan.Shape ?? DefaultShapeFor(ctx);
+        var shape = plan.Shape ?? DefaultShapeFor(ctx, Path.Combine(ctx.ProjectRoot, plan.Path));
         var text = after.Replace("\n", shape.NewLine);
         return shape.EndsWithNewLine ? text + shape.NewLine : text;
     }

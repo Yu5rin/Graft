@@ -403,6 +403,10 @@ public sealed partial class ApplyEngine
             originalWithTerminators = SplitLinesWithTerminators(read.Value.Text);
             originalLines = originalWithTerminators.Select(l => l.Text).ToList();
             shape = read.Value.Shape;
+            // 改行が1つも無い既存ファイルは、ドライランが新規ファイルと同じ決め方で選んだ改行コードを使う
+            // （既定の\r\nのままだと、LFのプロジェクトにCRLFが混ざる）。
+            if (!shape.NewLineKnown && plansForFile[0].Shape is { } plannedShape)
+                shape = shape with { NewLine = plannedShape.NewLine, NewLineKnown = true };
             hashBefore = FileTextIO.ComputeHash(read.Value.Text);
             originalTextForVerify = read.Value.Text;
         }
