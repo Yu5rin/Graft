@@ -950,7 +950,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
             return null;
         }
 
-        var relative = entry.Operation == EntryOperation.Rename ? entry.RenamedFrom : entry.Path;
+        // 変更前の内容は、改名された先を編集したentryでは移動元のバックアップにある（RevisionEntryLinks参照）。
+        var relative = entry.Operation == EntryOperation.Rename
+            ? entry.RenamedFrom
+            : RevisionEntryLinks.ResolveBackupPath(revision.Manifest.Entries, entry);
         if (string.IsNullOrEmpty(relative))
         {
             return null;

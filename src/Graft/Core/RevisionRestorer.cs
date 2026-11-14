@@ -263,6 +263,15 @@ public sealed class RevisionRestorer
 
         foreach (var entry in OrderForUndo(revision.Manifest.Entries))
         {
+            // RENAMEの移動先を同じパッチで編集したmodifyは、移動先をそのまま元の内容へ書き戻してはならない
+            // （移動先のバックアップは存在せず、元の内容は移動元のバックアップにある）。移動元への復元と
+            // 移動先の削除は同じパッチのrenameのentryが行うので、こちらは何もしない。
+            if (entry.Operation == EntryOperation.Modify
+                && RevisionEntryLinks.ResolveRenamedFrom(revision.Manifest.Entries, entry) is not null)
+            {
+                continue;
+            }
+
             var result = await UndoEntryAsync(revision.FolderPath, projectRoot, entry, ct).ConfigureAwait(false);
             issues.AddRange(result.Issues);
             if (result.IsSuccess && result.Value is not null)
@@ -288,9 +297,12 @@ public sealed class RevisionRestorer
             {
                 if (entry.Operation == EntryOperation.Mkdir) continue;
                 set.Add(entry.Path);
-                if (entry.Operation == EntryOperation.Rename && !string.IsNullOrEmpty(entry.RenamedFrom))
+                // 移動元は、renameのentryだけでなく、移動先を同じパッチで編集したentryにも持たせている
+                // （古いmanifestでは持たないので補う。RevisionEntryLinks参照）。
+                var renamedFrom = RevisionEntryLinks.ResolveRenamedFrom(revision.Manifest.Entries, entry);
+                if (!string.IsNullOrEmpty(renamedFrom))
                 {
-                    set.Add(entry.RenamedFrom);
+                    set.Add(renamedFrom);
                 }
             }
         }

@@ -376,9 +376,15 @@ public sealed partial class ApplyEngine
             // 確実にこのファイルを削除できるようにしている。
 
             var stage = plansForFile.Max(p => p.Stage);
+            // この適用でRENAMEの移動先になったファイルを編集したなら、変更前の内容は移動元のバックアップに
+            // ある（移動先は適用前には存在しなかった）。entryに移動元を持たせ、復元の可否の判定と
+            // 取り消しがそれをたどれるようにする（RevisionEntryLinks参照）。
+            var renamedFrom = entries.FirstOrDefault(e =>
+                e.Operation == EntryOperation.Rename && string.Equals(e.Path, group.Key, StringComparison.OrdinalIgnoreCase))?.RenamedFrom;
             entries.Add(new RevisionEntry
             {
                 Path = group.Key, Operation = existedBefore ? EntryOperation.Modify : EntryOperation.Create,
+                RenamedFrom = renamedFrom,
                 Desc = plansForFile[0].Description, MatchStage = (int)stage, HashBefore = hashBefore, HashAfter = hashAfter,
                 // 8.7: 差分画面で利用者がSEARCH部を書き換えたペアの数（RevisionEntry.InlineEditedPairs参照）。
                 InlineEditedPairs = plansForFile.Count(p => p.Pair is { IsSearchEdited: true }),

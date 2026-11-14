@@ -58,7 +58,15 @@ public sealed record RevisionEntry
     public string? HashBefore { get; init; }
     /// <summary>変更後の内容ハッシュ。仕様書7.3の復元前照合に使う。</summary>
     public string? HashAfter { get; init; }
-    /// <summary>RENAME の移動元。それ以外は null。</summary>
+    /// <summary>
+    /// RENAME の移動元。それ以外は null。
+    ///
+    /// 同じパッチで RENAME の移動先へ編集も加えたときは、その編集の entry（modify）にも移動元を持たせる。
+    /// 移動先 <c>b.txt</c> は適用前には存在せず、バックアップされたのは
+    /// 移動元 <c>a.txt</c> の元の内容だけなので、<c>b.txt</c> の変更前の内容は「<c>a.txt</c> のバックアップ」
+    /// を指す。これを持たせないと、バックアップが見つからない（復元不可）扱いになっていた
+    /// （<see cref="RevisionEntryLinks"/>参照）。
+    /// </summary>
     public string? RenamedFrom { get; init; }
 
     /// <summary>
@@ -151,4 +159,42 @@ public sealed record RevisionSummary
     public bool IsRestorable { get; init; }
     /// <summary>バックアップの合計サイズ（バイト）。仕様書7.4の世代管理に使う。</summary>
     public long SizeBytes { get; init; }
+}
+
+/// <summary>
+/// manifest の entries どうしの関連づけ。
+///
+/// 【なぜ必要か】 RENAME の移動先を同じパッチで編集すると、entries には「rename（a.txt -> b.txt）」と
+/// 「modify（b.txt）」の2件が並ぶ。modify の変更前の内容は、移動先 b.txt ではなく移動元 a.txt の
+/// バックアップにある。1.0.29までは modify 側に移動元を持たせていなかったため、バックアップの有無の判定
+/// （<see cref="RevisionStore"/>）が存在しない b.txt のバックアップを探して「復元不可」にし、
+/// 取り消し（E405）も「ここまで戻す」もできなかった。
+/// 新しく書く manifest は modify 側にも <see cref="RevisionEntry.RenamedFrom"/> を持つ。既に利用者のディスクに
+/// ある古い manifest は持っていないので、同じ移動先を持つ rename の entry をたどって補う。
+/// </summary>
+internal static class RevisionEntryLinks
+{
+    /// <summary>
+    /// この entry の変更前の内容が入っているバックアップの相対パスを返す。
+    /// rename の entry、または移動元を持つ entry は移動元、同じ移動先を持つ rename が同じ manifest にある
+    /// modify も移動元（古い manifest の補完）、それ以外は entry 自身のパス。
+    /// </summary>
+    public static string ResolveBackupPath(IReadOnlyList<RevisionEntry> all, RevisionEntry entry)
+        => ResolveRenamedFrom(all, entry) ?? entry.Path;
+
+    /// <summary>
+    /// 移動元のパス。移動元を持たない entry でも、modify で、かつ同じ移動先を持つ rename が同じ
+    /// manifest にあれば、その rename の移動元を返す。該当しなければ null。
+    /// </summary>
+    public static string? ResolveRenamedFrom(IReadOnlyList<RevisionEntry> all, RevisionEntry entry)
+    {
+        if (!string.IsNullOrEmpty(entry.RenamedFrom)) return entry.RenamedFrom;
+        if (entry.Operation != EntryOperation.Modify) return null;
+
+        var rename = all.FirstOrDefault(e =>
+            e.Operation == EntryOperation.Rename
+            && !string.IsNullOrEmpty(e.RenamedFrom)
+            && string.Equals(e.Path, entry.Path, StringComparison.OrdinalIgnoreCase));
+        return rename?.RenamedFrom;
+    }
 }
