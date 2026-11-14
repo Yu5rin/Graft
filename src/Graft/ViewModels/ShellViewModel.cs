@@ -87,6 +87,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _settings = settings;
 
         Graft.PropertyChanged += OnGraftPropertyChanged;
+        Graft.ProjectPane.SwitchGuardAsync = ConfirmProjectSwitchAsync;
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
         // プロジェクトペイン改善（要望2）: プロジェクト名のダブルクリックでサイドビューを
         // エクスプローラへ切り替える（折りたたまれていれば展開も行う。SelectSideView参照）。
@@ -573,6 +574,37 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// （SafeHandler.RunAsyncが捕捉した場合を含む）フラグが立ちっぱなしになって以後
     /// 一切ホイールで切り替えられなくなる、という詰み方を避けるため。
     /// </summary>
+    /// <summary>
+    /// プロジェクトを切り替える前の確認（C4）。切替前のタブ構成を記憶してから、開いているタブを
+    /// すべて閉じる（未保存があれば保存／保存しない／キャンセルの確認が出る）。キャンセルされたら
+    /// falseを返し、ProjectPaneViewModelが選択を元のプロジェクトへ戻して切り替えを中止する。
+    /// 以前は<see cref="OnProjectSelected"/>の中でCloseAllAsyncの結果を見ておらず、
+    /// 「キャンセル」しても切り替わっていた。
+    /// タブ構成の記憶（CaptureProjectState）は、タブを閉じる前でなければ空になってしまうため、
+    /// 閉じる処理と同じここで先に行う。
+    /// </summary>
+    private async Task<bool> ConfirmProjectSwitchAsync(Project next)
+    {
+        IsProjectSwitchBusy = true;
+        try
+        {
+            var proceed = false;
+            await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
+            {
+                if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
+                proceed = await Editor.CloseAllAsync().ConfigureAwait(true);
+            }).ConfigureAwait(true);
+
+            // キャンセルされて閉じきれなかったときは、タブが残っている。退避しておいた
+            // 切替前のタブ構成は、いまの状態のままで正しいのでそのままにしておく。
+            return proceed;
+        }
+        finally
+        {
+            IsProjectSwitchBusy = false;
+        }
+    }
+
     private async void OnProjectSelected(object? sender, Project project)
     {
         IsProjectSwitchBusy = true;
@@ -580,8 +612,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         {
             await SafeHandler.RunAsync("プロジェクトの切り替え", async () =>
             {
-                if (_currentProjectId is { } previousId) CaptureProjectState(previousId);
-
+                // 切替前のタブ構成の記憶と、開いているタブの全閉じ（未保存の確認を含む）は、
+                // 切り替えの前にConfirmProjectSwitchAsyncで済んでいる。ここでの呼び出しは、
+                // 確認を経ない最初の選択でも取りこぼさないための保険で、閉じるタブが
+                // 無ければ何も起きない（タブ構成の記憶を重ねて行うと、閉じ終えた空の状態で
+                // 上書きしてしまうので、ここでは行わない）。
                 await Editor.CloseAllAsync().ConfigureAwait(true);
                 Editor.SetProject(project.Root);
 
