@@ -78,7 +78,7 @@
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,12,0,0">
-            <Button Content="すべて削除"
+            <Button Classes="danger" Content="すべて削除"
                     Command="{Binding ClearCommand}"
                     Margin="0,0,8,0"
                     views:HelpTip.Standard="キューに溜まっているブロックをすべて削除します（確認あり）。元に戻せないので注意してください。"
@@ -89,7 +89,7 @@
                 肯定的な既定操作（Enterで実行）は「結合して適用へ進む」とする（IsDefault）。
                 開いた直後の初期フォーカスもここへ当てる（QueueWindow.axaml.cs参照）。
             -->
-            <Button x:Name="MergeButton"
+            <Button Classes="primary" x:Name="MergeButton"
                     Content="結合して適用へ進む"
                     Command="{Binding MergeCommand}"
                     IsDefault="True"

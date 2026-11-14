@@ -154,7 +154,7 @@
                             views:HelpTip.Standard="順番待ちにしてある変更の一覧を開きます。括弧内は現在の待ち件数です。まとめて適用できます。"
                             views:HelpTip.Detailed="「キューへ追加」で溜めておいた変更の一覧を開きます。ボタンの括弧内の数字は、今たまっている件数です。開いた画面で内容を確認し、不要なものを取り除いてから、まとめて適用できます。"
                             AutomationProperties.Name="パッチキューを開く" />
-                    <Button Content="適用"
+                    <Button Classes="primary" Content="適用"
                             Command="{Binding Graft.ApplyCommand}"
                             views:HelpTip.DisabledReason="{Binding Graft.ApplyDisabledReason}"
                             Margin="4,0"
@@ -213,7 +213,7 @@
                             Margin="0,0,4,0"
                             VerticalAlignment="Center"
                             Padding="6"
-                            Background="Transparent" BorderThickness="0"
+                            Classes="subtle" BorderThickness="0"
                             views:HelpTip.Standard="テーマ・エディタ・安全機構などの設定を開きます。"
                             views:HelpTip.Detailed="Graft全体の動作を調整する設定画面を開きます。見た目の色（テーマ）、この説明文の詳しさ、エディタの表示、バックアップの保持数など、多くの項目をここでまとめて変更できます。変更は入力した瞬間に自動で保存されるため、保存ボタンを押す必要はありません。"
                             AutomationProperties.Name="設定を開く">
@@ -230,7 +230,7 @@
                             Command="{Binding ToggleHelpMenuCommand}"
                             VerticalAlignment="Center"
                             Padding="6"
-                            Background="Transparent" BorderThickness="0"
+                            Classes="subtle" BorderThickness="0"
                             views:HelpTip.Standard="取扱説明書（F1）・キーボードショートカット一覧（Ctrl+/）を開くメニューを表示します。"
                             views:HelpTip.Detailed="Graftの使い方をまとめた取扱説明書と、キーボードショートカットの一覧を開くためのメニューを表示します。取扱説明書はキーボードでF1を、ショートカット一覧はCtrl+/を押しても、このボタンを経由せず直接開けます。"
                             AutomationProperties.Name="ヘルプメニューを開く">
@@ -255,13 +255,13 @@
                             <Button Content="取扱説明書"
                                     Command="{Binding OpenManualCommand}"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                    Background="Transparent" BorderThickness="0"
+                                    Classes="subtle" BorderThickness="0"
                                     views:HelpTip.Standard="Graftの使い方をまとめた取扱説明書を開きます（F1）。"
                                     AutomationProperties.Name="取扱説明書を開く" />
                             <Button Content="キーボードショートカット一覧"
                                     Command="{Binding OpenShortcutsCommand}"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                    Background="Transparent" BorderThickness="0"
+                                    Classes="subtle" BorderThickness="0"
                                     views:HelpTip.Standard="キーボードショートカットの一覧を開きます（Ctrl+/）。"
                                     AutomationProperties.Name="キーボードショートカット一覧を開く" />
                             <!--
@@ -273,7 +273,7 @@
                             <Button Content="使い方を学ぶ"
                                     Command="{Binding StartTutorialCommand}"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                    Background="Transparent" BorderThickness="0"
+                                    Classes="subtle" BorderThickness="0"
                                     views:HelpTip.Standard="サンプルを使って、実際の画面上で接ぎ木の一連の流れ（解析→差分確認→適用→履歴→取り消し）を体験します。"
                                     views:HelpTip.Detailed="実際のGraftの画面上でコントロールを指しながら、解析→差分確認→適用→履歴確認→取り消しまでの一連の流れを1つずつ体験できるチュートリアルを開始します。使うのは一時フォルダに生成したサンプルのみで、あなたのプロジェクトには一切触れません。いつでもEscキーか吹き出しの「終了」ボタンで中断できます。"
                                     AutomationProperties.Name="使い方を学ぶ（画面上のチュートリアルを開始）" />

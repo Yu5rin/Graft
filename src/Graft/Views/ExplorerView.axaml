@@ -93,13 +93,13 @@
                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                        Foreground="{DynamicResource TextSecondary}" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button Command="{Binding NewFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding NewFileCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="新規ファイル"
                         local:HelpTip.Detailed="今選んでいるフォルダの直下に、空の新しいファイルを作成します（ファイルを選んでいる場合はその親フォルダの直下）。ファイル名を入力する欄が表示されるので、名前を付けて確定してください。拡張子（.mdなど）を付けるとその種類のファイルとして扱われますが、拡張子なしの名前（Dockerfileなど）でも作成できます。作成後は対象のフォルダが自動的に展開され、新しいファイルがツリー上で選択された状態でそのままエディタに開かれます。"
                         AutomationProperties.Name="新規ファイルを作成">
                     <local:IconGlyph Data="{DynamicResource IconFileGeometry}" />
                 </Button>
-                <Button Command="{Binding NewFolderCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding NewFolderCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="新規フォルダ"
                         local:HelpTip.Detailed="今選んでいるフォルダの直下に、新しい空のフォルダを作成します（ファイルを選んでいる場合はその親フォルダの直下）。フォルダ名を入力する欄が表示されるので、名前を付けて確定してください。作成後は対象のフォルダが自動的に展開され、新しいフォルダがツリー上で選択された状態になります。"
                         AutomationProperties.Name="新規フォルダを作成">
@@ -108,13 +108,13 @@
                 <!-- 利用者の指摘「ファイルをボタンやドラッグ＆ドロップでエクスプローラーに追加できない」への対応。
                      選んだ既存ファイルを、今選んでいるフォルダの直下へコピーで取り込む
                      （ドラッグ＆ドロップは本Viewのコードビハインド側、ExplorerView.axaml.cs参照）。 -->
-                <Button Command="{Binding AddFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding AddFileCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="ファイルを追加"
                         local:HelpTip.Detailed="外部のファイル選択ダイアログを開き、選んだ既存のファイルを今選んでいるフォルダの直下へコピーで取り込みます（ファイルを選んでいる場合はその親フォルダの直下）。元のファイルは消えず、そのまま残ります。エクスプローラのツリーへファイルやフォルダをドラッグ＆ドロップしても同じように取り込めます。取り込み先に同名の項目が既にある場合は、上書き・別名で保存・中止のいずれかを確認します。"
                         AutomationProperties.Name="ファイルを追加">
                     <local:IconGlyph Data="{DynamicResource IconPlusGeometry}" />
                 </Button>
-                <Button Command="{Binding RefreshCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding RefreshCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="更新"
                         local:HelpTip.Detailed="このファイルツリーの表示を、ディスク上の最新の状態に読み込み直します。Graftの外（他のアプリやAIの適用結果）でファイルが追加・削除されたのに一覧へ反映されていないときに使います。"
                         AutomationProperties.Name="ツリーを更新">
@@ -134,7 +134,7 @@
                        Foreground="{DynamicResource TextSecondary}"
                        AutomationProperties.Name="取り込みの進捗" />
             <Button Grid.Column="1" Content="中止" Command="{Binding CancelImportCommand}"
-                    Padding="6,0" Margin="4,0,0,0" Background="Transparent" BorderThickness="0"
+                    Padding="6,0" Margin="4,0,0,0" Classes="subtle" BorderThickness="0"
                     local:HelpTip.Standard="取り込みを中止します。ここまでにコピー済みのファイルはそのまま残ります。"
                     AutomationProperties.Name="取り込みを中止" />
         </Grid>
@@ -171,7 +171,7 @@
                     Command="{Binding ClearFilterCommand}"
                     Padding="6,0"
                     Margin="4,0,0,0"
-                    Background="Transparent"
+                    Classes="subtle"
                     BorderThickness="0"
                     IsVisible="{Binding HasFilterText}"
                     AutomationProperties.Name="絞り込みを解除"

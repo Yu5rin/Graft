@@ -120,7 +120,7 @@
                 だったが、Windowsの作法（肯定的な選択肢が左。AvaloniaDialogServiceのクラスコメント
                 参照）に合わせ「適用」「キャンセル」の順へ直した。
             -->
-            <Button x:Name="ApplyConfirmButton"
+            <Button Classes="primary" x:Name="ApplyConfirmButton"
                     Content="適用"
                     Click="OnApplyClicked"
                     IsDefault="True"

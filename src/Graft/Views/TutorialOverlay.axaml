@@ -74,7 +74,7 @@
                             Grid.Column="1"
                             Content="終了"
                             Padding="6,2"
-                            Background="Transparent"
+                            Classes="subtle"
                             BorderThickness="0"
                             Click="OnExitClicked"
                             views:HelpTip.Standard="チュートリアルを中断します（Escキーでも終了できます）。ここまでの操作はサンプルにのみ行われており、中断してもGraftの状態が壊れることはありません。"

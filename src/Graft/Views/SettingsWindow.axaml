@@ -237,7 +237,7 @@
         <Grid Grid.Row="3" Margin="16,0,16,16" ColumnDefinitions="*,Auto,Auto">
             <TextBlock Grid.Column="0" Text="{Binding StatusMessage}" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" />
-            <Button Grid.Column="1" Content="既定に戻す" Command="{Binding ResetToDefaultsCommand}" Margin="0,0,8,0"
+            <Button Classes="danger" Grid.Column="1" Content="既定に戻す" Command="{Binding ResetToDefaultsCommand}" Margin="0,0,8,0"
                     AutomationProperties.Name="設定を既定値に戻す"
                     local:HelpTip.Standard="この画面の設定をすべて既定値に戻します。確認のうえ元に戻せません。プロジェクトの登録や履歴は消えません。"
                     local:HelpTip.Detailed="設定は変更した瞬間に自動で保存され「保存しない」を選べないため、いろいろ触って分からなくなったときの逃げ道としてこのボタンを用意しています。押すと確認のダイアログが出て、OKするとテーマ・エディタ・安全機構など、この設定画面（settings.json）の内容だけがすべて既定値に戻ります。登録済みのプロジェクト一覧、適用後フック、プロンプトテンプレート、これまでの適用履歴（バックアップ）は対象外で消えません。設定を戻した後にもう一度カスタマイズし直したい場合は、事前に「一般」タブの「エクスポート」で今の内容を書き出しておくと安心です。" />

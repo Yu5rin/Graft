@@ -52,10 +52,12 @@
         <Setter Property="Background" Value="{DynamicResource PrimaryBgPressed}" />
         <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBgPressed}" />
     </Style>
-    <!-- 塗りがAccentなので、フォーカスリング（Accent系）は塗りに溶けて見えなくなる。
-         リングだけ塗りと逆の色（PrimaryFg）に差し替えて、キーボード操作でも分かるようにする。 -->
+    <!-- 塗りがAccentなので、フォーカスリング（Accent系）は塗りに溶けて見えなくなる。リングだけ
+         本文色（TextPrimary）に差し替える。PrimaryFg（塗り上の文字色）にすると、暗いテーマで
+         リングが背景と同じ暗色になり、塗りの縁が欠けて見えた（実機の画面で確認）。
+         TextPrimaryは背景とも塗りとも逆の明暗なので、どちらの上でも輪郭が分かる。 -->
     <Style Selector="Button.primary:focus /template/ Border#PART_FocusRing">
-        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryFg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource TextPrimary}" />
     </Style>
     <!-- 無効: 塗りを外して標準ボタン相当の薄い見た目にする（主のまま青く光らせない）。 -->
     <Style Selector="Button.primary:disabled">
@@ -111,6 +113,17 @@
     </Style>
     <Style Selector="Button.danger:disabled /template/ Border#PART_Border">
         <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <!-- 種類ごとの「子孫のTextBlock／IconGlyph」の色指定（上の Button.xxx TextBlock など）は、
+         無効時の灰色（TextBlock:disabled・IconGlyph:disabled）より後に評価されて勝ってしまう
+         ことが実機の画面で分かった（無効なのに「破棄」が赤いまま）。無効時の色は種類ごとに
+         明示して上書きする。 -->
+    <Style Selector="Button.primary:disabled TextBlock, Button.danger:disabled TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+    </Style>
+    <Style Selector="Button.primary:disabled views|IconGlyph, Button.danger:disabled views|IconGlyph">
+        <Setter Property="Stroke" Value="{DynamicResource TextDisabled}" />
     </Style>
 
     <!-- ========== 文字スタイル: セクション見出し ========== -->

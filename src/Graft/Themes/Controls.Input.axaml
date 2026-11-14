@@ -186,9 +186,10 @@
 
     <!-- ========== ListBoxItem（ListBox本体の既定書式はControls.Base.axaml側） ========== -->
     <ControlTheme x:Key="{x:Type ListBoxItem}" TargetType="ListBoxItem">
-        <Setter Property="Padding" Value="8,4" />
-        <!-- 一覧の行の高さを RowHeight(28) の下限で揃える（2行の項目は内容で自然に伸びる）。 -->
-        <Setter Property="MinHeight" Value="{DynamicResource RowHeight}" />
+        <!-- 行の高さの下限（RowHeight）は、ここでは設定しない。差分ビューなど、行間を詰めたい
+             一覧も同じListBoxItemを使っており、全体へ28pxの下限を掛けると差分の1行が
+             19.5pxから28pxへ膨らんだ（実機の画面で確認）。一覧ごとに RowHeight を参照すること。 -->
+        <Setter Property="Padding" Value="8,6" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="Template">
             <ControlTemplate>
