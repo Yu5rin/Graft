@@ -78,6 +78,7 @@ public sealed partial class MainViewModel : ObservableObject
         // ExplorerViewModelの削除取り消し通知と同じくCreateTimerは反復タイマーのため、
         // 1回消したらStopして次の適用まで眠らせておく。
         _applyUndoNoticeTimer = ui.CreateTimer(ApplyUndoNoticeDuration, OnApplyUndoNoticeTimeout);
+        Notice = new StatusNoticeViewModel(ui); // MainViewModel.DiscardUndo.cs。
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
@@ -120,7 +121,10 @@ public sealed partial class MainViewModel : ObservableObject
         // 促す既存の仕組みに乗る）。
         // 一部だけ適用できた後は、失敗ブロックだけが_dryRunと共に残り_currentPatchはnullになる
         // （MainViewModel.PartialApply.cs）。その残りも「破棄」で消せるよう_dryRunも条件に含める。
-        DiscardCommand = new RelayCommand(DiscardCurrentPatch, () => _currentPatch is not null || _dryRun is not null);
+        // 利用者の操作による破棄は数秒だけ「元に戻す」を出す（MainViewModel.DiscardUndo.cs）。
+        // Escでは破棄しない（ShellWindow.Keyboard.cs）ので、ここへ来るのは「破棄」ボタンと
+        // コマンドパレットだけ。
+        DiscardCommand = new RelayCommand(DiscardByUser, () => _currentPatch is not null || _dryRun is not null);
         ShowHistoryCommand = new RelayCommand(() => RequestFocusHistory?.Invoke(this, EventArgs.Empty));
         AddCurrentPatchToQueueCommand = new AsyncRelayCommand(
             AddCurrentPatchToQueueAsync, () => _currentPatch is not null, context: "キューへの追加");

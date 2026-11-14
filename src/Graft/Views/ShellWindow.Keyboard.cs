@@ -73,8 +73,12 @@ public partial class ShellWindow
             // 何もせずそのままトンネルの続き（EditorPane側）へ委ねる。
             if (ShouldDeferEscapeToEditor()) return;
 
-            ViewModel.Graft.DiscardCommand.Execute(null);
-            e.Handled = true;
+            // Escは「いちばん手前のものを1つ閉じる」だけに使い、解析結果は破棄しない。
+            // 以前は何にフォーカスがあってもここで破棄しており、絞り込み欄で文字を消そうとした
+            // だけ・プロンプトのポップアップを閉じようとしただけで、解析結果が確認なしに消えた
+            // （実機で確認済み。しかも取り消す手段が無かった）。破棄は接ぎ木パネルの「破棄」
+            // ボタンとコマンドパレットから行う（どちらも数秒だけ「元に戻す」が出る）。
+            e.Handled = CloseTopmostOnEscape();
             return;
         }
 
@@ -153,6 +157,42 @@ public partial class ShellWindow
             // 附録A キーマップ移行: 素の1〜9は仕様書3.2によりCtrl+Alt+1〜9へ変更された。
             ViewModel.NotifyLegacyKey(LegacyKey.ProjectDigit);
         }
+    }
+
+    /// <summary>
+    /// Escで「いちばん手前のもの」を1つだけ閉じる。手前にあるものの順は、
+    /// (1) 開いているポップアップ（「?」メニュー・プロンプトのコピー）、
+    /// (2) 文字の入っている絞り込み・検索欄（<see cref="EscapeClearBehavior"/>の目印つき）。
+    /// どれも無ければ何もしない（false。解析結果は破棄しない）。
+    /// ComboBoxの一覧・右クリックメニュー等のAvalonia標準のポップアップは、別のウィンドウ
+    /// （PopupRoot）側で自分のEscを処理するため、ここには届かない。
+    /// </summary>
+    private bool CloseTopmostOnEscape()
+    {
+        if (ViewModel.IsHelpMenuOpen)
+        {
+            ViewModel.IsHelpMenuOpen = false;
+            return true;
+        }
+
+        if (ViewModel.Graft.PromptCopy is { IsOpen: true } promptCopy)
+        {
+            promptCopy.IsOpen = false;
+            return true;
+        }
+
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        while (focused is not null)
+        {
+            if (focused is TextBox { Text.Length: > 0 } box && EscapeClearBehavior.GetEnabled(box))
+            {
+                box.Text = string.Empty;
+                return true;
+            }
+            focused = focused.GetVisualParent();
+        }
+
+        return false;
     }
 
     /// <summary>

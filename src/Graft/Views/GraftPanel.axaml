@@ -163,6 +163,7 @@
             <TextBox Grid.Row="1" Margin="8,6"
                      Text="{Binding FilterText}"
                      Watermark="パス・変更説明で絞り込み"
+                     views:EscapeClearBehavior.Enabled="True"
                      AutomationProperties.Name="ブロック一覧を検索" />
 
             <Grid Grid.Row="2">

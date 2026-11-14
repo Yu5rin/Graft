@@ -41,7 +41,16 @@ public sealed partial class MainViewModel
     public int? LastAppliedRevision { get; private set; }
 
     /// <summary>適用直後の通知文言（例:「r12 として適用しました — 元に戻す」）。</summary>
-    public string ApplyUndoNoticeText { get => _applyUndoNoticeText; private set => SetProperty(ref _applyUndoNoticeText, value); }
+    public string ApplyUndoNoticeText { get => _applyUndoNoticeText; private set => SetProperty(ref _applyUndoNoticeText, value, () => OnPropertyChanged(nameof(ApplyUndoNoticeMessage))); }
+
+    /// <summary>
+    /// 通知のうち押せない文言の部分（例:「r12 として適用しました」）。ステータスバーは、この文言を
+    /// 通常の文字色で、続く「元に戻す」だけをリンクの見た目で並べる。全体を1つのボタンにすると
+    /// 説明文までリンク色になり、押せる範囲が分かりにくかった。
+    /// </summary>
+    public string ApplyUndoNoticeMessage => _applyUndoNoticeText.EndsWith(" — 元に戻す", StringComparison.Ordinal)
+        ? _applyUndoNoticeText[..^" — 元に戻す".Length]
+        : _applyUndoNoticeText;
 
     /// <summary>
     /// ApplyCoreAsyncの適用成功直後から呼ぶ。仕様どおり、適用が失敗した場合や
