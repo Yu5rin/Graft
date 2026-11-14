@@ -47,6 +47,9 @@ public sealed partial class StartupCoordinator
     // 戻す先が無い（そもそも起動時から効いていない）ため、ロールバックは行わない。
     private string? _activeHotkeyGesture;
 
+    // 同じく「依頼文コピー」のホットキー。空文字は「OS全体には登録していない」（設定で空にした）状態。
+    private string _activePromptGesture = string.Empty;
+
     /// <summary>
     /// 起動時（<see cref="WirePlatformServices"/>）専用: 「貼り付け」「プロンプトをコピー」の
     /// 2つのホットキーを最初に登録する。失敗はissuesへ積んで起動時レポート（StartupReport）へ
@@ -55,9 +58,13 @@ public sealed partial class StartupCoordinator
     private void RegisterInitialHotkeys(ShellWindow window, MainViewModel mainViewModel, List<GraftIssue> issues)
     {
         var pasteResult = _platform.Hotkeys.Register(_settings.Hotkey, () => OnPasteHotkey(window, mainViewModel));
-        var copyResult = _platform.Hotkeys.Register(PromptCopyHotkey, () => OnCopyPromptHotkey(mainViewModel));
+        // 空にされている場合は登録しない（Graftの画面内のCtrl+Shift+Cだけで効く）。
+        var copyResult = string.IsNullOrWhiteSpace(_settings.PromptHotkey)
+            ? GraftResult<int>.Ok(0)
+            : _platform.Hotkeys.Register(_settings.PromptHotkey, () => OnCopyPromptHotkey(mainViewModel));
         issues.AddRange(pasteResult.Issues);
         issues.AddRange(copyResult.Issues);
+        if (copyResult.IsSuccess) _activePromptGesture = _settings.PromptHotkey;
 
         // プロンプトコピー側の成否に関わらず、貼り付けホットキーが実際に掴み取れていれば
         // 「現在効いている組み合わせ」として記録する（再登録時のロールバック先になる）。
@@ -73,19 +80,21 @@ public sealed partial class StartupCoordinator
     /// （実際に値が変わっていない呼び出しはこの中で無視するため、呼び出し側で事前に
     /// 前後比較する必要はない）。
     /// </summary>
-    private void ReapplyHotkeyIfChanged(string newGesture, ShellWindow window, MainViewModel mainViewModel)
+    private void ReapplyHotkeyIfChanged(string newGesture, string newPromptGesture, ShellWindow window, MainViewModel mainViewModel)
     {
-        if (newGesture == _activeHotkeyGesture) return;
+        if (newGesture == _activeHotkeyGesture && newPromptGesture == _activePromptGesture) return;
 
         var outcome = ReapplyHotkey(
             _platform.Hotkeys,
             _activeHotkeyGesture,
             newGesture,
-            PromptCopyHotkey,
+            newPromptGesture,
             () => OnPasteHotkey(window, mainViewModel),
-            () => OnCopyPromptHotkey(mainViewModel));
+            () => OnCopyPromptHotkey(mainViewModel),
+            _activePromptGesture);
 
         _activeHotkeyGesture = outcome.ActiveGesture;
+        _activePromptGesture = outcome.ActivePromptGesture ?? string.Empty;
         _shellViewModel?.SetHotkeyRegistrationWarning(outcome.WarningMessage);
 
         if (outcome.WarningMessage is not null)
@@ -113,20 +122,24 @@ public sealed partial class StartupCoordinator
     /// </summary>
     public static HotkeyReapplyOutcome ReapplyHotkey(
         IGlobalHotkeys hotkeys, string? previousGesture, string newGesture, string promptCopyGesture,
-        Action pasteCallback, Action copyCallback)
+        Action pasteCallback, Action copyCallback, string? previousPromptGesture = null)
     {
         if (TryRegisterPair(hotkeys, newGesture, promptCopyGesture, pasteCallback, copyCallback, out var newFailures))
         {
-            return new HotkeyReapplyOutcome(newGesture, null);
+            return new HotkeyReapplyOutcome(newGesture, null, promptCopyGesture);
         }
 
         var failureDetailText = BuildFailureDetailText(newFailures);
 
+        // 戻す先の依頼文コピーのキーも、新しい値ではなく変更前に効いていた値にする
+        // （新しい値のほうが衝突して失敗の原因になっていることがあるため）。
+        var rollbackPrompt = previousPromptGesture ?? promptCopyGesture;
         if (previousGesture is not null &&
-            TryRegisterPair(hotkeys, previousGesture, promptCopyGesture, pasteCallback, copyCallback, out _))
+            TryRegisterPair(hotkeys, previousGesture, rollbackPrompt, pasteCallback, copyCallback, out _))
         {
             return new HotkeyReapplyOutcome(previousGesture,
-                $"ホットキー '{newGesture}' への変更に失敗したため、以前の組み合わせ '{previousGesture}' のまま維持します。{failureDetailText}");
+                $"ホットキー '{newGesture}'（または依頼文コピー '{promptCopyGesture}'）への変更に失敗したため、以前の組み合わせ '{previousGesture}' のまま維持します。{failureDetailText}",
+                rollbackPrompt);
         }
 
         // ここへ来るのは (a) 戻す先（previousGesture）自体が無い＝起動時から一度も成功していない、
@@ -154,7 +167,10 @@ public sealed partial class StartupCoordinator
     {
         hotkeys.UnregisterAll();
         var pasteResult = hotkeys.Register(pasteGesture, pasteCallback);
-        var copyResult = hotkeys.Register(promptCopyGesture, copyCallback);
+        // 依頼文コピーのキーが空なら、OS全体には登録しない（設定で無効にされている）。
+        var copyResult = string.IsNullOrWhiteSpace(promptCopyGesture)
+            ? GraftResult<int>.Ok(0)
+            : hotkeys.Register(promptCopyGesture, copyCallback);
         issues = pasteResult.Issues.Concat(copyResult.Issues).ToList();
 
         if (pasteResult.IsSuccess && copyResult.IsSuccess) return true;
@@ -175,4 +191,5 @@ public sealed partial class StartupCoordinator
 /// （何も効いていない場合はnull）。<see cref="WarningMessage"/>は失敗時のみ非null
 /// （成功時はステータスバーの警告を消すためnullを返す）。
 /// </summary>
-public readonly record struct HotkeyReapplyOutcome(string? ActiveGesture, string? WarningMessage);
+public readonly record struct HotkeyReapplyOutcome(
+    string? ActiveGesture, string? WarningMessage, string? ActivePromptGesture = null);

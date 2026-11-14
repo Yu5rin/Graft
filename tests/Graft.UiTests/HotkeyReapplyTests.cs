@@ -117,6 +117,34 @@ public class HotkeyReapplyTests
         hotkeys.UnregisterAllCallCount.Should().Be(1, "成功時は最初の解除1回のみで済むはず（ロールバックの追加解除は不要）");
     }
 
+    [Fact(DisplayName = "依頼文コピーのホットキーが空なら、貼り付けだけを登録し、OS全体には依頼文コピーを登録しない")]
+    public void 依頼文コピーが空なら登録しない()
+    {
+        var hotkeys = new FakeGlobalHotkeys();
+
+        var outcome = StartupCoordinator.ReapplyHotkey(
+            hotkeys, previousGesture: "Ctrl+Alt+V", newGesture: "Ctrl+Alt+V", promptCopyGesture: "",
+            pasteCallback: () => { }, copyCallback: () => { }, previousPromptGesture: PromptCopyHotkey);
+
+        outcome.WarningMessage.Should().BeNull();
+        outcome.ActivePromptGesture.Should().BeEmpty();
+        hotkeys.RegisteredGestures.Should().BeEquivalentTo(new[] { "Ctrl+Alt+V" }, "依頼文コピーは登録されない");
+    }
+
+    [Fact(DisplayName = "依頼文コピーの新しい組み合わせが衝突したら、変更前の依頼文コピーのキーへ戻す")]
+    public void 依頼文コピーの衝突は変更前へ戻す()
+    {
+        var hotkeys = new FakeGlobalHotkeys(failGestures: "Ctrl+Alt+C");
+
+        var outcome = StartupCoordinator.ReapplyHotkey(
+            hotkeys, previousGesture: "Ctrl+Alt+V", newGesture: "Ctrl+Alt+V", promptCopyGesture: "Ctrl+Alt+C",
+            pasteCallback: () => { }, copyCallback: () => { }, previousPromptGesture: PromptCopyHotkey);
+
+        outcome.WarningMessage.Should().NotBeNull();
+        outcome.ActivePromptGesture.Should().Be(PromptCopyHotkey);
+        hotkeys.RegisteredGestures.Should().BeEquivalentTo(new[] { "Ctrl+Alt+V", PromptCopyHotkey });
+    }
+
     /// <summary>実際のOS資源に一切触れないフェイク。指定した組み合わせのRegisterだけ失敗させる。</summary>
     private sealed class FakeGlobalHotkeys : IGlobalHotkeys
     {

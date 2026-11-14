@@ -24,7 +24,6 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 {
     private const string MutexNamePrefix = "Graft.SingleInstance.";
     private const string MainWindowTitle = "Graft";
-    private const string PromptCopyHotkey = "Ctrl+Shift+C";
 
     private readonly AppPaths _appPaths;
 
@@ -742,7 +741,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 必ず両方揃っているはずだが、念のため両方揃っている場合のみ再登録を試みる。
         if (MainWindow is not null && _shellViewModel is not null)
         {
-            ReapplyHotkeyIfChanged(updated.Hotkey, MainWindow, _shellViewModel.Graft);
+            ReapplyHotkeyIfChanged(updated.Hotkey, updated.PromptHotkey, MainWindow, _shellViewModel.Graft);
         }
     }
 

@@ -69,6 +69,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _selectedApplyMode = "partial";
     private bool _showPreview; private bool _requireSummary;
     private string _hotkey = string.Empty;
+    private string _promptHotkey = string.Empty;
     private string _selectedLogLevel = "info";
     private bool _clipboardWatchEnabled;
     private string _selectedClipboardAction = "notify";
@@ -385,6 +386,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool ShowPreview { get => _showPreview; set => SetEditableProperty(ref _showPreview, value); }
     public bool RequireSummary { get => _requireSummary; set => SetEditableProperty(ref _requireSummary, value); }
     public string Hotkey { get => _hotkey; set => SetEditableProperty(ref _hotkey, value); }
+
+    /// <summary>「AIへの依頼文をコピー」のOS全体のホットキー。空ならOS全体には登録しない。</summary>
+    public string PromptHotkey { get => _promptHotkey; set => SetEditableProperty(ref _promptHotkey, value ?? string.Empty); }
     public string SelectedLogLevel { get => _selectedLogLevel; set => SetEditableProperty(ref _selectedLogLevel, value); }
     public bool ClipboardWatchEnabled { get => _clipboardWatchEnabled; set => SetEditableProperty(ref _clipboardWatchEnabled, value); }
     public string SelectedClipboardAction { get => _selectedClipboardAction; set => SetEditableProperty(ref _selectedClipboardAction, value); }
@@ -956,7 +960,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void PopulateEditableFieldsCore(Settings s)
     {
         SelectedTheme = s.Theme; SelectedTooltipDetail = s.TooltipDetail; SelectedApplyMode = s.ApplyMode; ShowPreview = s.ShowPreview;
-        RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; SelectedLogLevel = s.LogLevel;
+        RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; PromptHotkey = s.PromptHotkey; SelectedLogLevel = s.LogLevel;
         ClipboardWatchEnabled = s.ClipboardWatch.Enabled; SelectedClipboardAction = s.ClipboardWatch.Action;
         ClipboardAutoParse = s.ClipboardWatch.AutoParse; ClipboardActivateOnDetect = s.ClipboardWatch.ActivateOnDetect;
         MaxRevisionsText = s.Backup.MaxRevisions.ToString(CultureInfo.InvariantCulture);
@@ -1014,6 +1018,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ShowPreview = _showPreview,
         RequireSummary = _requireSummary,
         Hotkey = _hotkey,
+        PromptHotkey = _promptHotkey,
         LogLevel = _selectedLogLevel,
         CloseBehavior = _closeBehavior,
         LaunchAtStartup = _launchAtStartup,

@@ -180,6 +180,16 @@
                          views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでクリップボードの内容をGraftへ渡して解析できるショートカットキーです（コマンドバーの「解析」ボタンと同じ動作）。既定は「Ctrl+Alt+V」です。「Ctrl+Shift+K」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。他のアプリと衝突する組み合わせを入力すると、Graft側では反応しないことがあります。" />
             </StackPanel>
             <StackPanel Classes="fieldRow">
+                <TextBlock Text="依頼文コピーのホットキー" Classes="fieldLabel" />
+                <TextBox Text="{Binding PromptHotkey, UpdateSourceTrigger=LostFocus}" Width="220"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         Watermark="空欄ならGraftの画面内だけ"
+                         AutomationProperties.Name="依頼文コピーのホットキー"
+                         views:HelpTip.Minimal="{Binding PromptHotkey, StringFormat='依頼文コピーのホットキー: {0}'}"
+                         views:HelpTip.Standard="AIへの依頼文をコピーするOS全体のショートカットキーです。既定はCtrl+Shift+Cです。空欄にするとOS全体には登録せず、Graftの画面内だけで効きます。"
+                         views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでAIへの依頼文（プロンプトテンプレート）をコピーできるショートカットキーです。既定は「Ctrl+Shift+C」ですが、ブラウザの開発者ツールなど他のアプリと衝突する場合は、別の組み合わせに変えるか、空欄にしてください。空欄にするとOS全体のキーとしては登録されず、Graftのウィンドウを操作しているときだけ同じ操作がCtrl+Shift+Cで効きます。「Ctrl+Alt+C」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。" />
+            </StackPanel>
+            <StackPanel Classes="fieldRow">
                 <TextBlock Text="ログレベル" Classes="fieldLabel" />
                 <ComboBox ItemsSource="{Binding LogLevelOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedLogLevel}"

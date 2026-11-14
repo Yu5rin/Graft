@@ -39,7 +39,7 @@ public static class ShortcutCatalog
         new ShortcutEntry("接ぎ木の操作", "Ctrl+J",
             "接ぎ木パネル（下部）を開閉します。", "ToggleGraftPanel"),
         new ShortcutEntry("接ぎ木の操作", "Ctrl+Shift+C",
-            "AIへの依頼文（プロンプトテンプレート）をコピーします。", "CopyPrompt"),
+            "AIへの依頼文（プロンプトテンプレート）をコピーします。OS全体で効くキーなので、他のアプリを操作中でも使えます（設定の「依頼文コピーのホットキー」で変更・無効化できます。空にするとGraftの画面内だけで効きます）。", "CopyPrompt"),
         new ShortcutEntry("接ぎ木の操作", "Ctrl+Alt+1〜9",
             "登録したプロジェクトを番号で切り替えます。"),
         new ShortcutEntry("接ぎ木の操作", "Space",
