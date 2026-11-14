@@ -79,10 +79,31 @@ public sealed class RevisionRowViewModel
     // 9章: UIの文言は日本語で統一する。増減の +/- は記号として残す。
     public string StatsText => $"{Revision.Manifest.Stats.Files}ファイル   +{Revision.Manifest.Stats.Added} -{Revision.Manifest.Stats.Removed}";
 
-    /// <summary>復元可能かどうか（仕様書13.1）。バックアップ実体が失われている場合は false。</summary>
-    public bool CanRestore => Revision.IsRestorable;
+    /// <summary>
+    /// 元に戻した（status: rolled_back）かどうか。取り消し済みのリビジョンと、適用に失敗して元に戻した
+    /// リビジョンの両方を含む。取り消しはバックアップを書き戻すので、重ねて取り消すと、取り消したあとの
+    /// 変更を古い内容で上書きしてしまう。そのため復元の対象にしない（<see cref="CanRestore"/>）。
+    /// </summary>
+    public bool IsRolledBack => Revision.Manifest.Status == RevisionStatus.RolledBack;
 
-    public string RestorabilityText => Revision.IsRestorable ? string.Empty : "復元不可（バックアップの実体が見つかりません）";
+    /// <summary>
+    /// 成功した適用を取り消し済み（entries を持つ rolled_back）かどうか。entries が空の rolled_back は、
+    /// 適用に失敗して元に戻したもの（取り消したのではない）。
+    /// </summary>
+    public bool IsUndone => IsRolledBack && Revision.Manifest.Entries.Count > 0;
+
+    /// <summary>復元可能かどうか（仕様書13.1）。バックアップ実体が失われている場合、および元に戻し済みの場合は false。</summary>
+    public bool CanRestore => Revision.IsRestorable && !IsRolledBack;
+
+    /// <summary>
+    /// 復元できない理由の表示。一覧で、取り消し済みのリビジョンがそれと分かるようにする
+    /// （色のみに依存しない文言表示。HistoryPane.axamlが <see cref="CanRestore"/> が false のときに出す）。
+    /// </summary>
+    public string RestorabilityText =>
+        IsUndone ? "取り消し済み"
+        : IsRolledBack ? "適用に失敗し、元に戻しました"
+        : Revision.IsRestorable ? string.Empty
+        : "復元不可（バックアップの実体が見つかりません）";
 
     /// <summary>色のみに依存しないための読み上げ用テキスト（8.14）。</summary>
     public string AutomationName
@@ -90,7 +111,7 @@ public sealed class RevisionRowViewModel
         get
         {
             var basic = $"{RevisionLabel}、{AppliedAtText}、{TypeText}、{SummaryText}、{StatsText}";
-            return CanRestore ? basic : $"{basic}、復元不可";
+            return CanRestore ? basic : IsRolledBack ? $"{basic}、{RestorabilityText}" : $"{basic}、復元不可";
         }
     }
 }
@@ -545,7 +566,9 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// 最新リビジョンを選んでいるときは対象が無いため false（RestoreThroughCommandを無効化する）。
     /// フィルタで一覧が絞られていても、判定は常に全リビジョン（<see cref="_allRevisions"/>）基準で行う。</summary>
     private bool HasRestoreThroughTarget()
-        => SelectedItem is not null && _allRevisions.Any(r => r.Manifest.Revision > SelectedItem.Revision.Manifest.Revision);
+        => SelectedItem is { IsUndone: false }
+           && _allRevisions.Any(r => r.Manifest.Revision > SelectedItem.Revision.Manifest.Revision
+                                     && r.Manifest.Status != RevisionStatus.RolledBack);
 
     /// <summary>指定プロジェクトのリビジョン一覧を読み込む。</summary>
     public async Task LoadAsync(string projectId, string projectRoot, CancellationToken ct = default)
@@ -587,10 +610,14 @@ public sealed class HistoryPaneViewModel : ObservableObject
         FileFilterPath = null; // ファイル単位の絞り込みも解除する（次のプロジェクトへ引き継がないため）。
     }
 
-    /// <summary>Ctrl+Z（直前リビジョンの取り消し）用。最新リビジョンを復元する。</summary>
+    /// <summary>
+    /// Ctrl+Z（直前リビジョンの取り消し）用。最新の成功リビジョンを復元する。
+    /// 取り消し済み・失敗して戻したリビジョン（rolled_back）は飛ばす。以前は取り消しても success のまま
+    /// 一覧に残っていたため、続けて押すと同じリビジョンをまた取り消そうとしていた。
+    /// </summary>
     public async Task<bool> UndoLatestAsync(CancellationToken ct = default)
     {
-        var latest = Items.FirstOrDefault();
+        var latest = Items.FirstOrDefault(i => i.Revision.Manifest.Status == RevisionStatus.Success);
         if (latest is null || !latest.CanRestore)
         {
             return false;

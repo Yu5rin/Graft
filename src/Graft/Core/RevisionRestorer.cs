@@ -58,6 +58,18 @@ public sealed class RevisionRestorer
                 ErrorCode.E405, $"バックアップの実体が見つからないため復元できません（{expectedDir} 配下）", path: revision.FolderPath);
         }
 
+        // 取り消し済み(rolled_back)のリビジョンを重ねて取り消さない。手元の一覧が古い（別の操作で既に取り消された）
+        // 場合に備え、ディスク上の最新の状態も確かめる。
+        var store = new RevisionStore(_paths);
+        // 読むだけで書かない: RevisionStore.ReadAsyncは壊れた/形の違うmanifest.jsonを再生成して上書きするため、
+        // 旧レイアウトで退避コピーがmanifest.jsonの位置にあるフォルダの退避を壊してしまう。
+        if (ReadStatusFromDisk(revision.FolderPath) == RevisionStatus.RolledBack
+            || revision.Manifest.Status == RevisionStatus.RolledBack)
+        {
+            return GraftResult<IReadOnlyList<string>>.Fail(
+                ErrorCode.E219, $"r{revision.Manifest.Revision} は既に取り消し済みです", path: revision.FolderPath);
+        }
+
         var warnings = await CheckHashesAsync(projectRoot, revision.FolderPath, revision.Manifest.Entries, ct).ConfigureAwait(false);
         if (warnings.Count > 0 && !force)
         {
@@ -73,10 +85,75 @@ public sealed class RevisionRestorer
 
         var entriesResult = await UndoRevisionEntriesAsync(revision, projectRoot, ct).ConfigureAwait(false);
         var issues = warnings.Concat(entriesResult.Issues).ToList();
+        if (issues.Any(i => i.Severity == Severity.Error))
+        {
+            return GraftResult<IReadOnlyList<string>>.Fail(issues);
+        }
 
-        return issues.Any(i => i.Severity == Severity.Error)
-            ? GraftResult<IReadOnlyList<string>>.Fail(issues)
-            : GraftResult<IReadOnlyList<string>>.Ok(entriesResult.Value, issues);
+        // 取り消せたので、取り消し済みの印を付ける。以前は success のまま残り、同じパッチを貼り直すと
+        // 「適用済み」(E302)で適用できず、「直前を取り消す」を続けると同じリビジョンをまた取り消そうとした。
+        issues.AddRange(await MarkUndoneAsync(store, projectId, revision.Manifest, ct).ConfigureAwait(false));
+        return GraftResult<IReadOnlyList<string>>.Ok(entriesResult.Value, issues);
+    }
+
+    /// <summary>
+    /// 取り消したリビジョンを rolled_back にする。そのリビジョンが「ここまで戻す」で、それが取り消していた
+    /// リビジョン（<see cref="RevisionManifest.RolledBackRevisions"/>）があれば、それらは再び有効になるので
+    /// success へ戻す。印を付けられなくても、ファイルは既に戻せているので失敗にはせず Warning にとどめる
+    /// （印だけが古いまま残る）。
+    ///
+    /// 戻す側の条件: いま rolled_back で、かつ戻す側のリビジョンより前に適用されたもの。番号だけで引くと、
+    /// 履歴番号の重複を直した（<see cref="RevisionDuplicateRepairer"/>）あとで番号がずれた記録から、
+    /// 無関係なリビジョンを success に戻しかねないため、適用日時でも確かめる。
+    /// </summary>
+    private static async Task<List<GraftIssue>> MarkUndoneAsync(
+        RevisionStore store, string projectId, RevisionManifest undone, CancellationToken ct)
+    {
+        var issues = new List<GraftIssue>();
+
+        var marked = await store.SetStatusAsync(projectId, undone.Revision, RevisionStatus.RolledBack, ct).ConfigureAwait(false);
+        AddAsWarnings(marked, $"r{undone.Revision} に取り消し済みの印を付けられませんでした", issues);
+
+        foreach (var number in undone.RolledBackRevisions ?? Array.Empty<int>())
+        {
+            var read = await store.ReadAsync(projectId, number, ct).ConfigureAwait(false);
+            if (!read.IsSuccess || read.Value.Manifest.Status != RevisionStatus.RolledBack) continue;
+            if (read.Value.Manifest.AppliedAt > undone.AppliedAt) continue;
+
+            var revived = await store.SetStatusAsync(projectId, number, RevisionStatus.Success, ct).ConfigureAwait(false);
+            AddAsWarnings(revived, $"r{number} を適用済みの状態へ戻す印を付けられませんでした", issues);
+        }
+        return issues;
+    }
+
+    private static string? ReadStatusFromDisk(string folder)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(LongPath.Extended(Path.Combine(folder, "manifest.json"))));
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("status", out var status)
+                   && status.ValueKind == System.Text.Json.JsonValueKind.String
+                ? status.GetString()
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void AddAsWarnings(GraftResult<bool> result, string message, List<GraftIssue> issues)
+    {
+        if (!result.IsSuccess)
+        {
+            issues.Add(GraftIssue.Of(ErrorCode.E401, $"{message}: {string.Join(" / ", result.Errors.Select(i => i.ToDisplayText()))}",
+                severity: Severity.Warning));
+        }
+        else
+        {
+            issues.AddRange(result.Issues);
+        }
     }
 
     /// <summary>
@@ -149,8 +226,11 @@ public sealed class RevisionRestorer
         IReadOnlyList<RevisionSummary> allRevisions, int targetRevision)
     {
         ArgumentNullException.ThrowIfNull(allRevisions);
+        // 取り消し済み(rolled_back)のリビジョンは対象にしない。既に戻っているので、もう一度取り消すと、
+        // 取り消したあとの変更を古い内容で上書きしてしまう。適用に失敗して戻したリビジョンも同じ
+        // （entries が空で、取り消すものが無い）。
         var toUndo = allRevisions
-            .Where(r => r.Manifest.Revision > targetRevision)
+            .Where(r => r.Manifest.Revision > targetRevision && r.Manifest.Status != RevisionStatus.RolledBack)
             .OrderByDescending(r => r.Manifest.Revision)
             .ToList();
         var notRestorable = toUndo.Where(r => !r.IsRestorable).ToList();
@@ -193,6 +273,8 @@ public sealed class RevisionRestorer
         int newRevisionNumber, bool force, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(revisionsToUndo);
+        // 呼び出し元が BuildRestoreThroughPreview を通さずに渡しても、取り消し済みは重ねて取り消さない。
+        revisionsToUndo = revisionsToUndo.Where(r => r.Manifest.Status != RevisionStatus.RolledBack).ToList();
         if (revisionsToUndo.Count == 0)
         {
             return GraftResult<RevisionManifest>.Fail(ErrorCode.E201, "取り消し対象のリビジョンがありません");
@@ -277,9 +359,32 @@ public sealed class RevisionRestorer
         }
 
         var status = failedAt is null ? RevisionStatus.Success : RevisionStatus.InProgress;
-        var finalManifest = initial with { Status = status, Entries = entries, Stats = initial.Stats with { Files = entries.Count } };
+        var finalManifest = initial with
+        {
+            Status = status, Entries = entries, Stats = initial.Stats with { Files = entries.Count },
+            // 全部取り消せたときだけ、取り消したリビジョンを記録する（このリビジョンを取り消すと戻せるように。
+            // RevisionManifest.RolledBackRevisions参照）。途中で失敗した（in_progress）ときは、取り消しの
+            // 範囲が確定しないので記録しない。
+            RolledBackRevisions = failedAt is null ? revisionsToUndo.Select(r => r.Manifest.Revision).ToList() : null,
+        };
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
         issues.AddRange(completed.Issues);
+
+        if (failedAt is null)
+        {
+            // 取り消したリビジョンを rolled_back にする。「ここまで戻す」は新しいリビジョンとして記録する設計で、
+            // 戻しすぎたときはそれを取り消して元へ戻せる。そのとき上で記録した番号から success へ戻す。
+            // 以前は印を付けなかったため、取り消したリビジョンと同じパッチを貼り直しても「適用済み」で
+            // 適用できなかった。
+            var store = new RevisionStore(_paths);
+            foreach (var undoneRevision in revisionsToUndo)
+            {
+                var marked = await store
+                    .SetStatusAsync(projectId, undoneRevision.Manifest.Revision, RevisionStatus.RolledBack, ct)
+                    .ConfigureAwait(false);
+                AddAsWarnings(marked, $"r{undoneRevision.Manifest.Revision} に取り消し済みの印を付けられませんでした", issues);
+            }
+        }
 
         if (failedAt is not null)
         {

@@ -9,7 +9,14 @@ public static class RevisionStatus
     public const string InProgress = "in_progress";
     /// <summary>正常完了。</summary>
     public const string Success = "success";
-    /// <summary>失敗しロールバック済み。</summary>
+    /// <summary>
+    /// 元に戻した。次の2つがある。
+    /// ・適用が失敗してロールバックした（entries は空）。
+    /// ・成功した適用を、履歴の「取り消し」「ここまで戻す」や適用後フックの失敗で取り消した（entries を持つ）。
+    ///   以前は取り消しても success のまま残り、同じパッチを貼り直すと「適用済み」（E302）で適用できず、
+    ///   「直前を取り消す」を続けて押すと同じリビジョンをまた取り消そうとした。
+    /// 二重適用の検知（E302・E305）は success だけを対象にするので、rolled_back のリビジョンは再び適用できる。
+    /// </summary>
     public const string RolledBack = "rolled_back";
 }
 
@@ -146,6 +153,19 @@ public sealed record RevisionManifest
     public IReadOnlyList<RevisionEntry> Entries { get; init; } = Array.Empty<RevisionEntry>();
     /// <summary>フックの実行結果。</summary>
     public IReadOnlyList<HookResult> Hooks { get; init; } = Array.Empty<HookResult>();
+
+    /// <summary>
+    /// 「ここまで戻す」（type: revert）が取り消したリビジョンの番号。それ以外は null（出力しない）。
+    ///
+    /// 【なぜ持つか】 取り消したリビジョンは rolled_back にする（同じパッチを貼り直したときに「適用済み」と
+    /// 誤判定されないよう、<see cref="RevisionStatus.RolledBack"/>参照）。一方「ここまで戻す」は新しい
+    /// リビジョンとして記録され、戻しすぎたときはそのリビジョンを取り消せば元の状態へ戻る。そのとき
+    /// 取り消されていたリビジョンの変更は再び有効になるので、状態を success へ戻す必要がある。
+    /// どのリビジョンを rolled_back にしたかを、戻す側のリビジョンに残しておくための値。
+    /// 古い版が読んでも読み飛ばされるだけで壊れない。
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<int>? RolledBackRevisions { get; init; }
 }
 
 /// <summary>履歴一覧の1行。バックアップ実体の有無を含む。</summary>
