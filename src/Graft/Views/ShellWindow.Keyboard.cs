@@ -229,8 +229,9 @@ public partial class ShellWindow
             case Key.C: ViewModel.Graft.CopyPromptCommand.Execute(null); return true;
             case Key.V: ViewModel.Graft.PasteAndParseCommand.Execute(null); return true; // 素のCtrl+Vから変更（9.5）。
             case Key.H: ViewModel.Graft.ShowHistoryCommand.Execute(null); return true; // Ctrl+Hから変更（9.5）。
-            case Key.E: ViewModel.SelectSideView(SideViewKind.Explorer); return true;
-            case Key.F: ViewModel.SelectSideView(SideViewKind.Search); return true;
+            // 「開く」操作なので、表示中でも畳まずフォーカスを移す（ShellViewModel.ShowSideView）。
+            case Key.E: ViewModel.ShowSideView(SideViewKind.Explorer); return true;
+            case Key.F: ViewModel.ShowSideView(SideViewKind.Search); return true;
             case Key.S: _ = ViewModel.Editor.SaveAllAsync(); return true;
             // 機能3: 直前に閉じたタブを開き直す（ブラウザのCtrl+Shift+Tと同じ操作感）。
             // AvaloniaEdit・TextBox等の標準操作にCtrl+Shift+Tは無く、アプリ内の他のキーとも

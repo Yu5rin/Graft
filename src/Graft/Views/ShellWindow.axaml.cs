@@ -132,6 +132,7 @@ public partial class ShellWindow : Window
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
+        viewModel.RequestFocusSideView += OnRequestFocusSideView;
         viewModel.RequestOpenShortcuts += OnRequestOpenShortcuts;
         viewModel.RequestOpenManual += OnRequestOpenManual;
         // 画面上のチュートリアル（コーチマーク）。実体（ShellWindow.Tutorial.cs）は
@@ -231,9 +232,26 @@ public partial class ShellWindow : Window
 
     /// <summary>9.2: 「履歴」ボタン・Ctrl+Shift+H。サイドバーの履歴ビューを開いて一覧へフォーカスする。</summary>
     private void OnRequestFocusHistory(object? sender, EventArgs e)
+        => ViewModel.ShowSideView(SideViewKind.History); // 表示してフォーカスは OnRequestFocusSideView で移す。
+
+    /// <summary>
+    /// 「開く」操作でサイドビューを表示したあと、そのビューの入力先へフォーカスを移す。
+    /// 折りたたみから表示へ戻った直後はレイアウトが未確定でFocus()が効かないため、
+    /// レイアウト確定後まで遅延させる（検索ビューの OnRequestFocusSearchView と同じ事情）。
+    /// </summary>
+    private void OnRequestFocusSideView(object? sender, SideViewKind kind)
     {
-        ViewModel.SelectSideView(SideViewKind.History);
-        HistoryPaneControl.ListBoxElement.Focus();
+        Dispatcher.UIThread.Post(() =>
+        {
+            Control target = kind switch
+            {
+                SideViewKind.Search => SearchViewControl.QueryBoxElement,
+                SideViewKind.Explorer => ExplorerViewControl.TreeElement,
+                SideViewKind.History => HistoryPaneControl.ListBoxElement,
+                _ => ProjectPaneControl.ListBoxElement,
+            };
+            target.Focus();
+        }, DispatcherPriority.Background);
     }
 
     /// <summary>

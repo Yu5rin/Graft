@@ -16,6 +16,9 @@ namespace Graft.Views;
 /// </summary>
 public partial class ExplorerView : UserControl
 {
+    /// <summary>ファイルツリー本体。サイドビューを開いたときにフォーカスを移す先（ShellWindow.OnRequestFocusSideView）。</summary>
+    public TreeView TreeElement => FileTreeView;
+
     public ExplorerView()
     {
         InitializeComponent();

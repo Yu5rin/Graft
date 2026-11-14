@@ -91,7 +91,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Graft.ProjectPane.ProjectSelected += OnProjectSelected;
         // プロジェクトペイン改善（要望2）: プロジェクト名のダブルクリックでサイドビューを
         // エクスプローラへ切り替える（折りたたまれていれば展開も行う。SelectSideView参照）。
-        Graft.ProjectPane.ProjectActivated += (_, _) => SelectSideView(SideViewKind.Explorer);
+        Graft.ProjectPane.ProjectActivated += (_, _) => ShowSideView(SideViewKind.Explorer);
         // プロジェクトペイン改善（要望1）: 削除等でプロジェクトが1件も無くなった場合、
         // エディタ・エクスプローラ・検索・クイックオープンを「プロジェクト未選択」の状態へ戻す。
         Graft.ProjectPane.SelectionCleared += OnProjectSelectionCleared;
@@ -119,6 +119,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
 
         SelectSideViewCommand = new RelayCommand<SideViewKind>(SelectSideView);
+        ShowSideViewCommand = new RelayCommand<SideViewKind>(kind => ShowSideView(kind));
         ToggleGraftPanelCommand = new RelayCommand(() => IsGraftPanelOpen = !IsGraftPanelOpen);
         ToggleGraftPanelPlacementCommand = new RelayCommand(() => GraftPanelPlacement =
             GraftPanelPlacement == GraftPanelPlacementKind.Bottom ? GraftPanelPlacementKind.Right : GraftPanelPlacementKind.Bottom);
@@ -277,6 +278,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>サイドバーのアイコンクリック（CommandParameterに<see cref="SideViewKind"/>）。</summary>
     public ICommand SelectSideViewCommand { get; }
 
+    /// <summary>コマンドパレット等の「開く」操作（表示してフォーカスを移す。畳まない）。<see cref="ShowSideView"/>参照。</summary>
+    public ICommand ShowSideViewCommand { get; }
+
     /// <summary>Ctrl+J・接ぎ木パネルのヘッダーボタン。</summary>
     public ICommand ToggleGraftPanelCommand { get; }
 
@@ -376,8 +380,32 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public void NotifyApplyPreviewDisableRequested() => ApplyPreviewDisableRequested?.Invoke(this, EventArgs.Empty);
 
     /// <summary>
+    /// サイドビューを表示して、そこへフォーカスを移すことの要求。View（ShellWindow）が購読して
+    /// 各ビューの入力先（検索欄・ファイルツリー・一覧）へフォーカスする。
+    /// </summary>
+    public event EventHandler<SideViewKind>? RequestFocusSideView;
+
+    /// <summary>
+    /// 「開く」操作（ツールバーの「履歴」、Ctrl+Shift+H／E／F、コマンドパレットの各ビュー、
+    /// 適用後の「変更を見る」等）の挙動。そのビューを表示して、そこへフォーカスを移す。
+    ///
+    /// 【なぜ <see cref="SelectSideView"/> と分けたか】 以前はこれらも <see cref="SelectSideView"/>
+    /// （サイドバーのアイコンの再クリックで畳む）を通っていたため、すでにそのビューが表示中だと
+    /// サイドビューごと畳んでしまった。「開く」と言われて閉じるのは意味が逆で、キーを押した利用者には
+    /// 不具合に見えた。畳むのはサイドバーのアイコンをもう一度押したときだけにする。
+    /// </summary>
+    /// <param name="focus">falseなら表示だけ行いフォーカスは動かさない（チュートリアル等、フォーカスを奪いたくない呼び出し用）。</param>
+    public void ShowSideView(SideViewKind kind, bool focus = true)
+    {
+        SelectedSideView = kind;
+        IsSideViewCollapsed = false;
+        if (focus) RequestFocusSideView?.Invoke(this, kind);
+    }
+
+    /// <summary>
     /// 9.2: サイドバーのアイコンをクリックしたときの挙動。既に表示中のビューを
     /// 再クリックした場合はサイドビューを折りたたむ。それ以外は該当ビューへ切り替えて展開する。
+    /// キーボード・コマンドパレット等の「開く」操作は <see cref="ShowSideView"/> を使う。
     /// </summary>
     public void SelectSideView(SideViewKind kind)
     {
@@ -462,7 +490,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private void OnShowFileHistoryRequested(object? sender, string relativePath)
     {
         Graft.History.ShowHistoryForFile(relativePath);
-        if (!IsHistoryActive) Graft.ShowHistoryCommand.Execute(null);
+        Graft.ShowHistoryCommand.Execute(null);
     }
 
     /// <summary>4.8: diff表示の行をダブルクリックしたときのジャンプ。変更後の行番号を優先する。</summary>
