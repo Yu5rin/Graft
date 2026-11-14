@@ -33,7 +33,7 @@
     <Grid RowDefinitions="Auto,*">
 
         <!-- 見出し（12px SemiBold）とプロジェクト追加・削除ボタン -->
-        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto,Auto">
+        <Grid Grid.Row="0" Margin="12,0,8,0" MinHeight="{DynamicResource PaneHeaderHeight}" ColumnDefinitions="*,Auto,Auto">
             <TextBlock Grid.Column="0"
                        Text="プロジェクト"
                        VerticalAlignment="Center"

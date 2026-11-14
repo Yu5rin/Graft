@@ -51,10 +51,14 @@
 
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
 
-        <TextBlock Grid.Row="0" Text="検索" Margin="12,10,8,4"
-                   FontSize="{DynamicResource PaneHeadingFontSize}"
-                   FontWeight="{DynamicResource PaneHeadingFontWeight}"
-                   Foreground="{DynamicResource TextSecondary}" />
+        <!-- 見た目の整備: 他のペイン（プロジェクト・エクスプローラ・履歴）と見出しの帯の高さ
+             （PaneHeaderHeight）を揃える。以前は余白の組み合わせで画面ごとに59〜64pxとばらついていた。 -->
+        <Border Grid.Row="0" MinHeight="{DynamicResource PaneHeaderHeight}" Padding="12,0,8,0">
+            <TextBlock Text="検索" VerticalAlignment="Center"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                       Foreground="{DynamicResource TextSecondary}" />
+        </Border>
 
         <!-- ========== 検索行 ========== -->
         <Grid Grid.Row="1" Margin="8,0,8,4" ColumnDefinitions="*,Auto,Auto,Auto,Auto">

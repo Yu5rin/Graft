@@ -98,7 +98,14 @@
                              依頼1: 以前はStackPanelだったが、タブ幅が縮んだときにタイトルだけを
                              省略記号で詰め、未保存マーク・閉じるボタンは常に全体を保つよう
                              Grid（Title=*、それ以外=Auto）へ変更した。 -->
-                        <Grid Background="Transparent" ColumnDefinitions="*,Auto,Auto">
+                        <!--
+                            見た目の整備: 長いファイル名でタブが画面の大半を占めないよう、1つのタブの幅に
+                            上限（240）を付ける。収まらない名前は省略記号（…）で詰め、全体はツールチップで
+                            出す（ファイルのタブはプロジェクト相対パス、差分タブは見出しと同じ）。
+                        -->
+                        <Grid Background="Transparent" ColumnDefinitions="*,Auto,Auto"
+                              MaxWidth="240"
+                              ToolTip.Tip="{Binding ToolTipText}">
                             <Grid.ContextMenu>
                                 <ContextMenu>
                                     <MenuItem Header="閉じる (Ctrl+W)"

@@ -20,7 +20,7 @@
               新しい順に取り消し、選んだ時点の状態まで一気に戻す（追加機能）。
             アイコン・文言（HelpTip・AutomationProperties.Name）の両方で明確に区別する。
         -->
-        <Grid Grid.Row="0" Margin="12,10,8,4" ColumnDefinitions="*,Auto,Auto">
+        <Grid Grid.Row="0" Margin="12,0,8,0" MinHeight="{DynamicResource PaneHeaderHeight}" ColumnDefinitions="*,Auto,Auto">
             <TextBlock Grid.Column="0"
                        Text="履歴"
                        VerticalAlignment="Center"

@@ -29,10 +29,12 @@
         <Setter Property="Margin" Value="0,0,0,10" />
     </Style>
 
-    <!-- 区分の見出し。 -->
+    <!-- 区分の見出し。見た目の整備: 共通のセクション見出し（Tokens.axaml の SectionHeading*、14px・SemiBold。
+         Controls.Buttons.axaml の TextBlock.section-heading と同じ値）へ揃えた。以前は12pxで、
+         本文（13px）より小さく、区分の切れ目が分かりにくかった。 -->
     <Style Selector="TextBlock.sectionHeading">
-        <Setter Property="FontSize" Value="{DynamicResource PaneHeadingFontSize}" />
-        <Setter Property="FontWeight" Value="{DynamicResource PaneHeadingFontWeight}" />
+        <Setter Property="FontSize" Value="{DynamicResource SectionHeadingFontSize}" />
+        <Setter Property="FontWeight" Value="{DynamicResource SectionHeadingFontWeight}" />
         <Setter Property="Margin" Value="0,16,0,8" />
     </Style>
 

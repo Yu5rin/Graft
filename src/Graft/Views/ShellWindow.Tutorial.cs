@@ -200,17 +200,18 @@ public partial class ShellWindow
         // 履歴を指すステップでは、測る直前にもう一度サイドバーを開き直し、レイアウトの確定を
         // 待ってから測る。履歴の選択で差分タブが開くとタブの帯が増えて位置が動くので、
         // 選択（上の switch）より後に測る順序も守る。
+        var ui = Dispatcher.UIThread; // 捕捉してから使う（DispatcherUIThreadUsageGuardTests の作法）。
         if (step is 4 or 5)
         {
             ViewModel.ShowSideView(SideViewKind.History, focus: false);
-            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+            await ui.InvokeAsync(() => { }, DispatcherPriority.Render);
             if (!_tutorialActive) return;
         }
         else if (step is 1 or 2 or 3 && !ViewModel.IsGraftPanelOpen)
         {
             // 接ぎ木パネルを指すステップで、パネルが畳まれていると対象が見えない。
             ViewModel.IsGraftPanelOpen = true;
-            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+            await ui.InvokeAsync(() => { }, DispatcherPriority.Render);
             if (!_tutorialActive) return;
         }
 
@@ -229,7 +230,7 @@ public partial class ShellWindow
 
         // 表示した直後にレイアウトが動く場合（履歴の差分タブが開く等）に備え、少し後にもう一度測って、
         // 位置が変わっていたら枠と吹き出しを置き直す。
-        Dispatcher.UIThread.Post(() =>
+        ui.Post(() =>
         {
             if (!_tutorialActive || _tutorialStep != step) return;
             var again = ResolveTutorialTarget(step);

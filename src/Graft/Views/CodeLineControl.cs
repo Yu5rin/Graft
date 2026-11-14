@@ -131,7 +131,10 @@ public sealed class CodeLineControl : TextBlock
         // 再描画要求が、そのあとに続くリソース更新による再評価と順序が前後して取りこぼされる。
         // 辞書の差し替えが終わった後（Render優先度）で、もう一度組み直したうえで、測り直しと
         // 再描画を明示的に要求する。
-        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        // Dispatcher.UIThread は捕捉してから使う（DispatcherUIThreadUsageGuardTests の作法）。
+        // ThemeChanged はテーマ適用（UIスレッド）から同期で呼ばれる。
+        var ui = Avalonia.Threading.Dispatcher.UIThread;
+        ui.Post(() =>
         {
             Rebuild();
             InvalidateMeasure();
