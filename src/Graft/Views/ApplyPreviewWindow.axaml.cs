@@ -47,6 +47,15 @@ public partial class ApplyPreviewWindow : Window
     public async Task<bool> ShowAndConfirmAsync(Window owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
+
+        // 監査 H7: 初期の大きさ（XAMLの1120x720）が、親の窓より大きくならないよう上限を掛ける。
+        // 親が小さいとき（最小幅960の窓など）でも、枠の外へはみ出さず、最小の大きさ（MinWidth/MinHeight）は割らない。
+        if (owner.Bounds.Width > 0 && owner.Bounds.Height > 0)
+        {
+            Width = Math.Max(MinWidth, Math.Min(Width, owner.Bounds.Width - 40));
+            Height = Math.Max(MinHeight, Math.Min(Height, owner.Bounds.Height - 40));
+        }
+
         await ShowDialog(owner).ConfigureAwait(true);
         if (DataContext is ApplyPreviewViewModel viewModel) DontShowAgainRequested = viewModel.DontShowAgain;
         return _confirmed;

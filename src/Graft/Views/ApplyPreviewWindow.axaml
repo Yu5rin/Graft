@@ -4,8 +4,8 @@
         x:Class="Graft.Views.ApplyPreviewWindow"
         x:Name="Root"
         Title="適用前プレビュー"
-        Width="880" Height="640"
-        MinWidth="640" MinHeight="420"
+        Width="1120" Height="720"
+        MinWidth="720" MinHeight="460"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgBase}"
         FontFamily="{DynamicResource UiFontFamily}"
@@ -39,7 +39,19 @@
             ディレクトリを置く2段組みへ直し、ToolTipで完全なパスも確認できるようにする。
             左列も240→280へ広げ、ファイル名が多少長くても崩れにくくした。
         -->
-        <Grid Grid.Row="1" ColumnDefinitions="280,4,*">
+        <!--
+            監査 H7: 以前は左の一覧が280px・窓が880pxで、並列の差分に残る幅は約560px（左右へ半分ずつで
+            各280px）しか無く、右側（変更後）がほとんど見えなかった。一覧は200px（ファイル名＋ディレクトリの
+            2段組みなら足りる。最小140px・ドラッグで調整可）へ狭め、窓の初期の大きさを1120x720へ広げて、
+            差分へ幅を回す。窓が画面（オーナー）より大きくならないよう、表示時に
+            ApplyPreviewWindow.axaml.cs が上限を掛ける。
+        -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200" MinWidth="140" MaxWidth="420" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" MinWidth="360" />
+            </Grid.ColumnDefinitions>
 
             <!-- 左: 書き込み対象の一覧。選択すると右側に差分が出る。 -->
             <ListBox Grid.Column="0"
@@ -79,10 +91,9 @@
             </ListBox>
 
             <GridSplitter Grid.Column="1"
-                          Width="4"
+                          Width="6"
                           HorizontalAlignment="Center"
                           VerticalAlignment="Stretch"
-                          Background="{DynamicResource BorderSubtle}"
                           AutomationProperties.Name="一覧と差分の境界" />
 
             <!-- 右: 選択中ブロックの差分（既存のDiffView/DiffViewModelをそのまま流用）。 -->
