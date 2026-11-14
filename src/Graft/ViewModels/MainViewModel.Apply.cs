@@ -19,9 +19,10 @@ public sealed partial class MainViewModel
 {
     /// <summary>
     /// 4.8/7章 適用前チェック用フック。ドライラン開始時に対象ファイルの絶対パス一覧を渡して呼ぶ。
-    /// falseが返るとドライランを中止する。
+    /// Cancelledが返るとドライランを中止する。Savedは「保存が起きた」ことを伝える
+    /// （適用の側はこれを見て解析し直す。<see cref="SaveTargetsAndReanalyzeAsync"/>）。
     /// </summary>
-    public Func<IReadOnlyList<string>, Task<bool>>? BeforeApplyAsync { get; set; }
+    public Func<IReadOnlyList<string>, Task<TargetSaveOutcome>>? BeforeApplyAsync { get; set; }
 
     /// <summary>
     /// 4.8/7章 適用後フック。適用が成功したら、書き換わったファイルの絶対パス一覧を渡して必ず呼ぶ。
@@ -105,6 +106,28 @@ public sealed partial class MainViewModel
             return;
         }
 
+        // 未保存の編集の確認と保存は、要約入力・確認ダイアログ・プレビューより前に行う（C3）。
+        // 解析して差分を見ている間に対象をエディタで直し、保存しないまま適用すると、適用は
+        // ディスクの内容に対して行われ、直後の再読込でエディタの未保存の編集が消えていた。
+        // 保存を拒んだ場合は適用を始めない。保存が起きるとディスクの内容が解析時から変わり、
+        // 適用エンジンが一致位置の食い違い（E301）で中止するため、ここで解析し直してから進める
+        // （MainViewModel.ApplySave.cs）。確認ダイアログやプレビューより前に置くのは、利用者が
+        // 見る差分を保存後の内容に対するものにするため。
+        //
+        // 書き込みの直前（確認のあと）にもう一度確かめる処理は置かない。確認ダイアログ
+        // （AvaloniaDialogService.ShowModal）も適用前プレビュー（ApplyPreviewWindow.ShowDialog）も、
+        // オーナーウィンドウの入力を塞ぐモーダルで、その間にエディタを編集することはできないため、
+        // ここで保存した状態が書き込みまで保たれる。
+        var saved = await SaveTargetsAndReanalyzeAsync(dryRun, context, updatedPlans).ConfigureAwait(true);
+        if (saved is null) return;
+        if (!ReferenceEquals(saved.Value.DryRun, dryRun))
+        {
+            dryRun = saved.Value.DryRun;
+            context = saved.Value.Context;
+            updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
+            updatedDryRun = dryRun with { Plans = updatedPlans };
+        }
+
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
             var input = await _dialogs.PromptAsync("要約を入力", "このリビジョンの概要を入力してください。", null).ConfigureAwait(true);
@@ -127,21 +150,6 @@ public sealed partial class MainViewModel
         if (!confirmed) return;
 
         var project = ProjectPane.SelectedItem?.Project;
-
-        // 書き込みの直前にもう一度、対象ファイルの未保存の編集を確かめる。未保存の確認はドライランの
-        // 開始時（RunDryRunAsync）にしか行っていなかったため、解析して差分を見ている間に対象を
-        // エディタで直し、保存しないまま適用すると、適用はディスクの内容に対して行われ、直後の
-        // 再読込でエディタの未保存の編集が消えていた（C3）。保存を拒んだ場合は適用を始めない。
-        if (project is not null)
-        {
-            var targets = updatedPlans
-                .Where(p => p.IsSelected && p.CanApply)
-                .SelectMany(p => new[] { p.Block.Path, p.Path }) // RENAMEは移動元と移動先の両方。
-                .Select(path => Path.Combine(project.Root, path.Replace('/', Path.DirectorySeparatorChar)))
-                .Distinct()
-                .ToList();
-            if (BeforeApplyAsync is not null && !await BeforeApplyAsync(targets).ConfigureAwait(true)) return;
-        }
 
         State = CenterPaneState.Loading;
         // 実機不具合対応: 適用処理（書き込み失敗を含む）がログに一切残っていなかったため、
@@ -334,7 +342,7 @@ public sealed partial class MainViewModel
     private async Task<bool> ConfirmTargetsSavedAsync(string projectRoot)
     {
         if (BeforeApplyAsync is null) return true;
-        return await BeforeApplyAsync(ResolveTargetFullPaths(projectRoot)).ConfigureAwait(true);
+        return await BeforeApplyAsync(ResolveTargetFullPaths(projectRoot)).ConfigureAwait(true) != TargetSaveOutcome.Cancelled;
     }
 
     /// <summary>ApplyAsync成功直後から呼ぶ。フック未設定時は何もしない。</summary>

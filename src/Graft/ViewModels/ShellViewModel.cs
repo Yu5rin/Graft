@@ -522,28 +522,28 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// 4.8 適用前チェック: ドライラン開始時に対象ファイルの未保存編集を確認し、保存してから
-    /// 続行する（破棄しての続行は不可）。ユーザーが保存を拒んだ場合はfalseを返し中止させる。
+    /// 続行する（破棄しての続行は不可）。ユーザーが保存を拒んだ場合はCancelledを返し中止させる。保存したときはSavedを返す。
     /// MainViewModel.BeforeApplyAsyncへ結ぶ。
     /// </summary>
-    private async Task<bool> EnsureTargetsSavedAsync(IReadOnlyList<string> fullPaths)
+    private async Task<TargetSaveOutcome> EnsureTargetsSavedAsync(IReadOnlyList<string> fullPaths)
     {
         var unsaved = Editor.FindUnsaved(fullPaths);
-        if (unsaved.Count == 0) return true;
+        if (unsaved.Count == 0) return TargetSaveOutcome.NothingToSave;
 
         var names = string.Join("、", unsaved.Select(Path.GetFileName));
         var proceed = await _dialogs.ConfirmAsync(
             "未保存の変更を保存します",
             $"適用対象のファイル（{names}）に未保存の変更があります。保存してから適用を続行します。よろしいですか？")
             .ConfigureAwait(true);
-        if (!proceed) return false;
+        if (!proceed) return TargetSaveOutcome.Cancelled;
 
         var saved = await Editor.SaveFilesAsync(unsaved).ConfigureAwait(true);
         if (!saved.IsSuccess)
         {
             await _dialogs.ShowMessageAsync("保存に失敗しました", "ファイルの保存に失敗したため、適用を中止します。").ConfigureAwait(true);
-            return false;
+            return TargetSaveOutcome.Cancelled;
         }
-        return true;
+        return TargetSaveOutcome.Saved;
     }
 
     /// <summary>
