@@ -465,9 +465,12 @@ public sealed partial class MainViewModel : ObservableObject
         // 大きなパッチほど時間がかかり、しかも完全に同期処理）の間は何も出ていなかった。
         // ここで待機表示を出しつつ、解析自体もスレッドプールへ逃がしてUIスレッドを空ける
         // （PatchParserは状態を持たない純粋な解析器のため、別スレッドで呼んで差し支えない）。
+        var generation = BeginAnalysis();
         var stateBeforeParse = State;
         State = CenterPaneState.Loading;
         var parsed = await Task.Run(() => _parser.Parse(text)).ConfigureAwait(true);
+        // 解析の待ち中に、さらに新しい解析が始まった場合は、古い結果で上書きしない（C15）。
+        if (generation != _analysisGeneration) return;
         if (!parsed.IsSuccess)
         {
             CenterError = parsed.Errors.FirstOrDefault();
@@ -491,12 +494,24 @@ public sealed partial class MainViewModel : ObservableObject
 
         _currentPatch = parsed.Value;
         _dryRunFromQueue = false;
-        await RunDryRunAsync().ConfigureAwait(true);
+        await RunDryRunCoreAsync(generation).ConfigureAwait(true);
     }
 
-    private async Task RunDryRunAsync()
+    // C15: 解析・ドライランの「最新の要求」を見分けるための世代番号。解析やドライランは途中で
+    // 非同期に待つ（構文解析・自動判定の確認ダイアログ・未保存の保存確認・ドライラン本体）。
+    // その間に別の解析を始めた、解析結果を破棄した、別のプロジェクトへ切り替えた、のいずれかが
+    // 起きても、待っていた古い要求が結果を反映してしまい、新しい画面を古い内容で上書きしていた。
+    private int _analysisGeneration;
+
+    private int BeginAnalysis() => ++_analysisGeneration;
+
+    /// <summary>「プレビュー」ボタン（PreviewCommand）など、新しいドライランを始める入口。</summary>
+    private Task RunDryRunAsync() => RunDryRunCoreAsync(BeginAnalysis());
+
+    private async Task RunDryRunCoreAsync(int generation)
     {
         if (_currentPatch is null) return;
+        var patch = _currentPatch;
 
         var project = ProjectPane.SelectedItem?.Project;
         if (project is null)
@@ -516,6 +531,13 @@ public sealed partial class MainViewModel : ObservableObject
 
         // 4.8/7章: 未保存編集があれば保存を促してから続行する（破棄不可。MainViewModel.Apply.cs）。
         if (!await ConfirmTargetsSavedAsync(project.Root).ConfigureAwait(true)) return;
+
+        // 保存確認の待ち中に、破棄・別の解析・プロジェクトの切り替えがあれば、この要求は古い（C15）。
+        if (generation != _analysisGeneration || !ReferenceEquals(_currentPatch, patch)
+            || ProjectPane.SelectedItem?.Project.Id != project.Id)
+        {
+            return;
+        }
 
         State = CenterPaneState.Loading;
         // 履歴番号の見込み。ProjectPaneが持つprojectは読み込み時のスナップショットで、その後に
@@ -541,7 +563,19 @@ public sealed partial class MainViewModel : ObservableObject
             Guard = guard,
         };
 
-        var dryRun = await _applyEngine.DryRunAsync(_currentPatch, context).ConfigureAwait(true);
+        var dryRun = await _applyEngine.DryRunAsync(patch, context).ConfigureAwait(true);
+
+        // 結果を反映する前に、「これが最新の要求か」「解析の対象が変わっていないか」を確かめ、
+        // 違えば捨てる（C15）。ドライラン中にプロジェクトを切り替えると、以前は切り替え先の
+        // 画面へ元のプロジェクトのドライラン結果（と、その文脈で適用してしまう_lastContext）が
+        // 入っていた。破棄・別の解析の開始も同様に、待っていた古い結果は反映しない。
+        if (generation != _analysisGeneration
+            || !ReferenceEquals(_currentPatch, patch)
+            || ProjectPane.SelectedItem?.Project.Id != project.Id)
+        {
+            return;
+        }
+
         if (!dryRun.IsSuccess)
         {
             CenterError = dryRun.Errors.FirstOrDefault();
