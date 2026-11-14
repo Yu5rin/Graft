@@ -79,7 +79,7 @@ public sealed class BackupManager
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return GraftResult<BackupSession>.Fail(
-                ErrorCode.E401, $"manifest.json の書き込みに失敗しました: {ExceptionMessages.Describe(ex)}", path: manifestPath);
+                ErrorCode.E401, $"履歴の記録ファイル（manifest.json）を書き込めませんでした: {ExceptionMessages.Describe(ex)}", path: manifestPath);
         }
 
         var session = new BackupSession(_jsonStore, _revisionIndex, projectId, projectRoot, folderPath, manifestPath, initial.Revision, manifest);

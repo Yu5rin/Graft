@@ -387,7 +387,7 @@ public sealed partial class RevisionStore
             ProjectId = projectId,
             AppliedAt = appliedAt,
             Status = RevisionStatus.InProgress,
-            Summary = "(manifest.json が破損していたため再生成されました)",
+            Summary = "(履歴の記録ファイル（manifest.json）が破損していたため再生成されました)",
         };
 
     /// <summary>

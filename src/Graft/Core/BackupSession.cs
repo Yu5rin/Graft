@@ -105,7 +105,7 @@ public sealed class BackupSession
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の確定に失敗しました: {ExceptionMessages.Describe(ex)}", path: _manifestPath);
+            return GraftResult<bool>.Fail(ErrorCode.E401, $"履歴の記録ファイル（manifest.json）を確定できませんでした: {ExceptionMessages.Describe(ex)}", path: _manifestPath);
         }
 
         return await AppendToIndexAsync(manifest, ct).ConfigureAwait(false);
