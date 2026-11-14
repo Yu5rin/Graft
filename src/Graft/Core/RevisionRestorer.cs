@@ -64,12 +64,81 @@ public sealed class RevisionRestorer
             return GraftResult<IReadOnlyList<string>>.Fail(warnings);
         }
 
+        // 適用が確定しないまま止まったリビジョン（in_progress）は、entries が空のことが多い。entries を
+        // 順に戻すだけの下の経路では何も戻らず成功を返してしまうので、適用の途中経過の記録から戻す。
+        if (revision.Manifest.Status == RevisionStatus.InProgress)
+        {
+            return await RestoreInterruptedAsync(projectId, projectRoot, revision, warnings, ct).ConfigureAwait(false);
+        }
+
         var entriesResult = await UndoRevisionEntriesAsync(revision, projectRoot, ct).ConfigureAwait(false);
         var issues = warnings.Concat(entriesResult.Issues).ToList();
 
         return issues.Any(i => i.Severity == Severity.Error)
             ? GraftResult<IReadOnlyList<string>>.Fail(issues)
             : GraftResult<IReadOnlyList<string>>.Ok(entriesResult.Value, issues);
+    }
+
+    /// <summary>
+    /// 適用が途中で止まった（status が in_progress のまま残った）リビジョンを、元の状態へ戻す。
+    ///
+    /// 【戻す元】 優先順に、(1) バックアップフォルダの journal.jsonl（適用が退避・新規作成・改名・フォルダ作成を
+    /// 1件ずつ書き残した記録。<see cref="BackupJournal"/>参照）、(2) 記録が無い古い版のフォルダで entries が
+    /// ある場合（「ここまで戻す」が途中で失敗して in_progress で確定したもの）は entries、(3) どちらも無ければ
+    /// フォルダに退避されているファイルを手がかりにそれを書き戻す。(3)は新しく作ったファイルが分からないので、
+    /// その旨を Warning で伝える。
+    ///
+    /// 【なぜ rolled_back の印は戻せたときだけ付けるか】 以前は、何も戻していなくても成功を返し、呼び出し側が
+    /// rolled_back の印を付けていた。以後は検出もされず、書き換わったファイルが残った。戻せなかったとき
+    /// （退避の読み取りや書き戻し、削除に1件でも失敗）は失敗を返し、印は付けない（in_progress のまま残して
+    /// 次回の起動時に再び知らせる）。
+    /// </summary>
+    private async Task<GraftResult<IReadOnlyList<string>>> RestoreInterruptedAsync(
+        string projectId, string projectRoot, RevisionSummary revision, List<GraftIssue> warnings, CancellationToken ct)
+    {
+        var issues = new List<GraftIssue>(warnings);
+        IReadOnlyList<string> restoredPaths;
+
+        var journal = BackupJournal.TryRead(revision.FolderPath);
+        if (journal is null && revision.Manifest.Entries.Count > 0)
+        {
+            var viaEntries = await UndoRevisionEntriesAsync(revision, projectRoot, ct).ConfigureAwait(false);
+            issues.AddRange(viaEntries.Issues);
+            if (viaEntries.IsSuccess is false) return GraftResult<IReadOnlyList<string>>.Fail(issues);
+            restoredPaths = viaEntries.Value;
+        }
+        else
+        {
+            IReadOnlyList<JournalOp> ops;
+            if (journal is not null)
+            {
+                ops = journal;
+            }
+            else
+            {
+                ops = BackupJournal.InferStoredFromFolder(revision.FolderPath);
+                issues.Add(GraftIssue.Of(
+                    ErrorCode.E405,
+                    ops.Count == 0
+                        ? "この適用には途中経過の記録が無く、退避されたファイルも見つかりませんでした。戻すものはありませんでした"
+                        : "この適用には途中経過の記録が無い古い形式のため、退避されているファイルだけを書き戻しました。" +
+                          "適用中に新しく作られたファイルがあっても削除していません",
+                    path: revision.FolderPath, severity: Severity.Warning));
+            }
+
+            issues.AddRange(await BackupJournal.RollbackAsync(revision.FolderPath, projectRoot, ops, ct).ConfigureAwait(false));
+            if (issues.Any(i => i.Severity == Severity.Error)) return GraftResult<IReadOnlyList<string>>.Fail(issues);
+
+            restoredPaths = ops.Where(o => o.Op == BackupJournal.Stored && o.Path is not null).Select(o => o.Path!).Distinct().ToList();
+        }
+
+        var marked = await new RevisionStore(_paths)
+            .SetStatusAsync(projectId, revision.Manifest.Revision, RevisionStatus.RolledBack, ct).ConfigureAwait(false);
+        issues.AddRange(marked.IsSuccess
+            ? marked.Issues
+            : marked.Issues.Select(i => i with { Severity = Severity.Warning }));
+
+        return GraftResult<IReadOnlyList<string>>.Ok(restoredPaths, issues);
     }
 
     /// <summary>

@@ -131,18 +131,39 @@ public sealed partial class ApplyEngine
         if (!began.IsSuccess) return GraftResult<RevisionManifest>.Fail(began.Issues);
         var session = began.Value;
 
-        var backedUp = await BackupTargetsAsync(session, plan.Plans, ctx, ct).ConfigureAwait(false);
-        if (!backedUp.IsSuccess)
+        // 退避から書き込みまでの間に、IOException・UnauthorizedAccessException以外の例外（想定外の例外や
+        // 取り消し）が出ても、必ずロールバックを試みる。以前はこの2つ以外が出るとRollbackAsyncを通らずに
+        // 呼び出し元へ抜け、一部のファイルだけが書き換わったまま、manifestもin_progressで残っていた。
+        GraftResult<bool> backedUp;
+        GraftResult<List<RevisionEntry>> executed;
+        try
         {
-            await session.RollbackAsync(ct).ConfigureAwait(false);
-            return GraftResult<RevisionManifest>.Fail(backedUp.Issues);
+            backedUp = await BackupTargetsAsync(session, plan.Plans, ctx, ct).ConfigureAwait(false);
+            if (!backedUp.IsSuccess)
+            {
+                return await RollbackAndFailAsync(session, backedUp.Issues).ConfigureAwait(false);
+            }
+
+            executed = await ExecuteAsync(plan.Plans, ctx, session, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 取り消された場合もファイルは元へ戻してから伝える。ここで使うトークンは、取り消し済みの
+            // ct ではなく None にする（ct を使うと、戻す処理自体が最初に取り消されて何も戻らない）。
+            await session.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return await RollbackAndFailAsync(session, new[]
+            {
+                GraftIssue.Of(ErrorCode.E402, $"適用中に想定外のエラーが起きました: {ExceptionMessages.Describe(ex)}"),
+            }).ConfigureAwait(false);
         }
 
-        var executed = await ExecuteAsync(plan.Plans, ctx, session, ct).ConfigureAwait(false);
         if (!executed.IsSuccess)
         {
-            await session.RollbackAsync(ct).ConfigureAwait(false);
-            return GraftResult<RevisionManifest>.Fail(executed.Issues);
+            return await RollbackAndFailAsync(session, executed.Issues).ConfigureAwait(false);
         }
 
         // 実機不具合対応（履歴の「Nファイル」が実際の変更件数と食い違う）:
@@ -169,7 +190,12 @@ public sealed partial class ApplyEngine
         };
         var finalManifest = initial with { Status = RevisionStatus.Success, Entries = executed.Value, Stats = appliedStats };
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
-        if (!completed.IsSuccess) return GraftResult<RevisionManifest>.Fail(completed.Issues);
+        if (!completed.IsSuccess)
+        {
+            // manifestを確定できなかった。ファイルだけが書き換わって印がin_progressのまま残るより、
+            // この場で元へ戻して失敗として伝える。
+            return await RollbackAndFailAsync(session, completed.Issues).ConfigureAwait(false);
+        }
 
         // 不具合1対応: 7.4の世代管理（RevisionStore.EnforceRetentionAsync）は実装済みだったが
         // 呼び出し元が存在せず、設定画面の「最大保持リビジョン数」「バックアップ合計上限」が
@@ -190,6 +216,24 @@ public sealed partial class ApplyEngine
         // ため、あわせて合流させる。適用が成功したこと自体には影響しない付随情報。
         var mergedIssues = dupIssues.Issues.Concat(executed.Issues).Concat(completed.Issues).Concat(retention.Issues).ToList();
         return GraftResult<RevisionManifest>.Ok(finalManifest, mergedIssues);
+    }
+
+    /// <summary>
+    /// ロールバックして失敗を返す。ロールバック自体が失敗したとき（戻せなかったファイルがあるとき）は、
+    /// その旨と戻せなかった理由を失敗に加える。以前は戻す処理の結果を捨てていたため、一部のファイルが
+    /// 書き換わったままなのに、利用者へは元の失敗の理由だけが伝わり、状態が中途半端なことに気づけなかった。
+    /// この場合manifestはin_progressのまま残り、次回起動時の検出（E403）がロールバックを提案する。
+    /// </summary>
+    private static async Task<GraftResult<RevisionManifest>> RollbackAndFailAsync(
+        BackupSession session, IReadOnlyList<GraftIssue> cause)
+    {
+        var rollback = await session.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+        if (rollback.IsSuccess) return GraftResult<RevisionManifest>.Fail(cause);
+
+        var notice = GraftIssue.Of(ErrorCode.E403,
+            "適用の失敗後、元の状態へ戻す処理にも失敗しました。一部のファイルが書き換わったままになっている可能性があります。" +
+            "次回の起動時に、バックアップから戻すかどうかを確認します。履歴からこのリビジョンを選んで取り消すこともできます");
+        return GraftResult<RevisionManifest>.Fail(cause.Concat(rollback.Issues).Append(notice).ToList());
     }
 
     // ------------------------------------------------------------------
@@ -489,18 +533,20 @@ public sealed partial class ApplyEngine
         // 素通りする。
         if (DebugCorruptFinalTextForTests is not null) finalText = DebugCorruptFinalTextForTests(finalText);
 
+        // 修正6: TrackCreatedは書き込みの<b>前</b>に呼ぶ（以前は「書き込みが成功した直後」だった）。
+        // この後のバイト検証（VerifyWrittenContentMatchesPatch）で不一致を検出して失敗を返す経路が
+        // あるが、その時点で既にファイルは物理的に作成済みのため、記録を後回しにすると
+        // ロールバック（BackupSession.RollbackAsync）がこの新規作成ファイルを削除対象として
+        // 認識できず、壊れた内容のファイルが削除されずに残ってしまう
+        // （ExecuteTextFilesAsyncの呼び出し元コメントも参照）。さらに、書き込みの直後にアプリが落ちた場合に
+        // 起動時のロールバックが削除できるよう、ディスク上の記録（journal.jsonl）にも先に残す必要がある。
+        // 書き込みが失敗してファイルができなかった場合、実在しないファイルの削除は何もしないので害は無い。
+        if (!existed) session.TrackCreated(path);
+
         var clearedReadOnly = ClearReadOnlyIfNeeded(fullPath, ctx);
         var written = await FileTextIO.WriteAsync(fullPath, finalText, shape, ct).ConfigureAwait(false);
         RestoreReadOnlyIfNeeded(fullPath, clearedReadOnly);
         if (!written.IsSuccess) return GraftResult<(bool, string?, string)>.Fail(written.Issues);
-
-        // 修正6: TrackCreatedは「ディスクへの書き込みが成功した直後」に呼ぶ。この後の
-        // バイト検証（VerifyWrittenContentMatchesPatch）で不一致を検出して失敗を返す経路が
-        // あるが、その時点で既にファイルは物理的に作成済みのため、記録を後回しにすると
-        // ロールバック（BackupSession.RollbackAsync）がこの新規作成ファイルを削除対象として
-        // 認識できず、壊れた内容のファイルが削除されずに残ってしまう
-        // （ExecuteTextFilesAsyncの呼び出し元コメントも参照）。
-        if (!existed) session.TrackCreated(path);
 
         // 実機不具合対応: hashAfterはメモリ上のfinalTextからではなく、書き込み直後にディスクを
         // 読み直した実測値から計算する。SafeFileWriterは既にバイト列レベルでの検証を済ませて
