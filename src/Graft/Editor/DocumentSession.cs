@@ -236,8 +236,12 @@ public sealed class DocumentSession : IDisposable
         // 変わっていれば印は付けず、未保存のまま残す（書き込み中に打った分が未保存として残るのが
         // 正しい。副作用として、その後に保存内容まで取り消しても未保存表示は残るが、
         // 安全側の誤差なので許容する）。
-        // 文字列と版は、UIスレッドで同時に控える（間に打鍵が入ると、版と内容が食い違うため）。
-        var (text, versionAtStart) = await ui.InvokeAsync(() => (Document.Text, Document.Version));
+        // 文字列と版は、最初の await より前に、同期で同時に控える（SaveAsync はUIスレッドから
+        // 呼ばれる。冒頭の ui の捕捉と同じ前提）。ui.InvokeAsync で控えると、UIスレッドの
+        // キューへ積まれて後回しになり、呼び出しの直後に打たれた文字まで「保存を始めた時点の
+        // 内容」に含まれてしまう（SaveRaceTests が検出した）。
+        var text = Document.Text;
+        var versionAtStart = Document.Version;
 
         // 文字コードで表せない文字（Shift_JISへの絵文字など）は、書くと「?」に化ける。
         // 黙って書かず、確認を取る（適用のドライランが警告で知らせるのと同じ趣旨）。
