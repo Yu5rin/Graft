@@ -233,7 +233,7 @@
         </Grid>
 
         <!-- ========== エディタ本体 ========== -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,Auto,*">
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,Auto,Auto,*">
 
             <!--
                 Markdownプレビュー機能（利用者指示）: .mdファイルのタブでのみ表示するモード切替バー。
@@ -340,7 +340,28 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Row="3">
+            <!--
+                文字コードを判定できないファイル（EUC-JP・Windows-1252など。UTF-8・Shift_JIS以外）を
+                開いたときの通知バー。内容は読めるが、保存すると日本語などが文字化けして元に戻せなく
+                なるため、エディタを読み取り専用にして保存できなくしている
+                （TextShape.UnsupportedEncoding・EditorPane.axaml.csのApplyReadOnlyOption参照）。
+                何をすればよいかまで書く（他のエディタで変換して保存し直す）。
+            -->
+            <Border x:Name="EncodingReadOnlyBar"
+                    Grid.Row="3"
+                    Background="{DynamicResource BgElevated}"
+                    BorderBrush="{DynamicResource StateWarn}"
+                    BorderThickness="0,0,0,2"
+                    Padding="12,8"
+                    IsVisible="{Binding ActiveTab.IsEncodingReadOnly, FallbackValue=False}"
+                    AutomationProperties.Name="読み取り専用の通知">
+                <TextBlock Text="このファイルの文字コード（UTF-8・Shift_JIS 以外）には対応していないため、読み取り専用で開いています。保存すると日本語などが文字化けして元に戻せなくなるため、編集と保存を止めています。他のエディタでUTF-8かShift_JISに変換して保存し直すと編集できます。"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextPrimary}"
+                           TextWrapping="Wrap" />
+            </Border>
+
+            <Grid Grid.Row="4">
                 <!-- 課題3（再設計）: WordWrapはここでバインドせずEditorPane.axaml.csの
                      ApplyWordWrapOptionで一括管理する（利用者の設定＋タブごとの一時的な無効化
                      [WordWrapDisabledForTab]の両方を反映する必要があるため。

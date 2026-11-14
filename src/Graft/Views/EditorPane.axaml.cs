@@ -271,6 +271,7 @@ public partial class EditorPane : UserControl
         // 自動で入れ直す。上のPrepareForDocumentSwap（代入の"前"）とは働く時点が
         // 異なるため、順序が衝突することはない。
         Editor.Document = tab.Session.Document;
+        ApplyReadOnlyOption();
         ApplyWhitespaceOption();
         ApplyWordWrapOption();
         ApplyIndentGuideModeOption();
@@ -497,7 +498,19 @@ public partial class EditorPane : UserControl
     private void OnLoadedTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(EditorTabViewModel.WordWrapDisabledForTab)) ApplyWordWrapOption();
+        else if (e.PropertyName == nameof(EditorTabViewModel.IsEncodingReadOnly)) ApplyReadOnlyOption();
         else if (e.PropertyName == nameof(EditorTabViewModel.ShowMarkdownPreview)) ApplyMarkdownPreviewMode();
+    }
+
+    /// <summary>
+    /// 文字コードを判定できないファイル（<see cref="EditorTabViewModel.IsEncodingReadOnly"/>）は
+    /// エディタを読み取り専用にする。保存は<c>DocumentSession.SaveAsync</c>側でも止めているが、
+    /// 編集できてしまうと「保存できない変更」が残って閉じるたびに確認が出るため、編集自体を止める。
+    /// 通知バー（EditorPane.axaml「EncodingReadOnlyBar」）が理由を示す。
+    /// </summary>
+    private void ApplyReadOnlyOption()
+    {
+        Editor.IsReadOnly = _loadedTab is { Kind: EditorTabKind.Document } t && t.IsEncodingReadOnly;
     }
 
     private void ApplyIndentOptions(EditorTabViewModel tab)

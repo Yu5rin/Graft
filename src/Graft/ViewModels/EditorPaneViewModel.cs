@@ -635,6 +635,10 @@ public sealed partial class EditorPaneViewModel : ObservableObject
 
     private static string EncodingLabel(TextShape shape)
     {
+        // 判定できなかったファイルに「UTF-8 (BOMなし)」と出すと、UTF-8として読めているように
+        // 見えてしまう。実際は置換つきで読んだ読み取り専用の状態なので、そう示す。
+        if (shape.UnsupportedEncoding) return "不明（読み取り専用）";
+
         var name = shape.Encoding.CodePage switch
         {
             65001 => "UTF-8",

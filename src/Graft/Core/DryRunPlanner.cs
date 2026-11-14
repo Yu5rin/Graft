@@ -188,6 +188,17 @@ public sealed class DryRunPlanner
         if (!loaded.IsSuccess) return FailPlansForFile(blocksForFile, path, loaded.Issues);
 
         var (originalLines, shape) = loaded.Value;
+
+        // 文字コードを判定できないファイル（EUC-JP・Windows-1252など）は、置換つきで読んだ内容を
+        // 書き戻すと変更していない行まで文字化けして元に戻せなくなる。これまでは警告もなく
+        // 「成功」していたため、ドライランの時点で全ブロックをエラーにして適用を止める。
+        // 読むだけの機能（コンテキスト収集・検索）はこの経路を通らないので影響を受けない。
+        if (shape.UnsupportedEncoding)
+        {
+            var unsupported = GraftIssue.Of(ErrorCode.E218, FileTextIO.UnsupportedEncodingDetail, path: path);
+            return FailPlansForFile(blocksForFile, path, new[] { unsupported });
+        }
+
         var resolution = BlockResolver.ResolveFile(originalLines, blocksForFile, _matcher);
         return resolution.Units.Select(u => BuildBlockPlan(u, path, check.Exists, shape, ctx, fileIssues)).ToList();
     }
@@ -214,14 +225,50 @@ public sealed class DryRunPlanner
         var operation = !fileExisted && canApply ? EntryOperation.Create : EntryOperation.Modify;
         var issues = unit.CanApply ? MergeIssues(fileIssues, unit.Issues) : unit.Issues;
 
+        // Shift_JISなど、Unicodeの全文字は表せない文字コードのファイルへ、表せない文字（絵文字・€・
+        // ✓・éなど）を書くと、黙って「?」に置き換わる（書き込みの挙動は既存のまま変えない。
+        // EncodingSafetyのクラスコメント参照）。書く前に検出し、警告つきの「要確認」にして
+        // 利用者に見えるようにする。適用を止めはしない（了承のうえで書きたい場合がある）。
+        var lossy = canApply ? FindUnrepresentableInserted(unit, shape) : Array.Empty<string>();
+        var needsConfirmation = unit.NeedsConfirmation;
+        if (lossy.Count > 0)
+        {
+            needsConfirmation = true;
+            issues = MergeIssues(issues, new[]
+            {
+                GraftIssue.Of(ErrorCode.E219,
+                    $"{EncodingSafety.Describe(lossy)}は、このファイルの文字コード（{shape.Encoding.EncodingName}）で表せないため、書き込むと別の文字（?など）に置き換わります",
+                    path: path, severity: Severity.Warning),
+            });
+        }
+
         return new BlockPlan
         {
             Block = unit.SourceBlock, Pair = unit.SourcePair, Path = path, Operation = operation, Stage = unit.Stage,
-            CanApply = canApply, NeedsConfirmation = unit.NeedsConfirmation, IsSelected = canApply,
+            CanApply = canApply, NeedsConfirmation = needsConfirmation, IsSelected = canApply,
             Issues = issues, BeforeText = unit.BeforeText, AfterText = unit.AfterText, Shape = shape,
             Diff = diff, Description = unit.Description, Added = diff?.Added ?? 0, Removed = diff?.Removed ?? 0,
             IndentCorrectionChars = unit.IndentCorrectionChars,
         };
+    }
+
+    /// <summary>
+    /// このユニットが新たに書き込む文字（SRならREPLACE部、FULL/APPEND/PREPENDなら本文）のうち、
+    /// ファイルの文字コードで表せないもの。変更しない既存部分は、そのファイルを読めた時点で
+    /// 表せる文字のはずなので対象にしない（10万行のファイルで全文を毎回調べないための限定でもある）。
+    /// </summary>
+    private static IReadOnlyList<string> FindUnrepresentableInserted(ChangeUnitResult unit, TextShape shape)
+    {
+        if (EncodingSafety.IsUnicode(shape.Encoding)) return Array.Empty<string>();
+
+        var inserted = unit.SourcePair?.ReplaceText ?? unit.SourceBlock switch
+        {
+            FullContentBlock full => full.Content,
+            AppendBlock append => append.Content,
+            PrependBlock prepend => prepend.Content,
+            _ => string.Empty,
+        };
+        return EncodingSafety.FindUnrepresentable(inserted, shape.Encoding);
     }
 
     // ------------------------------------------------------------------

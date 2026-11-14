@@ -89,6 +89,12 @@ public sealed class EditorTabManager
             if (oldPreview is not null) RemoveTab(oldPreview);
         }
 
+        // 保存しようとする内容に文字コードで表せない文字（Shift_JISへの絵文字など）が含まれる
+        // ときの確認。DocumentSessionはダイアログを知らないので、ここで差し込む。
+        opened.Value.ConfirmLossySave = (fileName, detail) => _dialogs.ConfirmAsync(
+            "文字コードで表せない文字",
+            $"「{fileName}」: {detail}。このまま保存しますか？");
+
         var tab = new EditorTabViewModel(opened.Value, CloseAsync) { IsPreview = preview };
         Tabs.Add(tab);
         return GraftResult<EditorTabViewModel>.Ok(tab, opened.Issues);

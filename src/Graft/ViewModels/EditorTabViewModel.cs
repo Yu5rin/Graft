@@ -49,6 +49,9 @@ public sealed class EditorTabViewModel : ObservableObject
         _closeRequested = closeRequested ?? throw new ArgumentNullException(nameof(closeRequested));
         _isModified = session.IsModified;
         session.ModifiedChanged += OnSessionModifiedChanged;
+        // 再読込でファイルの文字コードが変わった（例: 外部でEUC-JPに保存し直された）場合に、
+        // 読み取り専用の表示を追従させる。ContentReplacingはShapeを更新した後に発火する。
+        session.ContentReplacing += (_, _) => OnPropertyChanged(nameof(IsEncodingReadOnly));
 
         CloseCommand = new AsyncRelayCommand(() => _closeRequested(this), context: "タブを閉じる");
         ReloadDiscardingChangesCommand = new AsyncRelayCommand(ReloadDiscardingChangesAsync, context: "変更を破棄して再読込");
@@ -228,6 +231,14 @@ public sealed class EditorTabViewModel : ObservableObject
     /// 表示条件として使う。
     /// </summary>
     public bool HasExtremelyLongLine => Kind == EditorTabKind.Document && Session.HasExtremelyLongLine;
+
+    /// <summary>
+    /// このタブのファイルが、文字コードを判定できず保存できない（読み取り専用で開いている）か
+    /// どうか。差分系タブでは常にfalse。通知バー（EditorPane.axaml）の表示と、エディタの
+    /// 読み取り専用化（EditorPane.axaml.csのApplyReadOnlyOption）に使う。再読込で文字コードの
+    /// 判定結果が変わりうるため、<see cref="Graft.Editor.DocumentSession.ContentReplacing"/>で通知し直す。
+    /// </summary>
+    public bool IsEncodingReadOnly => Kind == EditorTabKind.Document && Session.IsEncodingReadOnly;
 
     /// <summary>
     /// 課題3（再設計）: 「このファイルでは折り返しを無効にする」（通知バー）が押されたかどうか。

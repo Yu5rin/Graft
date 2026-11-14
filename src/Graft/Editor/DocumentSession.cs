@@ -108,6 +108,22 @@ public sealed class DocumentSession : IDisposable
     public TextShape Shape { get; private set; }
 
     /// <summary>
+    /// 文字コードを判定できない（EUC-JP・Windows-1252など）ため、開けるが保存できないファイルかどうか。
+    /// trueの間、エディタは読み取り専用で表示し、理由を通知バーに出す
+    /// （<see cref="TextShape.UnsupportedEncoding"/>・<see cref="SaveAsync"/>）。
+    /// </summary>
+    public bool IsEncodingReadOnly => Shape.UnsupportedEncoding;
+
+    /// <summary>
+    /// 保存しようとする内容に、ファイルの文字コード（Shift_JIS等）で表せない文字が含まれるとき、
+    /// 続行してよいかを利用者に尋ねる手段。引数はファイル名と、表せない文字の説明。trueなら保存する。
+    /// 未設定（null）のときは確認が取れないものとして保存しない（壊す側に倒さない）。
+    /// このクラスはダイアログを知らない設計のため、<see cref="EditorTabManager"/>が
+    /// <c>IDialogService</c>を使う処理を差し込む。
+    /// </summary>
+    public Func<string, string, Task<bool>>? ConfirmLossySave { get; set; }
+
+    /// <summary>
     /// 課題3: <see cref="LongLineThreshold"/>を超える行を含むかどうか。<see cref="OpenAsync"/>時に
     /// 一度だけ判定する。trueの場合、エディタ側（EditorPane）はその極端に長い行に限って
     /// 構文強調・括弧の言語認識を打ち切り（ファイル全体は対象外）、ステータスバーで
@@ -202,7 +218,33 @@ public sealed class DocumentSession : IDisposable
         // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく。
         var ui = Dispatcher.UIThread;
 
-        var result = await FileTextIO.WriteAsync(FullPath, Document.Text, Shape, ct).ConfigureAwait(false);
+        // 文字コードを判定できないファイルは、開いて読めても保存できない（読み取り専用。
+        // TextShape.UnsupportedEncodingのコメント参照）。保存すると読み込み時に置換された
+        // U+FFFDがそのまま書かれ、変更していない行まで文字化けして元に戻せなくなる。
+        // FileTextIO.WriteAsyncも同じ理由で止めるが、E701へ包み直される前に、利用者へ
+        // 原因が分かるE218のまま返す。
+        if (Shape.UnsupportedEncoding)
+        {
+            return GraftResult<bool>.Fail(ErrorCode.E218, FileTextIO.UnsupportedEncodingDetail, path: FullPath);
+        }
+
+        // 文字コードで表せない文字（Shift_JISへの絵文字など）は、書くと「?」に化ける。
+        // 黙って書かず、確認を取る（適用のドライランが警告で知らせるのと同じ趣旨）。
+        // 確認の手段（ConfirmLossySave）が無い呼び出しでは、壊す側に倒さず保存しない。
+        var text = await ui.InvokeAsync(() => Document.Text);
+        var unrepresentable = EncodingSafety.FindUnrepresentable(text, Shape.Encoding);
+        if (unrepresentable.Count > 0)
+        {
+            var detail = $"{EncodingSafety.Describe(unrepresentable)}は、このファイルの文字コード（{Shape.Encoding.EncodingName}）で表せないため、"
+                + "保存すると別の文字（?など）に置き換わります";
+            var confirmed = ConfirmLossySave is not null && await ConfirmLossySave(FileName, detail).ConfigureAwait(false);
+            if (!confirmed)
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E219, detail + "。保存を取りやめました", path: FullPath);
+            }
+        }
+
+        var result = await FileTextIO.WriteAsync(FullPath, text, Shape, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
             // FileTextIO.WriteAsyncはCore内部の書き込み失敗としてE402を返すが、エディタからの
