@@ -148,14 +148,8 @@ public partial class ShellWindow
             // （テキストの取り消し）はこれより前のinTextInput分岐で既に処理済みのため衝突しない。
             if (e.Key == Key.Z && IsDescendant(focused, ExplorerViewControl)) return;
 
-            e.Handled = HandlePlainCtrlGatedShortcut(e.Key);
+            e.Handled = HandlePlainCtrlGatedShortcut(e);
             return;
-        }
-
-        if (e.Key is >= Key.D1 and <= Key.D9)
-        {
-            // 附録A キーマップ移行: 素の1〜9は仕様書3.2によりCtrl+Alt+1〜9へ変更された。
-            ViewModel.NotifyLegacyKey(LegacyKey.ProjectDigit);
         }
     }
 
@@ -266,6 +260,8 @@ public partial class ShellWindow
         {
             case Key.J: ViewModel.ToggleGraftPanelCommand.Execute(null); return true;
             case Key.S: _ = ViewModel.Editor.SaveActiveAsync(); return true;
+            // Ctrl+,（設定）は入力欄の中でも効かせる。エディタ・TextBoxの標準操作には無いキー。
+            case Key.OemComma: ViewModel.Graft.OpenSettingsCommand.Execute(null); return true;
             case Key.Enter: ViewModel.Graft.ApplyCommand.Execute(null); return true;
             // クイックオープン: AvaloniaEdit標準のキーバインドと衝突しないため、
             // エディタ内フォーカス時も含め常に反応させる（他の素のCtrl+*と同じ扱い）。
@@ -304,14 +300,19 @@ public partial class ShellWindow
     /// テキスト入力欄・エディタのいずれにもフォーカスが無いときだけ届く素のCtrl+*。
     /// V/Z/Hは附録Aのキーマップ移行通知（旧キーが押されたことを1回だけ知らせる）。
     /// </summary>
-    private bool HandlePlainCtrlGatedShortcut(Key key)
+    private bool HandlePlainCtrlGatedShortcut(KeyEventArgs keyArgs)
     {
-        switch (key)
+        switch (keyArgs.Key)
         {
-            case Key.V: ViewModel.NotifyLegacyKey(LegacyKey.PasteCtrlV); return true;
-            case Key.Z: ViewModel.NotifyLegacyKey(LegacyKey.UndoCtrlZ); return true;
-            case Key.H: ViewModel.NotifyLegacyKey(LegacyKey.HistoryCtrlH); return true;
-            case Key.OemComma: ViewModel.Graft.OpenSettingsCommand.Execute(null); return true;
+            // 入力欄の外のCtrl+Vは、ツールバーの「解析」と同じクリップボードの解析にする。
+            // 以前は「このキーは変更されました」というモーダルを出していたが、旧版を知らない
+            // 利用者には意味が通じない。入力欄・エディタの中のCtrl+Vは通常の貼り付けのまま
+            // （inTextInputで先に return する）。
+            case Key.V: ViewModel.Graft.PasteAndParseCommand.Execute(null); return true;
+            // Ctrl+Z（エクスプローラの削除の取り消しは呼び出し元で先に処理済み）・Ctrl+Y等は何もしない。
+            // Ctrl+F/H/G/W/Tab は、アクティブなタブに対して効かせる（EditorPane.TryHandleFromShell）。
+            case Key.F or Key.H or Key.G or Key.W or Key.Tab:
+                return EditorHost.Child is EditorPane pane && pane.TryHandleFromShell(keyArgs);
             // Ctrl+/: ショートカット一覧を開く。ドキュメントタブを開いたエディタ内では同じキーが
             // 行コメントの切り替え（EditorPane.axaml.cs）に使われているため、ここは
             // テキスト入力欄・エディタの外（inTextInputがfalse）でのみ届く経路にとどめ、

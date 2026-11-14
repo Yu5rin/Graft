@@ -29,18 +29,6 @@ public enum GraftPanelPlacementKind
 }
 
 /// <summary>
-/// 旧キー（v1.5のショートカット）の種別。附録A「キーマップ移行」の一度きり通知に使う
-/// （9.5: 素のCtrl+V・Ctrl+Z・Ctrl+H・素の1〜9）。
-/// </summary>
-public enum LegacyKey
-{
-    PasteCtrlV,
-    UndoCtrlZ,
-    HistoryCtrlH,
-    ProjectDigit,
-}
-
-/// <summary>
 /// 新シェルレイアウト（サイドバー＋エディタ中央＋接ぎ木パネル下部、仕様書9.2）を統括する
 /// ViewModel。既存の <see cref="MainViewModel"/> の全機能をそのまま内包し（<see cref="Graft"/>）、
 /// これにエディタペイン（<see cref="Editor"/>）とサイドビュー・接ぎ木パネルの開閉状態を
@@ -55,7 +43,6 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     // v1.0.7実機不具合対応: プロジェクト切替時の環境要約ログ（EnvironmentSummaryLogger）が
     // データ保存先（ポータブル／ユーザーフォルダ）を判定するために必要。
     private readonly Graft.Infra.AppPaths _appPaths;
-    private readonly HashSet<LegacyKey> _notifiedLegacyKeys = new();
 
     private SideViewKind _selectedSideView = SideViewKind.Project;
     private bool _isSideViewCollapsed;
@@ -743,30 +730,4 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         foreach (var folder in layout.ExpandedFolders) await Explorer.ExpandPathAsync(folder).ConfigureAwait(true);
     }
-
-    /// <summary>
-    /// 附録A「キーマップ移行」: 旧キーがエディタ外で押された場合、初回のみ変更内容を通知する。
-    /// 通知済みフラグはメモリ保持のみ（プロセス再起動で再び通知される）。
-    /// </summary>
-    public void NotifyLegacyKey(LegacyKey key)
-    {
-        if (!_notifiedLegacyKeys.Add(key))
-        {
-            return;
-        }
-        _ = _dialogs.ShowMessageAsync("このキーは変更されました", LegacyKeyMessage(key));
-    }
-
-    private static string LegacyKeyMessage(LegacyKey key) => key switch
-    {
-        LegacyKey.PasteCtrlV =>
-            "パッチの取り込み解析は Ctrl+Shift+V に変更されました。Ctrl+V はエディタでの通常の貼り付けに使えます。",
-        LegacyKey.UndoCtrlZ =>
-            "直前リビジョンの取り消しは Ctrl+Alt+Z に変更されました。Ctrl+Z はエディタのアンドゥに使えます。",
-        LegacyKey.HistoryCtrlH =>
-            "履歴ビューを開く操作は Ctrl+Shift+H に変更されました。Ctrl+H はエディタの置換に使えます。",
-        LegacyKey.ProjectDigit =>
-            "プロジェクト切替は Ctrl+Alt+1〜9 に変更されました。数字キー単独は通常の入力に使えます。",
-        _ => "このキーの割り当てが変更されました。",
-    };
 }

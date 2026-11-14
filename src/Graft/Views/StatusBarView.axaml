@@ -144,7 +144,7 @@
                         IsVisible="{Binding Graft.HasApplyUndoNotice}"
                         AutomationProperties.Name="{Binding Graft.ApplyUndoNoticeText}"
                         local:HelpTip.Standard="適用直後に数秒だけ表示される通知です。クリックすると直前のリビジョンを元に戻せます。"
-                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Zからいつでも元に戻せます。"
+                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Alt+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Alt+Zからいつでも元に戻せます。"
                         ToolTip.Tip="クリックすると直前に適用したリビジョンを元に戻します。" />
 
                 <!--

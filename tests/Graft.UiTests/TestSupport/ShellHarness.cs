@@ -38,6 +38,9 @@ public sealed class ShellHarness : IDisposable
     public ShellWindow? Window { get; private set; }
     public AppPaths AppPaths { get; private set; } = null!;
 
+    /// <summary>設定を開く要求の回数。</summary>
+    public int OpenSettingsCount { get; private set; }
+
     public static async Task<ShellHarness> CreateAsync(Settings? settings = null, bool withWindow = false)
     {
         var root = Path.Combine(Path.GetTempPath(), "graft-ops", Guid.NewGuid().ToString("N"));
@@ -62,7 +65,7 @@ public sealed class ShellHarness : IDisposable
             new RevisionRestorer(AppPaths),
             Dialogs,
             new FakeUiServices(Clipboard),
-            openSettings: () => { });
+            openSettings: () => OpenSettingsCount++);
 
         if (withWindow)
         {
