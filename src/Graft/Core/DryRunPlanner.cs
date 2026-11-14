@@ -37,7 +37,7 @@ public sealed class DryRunPlanner
 
         var plans = new List<BlockPlan>();
         plans.AddRange(patch.Blocks.OfType<MkdirBlock>().Select(b => PlanMkdir(b, ctx)));
-        plans.AddRange(patch.Blocks.OfType<RenameBlock>().Select(b => PlanRename(b, ctx, fileProbes)));
+        plans.AddRange(patch.Blocks.OfType<RenameBlock>().Select(b => PlanRename(b, ctx, renamedFrom, fileProbes)));
 
         var textGroups = patch.Blocks
             .Where(b => b is FullContentBlock or SearchReplaceBlock or AppendBlock or PrependBlock)
@@ -81,7 +81,8 @@ public sealed class DryRunPlanner
         };
     }
 
-    private static BlockPlan PlanRename(RenameBlock block, ApplyContext ctx, List<DryRunFileProbe> probes)
+    private static BlockPlan PlanRename(
+        RenameBlock block, ApplyContext ctx, HashSet<string> renamedFrom, List<DryRunFileProbe> probes)
     {
         var issues = new List<GraftIssue>();
         var fromCheck = ctx.Guard.Inspect(block.FromPath);
@@ -103,7 +104,20 @@ public sealed class DryRunPlanner
         }
 
         var toResolved = ctx.Guard.Resolve(block.ToPath);
-        if (!toResolved.IsSuccess) issues.AddRange(toResolved.Issues);
+        if (!toResolved.IsSuccess)
+        {
+            issues.AddRange(toResolved.Issues);
+        }
+        else if (fromCheck.IsSuccess
+            && !renamedFrom.Contains(NormalizeKey(block.ToPath))
+            && RenameTarget.IsOccupied(fromCheck.Value.FullPath, toResolved.Value))
+        {
+            // 移動先に既にあるファイルは、実行側が上書きすると元の内容がバックアップにも残らず失われる
+            // （RenameTarget参照）。適用させない。ただし移動先が同じパッチ内で別の場所へ改名される
+            // 移動元（RENAME b -> c の後に RENAME a -> b）なら、実行時には空いているので止めない
+            // （実行順で空いていなければ ApplyEngine 側が同じ判定で止める）。
+            issues.Add(GraftIssue.Of(ErrorCode.E220, $"移動先: {block.ToPath}", path: block.ToPath));
+        }
 
         var canApply = issues.All(i => i.Severity != Severity.Error);
         return new BlockPlan
@@ -255,7 +269,7 @@ public sealed class DryRunPlanner
             CanApply = canApply, NeedsConfirmation = needsConfirmation, IsSelected = canApply,
             Issues = issues, BeforeText = unit.BeforeText, AfterText = unit.AfterText, Shape = shape,
             Diff = diff, Description = unit.Description, Added = diff?.Added ?? 0, Removed = diff?.Removed ?? 0,
-            IndentCorrectionChars = unit.IndentCorrectionChars,
+            IndentCorrectionChars = unit.IndentCorrectionChars, MatchStartLines = unit.MatchStartLines,
         };
     }
 

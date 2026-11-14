@@ -400,7 +400,11 @@ public sealed partial class RevisionStore
         {
             if (entry.Operation is EntryOperation.Create or EntryOperation.Mkdir) continue; // 退避対象なし
 
-            var backupRelative = entry.Operation == EntryOperation.Rename ? entry.RenamedFrom : entry.Path;
+            // 変更前の内容の在り処。RENAMEの移動先を同じパッチで編集したmodifyは、移動先ではなく
+            // 移動元のバックアップを指す（RevisionEntryLinks参照）。renameの移動元が記録されていない
+            // ときは、従来どおり判定の対象から外す。
+            var backupRelative = RevisionEntryLinks.ResolveBackupPath(manifest.Entries, entry);
+            if (entry.Operation == EntryOperation.Rename && string.IsNullOrEmpty(entry.RenamedFrom)) continue;
             if (string.IsNullOrEmpty(backupRelative)) continue;
 
             var normalized = BackupPathUtil.NormalizeRelativePath(backupRelative);

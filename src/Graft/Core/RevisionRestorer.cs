@@ -58,18 +58,164 @@ public sealed class RevisionRestorer
                 ErrorCode.E405, $"バックアップの実体が見つからないため復元できません（{expectedDir} 配下）", path: revision.FolderPath);
         }
 
-        var warnings = await CheckHashesAsync(projectRoot, revision.Manifest.Entries, ct).ConfigureAwait(false);
+        // 取り消し済み(rolled_back)のリビジョンを重ねて取り消さない。手元の一覧が古い（別の操作で既に取り消された）
+        // 場合に備え、ディスク上の最新の状態も確かめる。
+        var store = new RevisionStore(_paths);
+        // 読むだけで書かない: RevisionStore.ReadAsyncは壊れた/形の違うmanifest.jsonを再生成して上書きするため、
+        // 旧レイアウトで退避コピーがmanifest.jsonの位置にあるフォルダの退避を壊してしまう。
+        if (ReadStatusFromDisk(revision.FolderPath) == RevisionStatus.RolledBack
+            || revision.Manifest.Status == RevisionStatus.RolledBack)
+        {
+            return GraftResult<IReadOnlyList<string>>.Fail(
+                ErrorCode.E221, $"r{revision.Manifest.Revision} は既に取り消し済みです", path: revision.FolderPath);
+        }
+
+        var warnings = await CheckHashesAsync(projectRoot, revision.FolderPath, revision.Manifest.Entries, ct).ConfigureAwait(false);
         if (warnings.Count > 0 && !force)
         {
             return GraftResult<IReadOnlyList<string>>.Fail(warnings);
         }
 
+        // 適用が確定しないまま止まったリビジョン（in_progress）は、entries が空のことが多い。entries を
+        // 順に戻すだけの下の経路では何も戻らず成功を返してしまうので、適用の途中経過の記録から戻す。
+        if (revision.Manifest.Status == RevisionStatus.InProgress)
+        {
+            return await RestoreInterruptedAsync(projectId, projectRoot, revision, warnings, ct).ConfigureAwait(false);
+        }
+
         var entriesResult = await UndoRevisionEntriesAsync(revision, projectRoot, ct).ConfigureAwait(false);
         var issues = warnings.Concat(entriesResult.Issues).ToList();
+        if (issues.Any(i => i.Severity == Severity.Error))
+        {
+            return GraftResult<IReadOnlyList<string>>.Fail(issues);
+        }
 
-        return issues.Any(i => i.Severity == Severity.Error)
-            ? GraftResult<IReadOnlyList<string>>.Fail(issues)
-            : GraftResult<IReadOnlyList<string>>.Ok(entriesResult.Value, issues);
+        // 取り消せたので、取り消し済みの印を付ける。以前は success のまま残り、同じパッチを貼り直すと
+        // 「適用済み」(E302)で適用できず、「直前を取り消す」を続けると同じリビジョンをまた取り消そうとした。
+        issues.AddRange(await MarkUndoneAsync(store, projectId, revision.Manifest, ct).ConfigureAwait(false));
+        return GraftResult<IReadOnlyList<string>>.Ok(entriesResult.Value, issues);
+    }
+
+    /// <summary>
+    /// 取り消したリビジョンを rolled_back にする。そのリビジョンが「ここまで戻す」で、それが取り消していた
+    /// リビジョン（<see cref="RevisionManifest.RolledBackRevisions"/>）があれば、それらは再び有効になるので
+    /// success へ戻す。印を付けられなくても、ファイルは既に戻せているので失敗にはせず Warning にとどめる
+    /// （印だけが古いまま残る）。
+    ///
+    /// 戻す側の条件: いま rolled_back で、かつ戻す側のリビジョンより前に適用されたもの。番号だけで引くと、
+    /// 履歴番号の重複を直した（<see cref="RevisionDuplicateRepairer"/>）あとで番号がずれた記録から、
+    /// 無関係なリビジョンを success に戻しかねないため、適用日時でも確かめる。
+    /// </summary>
+    private static async Task<List<GraftIssue>> MarkUndoneAsync(
+        RevisionStore store, string projectId, RevisionManifest undone, CancellationToken ct)
+    {
+        var issues = new List<GraftIssue>();
+
+        var marked = await store.SetStatusAsync(projectId, undone.Revision, RevisionStatus.RolledBack, ct).ConfigureAwait(false);
+        AddAsWarnings(marked, $"r{undone.Revision} に取り消し済みの印を付けられませんでした", issues);
+
+        foreach (var number in undone.RolledBackRevisions ?? Array.Empty<int>())
+        {
+            var read = await store.ReadAsync(projectId, number, ct).ConfigureAwait(false);
+            if (!read.IsSuccess || read.Value.Manifest.Status != RevisionStatus.RolledBack) continue;
+            if (read.Value.Manifest.AppliedAt > undone.AppliedAt) continue;
+
+            var revived = await store.SetStatusAsync(projectId, number, RevisionStatus.Success, ct).ConfigureAwait(false);
+            AddAsWarnings(revived, $"r{number} を適用済みの状態へ戻す印を付けられませんでした", issues);
+        }
+        return issues;
+    }
+
+    private static string? ReadStatusFromDisk(string folder)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(LongPath.Extended(Path.Combine(folder, "manifest.json"))));
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("status", out var status)
+                   && status.ValueKind == System.Text.Json.JsonValueKind.String
+                ? status.GetString()
+                : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void AddAsWarnings(GraftResult<bool> result, string message, List<GraftIssue> issues)
+    {
+        if (!result.IsSuccess)
+        {
+            issues.Add(GraftIssue.Of(ErrorCode.E401, $"{message}: {string.Join(" / ", result.Errors.Select(i => i.ToDisplayText()))}",
+                severity: Severity.Warning));
+        }
+        else
+        {
+            issues.AddRange(result.Issues);
+        }
+    }
+
+    /// <summary>
+    /// 適用が途中で止まった（status が in_progress のまま残った）リビジョンを、元の状態へ戻す。
+    ///
+    /// 【戻す元】 優先順に、(1) バックアップフォルダの journal.jsonl（適用が退避・新規作成・改名・フォルダ作成を
+    /// 1件ずつ書き残した記録。<see cref="BackupJournal"/>参照）、(2) 記録が無い古い版のフォルダで entries が
+    /// ある場合（「ここまで戻す」が途中で失敗して in_progress で確定したもの）は entries、(3) どちらも無ければ
+    /// フォルダに退避されているファイルを手がかりにそれを書き戻す。(3)は新しく作ったファイルが分からないので、
+    /// その旨を Warning で伝える。
+    ///
+    /// 【なぜ rolled_back の印は戻せたときだけ付けるか】 以前は、何も戻していなくても成功を返し、呼び出し側が
+    /// rolled_back の印を付けていた。以後は検出もされず、書き換わったファイルが残った。戻せなかったとき
+    /// （退避の読み取りや書き戻し、削除に1件でも失敗）は失敗を返し、印は付けない（in_progress のまま残して
+    /// 次回の起動時に再び知らせる）。
+    /// </summary>
+    private async Task<GraftResult<IReadOnlyList<string>>> RestoreInterruptedAsync(
+        string projectId, string projectRoot, RevisionSummary revision, List<GraftIssue> warnings, CancellationToken ct)
+    {
+        var issues = new List<GraftIssue>(warnings);
+        IReadOnlyList<string> restoredPaths;
+
+        var journal = BackupJournal.TryRead(revision.FolderPath);
+        if (journal is null && revision.Manifest.Entries.Count > 0)
+        {
+            var viaEntries = await UndoRevisionEntriesAsync(revision, projectRoot, ct).ConfigureAwait(false);
+            issues.AddRange(viaEntries.Issues);
+            if (viaEntries.IsSuccess is false) return GraftResult<IReadOnlyList<string>>.Fail(issues);
+            restoredPaths = viaEntries.Value;
+        }
+        else
+        {
+            IReadOnlyList<JournalOp> ops;
+            if (journal is not null)
+            {
+                ops = journal;
+            }
+            else
+            {
+                ops = BackupJournal.InferStoredFromFolder(revision.FolderPath);
+                issues.Add(GraftIssue.Of(
+                    ErrorCode.E405,
+                    ops.Count == 0
+                        ? "この適用には途中経過の記録が無く、退避されたファイルも見つかりませんでした。戻すものはありませんでした"
+                        : "この適用には途中経過の記録が無い古い形式のため、退避されているファイルだけを書き戻しました。" +
+                          "適用中に新しく作られたファイルがあっても削除していません",
+                    path: revision.FolderPath, severity: Severity.Warning));
+            }
+
+            issues.AddRange(await BackupJournal.RollbackAsync(revision.FolderPath, projectRoot, ops, ct).ConfigureAwait(false));
+            if (issues.Any(i => i.Severity == Severity.Error)) return GraftResult<IReadOnlyList<string>>.Fail(issues);
+
+            restoredPaths = ops.Where(o => o.Op == BackupJournal.Stored && o.Path is not null).Select(o => o.Path!).Distinct().ToList();
+        }
+
+        var marked = await new RevisionStore(_paths)
+            .SetStatusAsync(projectId, revision.Manifest.Revision, RevisionStatus.RolledBack, ct).ConfigureAwait(false);
+        issues.AddRange(marked.IsSuccess
+            ? marked.Issues
+            : marked.Issues.Select(i => i with { Severity = Severity.Warning }));
+
+        return GraftResult<IReadOnlyList<string>>.Ok(restoredPaths, issues);
     }
 
     /// <summary>
@@ -80,8 +226,11 @@ public sealed class RevisionRestorer
         IReadOnlyList<RevisionSummary> allRevisions, int targetRevision)
     {
         ArgumentNullException.ThrowIfNull(allRevisions);
+        // 取り消し済み(rolled_back)のリビジョンは対象にしない。既に戻っているので、もう一度取り消すと、
+        // 取り消したあとの変更を古い内容で上書きしてしまう。適用に失敗して戻したリビジョンも同じ
+        // （entries が空で、取り消すものが無い）。
         var toUndo = allRevisions
-            .Where(r => r.Manifest.Revision > targetRevision)
+            .Where(r => r.Manifest.Revision > targetRevision && r.Manifest.Status != RevisionStatus.RolledBack)
             .OrderByDescending(r => r.Manifest.Revision)
             .ToList();
         var notRestorable = toUndo.Where(r => !r.IsRestorable).ToList();
@@ -124,6 +273,8 @@ public sealed class RevisionRestorer
         int newRevisionNumber, bool force, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(revisionsToUndo);
+        // 呼び出し元が BuildRestoreThroughPreview を通さずに渡しても、取り消し済みは重ねて取り消さない。
+        revisionsToUndo = revisionsToUndo.Where(r => r.Manifest.Status != RevisionStatus.RolledBack).ToList();
         if (revisionsToUndo.Count == 0)
         {
             return GraftResult<RevisionManifest>.Fail(ErrorCode.E201, "取り消し対象のリビジョンがありません");
@@ -143,7 +294,7 @@ public sealed class RevisionRestorer
         // 外部からさらに変更されていないかを確認する。それより古い段階は、この一連の取り消し
         // 処理自身が作る中間状態であり、外部変更の検知としては意味を持たないため確認しない。
         var newest = revisionsToUndo[0];
-        var warnings = await CheckHashesAsync(projectRoot, newest.Manifest.Entries, ct).ConfigureAwait(false);
+        var warnings = await CheckHashesAsync(projectRoot, newest.FolderPath, newest.Manifest.Entries, ct).ConfigureAwait(false);
         if (warnings.Count > 0 && !force)
         {
             return GraftResult<RevisionManifest>.Fail(warnings);
@@ -208,9 +359,32 @@ public sealed class RevisionRestorer
         }
 
         var status = failedAt is null ? RevisionStatus.Success : RevisionStatus.InProgress;
-        var finalManifest = initial with { Status = status, Entries = entries, Stats = initial.Stats with { Files = entries.Count } };
+        var finalManifest = initial with
+        {
+            Status = status, Entries = entries, Stats = initial.Stats with { Files = entries.Count },
+            // 全部取り消せたときだけ、取り消したリビジョンを記録する（このリビジョンを取り消すと戻せるように。
+            // RevisionManifest.RolledBackRevisions参照）。途中で失敗した（in_progress）ときは、取り消しの
+            // 範囲が確定しないので記録しない。
+            RolledBackRevisions = failedAt is null ? revisionsToUndo.Select(r => r.Manifest.Revision).ToList() : null,
+        };
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
         issues.AddRange(completed.Issues);
+
+        if (failedAt is null)
+        {
+            // 取り消したリビジョンを rolled_back にする。「ここまで戻す」は新しいリビジョンとして記録する設計で、
+            // 戻しすぎたときはそれを取り消して元へ戻せる。そのとき上で記録した番号から success へ戻す。
+            // 以前は印を付けなかったため、取り消したリビジョンと同じパッチを貼り直しても「適用済み」で
+            // 適用できなかった。
+            var store = new RevisionStore(_paths);
+            foreach (var undoneRevision in revisionsToUndo)
+            {
+                var marked = await store
+                    .SetStatusAsync(projectId, undoneRevision.Manifest.Revision, RevisionStatus.RolledBack, ct)
+                    .ConfigureAwait(false);
+                AddAsWarnings(marked, $"r{undoneRevision.Manifest.Revision} に取り消し済みの印を付けられませんでした", issues);
+            }
+        }
 
         if (failedAt is not null)
         {
@@ -263,6 +437,15 @@ public sealed class RevisionRestorer
 
         foreach (var entry in OrderForUndo(revision.Manifest.Entries))
         {
+            // RENAMEの移動先を同じパッチで編集したmodifyは、移動先をそのまま元の内容へ書き戻してはならない
+            // （移動先のバックアップは存在せず、元の内容は移動元のバックアップにある）。移動元への復元と
+            // 移動先の削除は同じパッチのrenameのentryが行うので、こちらは何もしない。
+            if (entry.Operation == EntryOperation.Modify
+                && RevisionEntryLinks.ResolveRenamedFrom(revision.Manifest.Entries, entry) is not null)
+            {
+                continue;
+            }
+
             var result = await UndoEntryAsync(revision.FolderPath, projectRoot, entry, ct).ConfigureAwait(false);
             issues.AddRange(result.Issues);
             if (result.IsSuccess && result.Value is not null)
@@ -288,9 +471,12 @@ public sealed class RevisionRestorer
             {
                 if (entry.Operation == EntryOperation.Mkdir) continue;
                 set.Add(entry.Path);
-                if (entry.Operation == EntryOperation.Rename && !string.IsNullOrEmpty(entry.RenamedFrom))
+                // 移動元は、renameのentryだけでなく、移動先を同じパッチで編集したentryにも持たせている
+                // （古いmanifestでは持たないので補う。RevisionEntryLinks参照）。
+                var renamedFrom = RevisionEntryLinks.ResolveRenamedFrom(revision.Manifest.Entries, entry);
+                if (!string.IsNullOrEmpty(renamedFrom))
                 {
-                    set.Add(entry.RenamedFrom);
+                    set.Add(renamedFrom);
                 }
             }
         }
@@ -381,21 +567,63 @@ public sealed class RevisionRestorer
         return read.IsSuccess ? FileTextIO.ComputeHash(read.Value.Text) : null;
     }
 
+    /// <summary>
+    /// 取り消しの前に、適用後に利用者が手を入れたファイルを探して E301（Warning）にする。
+    /// 取り消しはバックアップの内容でファイルを書き戻す／削除するので、適用後の変更は黙って失われる。
+    ///
+    /// 【RENAME・DELETE も見る理由】 以前は <c>HashAfter</c> を持つ entry（modify・create）しか見なかった。
+    /// そのため、RENAME だけのリビジョンの後に移動先を手で編集して取り消すと、警告なしで移動先が削除され、
+    /// DELETE のリビジョンの後に同じパスを別の内容で作り直して取り消すと、警告なしで古い内容に
+    /// 上書きされた。次を確かめる。
+    /// ・RENAME: 移動先が適用直後の内容のままか（適用時に記録した <c>HashAfter</c>。古い manifest には
+    ///   無いので、移動先を編集した modify の entry が無ければ、移動元のバックアップと中身を比べる）。
+    ///   移動元のパスに適用後ファイルが作られていないか（取り消しは移動元へ書き戻すため上書きになる）。
+    /// ・DELETE: 同じパスにファイルが作られていないか（取り消しで上書きになる）。削除前の内容と
+    ///   同じなら失われるものが無いので警告しない。
+    /// どちらも、退避した内容と比べる経路があるので、古い形式の manifest でも分かる範囲で警告できる。
+    /// 同じファイルについて複数の entry が同じ警告を出す（renameとmodifyの両方）ときは1件にまとめる。
+    /// </summary>
     private static async Task<List<GraftIssue>> CheckHashesAsync(
-        string projectRoot, IReadOnlyList<RevisionEntry> entries, CancellationToken ct)
+        string projectRoot, string revisionFolder, IReadOnlyList<RevisionEntry> entries, CancellationToken ct)
     {
         var issues = new List<GraftIssue>();
+        var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Warn(string path, string message)
+        {
+            if (reported.Add($"{path}\n{message}"))
+            {
+                issues.Add(GraftIssue.Of(ErrorCode.E301, message, path: path, severity: Severity.Warning));
+            }
+        }
+
         foreach (var entry in entries)
         {
-            if (string.IsNullOrEmpty(entry.HashAfter)) continue;
-
             var normalized = BackupPathUtil.NormalizeRelativePath(entry.Path);
             if (!normalized.IsSuccess) continue; // パス不正は復元処理側の書き込みで検出する
 
             var full = Path.GetFullPath(Path.Combine(projectRoot, normalized.Value));
-            if (!File.Exists(LongPath.Extended(full)))
+            var exists = File.Exists(LongPath.Extended(full));
+
+            if (entry.Operation == EntryOperation.Delete)
             {
-                issues.Add(GraftIssue.Of(ErrorCode.E301, "適用後にファイルが削除されています", path: entry.Path, severity: Severity.Warning));
+                if (exists && !await SameAsBackupAsync(revisionFolder, normalized.Value, full, ct).ConfigureAwait(false))
+                {
+                    Warn(entry.Path, "削除したあとに、同じパスへ別の内容のファイルが作られています");
+                }
+                continue;
+            }
+
+            if (entry.Operation == EntryOperation.Rename)
+            {
+                await CheckRenameEntryAsync(projectRoot, revisionFolder, entries, entry, full, exists, Warn, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(entry.HashAfter)) continue;
+
+            if (!exists)
+            {
+                Warn(entry.Path, "適用後にファイルが削除されています");
                 continue;
             }
 
@@ -405,10 +633,78 @@ public sealed class RevisionRestorer
             var currentHash = FileTextIO.ComputeHash(readResult.Value.Text);
             if (!string.Equals(currentHash, entry.HashAfter, StringComparison.OrdinalIgnoreCase))
             {
-                issues.Add(GraftIssue.Of(ErrorCode.E301, "適用後にさらに変更されています", path: entry.Path, severity: Severity.Warning));
+                Warn(entry.Path, "適用後にさらに変更されています");
             }
         }
         return issues;
+    }
+
+    private static async Task CheckRenameEntryAsync(
+        string projectRoot, string revisionFolder, IReadOnlyList<RevisionEntry> entries, RevisionEntry entry,
+        string destFull, bool destExists, Action<string, string> warn, CancellationToken ct)
+    {
+        // 移動元のパスに、適用後にファイルが作られていないか。取り消しはそこへバックアップを書き戻す。
+        // 大文字小文字だけが違う改名（a.txt -> A.txt）は同じファイルを指しうるので対象外にする。
+        if (!string.IsNullOrEmpty(entry.RenamedFrom)
+            && !string.Equals(entry.RenamedFrom, entry.Path, StringComparison.OrdinalIgnoreCase)
+            && BackupPathUtil.NormalizeRelativePath(entry.RenamedFrom) is { IsSuccess: true } fromNormalized)
+        {
+            var fromFull = Path.GetFullPath(Path.Combine(projectRoot, fromNormalized.Value));
+            if (File.Exists(LongPath.Extended(fromFull)))
+            {
+                warn(entry.RenamedFrom, "改名したあとに、改名前のパスへ別のファイルが作られています");
+            }
+        }
+
+        if (!destExists)
+        {
+            warn(entry.Path, "適用後にファイルが削除されています");
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(entry.HashAfter))
+        {
+            var readResult = await FileTextIO.ReadAsync(destFull, ct).ConfigureAwait(false);
+            if (readResult.IsSuccess
+                && !string.Equals(FileTextIO.ComputeHash(readResult.Value.Text), entry.HashAfter, StringComparison.OrdinalIgnoreCase))
+            {
+                warn(entry.Path, "適用後にさらに変更されています");
+            }
+            return;
+        }
+
+        // 古い形式のmanifest（renameにHashAfterが無い）。移動先を編集したmodifyがHashAfterを持っていれば
+        // そちらの照合に任せる。無ければ、改名しただけのはずなので、移動元のバックアップと中身を比べる。
+        var coveredByModify = entries.Any(e =>
+            !ReferenceEquals(e, entry) && e.Operation != EntryOperation.Rename && !string.IsNullOrEmpty(e.HashAfter)
+            && string.Equals(e.Path, entry.Path, StringComparison.OrdinalIgnoreCase));
+        if (coveredByModify || string.IsNullOrEmpty(entry.RenamedFrom)) return;
+
+        if (BackupPathUtil.NormalizeRelativePath(entry.RenamedFrom) is { IsSuccess: true } backupPath
+            && !await SameAsBackupAsync(revisionFolder, backupPath.Value, destFull, ct).ConfigureAwait(false))
+        {
+            warn(entry.Path, "適用後にさらに変更されています");
+        }
+    }
+
+    /// <summary>
+    /// 現在のファイルが、バックアップ（適用前に退避した内容）とバイト単位で同じか。バックアップを
+    /// 読めないときは、失われるものを確かめられないので「同じではない」（警告する）側に倒す。
+    /// </summary>
+    private static async Task<bool> SameAsBackupAsync(
+        string revisionFolder, string normalizedBackupRelative, string currentFull, CancellationToken ct)
+    {
+        var backup = await BackupPathUtil.ReadBackupFileAsync(revisionFolder, normalizedBackupRelative, ct).ConfigureAwait(false);
+        if (!backup.IsSuccess) return false;
+        try
+        {
+            var current = await File.ReadAllBytesAsync(LongPath.Extended(currentFull), ct).ConfigureAwait(false);
+            return current.AsSpan().SequenceEqual(backup.Value);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>6.6の適用順序（MKDIR→RENAME→FULL→SR等→DELETE）を逆順に辿る並びへ整列する。</summary>

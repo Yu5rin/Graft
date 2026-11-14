@@ -38,6 +38,19 @@ public sealed record ChangeUnitResult
     /// <summary>実機不具合対応（修正4）: このユニットの代表インデント補正量。BlockPlan
     /// へそのまま引き継ぐ（<see cref="BlockPlan.IndentCorrectionChars"/>参照）。</summary>
     public int IndentCorrectionChars { get; init; }
+
+    /// <summary>
+    /// SR形式で、このユニットが一致した位置（照合の基準テキスト上の開始行。0始まり。昇順）。
+    /// SR形式以外では空。
+    ///
+    /// 【なぜ持つか】 本適用（<see cref="ApplyEngine"/>）はファイルを読み直して再解決する。ドライランの後に
+    /// 外部でファイルが書き換わっていると、同じSEARCHが別の場所に一致したり、あいまい一致の段階が
+    /// 変わったりしうるが、以前はそれに気づかず、プレビューで確認した内容と違う場所へ書いていた。
+    /// ドライラン時の位置と段階を覚えておき、再解決の結果と突き合わせるための値。基準テキストは
+    /// 選択状態に依らず（ペアごとに独立に照合する）同じなので、一部のペアのチェックを外しても
+    /// 位置は変わらない。
+    /// </summary>
+    public IReadOnlyList<int> MatchStartLines { get; init; } = Array.Empty<int>();
 }
 
 /// <summary>
@@ -348,6 +361,9 @@ public static class BlockResolver
                     BeforeText = beforeByOwner[owner],
                     AfterText = JoinText(working),
                     IndentCorrectionChars = owner.IndentCorrectionChars,
+                    MatchStartLines = owner.Pair is null
+                        ? Array.Empty<int>()
+                        : owner.Edits.Select(e => e.StartLine).OrderBy(l => l).ToList(),
                 });
             }
         }
