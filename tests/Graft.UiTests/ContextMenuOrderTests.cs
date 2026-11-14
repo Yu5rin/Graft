@@ -58,16 +58,20 @@ public class ContextMenuOrderTests
         layout[0].Should().NotBe("この適用を取り消す", "以前は取り消す操作が先頭にあった");
     }
 
-    [AvaloniaFact(DisplayName = "プロジェクトの右クリックメニュー: ピン留めが先頭、削除は区切り線のあとの一番下")]
+    [AvaloniaFact(DisplayName = "プロジェクトの右クリックメニュー: ピン留めが先頭、パスのコピー・表示は共通の言い方で変更系の前、削除は区切り線のあとの一番下")]
     public void プロジェクトのメニューは削除が一番下()
     {
         var view = new ProjectPane();
         var list = view.GetLogicalDescendants().OfType<ListBox>().First(l => l.ContextMenu is not null);
         var layout = Layout(list.ContextMenu!);
 
+        // 先頭の見出しは選択中のプロジェクトで変わる（ピン留めする／解除する）ため、並びの比較からは外す。
+        layout.Skip(1).Should().Equal(
+            "---", MenuText.CopyPath, MenuText.RevealInFileManager,
+            "---", "タグを編集…", "表示名を変更…", "場所を変更…",
+            "---", "削除…");
         layout.Last().Should().Be("削除…");
         layout[^2].Should().Be("---");
-        layout.Should().Contain(new[] { "タグを編集…", "表示名を変更…", "場所を変更…" });
     }
 
     [AvaloniaFact(DisplayName = "キューの項目の右クリックメニュー: 項目を取り除く操作がある（右側の削除ボタンと同じ）")]

@@ -48,19 +48,31 @@
         <Style Selector="^:selected">
             <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         </Style>
+        <!-- 設定画面の左のタブ一覧: 以前は選択中がフォーカスの枠だけで示され、選んだ印（塗り）が
+             無かった（実機Xvfbで確認）。選択中は「選択色の塗り＋左端のアクセントの線」で示し、
+             キーボードのフォーカスは下の PART_FocusRing（枠）が別に示す。
+             ホバーは BgHover。選択中のホバーは塗りを変えない（選択を示す色のまま）ため、
+             :selected のスタイルを :pointerover のあとに書いて優先させている。 -->
         <Style Selector="^:pointerover /template/ Border#PART_Bg">
             <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:selected /template/ Border#PART_Bg">
+            <Setter Property="Background" Value="{DynamicResource BgSelected}" />
         </Style>
         <Style Selector="^:focus /template/ Border#PART_FocusRing">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <!-- タブ位置が左（設定画面）のとき: 見出しは左寄せ、アクセント帯は左端の縦帯にする。 -->
+        <!-- タブ位置が左（設定画面）のとき: 見出しは左寄せ、アクセント帯は左端の縦帯にする。
+             帯は、枠（フォーカスリング。外周2px）に隠れないよう枠の内側へ寄せ、上下を少し空けて
+             角丸の塗りの高さに収める。 -->
         <Style Selector="^[TabStripPlacement=Left] /template/ ContentPresenter">
             <Setter Property="HorizontalAlignment" Value="Left" />
         </Style>
         <Style Selector="^[TabStripPlacement=Left] /template/ Border#PART_Underline">
             <Setter Property="Height" Value="NaN" />
-            <Setter Property="Width" Value="2" />
+            <Setter Property="Width" Value="3" />
+            <Setter Property="Margin" Value="3,6,0,6" />
+            <Setter Property="CornerRadius" Value="1.5" />
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="VerticalAlignment" Value="Stretch" />
         </Style>

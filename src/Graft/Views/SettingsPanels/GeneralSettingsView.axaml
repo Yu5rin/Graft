@@ -70,10 +70,14 @@
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
             </Grid>
-            <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="{DynamicResource PreviewSampleFontSize}"
-                       Foreground="{DynamicResource TextPrimary}"
-                       FontFamily="{Binding SelectedFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
-                       AutomationProperties.Name="UIフォントのプレビュー" />
+            <Border Classes="fontSample">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                    <TextBlock Text="見本" Classes="fontSampleLabel" />
+                    <TextBlock Grid.Column="1" Classes="fontSampleText" Text="あア亜 Aa Bb Cc 0123"
+                               FontFamily="{Binding SelectedFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                               AutomationProperties.Name="UIフォントの見本" />
+                </Grid>
+            </Border>
             <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
                 <StackPanel Classes="settingText">
                     <TextBlock Text="本文フォント" Classes="settingLabel" />
@@ -95,10 +99,14 @@
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
             </Grid>
-            <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="{DynamicResource PreviewSampleFontSize}"
-                       Foreground="{DynamicResource TextPrimary}"
-                       FontFamily="{Binding SelectedBodyTextFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
-                       AutomationProperties.Name="本文フォントのプレビュー" />
+            <Border Classes="fontSample">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                    <TextBlock Text="見本" Classes="fontSampleLabel" />
+                    <TextBlock Grid.Column="1" Classes="fontSampleText" Text="あア亜 Aa Bb Cc 0123"
+                               FontFamily="{Binding SelectedBodyTextFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                               AutomationProperties.Name="本文フォントの見本" />
+                </Grid>
+            </Border>
             <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
                 <StackPanel Classes="settingText">
                     <TextBlock Text="コード用のフォント（等幅）" Classes="settingLabel" />
@@ -120,10 +128,18 @@
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
             </Grid>
-            <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,8" FontSize="{DynamicResource PreviewSampleFontSize}"
-                       Foreground="{DynamicResource TextPrimary}"
-                       FontFamily="{Binding SelectedMonospaceFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
-                       AutomationProperties.Name="等幅フォントのプレビュー" />
+            <Border Classes="fontSample">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                    <TextBlock Text="見本" Classes="fontSampleLabel" />
+                    <TextBlock Grid.Column="1" Classes="fontSampleText" Text="あア亜 Aa Bb Cc 0123"
+                               FontFamily="{Binding SelectedMonospaceFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                               AutomationProperties.Name="等幅フォントの見本" />
+                    <!-- 等幅であることが分かるように、幅の違いが出やすい文字（i と l と 1、O と 0 など）を並べる。 -->
+                    <TextBlock Grid.Row="1" Grid.Column="1" Classes="fontSampleText" Text="il1| O0o {}[] =&gt; !="
+                               FontFamily="{Binding SelectedMonospaceFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
+                               AutomationProperties.Name="等幅フォントの見本（等幅の確認用）" />
+                </Grid>
+            </Border>
             <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
                 <StackPanel Classes="settingText">
                     <TextBlock Text="エディタの文字の大きさ" Classes="settingLabel" />

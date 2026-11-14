@@ -47,6 +47,36 @@
         <Setter Property="Margin" Value="0,0,0,2" />
     </Style>
 
+    <!--
+        フォントの見本（「一般」のフォント3項目の下）。以前は fieldHint の1行を15pxで出していて、
+        周りの項目名（13px・太字）より大きく見え、見出しのように読めた（実機Xvfbで確認）。
+        見本は「選んだフォントで書いた普通の文字」に見えればよいので、通常の太さ・本文より1だけ大きい
+        サイズ（PreviewSampleFontSize＝14）にして、薄い背景と細い枠の中に置く。見出しや項目名と
+        取り違えないよう、先頭に小さな「見本」の札を付ける（用語の決まりで「プレビュー」は
+        Markdown の表示だけを指すため、この語は使わない）。
+    -->
+    <Style Selector="Border.fontSample">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="Margin" Value="0,-6,0,14" />
+    </Style>
+    <Style Selector="TextBlock.fontSampleLabel">
+        <Setter Property="FontSize" Value="{DynamicResource CaptionFontSize}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Margin" Value="0,0,12,0" />
+        <Setter Property="MinWidth" Value="28" />
+    </Style>
+    <Style Selector="TextBlock.fontSampleText">
+        <Setter Property="FontSize" Value="{DynamicResource PreviewSampleFontSize}" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
     <!-- 入力欄の幅（3種類）。右列に置くものだけで、下に全幅で置く入力欄には付けない。 -->
     <Style Selector="TextBox.narrow, ComboBox.narrow">
         <Setter Property="Width" Value="96" />

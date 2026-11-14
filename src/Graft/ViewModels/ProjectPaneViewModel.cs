@@ -90,6 +90,36 @@ public sealed class ProjectPaneViewModel : ObservableObject
         RenameProjectCommand = new AsyncRelayCommand(RenameSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクト名の変更");
         EditTagsCommand = new AsyncRelayCommand(EditSelectedTagsAsync, () => SelectedItem is not null, context: "タグの編集");
         RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの場所の変更");
+
+        // 右クリックメニューの「パスをコピー」「エクスプローラーで表示」。クリップボードと通知の窓口は
+        // 履歴ペイン（HistoryPaneViewModel.ClipboardWriter／Notify）と同じ作りで MainViewModel が渡す。
+        // コピーは場所が見つからないプロジェクトでも有効（パスの文字列は残っているので、探す手がかりに
+        // なる）。表示は、フォルダの実体が無いと開けないため無効にする（履歴の「バックアップフォルダを開く」と同じ）。
+        CopyPathCommand = new RelayCommand(
+            CopySelectedPath,
+            () => SelectedItem is not null && ClipboardWriter is not null);
+        RevealCommand = new RelayCommand(
+            () => { if (SelectedItem is { } item) PlatformServices.Current.FileManager.Reveal(item.Project.Root); },
+            () => SelectedItem is { } item && !item.IsDisconnected && Directory.Exists(item.Project.Root));
+    }
+
+    /// <summary>クリップボードへ書く窓口（MainViewModel が IUiServices のクリップボードを渡す）。</summary>
+    public Action<string>? ClipboardWriter { get; set; }
+
+    /// <summary>数秒で消える通知を出す窓口（MainViewModel が StatusNoticeViewModel を渡す）。コピーしたことを伝える。</summary>
+    public Action<string>? Notify { get; set; }
+
+    /// <summary>右クリックメニューの「パスをコピー」。選択中のプロジェクトのフォルダのパスをコピーする。</summary>
+    public ICommand CopyPathCommand { get; }
+
+    /// <summary>右クリックメニューの「エクスプローラーで表示／ファイルマネージャーで表示」。フォルダが無ければ無効。</summary>
+    public ICommand RevealCommand { get; }
+
+    private void CopySelectedPath()
+    {
+        if (SelectedItem is not { } item || ClipboardWriter is null) return;
+        ClipboardWriter(item.Project.Root);
+        Notify?.Invoke("プロジェクトのパスをコピーしました");
     }
 
     /// <summary>コマンドバー・空状態から呼ぶ「フォルダ選択で登録」（仕様書3.2）。</summary>

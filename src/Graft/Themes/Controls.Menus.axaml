@@ -1,0 +1,45 @@
+<!--
+  メニュー（右クリックのContextMenu、ツールバーの▼・「？」のMenuFlyout、その中の項目・区切り線）の
+  形の指定。色は各テーマ（Dark.axaml など全9つ）の「メニュー」の節にある。
+
+  【やり方と、その根拠】
+  AvaloniaのFluentテーマは、メニューの背景・枠・文字・ホバー・押下・無効・キー表示・矢印の色を
+  「MenuFlyoutPresenterBackground」「MenuFlyoutItemBackgroundPointerOver」のようなリソースキーで
+  参照している。キー名は推測ではなく、実際に使っている Avalonia.Themes.Fluent 11.2.3 の
+  DLL（~/.nuget/packages/avalonia.themes.fluent/11.2.3/lib/net8.0/）に埋め込まれたリソースから
+  文字列を取り出して確かめた（MenuFlyoutPresenterBackground／BorderBrush、
+  MenuFlyoutItemBackground／Foreground／KeyboardAcceleratorTextForeground の各
+  PointerOver・Pressed・Disabled、MenuFlyoutSubItemChevron の各状態など）。
+  これらを各テーマで同名のキーとして定義し、アプリ側のリソースがFluentより先に解決される
+  性質を使って差し替えている（効いていることは、実機の画面で全テーマ確認した）。
+  ここに置くのは、色のキーでは変えられない「形」だけ。
+
+  - 角丸: 枠は RadiusMd、項目は RadiusSm（ボタン・リスト項目と同じ）。
+  - 高さ: 項目の最小の高さは RowHeight（リストの行と同じ28）。
+  - 区切り線: 1pxの線をBorderSubtle（MenuSeparator）で。Fluentの既定は標準色のまま。
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Style Selector="ContextMenu">
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+    </Style>
+    <Style Selector="MenuFlyoutPresenter">
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusMd}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+    </Style>
+
+    <Style Selector="ContextMenu MenuItem, MenuFlyoutPresenter MenuItem">
+        <Setter Property="MinHeight" Value="{DynamicResource RowHeight}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
+    </Style>
+
+    <Style Selector="ContextMenu Separator, MenuFlyoutPresenter Separator">
+        <Setter Property="Background" Value="{DynamicResource MenuSeparator}" />
+        <Setter Property="Height" Value="1" />
+        <Setter Property="Margin" Value="4,4" />
+    </Style>
+</Styles>

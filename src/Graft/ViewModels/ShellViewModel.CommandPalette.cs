@@ -78,6 +78,10 @@ public sealed partial class ShellViewModel
             new("削除したファイルを元に戻す", Explorer.UndoDeleteCommand, null, Gesture("UndoDelete"), c),
             new("ファイル一覧を更新", Explorer.RefreshCommand, null, null, c),
             new("プロジェクトを追加", Graft.ProjectPane.AddProjectCommand, null, null, c),
+            // プロジェクト一覧の右クリックメニュー「パスをコピー」「エクスプローラーで表示」と同じ操作。
+            // 後者の名前はOSで変わるため、メニューと同じ共通の言い方（MenuText）から作る。
+            new("選択中のプロジェクトのパスをコピー", Graft.ProjectPane.CopyPathCommand, null, null, c),
+            new("選択中のプロジェクトを" + Views.MenuText.RevealInFileManager, Graft.ProjectPane.RevealCommand, null, null, c),
 
             // ===== 編集 =====
             new("ファイル内を検索", EditorKey("Find", HasDocumentTab), null, Gesture("Find"), PaletteCategories.Edit),

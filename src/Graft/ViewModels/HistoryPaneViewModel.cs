@@ -207,6 +207,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
     public Action<string>? Notify { get; set; }
 
     /// <summary>
+    /// <see cref="Notify"/> の、押せる操作（リンク）を1つ付けられる版（引数は 文言・リンクの文言・操作）。
+    /// 「ここまで戻しました」の通知に「元に戻す」を付けるために使う。未設定なら、操作の無い通知
+    /// （<see cref="Notify"/>）だけを出す。
+    /// </summary>
+    public Action<string, string, Func<Task>>? NotifyWithAction { get; set; }
+
+    /// <summary>
     /// 課題2-2: 種別絞り込みドロップダウンの先頭に出す「絞り込みなし」の選択肢。
     /// 未選択（TypeFilterがnull）のとき空欄のままだと何を選ぶドロップダウンか分からなかったため、
     /// 既定でこれを選択済みにする（<see cref="SelectedTypeOption"/>参照）。
@@ -663,14 +670,18 @@ public sealed class HistoryPaneViewModel : ObservableObject
     private Task RestoreSelectedAsync()
         => SelectedItem is null ? Task.CompletedTask : RestoreAsync(SelectedItem, CancellationToken.None).AsTask();
 
-    private async ValueTask<bool> RestoreAsync(RevisionRowViewModel target, CancellationToken ct)
+    /// <param name="skipConfirm">
+    /// true のとき、実行前の確認ダイアログを省く。「ここまで戻しました」の通知の「元に戻す」から呼ぶ場合だけ使う
+    /// （リンクを押した時点で意思は明らかなため、確認を重ねない）。適用後の変更を検出したときの確認（E301）は省かない。
+    /// </param>
+    private async ValueTask<bool> RestoreAsync(RevisionRowViewModel target, CancellationToken ct, bool skipConfirm = false)
     {
         if (_projectId is null || _projectRoot is null)
         {
             return false;
         }
 
-        var confirmed = await _dialogs
+        var confirmed = skipConfirm || await _dialogs
             .ConfirmAsync("取り消しの確認", $"{target.RevisionLabel} を取り消して、適用する直前の状態に戻します。よろしいですか？")
             .ConfigureAwait(true);
         if (!confirmed)
@@ -906,10 +917,49 @@ public sealed class HistoryPaneViewModel : ObservableObject
         await MarkProjectAppliedAsync(ct).ConfigureAwait(true);
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
-        await _dialogs
-            .ShowMessageAsync("ここまで戻しました", $"{target.RevisionLabel} を適用した直後の状態まで戻し、r{result.Value.Revision} として記録しました。")
-            .ConfigureAwait(true);
+
+        var newRevisionNumber = result.Value.Revision;
+        // 適用後の変更（E301）は、続行の確認ダイアログで利用者が承知のうえ進めた内容なので、ここで
+        // 改めて警告として出さない（出すと、確認した直後に同じ内容をもう一度読ませることになる）。
+        var warnings = result.Issues.Where(i => i.Severity != Severity.Error && i.Code != ErrorCode.E301).ToList();
+        if (warnings.Count > 0)
+        {
+            // 警告があったときは、読んで判断する内容なので、数秒で消える通知にせずダイアログのまま出す。
+            await _dialogs
+                .ShowMessageAsync(
+                    "ここまで戻しました",
+                    $"{target.RevisionLabel} を適用した直後の状態まで戻し、r{newRevisionNumber} として記録しました。"
+                    + Environment.NewLine + Environment.NewLine
+                    + string.Join(Environment.NewLine, warnings.Select(i => i.ToDisplayText())))
+                .ConfigureAwait(true);
+            return true;
+        }
+
+        // 成功だけを知らせる内容なので、OKを押させるダイアログではなく、数秒で消える通知にする
+        // （「r3 を取り消しました」と同じ作り）。実行前の確認と、失敗・警告のダイアログは残している。
+        // 「元に戻す」は、この操作が新しい履歴 r{newRevisionNumber} として記録されていることを使い、
+        // その履歴を取り消す（＝戻す前の状態へ戻す）。通知が出ている間にプロジェクトを切り替えたり、
+        // 履歴の絞り込みで行が見えなくなったりしたときは、別の履歴を取り消さないよう何もしない。
+        var text = $"{target.RevisionLabel} まで戻しました（{preview.RevisionsToUndo.Count}件を取り消しました）";
+        var projectId = _projectId;
+        if (NotifyWithAction is { } notifyWithAction)
+        {
+            notifyWithAction(text, "元に戻す", () => UndoRestoreThroughAsync(projectId, newRevisionNumber));
+        }
+        else
+        {
+            Notify?.Invoke(text);
+        }
         return true;
+    }
+
+    /// <summary>「ここまで戻しました」の通知の「元に戻す」。記録された r{revision} を、確認なしで取り消す。</summary>
+    private async Task UndoRestoreThroughAsync(string? projectId, int revision)
+    {
+        if (projectId is null || projectId != _projectId) return;
+        var row = Items.FirstOrDefault(i => i.Revision.Manifest.Revision == revision);
+        if (row is null || !row.CanRestore) return;
+        await RestoreAsync(row, CancellationToken.None, skipConfirm: true).ConfigureAwait(true);
     }
 
     /// <summary>
