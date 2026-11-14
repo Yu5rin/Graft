@@ -52,7 +52,7 @@ public class EscapeAndDiscardTests
         Dispatcher.UIThread.RunJobs();
         h.Shell.Graft.FilterText.Should().Be("a.txt", "前提: 絞り込み文字が入っている");
 
-        h.Window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        h.Window!.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
         h.Shell.Graft.FilterText.Should().BeEmpty("Escは手前の入力欄の文字を消す");
