@@ -435,13 +435,20 @@
                         local:HelpTip.Detailed="この差分（マッチ失敗の場合は下の再判定パネルも含む）を閉じ、元のコード編集画面に戻ります。差分の元になったファイルのタブが開いていればそこへ、無ければこの差分タブを開く直前に見ていたタブへ戻ります。ショートカットはCtrl+Wです。"
                         AutomationProperties.Name="差分表示を閉じてコード編集に戻る" />
 
-                <TextBlock Text="開いているファイルはありません"
-                           HorizontalAlignment="Center"
-                           VerticalAlignment="Center"
-                           Foreground="{DynamicResource TextSecondary}"
-                           FontSize="{DynamicResource BodyFontSize}"
-                           IsVisible="{Binding Tabs.Count, Converter={x:Static local:Converters.CountIsZero}}"
-                           IsHitTestVisible="False" />
+                <!--
+                    見た目の整備: 開いているファイルが無いときの表示。以前は小さな文字1行だけで、
+                    次に何をすればよいか分からなかった。他の空の状態（履歴・検索結果・プロジェクト等）と
+                    同じ共通EmptyStateViewで、説明・操作の案内・次の一手（ファイルを探す）を出す。
+                    ボタンはクイックオープン（Ctrl+P）と同じ操作。
+                -->
+                <local:EmptyStateView AutomationProperties.Name="エディタ（開いているファイルなし）"
+                                      IconGeometry="{DynamicResource IconFileGeometry}"
+                                      Message="開いているファイルはありません"
+                                      Hint="左のエクスプローラでファイルを選ぶか、名前で探して開きます。"
+                                      ActionText="ファイルを探す（Ctrl+P）"
+                                      ActionCommand="{Binding $parent[Window].DataContext.ToggleQuickOpenCommand}"
+                                      ActionTooltip="ファイル名の一部を入力して、プロジェクト内のファイルをあいまい検索して開きます（Ctrl+P）。"
+                                      State="{Binding Tabs.Count, Converter={x:Static local:Converters.CountToEmptyStateMode}}" />
 
                 <!-- 4.4: 検索・置換オーバーレイ。右上に重ねて配置し、タブ切替のたびにAttach(Editor)する。 -->
                 <local:SearchOverlay x:Name="Search" />

@@ -77,6 +77,14 @@ public static class Converters
         new FuncValueConverter<int, bool>(count => count == 0);
 
     /// <summary>
+    /// 件数（int）が0件なら空状態にする。<see cref="CollectionToEmptyState"/>は参照そのものを見るため、
+    /// 要素の増減で通知が来ない。件数（Count。ObservableCollectionが変更通知を出す）をバインドして
+    /// 使えるよう、int版を別に用意した（開いているファイルが無いときのエディタ領域）。
+    /// </summary>
+    public static readonly IValueConverter CountToEmptyStateMode =
+        new FuncValueConverter<int, EmptyStateMode>(count => count == 0 ? EmptyStateMode.Empty : EmptyStateMode.None);
+
+    /// <summary>
     /// UI点検（項目7）: コレクションが0件かどうかで空状態にする。<see cref="IsEmptyCollection"/>と
     /// 同じ判定をEmptyStateMode向けに返す版。「対象ファイルがありません」「出力プレビューが
     /// まだ無い」「除外パターンが無い」など、専用の状態列挙を持たない一覧向けに、共通の

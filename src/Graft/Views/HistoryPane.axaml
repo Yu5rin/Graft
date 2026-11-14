@@ -276,6 +276,7 @@
                                           Converter={x:Static local:Converters.HistoryPaneStateToEmptyState}}"
                                   IconGeometry="{DynamicResource IconHistoryGeometry}"
                                   Message="{Binding EmptyStateMessage}"
+                                  Hint="{Binding EmptyStateHint}"
                                   Issue="{Binding Error}" />
         </Grid>
     </Grid>

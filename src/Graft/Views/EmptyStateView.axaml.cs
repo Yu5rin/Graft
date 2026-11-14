@@ -41,6 +41,16 @@ public partial class EmptyStateView : UserControl
     public static readonly StyledProperty<string> MessageProperty =
         AvaloniaProperty.Register<EmptyStateView, string>(nameof(Message), string.Empty);
 
+    /// <summary>
+    /// 見た目の整備: 空の状態の「同じ型」を揃えるための、操作の案内（1〜2行）。
+    /// 型は、アイコン → 説明（<see cref="Message"/>）→ 案内（これ）→ 次の一手のボタン（任意）の順。
+    /// 説明は「いま何が無いか」、案内は「どうすれば出てくるか」を書く。空なら出さない。
+    /// </summary>
+    public static readonly StyledProperty<string> HintProperty =
+        AvaloniaProperty.Register<EmptyStateView, string>(nameof(Hint), string.Empty);
+
+    public string Hint { get => GetValue(HintProperty); set => SetValue(HintProperty, value); }
+
     public static readonly StyledProperty<string> ActionTextProperty =
         AvaloniaProperty.Register<EmptyStateView, string>(nameof(ActionText), string.Empty);
 

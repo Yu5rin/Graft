@@ -437,6 +437,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsFileFiltered));
                 OnPropertyChanged(nameof(FileFilterBannerText));
                 OnPropertyChanged(nameof(EmptyStateMessage));
+                OnPropertyChanged(nameof(EmptyStateHint));
                 ((RelayCommand)ClearFileFilterCommand).RaiseCanExecuteChanged();
             }
         }
@@ -457,6 +458,12 @@ public sealed class HistoryPaneViewModel : ObservableObject
         => FileFilterPath is null
             ? "AIの出力を適用すると、ここに履歴が残ります"
             : $"「{FileFilterPath}」の変更履歴はありません";
+
+    /// <summary>一覧が空のときの操作の案内（EmptyStateViewのHint）。</summary>
+    public string EmptyStateHint
+        => FileFilterPath is null
+            ? "ツールバーの「解析」でAIの出力を読み取り、「適用」を押すと最初の履歴ができます。"
+            : "右上の「×」（絞り込みの解除）で、すべての履歴を表示できます。";
 
     /// <summary>
     /// エクスプローラの右クリックメニュー「このファイルの変更履歴」から呼ぶ。対象ファイルの
