@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 
 namespace Graft.Views;
@@ -95,6 +96,13 @@ public static class HelpTip
         StandardProperty.Changed.AddClassHandler<Control>((c, _) => Track(c));
         DetailedProperty.Changed.AddClassHandler<Control>((c, _) => Track(c));
         MinimalProperty.Changed.AddClassHandler<Control>((c, _) => Track(c));
+        DisabledReasonProperty.Changed.AddClassHandler<Control>((c, _) => Track(c));
+
+        // 有効・無効が切り替わったら、理由の出し入れのためにツールチップを組み直す。
+        InputElement.IsEffectivelyEnabledProperty.Changed.AddClassHandler<Control>((c, args) =>
+        {
+            if (TrackedControls.TryGetValue(c, out var _tracked)) Apply(c);
+        });
 
         // 1つの静的イベントハンドラで、購読中の全コントロールへ再適用する
         // （コントロール側で個別に購読・解除を管理しないための設計。クラス冒頭のコメント参照）。
@@ -158,6 +166,18 @@ public static class HelpTip
     public static readonly AttachedProperty<string?> MinimalProperty =
         AvaloniaProperty.RegisterAttached<Control, string?>("Minimal", typeof(HelpTip));
 
+    /// <summary>
+    /// 押せない（無効な）ときだけ、ツールチップの先頭に1行で出す理由（例:「先に解析してください」）。
+    /// 無効なボタンは何も出ず、なぜ押せないのかが分からなかった。バインディングも使える。
+    /// 有効なときは出さない。
+    /// </summary>
+    public static readonly AttachedProperty<string?> DisabledReasonProperty =
+        AvaloniaProperty.RegisterAttached<Control, string?>("DisabledReason", typeof(HelpTip));
+
+    public static string? GetDisabledReason(Control control) => control.GetValue(DisabledReasonProperty);
+
+    public static void SetDisabledReason(Control control, string? value) => control.SetValue(DisabledReasonProperty, value);
+
     public static string? GetStandard(Control control) => control.GetValue(StandardProperty);
 
     public static void SetStandard(Control control, string? value) => control.SetValue(StandardProperty, value);
@@ -175,12 +195,20 @@ public static class HelpTip
         // AddOrUpdateなら複数回Changedが飛んできても例外にならない（Standard・Detailedの
         // どちらか一方だけ設定される場合も、両方設定される場合も同じ経路で通る）。
         TrackedControls.AddOrUpdate(control, null);
+        // 無効なコントロールにもツールチップを出す（既定では出ない）。理由を伝えるのに必要。
+        ToolTip.SetShowOnDisabled(control, true);
         Apply(control);
     }
 
     private static void Apply(Control control)
     {
         var text = SelectText(control);
+        // 「表示しない」設定のときは理由も出さない（ツールチップそのものを望まない設定のため）。
+        if (_currentLevel != TooltipDetailLevel.Off && !control.IsEffectivelyEnabled
+            && GetDisabledReason(control) is { Length: > 0 } reason)
+        {
+            text = string.IsNullOrEmpty(text) ? reason : reason + "\n" + text;
+        }
         ToolTip.SetTip(control, BuildTipContent(text));
     }
 

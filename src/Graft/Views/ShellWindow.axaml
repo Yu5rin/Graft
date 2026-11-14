@@ -129,6 +129,7 @@
                          そのためこの画面ではToolTip.Tipを直接は書かない。 -->
                     <Button Content="ファイル"
                             Command="{Binding Graft.OpenContextCollectCommand}"
+                            views:HelpTip.DisabledReason="{Binding Graft.NeedProjectReason}"
                             Margin="4,0"
                             views:HelpTip.Standard="プロジェクトのファイルを選んで、AIに渡すコード一式をまとめてコピーします。AIに質問する前の準備に使います。"
                             views:HelpTip.Detailed="AIに質問する前に、プロジェクト内のどのファイルを読んでもらうかを選ぶ画面を開きます。左側でファイルにチェックを入れると、その中身をまとめてコピーする準備ができます。コピーした内容をChatGPTやClaudeなどのAIとの会話に貼り付けてから、直してほしい内容を伝えてください。ここではまだファイルは変更されません。"
@@ -142,6 +143,7 @@
                     <!-- 4.10: 分割パッチの受け取り。キューへ追加／キュー一覧を開く。 -->
                     <Button Content="キューへ追加"
                             Command="{Binding Graft.AddCurrentPatchToQueueCommand}"
+                            views:HelpTip.DisabledReason="{Binding Graft.NeedAnalysisReason}"
                             Margin="4,0"
                             views:HelpTip.Standard="解析した変更をすぐ適用せず、順番待ちに溜めます。AIが変更を数回に分けて出してきたときに使います。"
                             views:HelpTip.Detailed="AIの回答が長く、修正が何回かに分けて送られてくることがあります。そのたびに「解析」で読み取った内容を、このボタンで順番待ちの列（キュー）に追加できます。追加してもファイルはまだ変わりません。すべての回答を解析し終えたら「キュー」ボタンを押して一覧を開き、まとめて適用してください。"
@@ -154,6 +156,7 @@
                             AutomationProperties.Name="パッチキューを開く" />
                     <Button Content="適用"
                             Command="{Binding Graft.ApplyCommand}"
+                            views:HelpTip.DisabledReason="{Binding Graft.ApplyDisabledReason}"
                             Margin="4,0"
                             views:HelpTip.Standard="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます。"
                             views:HelpTip.Detailed="「解析」で読み取った変更を、実際にファイルへ書き込みます。押す前には自動でバックアップ（元の状態のコピー）が作られるため、結果が気に入らなければサイドバーの「履歴」からいつでも元に戻せます。設定で「適用前にプレビューを表示する」を有効にしていれば、書き込む前に差分を確認する画面が挟まります。"
@@ -162,6 +165,7 @@
                     <Button x:Name="PromptButton"
                             Content="プロンプト"
                             Command="{Binding Graft.OpenPromptDropdownCommand}"
+                            views:HelpTip.DisabledReason="{Binding Graft.NeedProjectReason}"
                             Margin="4,0"
                             views:HelpTip.Standard="AIへの依頼文をコピーします。Graftが読み取れる形式で回答するよう指示する文面です（Ctrl+Shift+C）。"
                             views:HelpTip.Detailed="AIに「Graftが読み取れる決まった形式で回答してください」と伝えるための文章（テンプレート）を選び、クリップボードへコピーします。コピーした文章をAIとの会話に貼り付けてから、続けて直してほしい内容を書いてください。こうしておくと、AIの回答をあとで「解析」ボタンで正しく読み取れるようになります。ショートカットキーはCtrl+Shift+Cです。"

@@ -134,6 +134,7 @@ public sealed partial class MainViewModel : ObservableObject
         ParseFromFileCommand = new AsyncRelayCommand(PickAndParseFileAsync, context: "ファイルからの解析"); // 4.1（MainViewModel.FileParse.cs）。
 
         InitializePrompt(projectStore); // 4.8.4（MainViewModel.Prompt.cs）。
+        WireDisabledReasons(); // 押せないボタンの理由（MainViewModel.DisabledReasons.cs）。
     }
 
     public ProjectPaneViewModel ProjectPane { get; }
