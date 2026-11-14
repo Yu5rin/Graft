@@ -141,12 +141,26 @@ public sealed class EditorTabManager
             .Select(t => t.Session.FullPath).ToList();
     }
 
-    /// <summary>指定パスに該当する開いているタブを、確認なしで再読込する（4.8: 適用後の再読込）。</summary>
+    /// <summary>
+    /// 指定パスに該当する開いているタブを再読込する（4.8: 適用後の再読込）。
+    ///
+    /// 未保存の編集があるタブは、黙って差し替えない。解析して差分を見ている間に同じファイルを
+    /// エディタで直し、保存しないまま適用すると、適用はディスクの内容に対して行われ、その直後の
+    /// 再読込でエディタの未保存の編集が確認なしに消えていた。適用の書き込みの前にも保存を促す
+    /// （MainViewModel.ApplyCoreAsync）が、その確認のあとに打鍵された場合などの最後の防御として、
+    /// 未保存のタブは既存の「外部で変更されました」の衝突表示（E702）に回す。利用者は
+    /// 「再読込（編集を破棄）」か「そのまま編集を続ける」かを自分で選べる。
+    /// </summary>
     public async Task ReloadIfOpenAsync(IEnumerable<string> fullPaths)
     {
         var set = new HashSet<string>(fullPaths, PathComparer);
         foreach (var tab in Tabs.Where(t => set.Contains(t.Session.FullPath)).ToList())
         {
+            if (tab.Session.IsModified)
+            {
+                tab.HasExternalConflict = true;
+                continue;
+            }
             await tab.Session.ReloadAsync().ConfigureAwait(true);
         }
     }

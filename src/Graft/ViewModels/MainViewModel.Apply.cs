@@ -107,6 +107,21 @@ public sealed partial class MainViewModel
 
         var project = ProjectPane.SelectedItem?.Project;
 
+        // 書き込みの直前にもう一度、対象ファイルの未保存の編集を確かめる。未保存の確認はドライランの
+        // 開始時（RunDryRunAsync）にしか行っていなかったため、解析して差分を見ている間に対象を
+        // エディタで直し、保存しないまま適用すると、適用はディスクの内容に対して行われ、直後の
+        // 再読込でエディタの未保存の編集が消えていた（C3）。保存を拒んだ場合は適用を始めない。
+        if (project is not null)
+        {
+            var targets = updatedPlans
+                .Where(p => p.IsSelected && p.CanApply)
+                .SelectMany(p => new[] { p.Block.Path, p.Path }) // RENAMEは移動元と移動先の両方。
+                .Select(path => Path.Combine(project.Root, path.Replace('/', Path.DirectorySeparatorChar)))
+                .Distinct()
+                .ToList();
+            if (BeforeApplyAsync is not null && !await BeforeApplyAsync(targets).ConfigureAwait(true)) return;
+        }
+
         State = CenterPaneState.Loading;
         // 実機不具合対応: 適用処理（書き込み失敗を含む）がログに一切残っていなかったため、
         // 成否・所要時間・付随する警告（SafeFileWriterが検出した退避方式の使用や検証やり直し
