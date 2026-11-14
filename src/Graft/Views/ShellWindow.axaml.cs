@@ -135,6 +135,7 @@ public partial class ShellWindow : Window
         viewModel.RequestFocusSideView += OnRequestFocusSideView;
         viewModel.RequestOpenShortcuts += OnRequestOpenShortcuts;
         viewModel.RequestOpenManual += OnRequestOpenManual;
+        viewModel.RequestEditorShortcut += OnRequestEditorShortcut;
         // 画面上のチュートリアル（コーチマーク）。実体（ShellWindow.Tutorial.cs）は
         // Controlの座標計算等Avalonia固有の知識を要するためView側の責務とし、ここでは
         // ShellViewModel側からの要求（ツールバー「?」メニュー・コマンドパレット）を
@@ -198,6 +199,29 @@ public partial class ShellWindow : Window
     private ManualWindow? _manualWindow;
 
     /// <summary>Ctrl+/・ツールバーの「?」メニュー「キーボードショートカット一覧」。静的な内容のため専用ViewModelは持たない。</summary>
+    /// <summary>
+    /// コマンドパレットからのエディタ内の操作。キー操作（Ctrl+F・Ctrl+H・Ctrl+G・Ctrl+W）と同じ
+    /// <see cref="EditorPane.TryHandleFromShell"/> へ、同じキーのイベントを渡す。
+    /// </summary>
+    private void OnRequestEditorShortcut(object? sender, string name)
+    {
+        var key = name switch
+        {
+            "Find" => Key.F,
+            "Replace" => Key.H,
+            "GoToLine" => Key.G,
+            "CloseTab" => Key.W,
+            _ => Key.None,
+        };
+        if (key == Key.None || EditorHost.Child is not EditorPane pane) return;
+        pane.TryHandleFromShell(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            KeyModifiers = KeyModifiers.Control,
+        });
+    }
+
     private void OnRequestOpenShortcuts(object? sender, EventArgs e)
     {
         if (_shortcutsWindow is { } existing)

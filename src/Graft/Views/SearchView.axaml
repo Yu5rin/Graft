@@ -184,7 +184,7 @@
                             <ContextMenu>
                                 <!-- 並び: 開く → AIに渡す → パス・エクスプローラーで表示（どれも読み取りだけの安全な操作）。
                                      キーは InputGesture で右側に出す。 -->
-                                <MenuItem Header="開く（該当行へジャンプ）" InputGesture="Enter"
+                                <MenuItem Header="開く（該当行へジャンプ）" InputGesture="Enter" local:MenuGestureLabel.Text="Enter"
                                           Command="{Binding DataContext.JumpCommand, ElementName=Root}"
                                           CommandParameter="{Binding}"
                                           local:HelpTip.Standard="このファイルをエディタで開き、該当行へジャンプします。行をクリックしても同じです。"

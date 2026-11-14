@@ -130,10 +130,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // 留める（RequestOpenManual/RequestOpenShortcutsと同じ「Viewへ委譲する」設計）。
         StartTutorialCommand = new RelayCommand(() => RequestStartTutorial?.Invoke(this, EventArgs.Empty));
         AnalyzeClipboardPatchCommand = new RelayCommand(AnalyzeClipboardPatch); // ShellViewModel.ClipboardWatch.cs参照。
+        // コマンドパレットの一覧に載せるため、InitializeCommandPalette より前に作る。
+        ToggleClipboardWatchPauseCommand = new RelayCommand(ToggleClipboardWatchPause); // 機能改善2・ShellViewModel.ClipboardWatch.cs参照。
         InitializeCommandPalette(); // コマンドパレット（Ctrl+Shift+P）。ShellViewModel.CommandPalette.cs参照。
         InitializeAppliedChangeNavigation(); // 適用した変更を開く・見る導線（ShellViewModel.AppliedChangeNavigation.cs）。
         InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
-        ToggleClipboardWatchPauseCommand = new RelayCommand(ToggleClipboardWatchPause); // 機能改善2・ShellViewModel.ClipboardWatch.cs参照。
         InitializeUpdateNotice(); // 確認なしの自動更新の通知（ステータスバー）。ShellViewModel.UpdateNotice.cs参照。
     }
 

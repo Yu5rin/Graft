@@ -45,7 +45,7 @@ public class SearchContextMenuScenarioTests : IDisposable
         headers.Should().Equal(
             "開く（該当行へジャンプ）", MenuText.AddToContext,
             MenuText.CopyPath, MenuText.CopyRelativePath, MenuText.RevealInFileManager);
-        contextMenu.GetLogicalDescendants().OfType<MenuItem>().First().InputGesture!.Key.Should().Be(Avalonia.Input.Key.Enter);
+        contextMenu!.GetLogicalDescendants().OfType<MenuItem>().First().InputGesture!.Key.Should().Be(Avalonia.Input.Key.Enter);
     }
 
     [AvaloniaFact(DisplayName = "検索結果の右クリックメニューの全項目にHelpTip.Standardが付いている")]

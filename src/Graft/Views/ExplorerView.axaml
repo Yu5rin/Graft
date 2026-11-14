@@ -217,7 +217,7 @@
                     -->
                     <ContextMenu>
                         <MenuItem Header="開く"
-                                  InputGesture="Enter"
+                                  InputGesture="Enter" local:MenuGestureLabel.Text="Enter"
                                   Command="{Binding OpenCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="開く" />
