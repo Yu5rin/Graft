@@ -232,4 +232,39 @@
     <Color x:Key="TutorialScrimColor">#8A000000</Color>
     <SolidColorBrush x:Key="TutorialScrim" Color="{StaticResource TutorialScrimColor}" />
 
+    <!-- ========== メニュー（右クリックメニュー・ツールバーの▼・「？」） ==========
+         AvaloniaのFluentテーマはメニューの色を下のキー名で参照している（Avalonia.Themes.Fluent
+         11.2.3のDLLに含まれるリソースキー名を実物で確認した。Controls.Menus.axaml冒頭参照）。
+         アプリ側のリソースがFluentより先に解決されるので、同名のキーをここで定義して
+         Graftの色へ差し替える。背景は上に重なる面なのでBgElevated、枠はBorderSubtle、
+         文字はTextPrimary、キー表示（Ctrl+Wなど）はTextSecondary。
+         ホバー／押下は、BgHover／BgSelectedがBgSurface基準の値でBgElevated上では
+         見分けにくい（Nordでは比1.01）ため、BgElevatedへ本文色を12%／18%混ぜた専用色にした
+         （ホバー面と背景の比 1.20:1）。
+         無効の文字（MenuTextDisabled）: 元のTextDisabledは背景比2.42:1。本文色へ48%寄せて3.44:1にした（目標は4.5:1と、本文の比の7割のうち小さい方。本文と見分けが付く範囲で読める濃さにするため）。 -->
+    <Color x:Key="MenuHoverColor">#18434D</Color>
+    <Color x:Key="MenuPressedColor">#204953</Color>
+    <Color x:Key="MenuTextDisabledColor">#74868A</Color>
+
+    <SolidColorBrush x:Key="MenuFlyoutPresenterBackground" Color="{StaticResource BgElevatedColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutPresenterBorderBrush" Color="{StaticResource BorderSubtleColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackground" Color="Transparent" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPointerOver" Color="{StaticResource MenuHoverColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundPressed" Color="{StaticResource MenuPressedColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemBackgroundDisabled" Color="Transparent" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForeground" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemForegroundDisabled" Color="{StaticResource MenuTextDisabledColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForeground" Color="{StaticResource TextSecondaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPointerOver" Color="{StaticResource TextSecondaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundPressed" Color="{StaticResource TextSecondaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutItemKeyboardAcceleratorTextForegroundDisabled" Color="{StaticResource MenuTextDisabledColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevron" Color="{StaticResource TextSecondaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPressed" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="MenuFlyoutSubItemChevronDisabled" Color="{StaticResource MenuTextDisabledColor}" />
+    <SolidColorBrush x:Key="MenuSeparator" Color="{StaticResource BorderSubtleColor}" />
+
 </ResourceDictionary>

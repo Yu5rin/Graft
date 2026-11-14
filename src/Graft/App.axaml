@@ -25,6 +25,8 @@
         <StyleInclude Source="avares://Graft/Themes/Controls.Base.axaml" />
         <!-- ボタンの種類（primary / subtle / danger）とセクション見出しのクラス。 -->
         <StyleInclude Source="avares://Graft/Themes/Controls.Buttons.axaml" />
+        <!-- 右クリックメニュー・ツールバーの▼・「？」のメニューの形（色は各テーマ側）。 -->
+        <StyleInclude Source="avares://Graft/Themes/Controls.Menus.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Settings.axaml" />
         <!-- Windows実機報告 案件1: 本文エディタのScrollBarだけを1.5倍に太くする
              カスケードStyle。詳細はThemes/EditorScrollBar.axaml参照。 -->
