@@ -215,28 +215,37 @@
                             <Grid Margin="0,4" ColumnDefinitions="Auto,Auto,*,Auto,Auto" Background="Transparent">
                                 <Grid.ContextMenu>
                                     <ContextMenu>
+                                        <!-- 並び: 適用に含める／外す（このブロックの主な操作）→ 見る（対象ファイルを開く）→
+                                             コピー（差分・パス・修正依頼文）。どれもファイルを書き換えない安全な操作のため、
+                                             区切り線は用途の切れ目にだけ入れる。キーは InputGesture で右側に出す。 -->
+                                        <MenuItem Header="{Binding ToggleLabel}" InputGesture="Space"
+                                                  Command="{Binding DataContext.ToggleBlockCheckCommand, ElementName=Root}"
+                                                  CommandParameter="{Binding}"
+                                                  views:HelpTip.Standard="このブロックを適用対象に含めるかどうかを切り替えます。失敗したブロックには使えません。"
+                                                  AutomationProperties.Name="{Binding ToggleLabel}" />
+                                        <Separator />
                                         <MenuItem Header="対象ファイルを開く"
                                                   Command="{Binding DataContext.OpenBlockInEditorCommand, ElementName=Root}"
                                                   CommandParameter="{Binding}"
                                                   views:HelpTip.Standard="このブロックが変更する対象ファイルを、変更箇所の行へジャンプしてエディタで開きます。"
                                                   AutomationProperties.Name="対象ファイルを開く" />
+                                        <Separator />
                                         <MenuItem Header="このブロックの差分をコピー"
                                                   Command="{Binding DataContext.CopyBlockDiffCommand, ElementName=Root}"
                                                   CommandParameter="{Binding}"
                                                   views:HelpTip.Standard="このブロックの変更内容を、unified diff形式でクリップボードへコピーします。AIへ「この変更のここを直して」と貼り戻せる形です。"
                                                   AutomationProperties.Name="このブロックの差分をコピー" />
+                                        <MenuItem Header="{x:Static views:MenuText.CopyRelativePath}"
+                                                  Command="{Binding DataContext.CopyBlockPathCommand, ElementName=Root}"
+                                                  CommandParameter="{Binding}"
+                                                  views:HelpTip.Standard="このブロックが変更する対象ファイルの、プロジェクトのフォルダからの相対パスをクリップボードへコピーします。"
+                                                  AutomationProperties.Name="対象ファイルの相対パスをコピー" />
                                         <MenuItem Header="修正依頼文をコピー"
                                                   Command="{Binding DataContext.CopyBlockRecoveryPromptCommand, ElementName=Root}"
                                                   CommandParameter="{Binding}"
                                                   IsEnabled="{Binding IsError}"
                                                   views:HelpTip.Standard="このブロックが失敗した理由と、AIが出したSEARCH部、現在のファイルの中身を含む修正依頼文を、このブロックの分だけクリップボードへコピーします。失敗したブロックのときだけ使えます。"
                                                   AutomationProperties.Name="修正依頼文をコピー" />
-                                        <Separator />
-                                        <MenuItem Header="{Binding ToggleLabel}"
-                                                  Command="{Binding DataContext.ToggleBlockCheckCommand, ElementName=Root}"
-                                                  CommandParameter="{Binding}"
-                                                  views:HelpTip.Standard="このブロックを適用対象に含めるかどうかを切り替えます。失敗したブロックには使えません。"
-                                                  AutomationProperties.Name="{Binding ToggleLabel}" />
                                     </ContextMenu>
                                 </Grid.ContextMenu>
 

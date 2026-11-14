@@ -41,9 +41,11 @@ public class SearchContextMenuScenarioTests : IDisposable
         var headers = contextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Select(m => m.Header?.ToString()).ToList();
 
-        headers.Should().Contain("開く（該当行へジャンプ） (Enter)");
-        headers.Should().Contain("パスをコピー");
-        headers.Should().Contain("ファイルマネージャで表示");
+        // 並び: 開く → AIに渡す → パス・エクスプローラーで表示。キーは見出しへ埋め込まない。
+        headers.Should().Equal(
+            "開く（該当行へジャンプ）", MenuText.AddToContext,
+            MenuText.CopyPath, MenuText.CopyRelativePath, MenuText.RevealInFileManager);
+        contextMenu.GetLogicalDescendants().OfType<MenuItem>().First().InputGesture!.Key.Should().Be(Avalonia.Input.Key.Enter);
     }
 
     [AvaloniaFact(DisplayName = "検索結果の右クリックメニューの全項目にHelpTip.Standardが付いている")]
@@ -69,7 +71,7 @@ public class SearchContextMenuScenarioTests : IDisposable
         (string FullPath, int Line)? requested = null;
         vm.JumpRequested += (_, target) => requested = target;
 
-        var menuItem = FindMenuItem(hitBorder, "開く（該当行へジャンプ） (Enter)");
+        var menuItem = FindMenuItem(hitBorder, "開く（該当行へジャンプ）");
         menuItem.Command.Should().BeSameAs(vm.JumpCommand, "既存のジャンプ処理（JumpCommand）を再利用する必要がある");
         vm.JumpCommand.Execute(hit);
 

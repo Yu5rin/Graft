@@ -23,6 +23,9 @@ public partial class EditorPane
     {
         var hasSelection = _viewModel?.ActiveTab is { Kind: EditorTabKind.Document } && Editor.SelectionLength > 0;
         CopyFixRequestPromptMenuItem.IsEnabled = hasSelection;
+        // 選択が無いのに切り取り・コピーを押しても何も起きないため、隠さず無効にして理由が伝わるようにする。
+        CutMenuItem.IsEnabled = Editor.SelectionLength > 0;
+        CopyMenuItem.IsEnabled = Editor.SelectionLength > 0;
     }
 
     private void OnCutClicked(object? sender, RoutedEventArgs e) => Editor.Cut();
@@ -30,6 +33,8 @@ public partial class EditorPane
     private void OnCopyClicked(object? sender, RoutedEventArgs e) => Editor.Copy();
 
     private void OnPasteClicked(object? sender, RoutedEventArgs e) => Editor.Paste();
+
+    private void OnSelectAllClicked(object? sender, RoutedEventArgs e) => Editor.SelectAll();
 
     /// <summary>
     /// 選択範囲から修正依頼プロンプトを組み立ててクリップボードへコピーする。選択が無い、または

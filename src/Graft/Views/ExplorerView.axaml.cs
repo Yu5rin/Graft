@@ -29,6 +29,12 @@ public partial class ExplorerView : UserControl
         // v2.0のWPF版のような「選択状態のアイテムだけ処理する」判定は不要。
         FileTreeView.DoubleTapped += OnDoubleTapped;
 
+        // 右クリックの対象を揃える。ノードの上なら Avalonia がそのノードを選択するが、ツリーの余白
+        // （ノードの無い場所）だと前に選んでいたノードが選択されたまま残り、「余白を右クリックして
+        // 削除」が前のファイルに効いてしまう。余白では選択を外し、メニューがプロジェクトのフォルダ自体
+        // （新規作成・パスのコピーなど）に対して働くようにする。
+        FileTreeView.AddHandler(PointerPressedEvent, OnTreePointerPressed, RoutingStrategies.Tunnel);
+
         DataContextChanged += OnDataContextChanged;
 
         // 利用者の指摘「ファイルをボタンやドラッグ＆ドロップでエクスプローラーに追加できない」
@@ -42,6 +48,13 @@ public partial class ExplorerView : UserControl
     }
 
     private ExplorerViewModel? ViewModel => DataContext as ExplorerViewModel;
+
+    private void OnTreePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(FileTreeView).Properties.IsRightButtonPressed) return;
+        if (FindAncestor<TreeViewItem>(e.Source as Visual) is not null) return;
+        if (ViewModel is { } vm) vm.SelectedNode = null;
+    }
 
     private void OnDoubleTapped(object? sender, TappedEventArgs e)
     {

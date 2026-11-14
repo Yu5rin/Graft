@@ -176,6 +176,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // ファイル単位の変更履歴（エクスプローラの右クリックメニュー「このファイルの変更履歴」）:
         // 絞り込みを解除して通常の全件表示へ戻すためのコマンド（バナーの「×」ボタン用）。
         ClearFileFilterCommand = new RelayCommand(() => FileFilterPath = null, () => IsFileFiltered);
+        // 右クリックメニュー「要約をコピー」。クリップボードの窓口は MainViewModel が渡す（ClipboardWriter）。
+        CopySummaryCommand = new RelayCommand(
+            () => { if (SelectedItem is { } item) ClipboardWriter?.Invoke(item.SummaryText); },
+            () => SelectedItem is not null && ClipboardWriter is not null);
         // E: 選択中リビジョンのback/フォルダをファイルマネージャで開く。フォルダの実体が
         // ディスク上に無ければ（history.jsonlのみ残っている等）無効化する。
         OpenBackupFolderCommand = new RelayCommand(
@@ -188,6 +192,19 @@ public sealed class HistoryPaneViewModel : ObservableObject
     }
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
+
+    /// <summary>右クリックメニュー「要約をコピー」。選択中の履歴の要約をクリップボードへコピーする。</summary>
+    public ICommand CopySummaryCommand { get; }
+
+    /// <summary>クリップボードへ書く窓口（MainViewModel が IUiServices のクリップボードを渡す）。</summary>
+    public Action<string>? ClipboardWriter { get; set; }
+
+    /// <summary>
+    /// 数秒で消える通知を出す窓口（MainViewModel が StatusNoticeViewModel を渡す）。取り消しが終わったことを
+    /// 「r3 を取り消しました」と伝える。以前は取り消しが終わっても何も出ず、一覧が更新されるだけで、
+    /// 本当に取り消せたのかが分かりにくかった。
+    /// </summary>
+    public Action<string>? Notify { get; set; }
 
     /// <summary>
     /// 課題2-2: 種別絞り込みドロップダウンの先頭に出す「絞り込みなし」の選択肢。
@@ -707,6 +724,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         await MarkProjectAppliedAsync(ct).ConfigureAwait(true);
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
+        Notify?.Invoke($"{target.RevisionLabel} を取り消しました");
         return true;
     }
 

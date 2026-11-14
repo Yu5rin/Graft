@@ -120,7 +120,7 @@ public class BlockItemViewModelTests
     {
         var vm = new BlockItemViewModel(MakeApplicablePlan(isSelected: false));
 
-        vm.ToggleLabel.Should().Be("チェックを付ける (Space)");
+        vm.ToggleLabel.Should().Be("チェックを付ける");
     }
 
     [Fact(DisplayName = "チェック済みのブロックはToggleLabelが「チェックを外す (Space)」になる")]
@@ -128,7 +128,7 @@ public class BlockItemViewModelTests
     {
         var vm = new BlockItemViewModel(MakeApplicablePlan(isSelected: true));
 
-        vm.ToggleLabel.Should().Be("チェックを外す (Space)");
+        vm.ToggleLabel.Should().Be("チェックを外す");
     }
 
     [Fact(DisplayName = "IsSelectedを切り替えるとToggleLabelも追従して変化通知が飛ぶ")]
@@ -140,7 +140,7 @@ public class BlockItemViewModelTests
 
         vm.IsSelected = true;
 
-        vm.ToggleLabel.Should().Be("チェックを外す (Space)");
+        vm.ToggleLabel.Should().Be("チェックを外す");
         changed.Should().Contain(nameof(BlockItemViewModel.ToggleLabel),
             "ToggleLabelのバインディングが更新されるにはPropertyChangedが必要");
     }

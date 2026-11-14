@@ -108,15 +108,16 @@
                               ToolTip.Tip="{Binding ToolTipText}">
                             <Grid.ContextMenu>
                                 <ContextMenu>
-                                    <MenuItem Header="閉じる (Ctrl+W)"
+                                    <!-- 並び: タブを閉じる操作（保存確認つきで、取り返しのつかない操作ではない）を最上段に、
+                                         次にパス・エクスプローラーで表示・AIに渡す。キーは InputGesture で右側に出す。
+                                         使えない項目（差分タブなどファイルでないタブ）は隠さず無効にする。 -->
+                                    <MenuItem Header="閉じる" InputGesture="Ctrl+W"
                                               Command="{Binding CloseCommand}"
                                               AutomationProperties.Name="このタブを閉じる" />
                                     <MenuItem Header="他のタブを閉じる"
                                               Command="{Binding DataContext.CloseOtherTabsCommand, ElementName=Root}"
                                               CommandParameter="{Binding}"
                                               AutomationProperties.Name="他のタブをすべて閉じる" />
-                                    <!-- D: 右側のタブを閉じる。既存2つ（他のタブ／すべてのタブ）と同じ作法
-                                         （保存確認あり）で、Tabsの表示順で右側のタブだけを閉じる。 -->
                                     <MenuItem Header="右側のタブを閉じる"
                                               Command="{Binding DataContext.CloseTabsToTheRightCommand, ElementName=Root}"
                                               CommandParameter="{Binding}"
@@ -127,12 +128,24 @@
                                               Command="{Binding DataContext.CloseAllTabsCommand, ElementName=Root}"
                                               AutomationProperties.Name="開いているタブをすべて閉じる" />
                                     <Separator />
-                                    <MenuItem Header="フルパスをコピー"
+                                    <MenuItem Header="{x:Static local:MenuText.AddToContext}"
+                                              Command="{Binding DataContext.AddToContextCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              IsEnabled="{Binding IsDocument}"
+                                              local:HelpTip.Standard="このタブのファイルを、「AIに渡すファイルを選ぶ」画面で「内容も出す」にします。"
+                                              AutomationProperties.Name="このタブのファイルをAIに渡すファイルに追加" />
+                                    <Separator />
+                                    <MenuItem Header="{x:Static local:MenuText.CopyPath}"
                                               Command="{Binding DataContext.CopyFullPathCommand, ElementName=Root}"
                                               CommandParameter="{Binding}"
                                               IsEnabled="{Binding IsDocument}"
-                                              AutomationProperties.Name="このタブのフルパスをコピー" />
-                                    <MenuItem Header="ファイルマネージャで表示"
+                                              AutomationProperties.Name="このタブのパスをコピー" />
+                                    <MenuItem Header="{x:Static local:MenuText.CopyRelativePath}"
+                                              Command="{Binding DataContext.CopyRelativePathCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              IsEnabled="{Binding IsDocument}"
+                                              AutomationProperties.Name="このタブの相対パスをコピー" />
+                                    <MenuItem Header="{x:Static local:MenuText.RevealInFileManager}"
                                               Command="{Binding DataContext.RevealInFileManagerCommand, ElementName=Root}"
                                               CommandParameter="{Binding}"
                                               IsEnabled="{Binding IsDocument}"
@@ -387,15 +400,21 @@
                     -->
                     <ae:TextEditor.ContextMenu>
                         <ContextMenu Opening="OnEditorContextMenuOpening">
-                            <MenuItem Header="切り取り"
+                            <!-- 並び: 編集（切り取り・コピー・貼り付け・すべて選択）→ AIに聞く。キーは InputGesture で
+                                 右側に出す（実際のキー操作は AvaloniaEdit 本体が処理する）。使えない項目は隠さず無効にする
+                                 （選択が無いときの切り取り・コピー・修正依頼文のコピーは OnEditorContextMenuOpening で無効化）。 -->
+                            <MenuItem x:Name="CutMenuItem" Header="切り取り" InputGesture="Ctrl+X"
                                       Click="OnCutClicked"
                                       AutomationProperties.Name="選択範囲を切り取り" />
-                            <MenuItem Header="コピー"
+                            <MenuItem x:Name="CopyMenuItem" Header="コピー" InputGesture="Ctrl+C"
                                       Click="OnCopyClicked"
                                       AutomationProperties.Name="選択範囲をコピー" />
-                            <MenuItem Header="貼り付け"
+                            <MenuItem Header="貼り付け" InputGesture="Ctrl+V"
                                       Click="OnPasteClicked"
                                       AutomationProperties.Name="クリップボードの内容を貼り付け" />
+                            <MenuItem Header="すべて選択" InputGesture="Ctrl+A"
+                                      Click="OnSelectAllClicked"
+                                      AutomationProperties.Name="本文をすべて選択" />
                             <Separator />
                             <MenuItem x:Name="CopyFixRequestPromptMenuItem"
                                       Header="選択範囲の修正依頼文をコピー"

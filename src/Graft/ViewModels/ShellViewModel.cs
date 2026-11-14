@@ -97,6 +97,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // 履歴ペイン（Graft.History）の絞り込みと連動させる。ExplorerViewModelはHistoryPane
         // ViewModelを知らないため、両方を知るこのクラスが橋渡しする（ProjectActivated等と同じ構造）。
         Explorer.ShowFileHistoryRequested += OnShowFileHistoryRequested;
+        // 「AIに渡すファイルに追加」（エクスプローラ・エディタのタブ・検索結果の右クリックメニュー）。
+        // 3画面はMainViewModelを知らないため、対象の相対パスの通知をここで受けて橋渡しする。
+        Explorer.AddToContextRequested += OnAddToContextRequested;
+        Editor.AddToContextRequested += OnAddToContextRequested;
+        Search.AddToContextRequested += OnAddToContextRequested;
         Graft.BeforeApplyAsync = EnsureTargetsSavedAsync; // 4.8: ドライラン開始前の未保存確認。
         Graft.AfterApplyAsync = files => Editor.ReloadIfOpenAsync(files); // 4.8: 適用後の自動再読込。
         WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
@@ -131,6 +136,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ToggleClipboardWatchPauseCommand = new RelayCommand(ToggleClipboardWatchPause); // 機能改善2・ShellViewModel.ClipboardWatch.cs参照。
         InitializeUpdateNotice(); // 確認なしの自動更新の通知（ステータスバー）。ShellViewModel.UpdateNotice.cs参照。
     }
+
+    private void OnAddToContextRequested(object? sender, string relativePath)
+        => _ = SafeHandler.RunAsync("AIに渡すファイルへの追加", () => Graft.AddFilesToContextAsync(new[] { relativePath }));
 
     /// <summary>UIフレームワーク固有の機能。ウィンドウ位置の復元などでViewから参照する。</summary>
     public IUiServices Ui => _ui;

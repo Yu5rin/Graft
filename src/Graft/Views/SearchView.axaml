@@ -182,17 +182,30 @@
                     <Border Background="Transparent">
                         <Border.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="開く（該当行へジャンプ） (Enter)"
+                                <!-- 並び: 開く → AIに渡す → パス・エクスプローラーで表示（どれも読み取りだけの安全な操作）。
+                                     キーは InputGesture で右側に出す。 -->
+                                <MenuItem Header="開く（該当行へジャンプ）" InputGesture="Enter"
                                           Command="{Binding DataContext.JumpCommand, ElementName=Root}"
                                           CommandParameter="{Binding}"
                                           local:HelpTip.Standard="このファイルをエディタで開き、該当行へジャンプします。行をクリックしても同じです。"
                                           AutomationProperties.Name="開く（該当行へジャンプ）" />
-                                <MenuItem Header="パスをコピー"
+                                <MenuItem Header="{x:Static local:MenuText.AddToContext}"
+                                          Command="{Binding DataContext.AddToContextCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="このファイルを、「AIに渡すファイルを選ぶ」画面で「内容も出す」にします。"
+                                          AutomationProperties.Name="このファイルをAIに渡すファイルに追加" />
+                                <Separator />
+                                <MenuItem Header="{x:Static local:MenuText.CopyPath}"
                                           Command="{Binding DataContext.CopyPathCommand, ElementName=Root}"
                                           CommandParameter="{Binding}"
                                           local:HelpTip.Standard="このファイルのフルパスをクリップボードへコピーします。"
                                           AutomationProperties.Name="このファイルのパスをコピー" />
-                                <MenuItem Header="ファイルマネージャで表示"
+                                <MenuItem Header="{x:Static local:MenuText.CopyRelativePath}"
+                                          Command="{Binding DataContext.CopyRelativePathCommand, ElementName=Root}"
+                                          CommandParameter="{Binding}"
+                                          local:HelpTip.Standard="プロジェクトのフォルダからの相対パスをクリップボードへコピーします。"
+                                          AutomationProperties.Name="このファイルの相対パスをコピー" />
+                                <MenuItem Header="{x:Static local:MenuText.RevealInFileManager}"
                                           Command="{Binding DataContext.RevealCommand, ElementName=Root}"
                                           CommandParameter="{Binding}"
                                           local:HelpTip.Standard="このファイルをOSのファイルマネージャで選択表示します。"

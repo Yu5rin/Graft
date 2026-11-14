@@ -123,6 +123,20 @@ public sealed class SearchViewModel : ObservableObject
         {
             if (hit is not null) PlatformServices.Current.FileManager.Reveal(hit.FullPath);
         });
+        CopyRelativePathCommand = new RelayCommand<SearchHitViewModel>(
+            hit => { if (RelativePathOf(hit) is { } relative) _clipboard.SetText(relative); },
+            hit => RelativePathOf(hit) is not null);
+        AddToContextCommand = new RelayCommand<SearchHitViewModel>(
+            hit => { if (RelativePathOf(hit) is { } relative) AddToContextRequested?.Invoke(this, relative); },
+            hit => RelativePathOf(hit) is not null);
+    }
+
+    /// <summary>ヒット行のファイルの、プロジェクトのフォルダからの相対パス（区切りは /）。プロジェクト外・未選択ならnull。</summary>
+    private string? RelativePathOf(SearchHitViewModel? hit)
+    {
+        if (hit is null || _project is null) return null;
+        var relative = Path.GetRelativePath(_project.Root, hit.FullPath).Replace('\\', '/');
+        return relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative) ? null : relative;
     }
 
     public ObservableCollection<SearchFileGroupViewModel> Groups { get; } = new();
@@ -146,8 +160,17 @@ public sealed class SearchViewModel : ObservableObject
     /// <summary>A: 結果行の右クリックメニュー「パスをコピー」。</summary>
     public ICommand CopyPathCommand { get; }
 
-    /// <summary>A: 結果行の右クリックメニュー「ファイルマネージャで表示」。</summary>
+    /// <summary>A: 結果行の右クリックメニュー「エクスプローラーで表示」（Windows以外は「ファイルマネージャーで表示」）。</summary>
     public ICommand RevealCommand { get; }
+
+    /// <summary>結果行の右クリックメニュー「相対パスをコピー」。</summary>
+    public ICommand CopyRelativePathCommand { get; }
+
+    /// <summary>結果行の右クリックメニュー「AIに渡すファイルに追加」。通知は <see cref="AddToContextRequested"/>。</summary>
+    public ICommand AddToContextCommand { get; }
+
+    /// <summary>「AIに渡すファイルに追加」の対象ファイル（プロジェクト相対パス）の通知。ShellViewModel が MainViewModel へ橋渡しする。</summary>
+    public event EventHandler<string>? AddToContextRequested;
 
     public ICommand ToggleRegexCommand { get; }
     public ICommand ToggleCaseCommand { get; }

@@ -106,6 +106,34 @@ public sealed partial class MainViewModel
             () => ContextCollect is not null && CenterError?.RequestedPaths is { Count: > 0 });
     }
 
+    /// <summary>
+    /// 右クリックメニュー「AIに渡すファイルに追加」の実体（エクスプローラ・エディタのタブ・検索結果）。
+    /// 「AIに渡すファイルを選ぶ」画面でそのファイルを「内容も出す」にする。画面は開かず、結果を数秒で消える
+    /// 通知で伝える（成功を知らせるだけなのでOKを押させない）。AIが求めたファイルを追加する操作
+    /// （<see cref="AddRequestedFilesToContextCommand"/>）と同じ <see cref="ContextCollectViewModel.ApplyRequestedFilesAsync"/>
+    /// を使うため、保存の経路・除外の判定・収集モードの切り替えは同じ挙動になる。
+    /// </summary>
+    public async Task AddFilesToContextAsync(IReadOnlyList<string> relativePaths)
+    {
+        if (ContextCollect is null || relativePaths.Count == 0) return;
+
+        var result = await ContextCollect.ApplyRequestedFilesAsync(relativePaths).ConfigureAwait(true);
+        if (result.Matched.Count > 0)
+        {
+            var name = result.Matched.Count == 1 ? $"「{Path.GetFileName(result.Matched[0])}」" : $"{result.Matched.Count}件";
+            Notice.Show($"{name}をAIに渡すファイルに追加しました"
+                + (result.ModeChanged ? "（収集モードを「ツリー＋選択」に切り替えました）" : string.Empty));
+        }
+        else if (result.Excluded.Count > 0)
+        {
+            Notice.Show("除外の設定に当てはまるファイルのため、AIに渡すファイルに追加できませんでした");
+        }
+        else
+        {
+            Notice.Show("プロジェクトの中に見つからず、AIに渡すファイルに追加できませんでした");
+        }
+    }
+
     private void OnAppendSelectedFilesChangeCommitted(object? sender, bool value)
         => AppendFilesToPromptChangeRequested?.Invoke(this, value);
 

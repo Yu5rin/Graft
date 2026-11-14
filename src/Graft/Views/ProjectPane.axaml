@@ -79,25 +79,29 @@
                      右クリックだけでは選択が変わらないため）ため、ここではSelectedItemベースの
                      既存コマンドをそのまま束縛できる。 -->
                 <ListBox.ContextMenu>
+                    <!-- 並び: ピン留め（よく使う安全な操作）→ タグ・表示名・場所の変更 → 区切り線をはさんで「削除」。
+                         「削除」はプロジェクトを一覧から外す操作（フォルダ自体は消えない）だが、履歴の扱いを選ぶため、
+                         取り返しにくい操作として最下段に置く。 -->
                     <ContextMenu>
-                        <MenuItem Header="場所を変更..."
-                                  Command="{Binding RelocateProjectCommand}"
-                                  local:HelpTip.Standard="フォルダを移動・リネームして未接続になったプロジェクトを、新しい場所へ結び付け直します。"
-                                  AutomationProperties.Name="プロジェクトの場所を変更" />
-                        <MenuItem Header="表示名を変更..."
-                                  Command="{Binding RenameProjectCommand}"
-                                  local:HelpTip.Standard="このプロジェクトの一覧上での表示名を変更します。空にするとフォルダ名から自動生成される既定の名前に戻ります。"
-                                  AutomationProperties.Name="プロジェクトの表示名を変更" />
-                        <MenuItem Header="タグを編集..."
-                                  Command="{Binding EditTagsCommand}"
-                                  local:HelpTip.Standard="カンマ区切りでタグを編集します。一覧の項目名の下に表示されます。"
-                                  AutomationProperties.Name="プロジェクトのタグを編集" />
                         <MenuItem Header="{Binding SelectedItem, Converter={x:Static local:Converters.PinMenuLabel}}"
                                   Command="{Binding TogglePinCommand}"
                                   local:HelpTip.Standard="ピン留めしたプロジェクトは一覧の先頭に固定表示されます。"
                                   AutomationProperties.Name="ピン留めの切替" />
                         <Separator />
-                        <MenuItem Header="削除..."
+                        <MenuItem Header="タグを編集…"
+                                  Command="{Binding EditTagsCommand}"
+                                  local:HelpTip.Standard="カンマ区切りでタグを編集します。一覧の項目名の下に表示されます。"
+                                  AutomationProperties.Name="プロジェクトのタグを編集" />
+                        <MenuItem Header="表示名を変更…"
+                                  Command="{Binding RenameProjectCommand}"
+                                  local:HelpTip.Standard="このプロジェクトの一覧上での表示名を変更します。空にするとフォルダ名から自動生成される既定の名前に戻ります。"
+                                  AutomationProperties.Name="プロジェクトの表示名を変更" />
+                        <MenuItem Header="場所を変更…"
+                                  Command="{Binding RelocateProjectCommand}"
+                                  local:HelpTip.Standard="フォルダを移動・リネームして未接続になったプロジェクトを、新しい場所へ結び付け直します。"
+                                  AutomationProperties.Name="プロジェクトの場所を変更" />
+                        <Separator />
+                        <MenuItem Header="削除…"
                                   Command="{Binding DeleteProjectCommand}"
                                   local:HelpTip.Standard="選択中のプロジェクトをGraftの一覧から削除します（フォルダ自体は削除されません）。"
                                   AutomationProperties.Name="プロジェクトを削除" />

@@ -198,28 +198,36 @@
                     報告を参照。
                 -->
                 <ListBox.ContextMenu>
+                    <!--
+                        並び: 見る・コピーする（安全）→ バックアップフォルダ → 区切り線をはさんで
+                        「この適用を取り消す」「ここまで戻す」（ファイルを書き換える操作）。以前は取り消す操作が
+                        先頭にあり、「差分を見たい」つもりで開いたメニューの先頭に危険な操作が来ていた。
+                        「ここまで戻す」は複数の履歴をまとめて取り消すため、いちばん下に置く。
+                    -->
                     <ContextMenu>
-                        <MenuItem Header="ここまで戻す"
-                                  Command="{Binding RestoreThroughCommand}"
-                                  local:HelpTip.Standard="選択した履歴より新しい変更をすべて取り消し、その時点まで一気に戻します。"
-                                  AutomationProperties.Name="選択した履歴までまとめて戻す" />
-                        <MenuItem Header="この適用を取り消す"
-                                  Command="{Binding RestoreCommand}"
-                                  local:HelpTip.Standard="この履歴だけを取り消し、適用する直前の状態へ戻します。"
-                                  AutomationProperties.Name="この適用を取り消す" />
-                        <Separator />
-                        <MenuItem Header="差分を表示"
+                        <MenuItem Header="変更を見る"
                                   Command="{Binding ShowDiffCommand}"
-                                  local:HelpTip.Standard="この履歴の差分を、専用のタブで表示します。選択するだけでも自動的に開きます。"
-                                  AutomationProperties.Name="この履歴の差分を表示" />
+                                  local:HelpTip.Standard="この履歴で変わったファイルの差分を、専用のタブで表示します。選択するだけでも自動的に開きます。"
+                                  AutomationProperties.Name="この履歴の変更を見る" />
+                        <MenuItem Header="要約をコピー"
+                                  Command="{Binding CopySummaryCommand}"
+                                  local:HelpTip.Standard="この履歴の要約（適用のときに付けたひとこと）をクリップボードへコピーします。"
+                                  AutomationProperties.Name="この履歴の要約をコピー" />
                         <Separator />
-                        <!-- E: バックアップフォルダを開く。「本当に退避されているか」を自分の目で
-                             確かめられる安心材料として、IFileManagerLauncherで back/ フォルダを開く。 -->
                         <MenuItem Header="バックアップフォルダを開く"
                                   Command="{Binding OpenBackupFolderCommand}"
                                   local:HelpTip.Standard="この履歴のバックアップ（back/フォルダ）を、OSのファイルマネージャで開きます。実際に退避されているかを目で確かめられます。"
                                   local:HelpTip.Detailed="この履歴を適用したときにGraftが自動で退避しておいたバックアップフォルダ（back/配下）を、OSのファイルマネージャで開きます。「復元」を押す前に、本当にバックアップが残っているかを自分の目で確認したいときに使います。バックアップの実体がディスク上に見つからない場合は無効になります。"
                                   AutomationProperties.Name="この履歴のバックアップフォルダを開く" />
+                        <Separator />
+                        <MenuItem Header="この適用を取り消す"
+                                  Command="{Binding RestoreCommand}"
+                                  local:HelpTip.Standard="この履歴だけを取り消し、適用する直前の状態へ戻します。"
+                                  AutomationProperties.Name="この適用を取り消す" />
+                        <MenuItem Header="ここまで戻す"
+                                  Command="{Binding RestoreThroughCommand}"
+                                  local:HelpTip.Standard="選択した履歴より新しい変更をすべて取り消し、その時点まで一気に戻します。"
+                                  AutomationProperties.Name="選択した履歴までまとめて戻す" />
                     </ContextMenu>
                 </ListBox.ContextMenu>
                 <ListBox.Styles>
@@ -261,12 +269,19 @@
                                        FontSize="{DynamicResource CaptionFontSize}"
                                        Foreground="{DynamicResource TextSecondary}" />
                             <!-- 13.1: 復元不可のリビジョンはその旨を示す（色のみに依存しない文言表示） -->
-                            <TextBlock Text="{Binding RestorabilityText}"
-                                       FontSize="{DynamicResource CaptionFontSize}"
-                                       Foreground="{DynamicResource StateWarn}"
-                                       IsVisible="{Binding CanRestore,
-                                                   Converter={x:Static local:Converters.InverseBoolean}}"
-                                       TextWrapping="Wrap" />
+                            <!-- 取り消し済み・復元不可の印は、色（StateWarn）だけに頼らず、アイコンと文字を並べる
+                                 （取り消し済みの履歴を、色の違いが分からない人や白黒の画面でも見分けられるように）。 -->
+                            <StackPanel Orientation="Horizontal" Spacing="4"
+                                        IsVisible="{Binding CanRestore,
+                                                    Converter={x:Static local:Converters.InverseBoolean}}">
+                                <local:IconGlyph Width="12" Height="12" VerticalAlignment="Top" Margin="0,2,0,0"
+                                                 Data="{DynamicResource IconRotateCcwGeometry}"
+                                                 Stroke="{DynamicResource StateWarn}" />
+                                <TextBlock Text="{Binding RestorabilityText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource StateWarn}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
                         </StackPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>

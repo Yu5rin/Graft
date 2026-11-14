@@ -42,7 +42,19 @@
                 </ListBox.Styles>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="0,4" ColumnDefinitions="*,Auto">
+                        <Grid Margin="0,4" ColumnDefinitions="*,Auto" Background="Transparent">
+                            <!-- キューの項目の右クリックメニュー。右側の「削除」ボタンと同じコマンド。取り除く操作は
+                                 取り返しにくいため、区切り線で他と分けて最下段に置く（いまはこの1項目だけだが、
+                                 項目が増えても危険な操作が最後に来る並びを保つ）。 -->
+                            <Grid.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="キューから削除"
+                                              Command="{Binding DataContext.RemoveCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              views:HelpTip.Standard="このブロックだけをキューから取り除きます。他のブロックには影響しません。"
+                                              AutomationProperties.Name="このブロックをキューから削除" />
+                                </ContextMenu>
+                            </Grid.ContextMenu>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="{Binding PathText}"
                                            FontSize="{DynamicResource BodyFontSize}"
