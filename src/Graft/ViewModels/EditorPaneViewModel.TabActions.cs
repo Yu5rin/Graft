@@ -26,6 +26,12 @@ public sealed partial class EditorPaneViewModel
     /// <summary>タブ見出し右クリックメニュー「相対パスをコピー」（プロジェクトのフォルダからの相対パス）。</summary>
     public ICommand CopyRelativePathCommand { get; private set; } = null!;
 
+    /// <summary>
+    /// 「パスをコピー」「相対パスをコピー」を数秒で消える通知で伝える窓口。ShellViewModel が
+    /// MainViewModel.Notice に結ぶ（プロジェクト一覧の Notify と同じ作り。コンストラクタ引数は増やさない）。
+    /// </summary>
+    public Action<string>? Notify { get; set; }
+
     /// <summary>タブ見出し右クリックメニュー「エクスプローラーで表示」（Windows以外は「ファイルマネージャーで表示」）。</summary>
     public ICommand RevealInFileManagerCommand { get; private set; } = null!;
 
@@ -55,10 +61,17 @@ public sealed partial class EditorPaneViewModel
         CopyFullPathCommand = new RelayCommand<EditorTabViewModel>(tab =>
         {
             // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
-            if (tab is { Kind: EditorTabKind.Document }) Ui.Clipboard.SetText(tab.Session.FullPath);
+            if (tab is not { Kind: EditorTabKind.Document }) return;
+            Ui.Clipboard.SetText(tab.Session.FullPath);
+            Notify?.Invoke(CopyNoticeText.PathCopied(tab.Session.FullPath));
         });
         CopyRelativePathCommand = new RelayCommand<EditorTabViewModel>(
-            tab => { if (tab is { Kind: EditorTabKind.Document }) Ui.Clipboard.SetText(tab.Session.RelativePath); },
+            tab =>
+            {
+                if (tab is not { Kind: EditorTabKind.Document }) return;
+                Ui.Clipboard.SetText(tab.Session.RelativePath);
+                Notify?.Invoke(CopyNoticeText.RelativePathCopied(tab.Session.RelativePath));
+            },
             tab => tab is { Kind: EditorTabKind.Document });
         AddToContextCommand = new RelayCommand<EditorTabViewModel>(
             tab => { if (tab is { Kind: EditorTabKind.Document }) AddToContextRequested?.Invoke(this, tab.Session.RelativePath); },

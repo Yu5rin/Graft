@@ -65,6 +65,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // 既存のクリップボード窓口（_ui.Clipboard）をそのまま渡す。
         Search = new SearchViewModel(new Graft.Features.CrossFileSearchEngine(), _dialogs, _ui.Clipboard);
         Search.JumpRequested += OnSearchJumpRequested;
+        // 「パスをコピー」「相対パスをコピー」を、プロジェクト一覧と同じ数秒で消える通知で伝える。
+        Explorer.Notify = text => Graft.Notice.Show(text);
+        Search.Notify = text => Graft.Notice.Show(text);
+        Editor.Notify = text => Graft.Notice.Show(text);
         QuickOpen = new QuickOpenViewModel();
         QuickOpen.FileOpenRequested += OnQuickOpenFileRequested;
         _settings = settings;
