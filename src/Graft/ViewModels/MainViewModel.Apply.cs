@@ -37,6 +37,13 @@ public sealed partial class MainViewModel
     /// </summary>
     public event EventHandler<ApplyPreviewRequestedEventArgs>? ApplyPreviewRequested;
 
+    /// <summary>
+    /// 適用処理（要約確認〜書き込み〜適用後フック〜Git自動コミット）が実行中かどうか。
+    /// アプリを閉じる操作が、書き込みの途中でプロセスを終わらせてしまわないよう、
+    /// 終わるまで待つために参照する（ShellWindow.OnClosing）。
+    /// </summary>
+    public bool IsApplyInProgress => _isApplyInProgress;
+
     /// <summary>ApplyCommandの実体。要約入力・確認ダイアログを経て本適用し、6.5適用後フックを実行する。</summary>
     private async Task ApplyAsync()
     {

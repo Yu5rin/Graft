@@ -358,6 +358,38 @@ public sealed partial class EditorPaneViewModel : ObservableObject
             : GraftResult<bool>.Ok(true, issues);
     }
 
+    /// <summary>未保存の編集があるドキュメントタブのファイル名（アプリ終了時の確認用）。</summary>
+    public IReadOnlyList<string> UnsavedDocumentNames()
+        => DocumentTabs.Where(t => t.IsModified).Select(t => t.Session.FileName).ToList();
+
+    /// <summary>
+    /// アプリを閉じる前の未保存確認。未保存のタブが無ければ確認なしで true。
+    /// あれば「保存して終了／保存せずに終了／キャンセル」の3択を1回だけ出す
+    /// （更新の再起動前の確認 <c>ConfirmUnsavedDocumentsAsync</c> がタブごとに出す
+    /// 「変更の保存」と同じ3択の形。ただしあちらはタブを閉じてしまうため、終了時のレイアウト
+    /// 保存（開いていたタブの記憶）を空にしないよう、ここではタブを閉じず確認と保存だけを行う）。
+    /// 保存に失敗したタブがあれば、編集を残すため false（終了しない）。
+    /// </summary>
+    public async Task<bool> ConfirmSaveBeforeExitAsync()
+    {
+        var names = UnsavedDocumentNames();
+        if (names.Count == 0) return true;
+
+        var list = string.Join("、", names.Take(5)) + (names.Count > 5 ? $" ほか{names.Count - 5}件" : string.Empty);
+        var choice = await _dialogs.ConfirmThreeWayAsync(
+            "変更の保存",
+            $"保存されていない変更があります（{list}）。終了する前に保存しますか？",
+            "保存して終了", "保存せずに終了").ConfigureAwait(true);
+        if (choice is null) return false;
+        if (choice == false) return true;
+
+        var saved = await SaveAllAsync().ConfigureAwait(true);
+        if (saved.IsSuccess) return true;
+
+        await _dialogs.ShowMessageAsync("保存に失敗しました", "ファイルの保存に失敗したため、終了を中止します。").ConfigureAwait(true);
+        return false;
+    }
+
     /// <summary>7章の適用後に、書き換わったファイルのタブを再読込する（4.8）。</summary>
     public Task ReloadIfOpenAsync(IEnumerable<string> fullPaths) => _manager.ReloadIfOpenAsync(fullPaths);
 

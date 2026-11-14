@@ -179,6 +179,12 @@ public sealed class ScriptedDialogs : IDialogService
     /// <summary>ConfirmThreeWayAsyncの応答（true=はい／false=いいえ／null=キャンセル）。</summary>
     public Func<string, string, bool?> ThreeWayAnswer { get; set; } = (_, _) => true;
 
+    /// <summary>
+    /// ConfirmAsyncの応答を、完了のタイミングごと台本にしたいとき用（nullを返すと<see cref="ConfirmAnswer"/>に従う）。
+    /// 適用の途中でダイアログを止めて、その間の挙動を確かめるのに使う。
+    /// </summary>
+    public Func<string, string, Task<bool>?>? ConfirmAnswerAsync { get; set; }
+
     public List<(string Title, string Message)> Confirms { get; } = new();
     public List<(string Title, string Message)> ThreeWays { get; } = new();
     public List<(string Title, string Message)> Messages { get; } = new();
@@ -186,7 +192,7 @@ public sealed class ScriptedDialogs : IDialogService
     public Task<bool> ConfirmAsync(string title, string message)
     {
         Confirms.Add((title, message));
-        return Task.FromResult(ConfirmAnswer(title, message));
+        return ConfirmAnswerAsync?.Invoke(title, message) ?? Task.FromResult(ConfirmAnswer(title, message));
     }
 
     public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)

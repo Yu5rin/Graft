@@ -537,6 +537,20 @@ public partial class ShellWindow : Window
             return;
         }
 
+        // 閉じる前の確認（C2）。×ボタンもトレイメニューの「終了」も、ここで確認を挟む。
+        // 以前は未保存の編集が確認なしに消えていた（仕様書は「終了する際は保存確認」としている）。
+        // 確認は非同期（ダイアログ・適用の完了待ち）なので、いったん閉じるのを取り消して
+        // 済んでから閉じ直す。確認の要らない（未保存も適用の実行中も無い）ときは、
+        // 取り消さずそのまま続けるため、従来の同期的な閉じ方は変わらない。
+        // トレイに常駐する設定のときは上で隠して戻っているので、ここへは来ない（確認しない）。
+        if (!_closeConfirmed
+            && (ViewModel.Graft.IsApplyInProgress || ViewModel.Editor.UnsavedDocumentNames().Count > 0))
+        {
+            e.Cancel = true;
+            if (!_closeCheckInProgress) _ = ConfirmThenCloseAsync();
+            return;
+        }
+
         // 指摘6: 非モーダル化したショートカット一覧・取扱説明書（Owner=thisで開いている）は、
         // Avaloniaの既定動作でもOwnerが閉じれば連動して閉じるが、上のトレイ分岐で「隠すだけ」を
         // 選んだ場合はここへ到達しない（＝子ウィンドウは開いたまま残る想定どおり）。実際に
@@ -598,6 +612,39 @@ public partial class ShellWindow : Window
         {
             Logger?.Error("shutdown", $"レイアウト・タブ構成の保存に失敗しました: {ex}");
         }
+    }
+
+    private bool _closeConfirmed;
+    private bool _closeCheckInProgress;
+
+    /// <summary>
+    /// 閉じる操作の確認（C2）。適用の実行中なら終わるまで待ち（書き込みの途中でプロセスが
+    /// 終わると履歴とファイルが食い違う）、そのあと未保存の編集を確認する。キャンセルや保存失敗なら
+    /// 閉じない。トレイメニューの「終了」で立った <see cref="IsForceClosing"/> も、キャンセル時は
+    /// 戻す（残すと、次の×でトレイへ隠れずに終了してしまう）。
+    /// </summary>
+    private async Task ConfirmThenCloseAsync()
+    {
+        _closeCheckInProgress = true;
+        var proceed = false;
+        try
+        {
+            while (ViewModel.Graft.IsApplyInProgress) await Task.Delay(100).ConfigureAwait(true);
+            proceed = await ViewModel.Editor.ConfirmSaveBeforeExitAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            _closeCheckInProgress = false;
+        }
+
+        if (!proceed)
+        {
+            IsForceClosing = false;
+            return;
+        }
+
+        _closeConfirmed = true;
+        Close();
     }
 
     /// <summary>layout.json が壊れていた場合等にGridLengthが受け付けない値（NaN・0以下）を弾く。</summary>
