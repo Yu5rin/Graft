@@ -350,8 +350,19 @@ public sealed class HistoryPaneViewModel : ObservableObject
     public HistoryDatePreset DatePreset
     {
         get => _datePreset;
-        set => SetProperty(ref _datePreset, value, () => OnDatePresetChanged(value));
+        set => SetProperty(ref _datePreset, value, () =>
+        {
+            OnPropertyChanged(nameof(IsCustomDateRange));
+            OnDatePresetChanged(value);
+        });
     }
+
+    /// <summary>
+    /// 日付の手入力欄（開始日〜終了日）を出すかどうか。期間で「指定期間」を選んでいる間だけ true。
+    /// プリセットを選ぶと欄へ自動で反映されるため、普段は隠して絞り込みの段数を減らす
+    /// （HistoryPane.axaml の絞り込み欄のコメント参照）。
+    /// </summary>
+    public bool IsCustomDateRange => _datePreset == HistoryDatePreset.Custom;
 
     private void OnDatePresetChanged(HistoryDatePreset preset)
     {

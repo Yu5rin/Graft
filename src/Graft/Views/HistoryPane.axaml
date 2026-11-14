@@ -110,44 +110,38 @@
                     ToolTip.Tip="検索キーワードを解除します" />
         </Grid>
 
-        <!-- type絞り込み -->
-        <Grid Grid.Row="3" Margin="8,0,8,4" ColumnDefinitions="*,Auto">
-            <!--
-                課題2-2: 未選択時（TypeFilterがnull）は空欄のままで何を選ぶドロップダウンか
-                分からなかった。このComboBoxのControlTemplate（Themes/Controls.Input.axaml）は
-                PlaceholderTextを参照しないため（AvaloniaのComboBox標準templateとは異なる自前
-                実装）、PlaceholderTextを設定しても空欄のままだった。代わりに「すべての種別」を
-                選択肢の先頭（HistoryPaneViewModel.AllTypesOption）に加え、既定でそれを選択済みに
-                する（SelectedTypeOption経由。実際の絞り込みはTypeFilterのnullのまま変わらない）。
-            -->
+        <!--
+            見た目の整備: 履歴ペインの絞り込みが4段（検索・種別・期間・日付）を占め、履歴の一覧が
+            下へ押し下げられていた。機能は減らさず、次の2段にまとめる。
+              1段目: 要約の検索
+              2段目: 種別 と 期間（プリセット）を横に並べる
+            日付の手入力欄（開始日〜終了日）は、期間で「指定期間」を選んだときだけ3段目に出す
+            （プリセットを選ぶと欄へ自動で反映されるため、普段は見えなくてよい）。
+            種別の「×」ボタンは、ドロップダウンの先頭「すべての種別」を選ぶのと同じ操作なので
+            なくした（2つ並べる幅が無いため）。
+            課題2-2: 未選択時（TypeFilterがnull）は空欄のままで何を選ぶドロップダウンか
+            分からなかった。このComboBoxのControlTemplate（Themes/Controls.Input.axaml）は
+            PlaceholderTextを参照しないため（AvaloniaのComboBox標準templateとは異なる自前
+            実装）、代わりに「すべての種別」を選択肢の先頭（HistoryPaneViewModel.AllTypesOption）に加え、
+            既定でそれを選択済みにする（SelectedTypeOption経由。実際の絞り込みはTypeFilterのnullのまま）。
+            期間プリセットは、よく使う「直近の適用を見たい」操作のたびに日付を打ち直さずに済むようにするもの
+            （選ぶと下の手入力欄へ即座に反映する。HistoryPaneViewModel.DatePreset参照）。
+        -->
+        <Grid Grid.Row="3" Margin="8,0,8,4" ColumnDefinitions="*,4,*">
             <ComboBox x:Name="TypeCombo"
                       Grid.Column="0"
+                      HorizontalAlignment="Stretch"
+                      Padding="6,4"
                       ItemsSource="{Binding AvailableTypes}"
                       SelectedItem="{Binding SelectedTypeOption, Mode=TwoWay}"
                       AutomationProperties.Name="種別で絞り込み"
                       local:HelpTip.Standard="下の履歴一覧を、リビジョンの種類（適用・復元など）で絞り込みます。"
                       local:HelpTip.Detailed="下の履歴一覧を、そのリビジョンがどんな操作で作られたか（パッチの適用、以前の状態への復元、など）で絞り込みます。既定は「すべての種別」で絞り込みなしです。右の「×」ボタンでいつでも解除できます。" />
-            <Button Grid.Column="1"
-                    Content="×"
-                    Click="OnClearTypeFilter"
-                    Padding="6,2"
-                    Margin="4,0,0,0"
-                    local:HelpTip.Standard="種別絞り込みを解除"
-                    local:HelpTip.Detailed="左のドロップダウンで選んでいる種別による絞り込みを解除し、すべての種類のリビジョンを一覧に表示し直します。"
-                    AutomationProperties.Name="種別絞り込みを解除" />
-        </Grid>
-
-        <!--
-            期間プリセット。手入力欄だけでは細かい範囲は指定できても、大半の用途である
-            「直近の適用を見たい」という操作のたびに日付を打ち直すのは不親切なため追加。
-            選ぶと下の手入力欄へ即座に反映する（HistoryPaneViewModel.DatePreset参照）。
-            サイドビューの幅が狭く「期間」行に収まらないため、専用の行を上に足している。
-        -->
-        <Grid Grid.Row="4" Margin="8,0,8,4" ColumnDefinitions="*">
-            <ComboBox Grid.Column="0"
+            <ComboBox Grid.Column="2"
                       ItemsSource="{Binding AvailableDatePresets}"
                       SelectedItem="{Binding DatePreset, Mode=TwoWay}"
                       HorizontalAlignment="Stretch"
+                      Padding="6,4"
                       AutomationProperties.Name="期間のプリセットで絞り込み"
                       local:HelpTip.Standard="「今日」「今週」など、よく使う期間をワンタッチで選べます。選ぶと下の開始日・終了日にも反映されます。"
                       local:HelpTip.Detailed="下の履歴一覧を期間で絞り込む際の、よく使う範囲（今日・今週・今月など）をまとめて選べるショートカットです。選ぶと下の「期間」欄の開始日・終了日が自動的に書き換わります。任意の日付範囲を指定したい場合は、下の欄へ直接入力してください。">
@@ -165,7 +159,8 @@
             サイドビューの幅に3項目分の枠が収まらないため（HistoryPaneViewModel参照）。
             細かい範囲を指定したいときのために、上のプリセットとは別に残している。
         -->
-        <Grid Grid.Row="5" Margin="8,0,8,6" ColumnDefinitions="Auto,*,Auto,*">
+        <Grid Grid.Row="4" Margin="8,0,8,4" ColumnDefinitions="Auto,*,Auto,*"
+              IsVisible="{Binding IsCustomDateRange}">
             <TextBlock Grid.Column="0" Text="期間" VerticalAlignment="Center"
                        Margin="0,0,6,0"
                        FontSize="{DynamicResource CaptionFontSize}"
