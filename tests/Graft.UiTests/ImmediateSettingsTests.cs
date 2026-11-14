@@ -98,6 +98,29 @@ public class ImmediateSettingsTests : IDisposable
         received!.CloseBehavior.Should().Be("tray", "StartupCoordinatorがShellWindow.CloseBehaviorへ即時反映するためのコールバック");
     }
 
+    [AvaloniaFact(DisplayName = "C11: トレイ経由のクリップボード監視の切り替えは、その後に別の設定を変えても巻き戻らない")]
+    public async Task トレイの監視切り替えは次の設定保存で巻き戻らない()
+    {
+        var appPaths = new AppPaths(_root);
+        appPaths.EnsureCoreDirectoriesExist();
+        var vm = new SettingsViewModel(appPaths, new NoopDialogService(), new Graft.Platform.AvaloniaUiServices());
+        await vm.InitializeAsync();
+        var store = new SettingsStore(appPaths);
+
+        // トレイからの切り替え（StartupCoordinator.SetClipboardWatchEnabled）はこの入口を通る。
+        vm.SetClipboardWatchEnabledLive(true);
+        await WaitUntilAsync(async () => (await store.LoadAsync()).Value.ClipboardWatch.Enabled);
+        (await store.LoadAsync()).Value.ClipboardWatch.Enabled.Should().BeTrue("前提: 切り替えが保存された");
+
+        // そのあと設定画面で、無関係な項目を1つ変える。
+        vm.CloseBehavior = "tray";
+        await WaitUntilAsync(async () => (await store.LoadAsync()).Value.CloseBehavior == "tray");
+
+        var saved = (await store.LoadAsync()).Value;
+        saved.CloseBehavior.Should().Be("tray");
+        saved.ClipboardWatch.Enabled.Should().BeTrue("トレイでの切り替えが、次の設定保存で古い値に戻されてはならない");
+    }
+
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {
         for (var i = 0; i < 200; i++)
