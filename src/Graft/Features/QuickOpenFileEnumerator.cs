@@ -57,6 +57,9 @@ public sealed class QuickOpenFileEnumerator
             ct.ThrowIfCancellationRequested();
             var rel = ToRelative(root, subDir);
             if (filter.IsIgnored(rel, isDirectory: true)) continue;
+            // フォルダのリンク（シンボリックリンク・ジャンクション）は中へ入らない。輪になっていると
+            // 同じファイルを何度も数え、リンク先がプロジェクト外ならそこまで一覧に混ざる（DirectoryLinks参照）。
+            if (DirectoryLinks.IsLink(subDir)) continue;
             Walk(root, subDir, filter, allowedExtensions, result, ct);
         }
 

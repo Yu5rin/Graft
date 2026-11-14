@@ -1,4 +1,5 @@
 using System.IO;
+using Graft.Infra;
 using Graft.Core;
 
 namespace Graft.Features;
@@ -171,7 +172,7 @@ public sealed class FileImportService
     {
         try
         {
-            return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count();
+            return DirectoryLinks.CountFilesRecursive(dir);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -193,15 +194,17 @@ public sealed class FileImportService
     {
         Directory.CreateDirectory(LongPath.Extended(destDir));
 
+        // フォルダのリンクは中へ入らない（輪になっていると無限にコピーし続けるため。DirectoryLinks参照）。
+        // そのためリンクそのものは取り込み先にコピーされない。
         // 空フォルダも含めて先にディレクトリ構造を作る（DeleteUndoStore.CopyDirectoryRecursivelyと同じ方針）。
-        foreach (var dir in Directory.EnumerateDirectories(sourceDir, "*", SearchOption.AllDirectories))
+        foreach (var dir in DirectoryLinks.EnumerateDirectoriesRecursive(sourceDir))
         {
             ct.ThrowIfCancellationRequested();
             var relative = Path.GetRelativePath(sourceDir, dir);
             Directory.CreateDirectory(LongPath.Extended(Path.Combine(destDir, relative)));
         }
 
-        foreach (var file in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        foreach (var file in DirectoryLinks.EnumerateFilesRecursive(sourceDir))
         {
             ct.ThrowIfCancellationRequested();
             var relative = Path.GetRelativePath(sourceDir, file);

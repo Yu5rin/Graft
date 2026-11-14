@@ -1,4 +1,5 @@
 using System.IO;
+using Graft.Infra;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -39,7 +40,9 @@ public sealed class GitignoreFilter
             return new GitignoreFilter(rules);
         }
 
-        var files = Directory.EnumerateFiles(root, ".gitignore", SearchOption.AllDirectories)
+        // リンクのフォルダの中の .gitignore は読まない（輪での重複読み込みや、プロジェクト外の
+        // 規則の混入を防ぐ。DirectoryLinks参照）。
+        var files = DirectoryLinks.EnumerateFilesRecursive(root, ".gitignore")
             .OrderBy(f => f.Length);
         foreach (var file in files)
         {

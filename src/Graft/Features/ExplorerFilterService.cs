@@ -91,6 +91,8 @@ public sealed class ExplorerFilterService
             ct.ThrowIfCancellationRequested();
             var rel = ToRelative(root, subDir);
             if (filter.IsIgnored(rel, isDirectory: true) && !includeExcluded) continue;
+            // フォルダのリンクは中へ入らない（輪で同じファイルが重なって候補に並ぶのを防ぐ。DirectoryLinks参照）。
+            if (DirectoryLinks.IsLink(subDir)) continue;
             Walk(root, subDir, filter, includeExcluded, query, matches, ref truncated, ct);
         }
 

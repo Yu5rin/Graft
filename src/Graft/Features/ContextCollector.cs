@@ -702,7 +702,9 @@ public sealed class ContextCollector
                 // 「N ファイル、内容は非出力」と畳んで要約できるよう総ファイル数だけ数える。
                 ExcludedDescendantFileCount = ignored ? CountDescendantFiles(dir) : null,
             });
-            if (!ignored) WalkDirectory(root, dir, filter, nodes, ct);
+            // フォルダのリンクはツリーに項目として出すが、中へは入らない（輪で同じファイルを
+            // 重ねて数えず、リンク先のプロジェクト外のファイルを混ぜないため。DirectoryLinks参照）。
+            if (!ignored && !DirectoryLinks.IsLink(dir)) WalkDirectory(root, dir, filter, nodes, ct);
         }
 
         foreach (var file in fileEntries) nodes.Add(BuildFileNode(root, file, filter));
@@ -718,7 +720,8 @@ public sealed class ContextCollector
     {
         try
         {
-            return Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count();
+            // リンクの中は数えない（輪で数が膨れる・終わらないのを防ぐ）。リンク自体は0件。
+            return DirectoryLinks.IsLink(dir) ? 0 : DirectoryLinks.CountFilesRecursive(dir);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
