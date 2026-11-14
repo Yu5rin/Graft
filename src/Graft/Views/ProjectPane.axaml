@@ -79,7 +79,7 @@
                      右クリックだけでは選択が変わらないため）ため、ここではSelectedItemベースの
                      既存コマンドをそのまま束縛できる。 -->
                 <ListBox.ContextMenu>
-                    <!-- 並び: ピン留め（よく使う安全な操作）→ タグ・表示名・場所の変更 → 区切り線をはさんで「削除」。
+                    <!-- 並び: ピン留め（よく使う安全な操作）→ パスのコピー・フォルダの表示（見るだけ）→ タグ・表示名・場所の変更 → 区切り線をはさんで「削除」。
                          「削除」はプロジェクトを一覧から外す操作（フォルダ自体は消えない）だが、履歴の扱いを選ぶため、
                          取り返しにくい操作として最下段に置く。 -->
                     <ContextMenu>
@@ -87,6 +87,15 @@
                                   Command="{Binding TogglePinCommand}"
                                   local:HelpTip.Standard="ピン留めしたプロジェクトは一覧の先頭に固定表示されます。"
                                   AutomationProperties.Name="ピン留めの切替" />
+                        <Separator />
+                        <MenuItem Header="{x:Static local:MenuText.CopyPath}"
+                                  Command="{Binding CopyPathCommand}"
+                                  local:HelpTip.Standard="このプロジェクトのフォルダのパスをクリップボードへコピーします。"
+                                  AutomationProperties.Name="プロジェクトのパスをコピー" />
+                        <MenuItem Header="{x:Static local:MenuText.RevealInFileManager}"
+                                  Command="{Binding RevealCommand}"
+                                  local:HelpTip.Standard="このプロジェクトのフォルダをOSのファイルマネージャで開きます。フォルダが見つからないプロジェクトでは使えません。"
+                                  AutomationProperties.Name="プロジェクトのフォルダをファイルマネージャで表示" />
                         <Separator />
                         <MenuItem Header="タグを編集…"
                                   Command="{Binding EditTagsCommand}"

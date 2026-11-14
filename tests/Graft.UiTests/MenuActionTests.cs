@@ -73,4 +73,26 @@ public class MenuActionTests
         h.Shell.Graft.Notice.IsVisible.Should().BeTrue("取り消しが終わったことを、数秒で消える通知で伝える");
         h.Shell.Graft.Notice.Text.Should().Be($"{item.RevisionLabel} を取り消しました");
     }
+
+    [AvaloniaFact(DisplayName = "プロジェクトの「パスをコピー」はフォルダのパスをコピーして通知を出し、フォルダが無くなると「ファイルマネージャーで表示」だけ無効になる")]
+    public async Task プロジェクトのパスをコピーできる()
+    {
+        using var h = await ShellHarness.CreateAsync().ConfigureAwait(true);
+        await File.WriteAllTextAsync(h.ProjectPath("a.txt"), "A\n").ConfigureAwait(true);
+        await h.RegisterProjectAsync().ConfigureAwait(true);
+
+        var pane = h.Shell.Graft.ProjectPane;
+        pane.SelectedItem.Should().NotBeNull();
+        pane.CopyPathCommand.CanExecute(null).Should().BeTrue();
+        pane.RevealCommand.CanExecute(null).Should().BeTrue("フォルダがあれば表示できる");
+
+        pane.CopyPathCommand.Execute(null);
+        h.Clipboard.Text.Should().Be(pane.SelectedItem!.Project.Root);
+        h.Shell.Graft.Notice.IsVisible.Should().BeTrue("コピーしたことを、数秒で消える通知で伝える");
+        h.Shell.Graft.Notice.Text.Should().Be("プロジェクトのパスをコピーしました");
+
+        Directory.Delete(pane.SelectedItem.Project.Root, recursive: true);
+        pane.RevealCommand.CanExecute(null).Should().BeFalse("フォルダが見つからないときは開けないので無効");
+        pane.CopyPathCommand.CanExecute(null).Should().BeTrue("コピーは、探す手がかりになるので有効のまま");
+    }
 }

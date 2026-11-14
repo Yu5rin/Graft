@@ -81,6 +81,8 @@ public sealed partial class MainViewModel : ObservableObject
         Notice = new StatusNoticeViewModel(ui); // MainViewModel.DiscardUndo.cs。
 
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
+        ProjectPane.ClipboardWriter = text => _ui.Clipboard.SetText(text);
+        ProjectPane.Notify = text => Notice.Show(text); // 「パスをコピー」を数秒で消える通知で伝える。
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
         History.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         History.Notify = text => Notice.Show(text); // 取り消しが終わったことを数秒で消える通知で伝える。
