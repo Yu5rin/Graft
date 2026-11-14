@@ -701,6 +701,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     public void SetClipboardWatchEnabledLive(bool value) => ClipboardWatchEnabled = value;
 
+    // 設定画面を開いたあとに、利用者が実際に操作したか（保存メッセージを出すかどうかの判定用）。
+    private bool _userInteracted;
+
+    /// <summary>設定画面を開いた直後に呼ぶ。以降、操作があるまで保存メッセージは出さない。</summary>
+    public void ResetUserInteraction() => _userInteracted = false;
+
+    /// <summary>利用者がこの画面を操作した（クリック・キー入力）ことを知らせる。</summary>
+    public void NoteUserInteraction() => _userInteracted = true;
+
     private async Task LoadAsync(CancellationToken ct)
     {
         await RunBusyAsync(async () =>
@@ -826,7 +835,15 @@ public sealed partial class SettingsViewModel : ObservableObject
             // ValidationIssues・JsonText（JSONタブへの反映）・Templatesへの反映を1本化する。
             await ApplyLoadedResultAsync(GraftResult<Settings>.Ok(candidate)).ConfigureAwait(true);
         }).ConfigureAwait(true);
-        StatusMessage = "設定を保存しました。";
+
+        // 見た目の整備: 設定画面を開いただけで「設定を保存しました。」と出る問題への対処。
+        // ComboBox等の初期化の書き戻しで、利用者が何も触っていないのに内容がわずかに食い違い、
+        // 保存が走ることがある（保存自体は無害）。メッセージは、この画面を開いたあとに利用者が
+        // 実際に操作（クリック・キー入力）したときだけ出す（SettingsWindowがNoteUserInteractionを呼ぶ）。
+        if (_userInteracted)
+        {
+            StatusMessage = "設定を保存しました。";
+        }
 
         // 課題2: 実行中のShellWindow.CloseBehaviorへその場で反映する。
         _onLiveSettingsChanged?.Invoke(candidate);
