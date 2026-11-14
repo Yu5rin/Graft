@@ -116,7 +116,7 @@ public sealed class DryRunPlanner
             // （RenameTarget参照）。適用させない。ただし移動先が同じパッチ内で別の場所へ改名される
             // 移動元（RENAME b -> c の後に RENAME a -> b）なら、実行時には空いているので止めない
             // （実行順で空いていなければ ApplyEngine 側が同じ判定で止める）。
-            issues.Add(GraftIssue.Of(ErrorCode.E218, $"移動先: {block.ToPath}", path: block.ToPath));
+            issues.Add(GraftIssue.Of(ErrorCode.E220, $"移動先: {block.ToPath}", path: block.ToPath));
         }
 
         var canApply = issues.All(i => i.Severity != Severity.Error);

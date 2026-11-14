@@ -387,7 +387,7 @@ public sealed partial class ApplyEngine
             // ドライラン後に移動先へファイルができた場合にも、上書きで失わないよう止める。
             if (RenameTarget.IsOccupied(fromResolved.Value, toResolved.Value))
             {
-                return GraftResult<bool>.Fail(ErrorCode.E218, $"移動先: {rename.ToPath}", path: rename.ToPath);
+                return GraftResult<bool>.Fail(ErrorCode.E220, $"移動先: {rename.ToPath}", path: rename.ToPath);
             }
 
             try

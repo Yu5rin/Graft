@@ -16,7 +16,7 @@ namespace Graft.Tests;
 /// </summary>
 public class RenameDestinationTests
 {
-    [Fact(DisplayName = "RENAMEの移動先が既に存在するときは、ドライランでE218になり適用できない")]
+    [Fact(DisplayName = "RENAMEの移動先が既に存在するときは、ドライランでE220になり適用できない")]
     public async Task 移動先が存在するとドライランで止まる()
     {
         using var ws = new TempWorkspace();
@@ -29,7 +29,7 @@ public class RenameDestinationTests
 
         var plan = dryRun.Plans.Single();
         plan.CanApply.Should().BeFalse();
-        plan.Issues.Should().Contain(i => i.Code == ErrorCode.E218 && i.Severity == Severity.Error);
+        plan.Issues.Should().Contain(i => i.Code == ErrorCode.E220 && i.Severity == Severity.Error);
 
         var apply = await h.ApplyAsync(dryRun, ctx);
         apply.IsSuccess.Should().BeFalse();
@@ -37,7 +37,7 @@ public class RenameDestinationTests
         Encoding.UTF8.GetString(h.ReadProjectBytes("b.txt")).Should().Be("BBB\n", "既存の移動先は上書きされてはならない");
     }
 
-    [Fact(DisplayName = "移動先がフォルダでも上書きせずE218になる")]
+    [Fact(DisplayName = "移動先がフォルダでも上書きせずE220になる")]
     public async Task 移動先がフォルダでも止まる()
     {
         using var ws = new TempWorkspace();
@@ -47,10 +47,10 @@ public class RenameDestinationTests
 
         var dryRun = await h.DryRunAsync("<<<< RENAME: a.txt -> dir.txt\n", h.MakeContext(1));
 
-        dryRun.Plans.Single().Issues.Should().Contain(i => i.Code == ErrorCode.E218);
+        dryRun.Plans.Single().Issues.Should().Contain(i => i.Code == ErrorCode.E220);
     }
 
-    [Fact(DisplayName = "ドライランの後で移動先ができても、本適用はE218で止まり移動先は無傷")]
+    [Fact(DisplayName = "ドライランの後で移動先ができても、本適用はE220で止まり移動先は無傷")]
     public async Task ドライラン後に移動先ができても本適用で止まる()
     {
         using var ws = new TempWorkspace();
@@ -64,7 +64,7 @@ public class RenameDestinationTests
         var apply = await h.ApplyAsync(dryRun, ctx);
 
         apply.IsSuccess.Should().BeFalse();
-        apply.Errors.Should().Contain(i => i.Code == ErrorCode.E218);
+        apply.Errors.Should().Contain(i => i.Code == ErrorCode.E220);
         Encoding.UTF8.GetString(h.ReadProjectBytes("b.txt")).Should().Be("後から作られた\n");
         h.ProjectFileExists("a.txt").Should().BeTrue();
     }

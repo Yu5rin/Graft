@@ -67,7 +67,7 @@ public sealed class RevisionRestorer
             || revision.Manifest.Status == RevisionStatus.RolledBack)
         {
             return GraftResult<IReadOnlyList<string>>.Fail(
-                ErrorCode.E219, $"r{revision.Manifest.Revision} は既に取り消し済みです", path: revision.FolderPath);
+                ErrorCode.E221, $"r{revision.Manifest.Revision} は既に取り消し済みです", path: revision.FolderPath);
         }
 
         var warnings = await CheckHashesAsync(projectRoot, revision.FolderPath, revision.Manifest.Entries, ct).ConfigureAwait(false);

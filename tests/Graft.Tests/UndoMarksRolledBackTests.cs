@@ -73,8 +73,8 @@ public class UndoMarksRolledBackTests
         afterLoss.Manifest.Status.Should().Be(RevisionStatus.RolledBack);
     }
 
-    [Fact(DisplayName = "取り消し済みのリビジョンを（古い一覧のまま）もう一度取り消そうとすると、E219で断り、ファイルは変えない")]
-    public async Task 取り消しを重ねるとE219()
+    [Fact(DisplayName = "取り消し済みのリビジョンを（古い一覧のまま）もう一度取り消そうとすると、E221で断り、ファイルは変えない")]
+    public async Task 取り消しを重ねるとE221()
     {
         using var ws = new TempWorkspace();
         var h = new ApplyHarness(ws);
@@ -87,7 +87,7 @@ public class UndoMarksRolledBackTests
         var second = await UndoAsync(h, stale, force: true);
 
         second.IsSuccess.Should().BeFalse();
-        second.Errors.Should().Contain(i => i.Code == ErrorCode.E219);
+        second.Errors.Should().Contain(i => i.Code == ErrorCode.E221);
         Text(h, "a.txt").Should().Be("取り消したあとの別の変更\n", "古いバックアップで上書きして失ってはならない");
     }
 
