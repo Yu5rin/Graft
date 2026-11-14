@@ -104,6 +104,36 @@ public class HistoryRestoreThroughScenarioTests : IDisposable
         shell.Graft.History.Items.Should().Contain(i => i.RevisionLabel == "r4", "一覧が再読み込みされているはず");
     }
 
+    [AvaloniaFact(DisplayName = "ここまで戻す: 成功は数秒で消える通知（どこまでと件数）で伝え、OKを押すダイアログは出さない。通知の「元に戻す」で戻す前の状態に戻せる")]
+    public async Task 成功は通知で伝え元に戻せる()
+    {
+        var target = Path.Combine(_projectDirectory, "sample.txt");
+        await File.WriteAllTextAsync(target, "v1\n").ConfigureAwait(true);
+
+        var shell = await OpenShellAsync().ConfigureAwait(true);
+        await shell.Graft.ProjectPane.RegisterFolderAsync(_projectDirectory).ConfigureAwait(true);
+
+        await ApplyFullAsync(shell, "sample.txt", "v1").ConfigureAwait(true); // r1
+        await ApplyFullAsync(shell, "sample.txt", "v2").ConfigureAwait(true); // r2
+        await ApplyFullAsync(shell, "sample.txt", "v3").ConfigureAwait(true); // r3
+
+        shell.Graft.History.SelectedItem = shell.Graft.History.Items.Single(i => i.RevisionLabel == "r1");
+        await ExecuteAsync(shell.Graft.History.RestoreThroughCommand).ConfigureAwait(true);
+
+        _dialogs.ConfirmMessages.Should().Contain(m => m.Title == "ここまで戻す確認", "実行前の確認ダイアログは残す");
+        _dialogs.Notices.Should().NotContain(m => m.Title == "ここまで戻しました", "成功の知らせはダイアログにしない");
+        var notice = shell.Graft.Notice;
+        notice.IsVisible.Should().BeTrue();
+        notice.Text.Should().Be("r1 まで戻しました（2件を取り消しました）");
+        notice.ActionLabel.Should().Be("元に戻す");
+        (await File.ReadAllTextAsync(target).ConfigureAwait(true)).Should().Be("v1\n");
+
+        // 「元に戻す」: この操作（r4）を取り消して、戻す前（r3適用直後）の状態に戻る。取り消した旨は通知される。
+        await ExecuteAsync(notice.ActionCommand).ConfigureAwait(true);
+        (await File.ReadAllTextAsync(target).ConfigureAwait(true)).Should().Be("v3\n");
+        notice.Text.Should().Be("r4 を取り消しました");
+    }
+
     // ------------------------------------------------------------------
     // 不具合回帰: 空リビジョン抑止が働いた場合にnextRevisionの番号が欠番にならない
     // （ProjectStore.ReleaseRevisionAsync・HistoryPaneViewModel.RestoreThroughAsync）

@@ -86,6 +86,7 @@ public sealed partial class MainViewModel : ObservableObject
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
         History.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         History.Notify = text => Notice.Show(text); // 取り消しが終わったことを数秒で消える通知で伝える。
+        History.NotifyWithAction = (text, label, action) => Notice.Show(text, label, action); // 「ここまで戻しました」＋「元に戻す」。
         // DiffViewModelは構築時にSettingsを固定するため、設定読み込み前は既定値で仮に構築し、
         // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
         Diff = new DiffViewModel(new Settings(), _ui);
