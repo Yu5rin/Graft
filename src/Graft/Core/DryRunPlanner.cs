@@ -37,7 +37,7 @@ public sealed class DryRunPlanner
 
         var plans = new List<BlockPlan>();
         plans.AddRange(patch.Blocks.OfType<MkdirBlock>().Select(b => PlanMkdir(b, ctx)));
-        plans.AddRange(patch.Blocks.OfType<RenameBlock>().Select(b => PlanRename(b, ctx, fileProbes)));
+        plans.AddRange(patch.Blocks.OfType<RenameBlock>().Select(b => PlanRename(b, ctx, renamedFrom, fileProbes)));
 
         var textGroups = patch.Blocks
             .Where(b => b is FullContentBlock or SearchReplaceBlock or AppendBlock or PrependBlock)
@@ -81,7 +81,8 @@ public sealed class DryRunPlanner
         };
     }
 
-    private static BlockPlan PlanRename(RenameBlock block, ApplyContext ctx, List<DryRunFileProbe> probes)
+    private static BlockPlan PlanRename(
+        RenameBlock block, ApplyContext ctx, HashSet<string> renamedFrom, List<DryRunFileProbe> probes)
     {
         var issues = new List<GraftIssue>();
         var fromCheck = ctx.Guard.Inspect(block.FromPath);
@@ -103,7 +104,20 @@ public sealed class DryRunPlanner
         }
 
         var toResolved = ctx.Guard.Resolve(block.ToPath);
-        if (!toResolved.IsSuccess) issues.AddRange(toResolved.Issues);
+        if (!toResolved.IsSuccess)
+        {
+            issues.AddRange(toResolved.Issues);
+        }
+        else if (fromCheck.IsSuccess
+            && !renamedFrom.Contains(NormalizeKey(block.ToPath))
+            && RenameTarget.IsOccupied(fromCheck.Value.FullPath, toResolved.Value))
+        {
+            // 移動先に既にあるファイルは、実行側が上書きすると元の内容がバックアップにも残らず失われる
+            // （RenameTarget参照）。適用させない。ただし移動先が同じパッチ内で別の場所へ改名される
+            // 移動元（RENAME b -> c の後に RENAME a -> b）なら、実行時には空いているので止めない
+            // （実行順で空いていなければ ApplyEngine 側が同じ判定で止める）。
+            issues.Add(GraftIssue.Of(ErrorCode.E220, $"移動先: {block.ToPath}", path: block.ToPath));
+        }
 
         var canApply = issues.All(i => i.Severity != Severity.Error);
         return new BlockPlan
@@ -188,6 +202,17 @@ public sealed class DryRunPlanner
         if (!loaded.IsSuccess) return FailPlansForFile(blocksForFile, path, loaded.Issues);
 
         var (originalLines, shape) = loaded.Value;
+
+        // 文字コードを判定できないファイル（EUC-JP・Windows-1252など）は、置換つきで読んだ内容を
+        // 書き戻すと変更していない行まで文字化けして元に戻せなくなる。これまでは警告もなく
+        // 「成功」していたため、ドライランの時点で全ブロックをエラーにして適用を止める。
+        // 読むだけの機能（コンテキスト収集・検索）はこの経路を通らないので影響を受けない。
+        if (shape.UnsupportedEncoding)
+        {
+            var unsupported = GraftIssue.Of(ErrorCode.E218, FileTextIO.UnsupportedEncodingDetail, path: path);
+            return FailPlansForFile(blocksForFile, path, new[] { unsupported });
+        }
+
         var resolution = BlockResolver.ResolveFile(originalLines, blocksForFile, _matcher);
         return resolution.Units.Select(u => BuildBlockPlan(u, path, check.Exists, shape, ctx, fileIssues)).ToList();
     }
@@ -196,13 +221,20 @@ public sealed class DryRunPlanner
         FileCheck check, ApplyContext ctx, CancellationToken ct)
     {
         if (!check.Exists)
-            return GraftResult<(IReadOnlyList<string>, TextShape)>.Ok((Array.Empty<string>(), DefaultShapeFor(ctx)));
+            return GraftResult<(IReadOnlyList<string>, TextShape)>.Ok((Array.Empty<string>(), DefaultShapeFor(ctx, check.FullPath)));
 
         var read = await FileTextIO.ReadAsync(check.FullPath, ct).ConfigureAwait(false);
         if (!read.IsSuccess) return GraftResult<(IReadOnlyList<string>, TextShape)>.Fail(read.Issues);
 
+        // 改行が1つも無い既存ファイル（空ファイル・1行だけのファイル）は、そこから改行コードを
+        // 読み取れない。追記・全文置換で増える行の改行は、新規ファイルと同じ決め方にする
+        // （以前は常にCRLFで、LFのプロジェクトにCRLFが混ざった）。
+        var shape = read.Value.Shape;
+        if (!shape.NewLineKnown)
+            shape = shape with { NewLine = ResolveNewLine(ctx, check.FullPath), NewLineKnown = true };
+
         return GraftResult<(IReadOnlyList<string>, TextShape)>.Ok(
-            (TextNormalizer.SplitLines(read.Value.Text), read.Value.Shape));
+            (TextNormalizer.SplitLines(read.Value.Text), shape));
     }
 
     private static BlockPlan BuildBlockPlan(ChangeUnitResult unit, string path, bool fileExisted,
@@ -214,14 +246,50 @@ public sealed class DryRunPlanner
         var operation = !fileExisted && canApply ? EntryOperation.Create : EntryOperation.Modify;
         var issues = unit.CanApply ? MergeIssues(fileIssues, unit.Issues) : unit.Issues;
 
+        // Shift_JISなど、Unicodeの全文字は表せない文字コードのファイルへ、表せない文字（絵文字・€・
+        // ✓・éなど）を書くと、黙って「?」に置き換わる（書き込みの挙動は既存のまま変えない。
+        // EncodingSafetyのクラスコメント参照）。書く前に検出し、警告つきの「要確認」にして
+        // 利用者に見えるようにする。適用を止めはしない（了承のうえで書きたい場合がある）。
+        var lossy = canApply ? FindUnrepresentableInserted(unit, shape) : Array.Empty<string>();
+        var needsConfirmation = unit.NeedsConfirmation;
+        if (lossy.Count > 0)
+        {
+            needsConfirmation = true;
+            issues = MergeIssues(issues, new[]
+            {
+                GraftIssue.Of(ErrorCode.E219,
+                    $"{EncodingSafety.Describe(lossy)}は、このファイルの文字コード（{shape.Encoding.EncodingName}）で表せないため、書き込むと別の文字（?など）に置き換わります",
+                    path: path, severity: Severity.Warning),
+            });
+        }
+
         return new BlockPlan
         {
             Block = unit.SourceBlock, Pair = unit.SourcePair, Path = path, Operation = operation, Stage = unit.Stage,
-            CanApply = canApply, NeedsConfirmation = unit.NeedsConfirmation, IsSelected = canApply,
+            CanApply = canApply, NeedsConfirmation = needsConfirmation, IsSelected = canApply,
             Issues = issues, BeforeText = unit.BeforeText, AfterText = unit.AfterText, Shape = shape,
             Diff = diff, Description = unit.Description, Added = diff?.Added ?? 0, Removed = diff?.Removed ?? 0,
-            IndentCorrectionChars = unit.IndentCorrectionChars,
+            IndentCorrectionChars = unit.IndentCorrectionChars, MatchStartLines = unit.MatchStartLines,
         };
+    }
+
+    /// <summary>
+    /// このユニットが新たに書き込む文字（SRならREPLACE部、FULL/APPEND/PREPENDなら本文）のうち、
+    /// ファイルの文字コードで表せないもの。変更しない既存部分は、そのファイルを読めた時点で
+    /// 表せる文字のはずなので対象にしない（10万行のファイルで全文を毎回調べないための限定でもある）。
+    /// </summary>
+    private static IReadOnlyList<string> FindUnrepresentableInserted(ChangeUnitResult unit, TextShape shape)
+    {
+        if (EncodingSafety.IsUnicode(shape.Encoding)) return Array.Empty<string>();
+
+        var inserted = unit.SourcePair?.ReplaceText ?? unit.SourceBlock switch
+        {
+            FullContentBlock full => full.Content,
+            AppendBlock append => append.Content,
+            PrependBlock prepend => prepend.Content,
+            _ => string.Empty,
+        };
+        return EncodingSafety.FindUnrepresentable(inserted, shape.Encoding);
     }
 
     // ------------------------------------------------------------------
@@ -306,15 +374,27 @@ public sealed class DryRunPlanner
         return issues.Select(i => i.Code == ErrorCode.E205 ? i with { Severity = Severity.Error } : i);
     }
 
-    private static TextShape DefaultShapeFor(ApplyContext ctx)
+    private static TextShape DefaultShapeFor(ApplyContext ctx, string fullPath)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var name = ctx.Settings.Encoding.NewFileEncoding;
         var encoding = string.Equals(name, "shift_jis", StringComparison.OrdinalIgnoreCase)
             ? Encoding.GetEncoding(932)
             : new UTF8Encoding(false);
-        return new TextShape { Encoding = encoding, HasBom = ctx.Settings.Encoding.NewFileBom, NewLine = "\r\n", EndsWithNewLine = true };
+        return new TextShape
+        {
+            Encoding = encoding, HasBom = ctx.Settings.Encoding.NewFileBom,
+            NewLine = ResolveNewLine(ctx, fullPath), EndsWithNewLine = true,
+        };
     }
+
+    /// <summary>
+    /// 新規ファイル（および改行の無い既存ファイル）の改行コード。設定 → 同じフォルダ（無ければ
+    /// プロジェクト）の既存ファイルで優勢な改行 → OSの既定の順（<see cref="NewLineResolver"/>）。
+    /// 以前は常にCRLFで、LFで統一したプロジェクトの新規ファイルだけがCRLFになっていた。
+    /// </summary>
+    private static string ResolveNewLine(ApplyContext ctx, string fullPath)
+        => NewLineResolver.Resolve(ctx.Settings.Encoding.NewFileNewLine, fullPath, ctx.ProjectRoot);
 
     // ------------------------------------------------------------------
     // 6.2 二重適用検知
@@ -476,7 +556,7 @@ public sealed class DryRunPlanner
         // 行が1本も無いファイル（空ファイル）はComposeFinalTextも空文字列を返す。
         if (after.Length == 0) return string.Empty;
 
-        var shape = plan.Shape ?? DefaultShapeFor(ctx);
+        var shape = plan.Shape ?? DefaultShapeFor(ctx, Path.Combine(ctx.ProjectRoot, plan.Path));
         var text = after.Replace("\n", shape.NewLine);
         return shape.EndsWithNewLine ? text + shape.NewLine : text;
     }

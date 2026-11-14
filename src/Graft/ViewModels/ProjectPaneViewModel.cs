@@ -131,11 +131,62 @@ public sealed class ProjectPaneViewModel : ObservableObject
         get => _selectedItem;
         set
         {
-            if (SetProperty(ref _selectedItem, value) && value is not null)
+            var previous = _selectedItem;
+            if (!SetProperty(ref _selectedItem, value) || value is null) return;
+
+            // 切り替えの前に確認が要る（開いているタブの未保存の確認）場合は、確認が済んでから
+            // ProjectSelectedを発火する。以前は選択が変わった時点でイベントを発火し、購読側
+            // （ShellViewModel）が未保存の確認で「キャンセル」されても、結果を見ずに切り替えが
+            // 進んでいた（C4）。最初の選択（previousがnull）には閉じるタブが無いので素通りする。
+            if (SwitchGuardAsync is null || previous is null)
             {
                 ProjectSelected?.Invoke(this, value.Project);
+                return;
             }
+
+            _pendingSwitch = RaiseSelectedAfterGuardAsync(previous, value);
         }
+    }
+
+    private Task _pendingSwitch = Task.CompletedTask;
+
+    /// <summary>
+    /// 切り替えの確認。別のプロジェクトへ切り替える直前に呼ばれ、falseを返すと切り替えを中止して
+    /// 選択を元のプロジェクトへ戻す。ShellViewModelが、開いているタブの未保存の確認
+    /// （保存／保存しない／キャンセル）を結ぶ。未設定ならこれまでどおり確認なしで切り替わる。
+    /// </summary>
+    public Func<Project, Task<bool>>? SwitchGuardAsync { get; set; }
+
+    /// <summary>
+    /// 選択を変え、切り替えの確認と<see cref="ProjectSelected"/>の発火が終わるまで待つ。
+    /// 確認が即座に終わる通常の場合は、プロパティ代入と同じく同期的に完了する。
+    /// 自動判定で別のプロジェクトへ切り替える経路（MainViewModel.ProjectMatch.cs）が、
+    /// 切り替えの完了を待ってから続きを進めるために使う。
+    /// </summary>
+    public async Task SelectAsync(ProjectListItemViewModel item)
+    {
+        SelectedItem = item;
+        await _pendingSwitch.ConfigureAwait(true);
+    }
+
+    private async Task RaiseSelectedAfterGuardAsync(ProjectListItemViewModel previous, ProjectListItemViewModel value)
+    {
+        var proceed = await SwitchGuardAsync!(value.Project).ConfigureAwait(true);
+        if (!proceed)
+        {
+            // キャンセルされた。選択を元のプロジェクトへ戻し、切り替えは起こらなかったことにする
+            // （ProjectSelectedは発火しない。解析結果の破棄などは切り替えが確定してから動く）。
+            if (ReferenceEquals(_selectedItem, value))
+            {
+                _selectedItem = previous;
+                OnPropertyChanged(nameof(SelectedItem));
+            }
+            return;
+        }
+
+        // 確認の待ち中に、さらに別のプロジェクトへ選び直された場合は、新しい選択の処理に任せる。
+        if (!ReferenceEquals(_selectedItem, value)) return;
+        ProjectSelected?.Invoke(this, value.Project);
     }
 
     /// <summary>プロジェクトが選択された（切り替わった）ことの通知。</summary>

@@ -200,4 +200,76 @@ public class UnifiedDiffAdapterTests
         result.IsSuccess.Should().BeFalse();
         result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E001);
     }
+
+    // ---- B4: 「-- 」「++ 」で始まる行をファイルのヘッダと誤読しない ----
+
+    [Fact(DisplayName = "B4: 削除行が「-- 」で始まり次の追加行が「++ 」で始まっても、ハンクの途中をファイルのヘッダと誤読しない")]
+    public void 削除行がマイナス2つで始まり追加行がプラス2つで始まってもハンクの本文として扱う()
+    {
+        // SQL/Luaのコメント「-- old」を削除して「++ new」を追加する差分。ハンク内では
+        // 「--- old」「+++ new」という、ファイルのヘッダと見た目が同じ2行になる。
+        var diff =
+            "--- a/q.sql\n" +
+            "+++ b/q.sql\n" +
+            "@@ -1,4 +1,4 @@\n" +
+            " SELECT 1;\n" +
+            "--- old\n" +
+            "+++ new\n" +
+            " SELECT 2;\n";
+
+        var result = new PatchParser().Parse(diff);
+
+        result.IsSuccess.Should().BeTrue();
+        var block = result.Value.Blocks.Should().ContainSingle().Which.Should().BeOfType<SearchReplaceBlock>().Subject;
+        block.Path.Should().Be("q.sql");
+        block.Pairs.Should().ContainSingle();
+        block.Pairs[0].SearchText.Should().Be("SELECT 1;\n-- old\nSELECT 2;");
+        block.Pairs[0].ReplaceText.Should().Be("SELECT 1;\n++ new\nSELECT 2;");
+    }
+
+    [Fact(DisplayName = "B4: ハンクの行数を読み切った後に続く本物のファイルヘッダは、従来どおり次のファイルとして読む")]
+    public void 行数を読み切った後のヘッダは次のファイルとして読む()
+    {
+        var diff =
+            "--- a/q.sql\n" +
+            "+++ b/q.sql\n" +
+            "@@ -1,2 +1,2 @@\n" +
+            " SELECT 1;\n" +
+            "--- old\n" +
+            "+++ new\n" +
+            "--- a/other.txt\n" +
+            "+++ b/other.txt\n" +
+            "@@ -1,1 +1,1 @@\n" +
+            "-a\n" +
+            "+b\n";
+
+        var result = new PatchParser().Parse(diff);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Blocks.Select(b => b.Path).Should().Equal("q.sql", "other.txt");
+        var first = result.Value.Blocks[0].Should().BeOfType<SearchReplaceBlock>().Subject;
+        first.Pairs[0].SearchText.Should().Be("SELECT 1;\n-- old");
+        first.Pairs[0].ReplaceText.Should().Be("SELECT 1;\n++ new");
+    }
+
+    [Fact(DisplayName = "B4: 行数の書かれていない見出し（@@ ... @@）では、従来どおりの判定のまま")]
+    public void 行数の無い見出しは従来どおり()
+    {
+        var diff =
+            "--- a/x.txt\n" +
+            "+++ b/x.txt\n" +
+            "@@ ... @@\n" +
+            "-a\n" +
+            "+b\n" +
+            "--- a/y.txt\n" +
+            "+++ b/y.txt\n" +
+            "@@ ... @@\n" +
+            "-c\n" +
+            "+d\n";
+
+        var result = new PatchParser().Parse(diff);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Blocks.Select(b => b.Path).Should().Equal("x.txt", "y.txt");
+    }
 }

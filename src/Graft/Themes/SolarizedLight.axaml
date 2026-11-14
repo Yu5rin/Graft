@@ -104,6 +104,21 @@
     <Color x:Key="FocusRingColor">#A52623</Color>
     <SolidColorBrush x:Key="FocusRing" Color="{StaticResource FocusRingColor}" />
 
+    <!-- ========== ボタンの種類（主・危険）用の色（デザインの土台） ========== -->
+    <!-- 主ボタンの塗り #268BD2・文字 #101216 のコントラスト比は5.09:1（基準4.5:1）。
+         Accentそのままで基準を満たすので、塗りはAccentと同値。
+         hover/pressedは塗りを明るくして段階を付ける。危険ボタンは枠と文字をStateError系にし、
+         hoverで同系色の薄い塗り（BgSurfaceへStateErrorを16%／28%混ぜた色）を敷く。
+         DangerFg（#A52623）はBgSurface比6.71:1。 -->
+    <Color x:Key="PrimaryBgColor">#268BD2</Color>
+    <SolidColorBrush x:Key="PrimaryBg" Color="{StaticResource PrimaryBgColor}" />
+    <SolidColorBrush x:Key="PrimaryBgHover" Color="#4099D7" />
+    <SolidColorBrush x:Key="PrimaryBgPressed" Color="#56A5DC" />
+    <SolidColorBrush x:Key="PrimaryFg" Color="#101216" />
+    <SolidColorBrush x:Key="DangerFg" Color="#A52623" />
+    <SolidColorBrush x:Key="DangerBgHover" Color="#EFD5C4" />
+    <SolidColorBrush x:Key="DangerBgPressed" Color="#E4BCAD" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
     <!-- UI点検（項目5）対応: 旧値#D3CBB7（Paneのrule変数）はBgBaseに対し実測1.01:1で、
          サイドバー／サイドビュー／エディタの区切り線もコマンドバー下端の線も全く視認

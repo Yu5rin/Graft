@@ -47,6 +47,8 @@ public sealed partial class MainViewModel
         OnPropertyChanged(nameof(HasAlreadyAppliedNotice));
         OnPropertyChanged(nameof(AlreadyAppliedNoticeText));
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(StatusSummaryMainText));
+        OnPropertyChanged(nameof(StatusSummaryFailedText));
         CommandRequery.Invalidate();
     }
 }

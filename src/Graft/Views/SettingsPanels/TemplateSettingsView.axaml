@@ -4,10 +4,14 @@
              xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.TemplateSettingsView"
              x:Name="Root"
-             AutomationProperties.Name="プロンプトテンプレート設定">
+             AutomationProperties.Name="依頼文のテンプレート設定">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
     <!--
-        4.8章 AI向けプロンプトテンプレート管理。テンプレートの追加・編集・削除、名前の右への
-        推定トークン数表示、プロジェクトごとの既定紐づけ、初回用/継続用トグルでのコピーを行う。
+        4.8章 「依頼文のテンプレート」タブ（旧: プロンプトテンプレート）。AIへ渡す依頼文のひな形の
+        追加・編集・削除、名前の右への推定トークン数表示、プロジェクトごとの既定紐づけ、
+        初回用/継続用トグルでのコピーを行う。
         このUserControl自身のDataContextは（TabItem経由で）SettingsViewModelを継承するため、
         内側のGridで {Binding Templates}（PromptTemplateViewModel）へ明示的に設定し直す。
 
@@ -17,38 +21,46 @@
     <Grid DataContext="{Binding Templates}" Margin="16,8" RowDefinitions="Auto,*,Auto">
 
         <!--
-            横一列に固定すると、プロジェクト名が長い場合にセレクトボックスが広がり、
-            右端のチェックボックスの文字が見切れる（実機で発生）。幅が足りないときは
-            折り返して2段にする。
+            旧WrapPanel（ラベル280px＋入力欄＋チェックを横一列）は、プロジェクト名が長いと右端の
+            チェックボックスが見切れていたため折り返しに頼っていた。他のタブと同じ
+            「見出し → 項目（ラベル・説明・入力）」の縦積みにして、折り返しに頼らなくした。
         -->
-        <WrapPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="プレビュー対象プロジェクト" Classes="fieldLabel" />
-            <ComboBox ItemsSource="{Binding Projects}"
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="コピーの設定" Classes="sectionHeading first" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="コピーに使うプロジェクト" Classes="settingLabel" />
+                    <TextBlock Text="テンプレートの中の、プロジェクト名やファイル一覧の差し込み部分が、このプロジェクトの内容に置き換わります。" Classes="settingHint" />
+                </StackPanel>
+            <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding Projects}"
                       ItemTemplate="{StaticResource NameItemTemplate}"
                       SelectedItem="{Binding SelectedProject}"
-                      AutomationProperties.Name="プレビュー対象プロジェクト"
+                      AutomationProperties.Name="コピーに使うプロジェクト"
                       views:HelpTip.Standard="「コピー」ボタンを押したときに使うプロジェクトを選びます。テンプレート内のプロジェクト名などのプレースホルダの見え方が変わります。"
                       views:HelpTip.Detailed="下の「コピー」ボタンで実際にテンプレートをコピーする際、どのプロジェクトを対象として展開するかを選びます。テンプレートの中にプロジェクト名などを埋め込む書き方がある場合、ここで選んだプロジェクトの情報に置き換わります。テンプレートの中身自体を編集するだけならこの選択は影響しません。" />
-            <CheckBox Content="継続用（短縮版）でコピーする" IsChecked="{Binding IsContinuationMode}"
-                      Margin="24,0,0,0" VerticalAlignment="Center"
+            </Grid>
+            <CheckBox Classes="settingRow hinted" Content="継続用（短縮版）でコピーする" IsChecked="{Binding IsContinuationMode}"
                       AutomationProperties.Name="継続用の短縮版でコピーする"
                       views:HelpTip.Standard="AIとの会話を続けて次の指示を送るときの、短縮された文面でコピーします。既定はオフ（通常版）です。"
                       views:HelpTip.Detailed="オンにすると、下の「コピー」で得られる文面が、初回の会話で使う説明の長いテンプレートではなく、既にGraftの回答形式を伝えたあとの2回目以降の指示に使う短縮版になります。同じAIとの会話を続けて追加の修正を頼むときはこちらを使うと、毎回長い説明を繰り返さずに済みます。" />
-        </WrapPanel>
+            <TextBlock Text="AIとの会話の2回目以降に使う、短い依頼文でコピーします。" Classes="settingHint indented" />
+            <TextBlock Text="テンプレート" Classes="sectionHeading" />
+            <TextBlock Text="一覧の右の数字は、コピーされる文面の概算のトークン数です（トークンは、AIが文章を数える単位）。「ファイルを選ぶ」画面で選んだファイルの内容は含みません。" Classes="settingHint" />
+        </StackPanel>
 
-        <Grid Grid.Row="1" ColumnDefinitions="280,Auto,*">
+        <Grid Grid.Row="1" MinHeight="260" ColumnDefinitions="280,Auto,*">
 
             <ListBox Grid.Column="0" ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}"
                      AutomationProperties.Name="テンプレート一覧"
-                     views:HelpTip.Standard="登録されているプロンプトテンプレートの一覧です。選ぶと右側に内容が表示され、編集できます。"
-                     views:HelpTip.Detailed="AIへの依頼文として使えるプロンプトテンプレートの一覧です。右の数字は、コピーしたときにおおよそ何トークンになるかの目安です。クリックすると右側に本文が表示され、組み込みのテンプレート以外は自由に編集できます。組み込みのテンプレート（読み取り専用）はGraftが最初から用意しているもので、削除できません。">
+                     views:HelpTip.Standard="登録されている依頼文のテンプレートの一覧です。選ぶと右側に内容が表示され、編集できます。"
+                     views:HelpTip.Detailed="AIへの依頼文として使える依頼文のテンプレートの一覧です。右の数字は、コピーしたときにおおよそ何トークンになるかの目安です。クリックすると右側に本文が表示され、組み込みのテンプレート以外は自由に編集できます。組み込みのテンプレート（読み取り専用）はGraftが最初から用意しているもので、削除できません。">
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="vm:TemplateEntry">
                         <Grid AutomationProperties.Name="{Binding Name}" ColumnDefinitions="*,Auto">
                             <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Grid.Column="1" Foreground="{DynamicResource TextSecondary}"
                                        FontSize="{DynamicResource CaptionFontSize}"
-                                       Text="{Binding EstimatedTokens, StringFormat=約{0}トークン}" />
+                                       Text="{Binding EstimatedTokensText}" />
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -75,7 +87,7 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
                          AutomationProperties.Name="テンプレート本文"
                          views:HelpTip.Standard="AIへコピーする実際の文面です。ここを編集して自分好みの依頼文にできます。"
-                         views:HelpTip.Detailed="コマンドバーの「プロンプト」でコピーされる実際の文面です。AIに「Graftが読み取れる決まった形式で回答してください」と伝える指示文になっているため、大きく書き換えるとGraftが回答を正しく解析できなくなるおそれがあります。書式のコツを掴んだ上で、口調や追加の指示だけを調整することをおすすめします。組み込みのテンプレートは読み取り専用のため、書き換えたい場合は「コピー」で複製してから編集してください。" />
+                         views:HelpTip.Detailed="コマンドバーの「依頼文をコピー」でコピーされる実際の文面です。AIに「Graftが読み取れる決まった形式で回答してください」と伝える依頼文になっているため、大きく書き換えるとGraftが回答を正しく解析できなくなるおそれがあります。書式のコツを掴んだ上で、口調や追加の指示だけを調整することをおすすめします。組み込みのテンプレートは読み取り専用のため、書き換えたい場合は「コピー」で複製してから編集してください。" />
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="保存"
                             Command="{Binding DataContext.Templates.SaveEditCommand, ElementName=Root}"
@@ -101,11 +113,11 @@
             <Button Content="コピー" Command="{Binding CopyCommand}" Margin="0,0,8,0"
                     AutomationProperties.Name="テンプレートをコピー"
                     views:HelpTip.Standard="選んだテンプレートの内容をクリップボードへコピーします。AIとの会話に貼り付けて使います。"
-                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」の情報で展開したうえでクリップボードへコピーします。コピーした内容をChatGPTやClaudeなどのAIとの会話に貼り付けてから、直してほしい内容を伝えてください。コマンドバーの「プロンプト」ボタンと同じ結果が得られます。" />
+                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」の情報で展開したうえでクリップボードへコピーします。コピーした内容をChatGPTやClaudeなどのAIとの会話に貼り付けてから、直してほしい内容を伝えてください。コマンドバーの「依頼文をコピー」ボタンと同じ結果が得られます。" />
             <Button Content="プロジェクトの既定に設定" Command="{Binding SetAsProjectDefaultCommand}" Margin="0,0,8,0"
                     AutomationProperties.Name="プロジェクトの既定テンプレートに設定"
                     views:HelpTip.Standard="選んだテンプレートを、上で選んでいるプロジェクトの既定テンプレートにします。次回以降そのプロジェクトで自動的に選ばれます。"
-                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」で選んでいるプロジェクトの既定テンプレートとして登録します。以降、そのプロジェクトを開いてコマンドバーの「プロンプト」を使うときに、このテンプレートが自動的に選択された状態になります。プロジェクトごとに異なる指示文を使い分けたい場合に使います。" />
+                    views:HelpTip.Detailed="左で選んでいるテンプレートを、上の「プレビュー対象プロジェクト」で選んでいるプロジェクトの既定テンプレートとして登録します。以降、そのプロジェクトを開いてコマンドバーの「依頼文」を使うときに、このテンプレートが自動的に選択された状態になります。プロジェクトごとに異なる依頼文を使い分けたい場合に使います。" />
             <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
         </StackPanel>

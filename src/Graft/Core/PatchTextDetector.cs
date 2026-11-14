@@ -181,7 +181,7 @@ public static class PatchTextDetector
         // （E201）・SEARCHが空（E003）・エスケープ崩れ（E006）などパーサが特定のブロックを
         // 認識した上で内容の誤りとして弾いたケースまで非検知にしてしまうと、AIの出力に
         // 小さな不備が1つあっただけの本物のパッチを丸ごと見逃すことになる。そうした内容の
-        // 誤り自体は、検知後に実際に「解析」した際に接ぎ木パネル側で利用者へ提示される。
+        // 誤り自体は、検知後に実際に「貼り付けて解析」した際に接ぎ木パネル側で利用者へ提示される。
         var result = new PatchParser().Parse(text);
         return result.IsSuccess || !result.HasIssue(ErrorCode.E001);
     }

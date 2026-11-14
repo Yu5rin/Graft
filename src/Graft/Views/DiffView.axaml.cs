@@ -1,6 +1,10 @@
+using System.ComponentModel;
+using System.Globalization;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -62,10 +66,107 @@ public partial class DiffView : UserControl
         // 記憶自体はDiffViewModel.CodeFontSizeの変更を受けてシェル側が行う）。
         // AvaloniaにPreviewMouseWheelは無いため、トンネリング段階でPointerWheelChangedを拾う。
         AddHandler(PointerWheelChangedEvent, OnPointerWheelChanged, RoutingStrategies.Tunnel);
+
+        // 監査 H1: 本文の横スクロール。スクロールバーの値と DiffViewModel.HorizontalOffset を
+        // 同期し、幅・フォント・折り返し・行数のどれかが変わるたびに最大値を計算し直す。
+        CodeHScroll.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == Avalonia.Controls.Primitives.RangeBase.ValueProperty
+                && DataContext is DiffViewModel vm && Math.Abs(vm.HorizontalOffset - CodeHScroll.Value) > 0.01)
+            {
+                vm.HorizontalOffset = CodeHScroll.Value;
+            }
+        };
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == BoundsProperty) UpdateHorizontalScroll();
+        };
+        DataContextChanged += (_, _) =>
+        {
+            if (_observed is not null) _observed.PropertyChanged -= OnViewModelPropertyChanged;
+            _observed = DataContext as DiffViewModel;
+            if (_observed is not null) _observed.PropertyChanged += OnViewModelPropertyChanged;
+            UpdateHorizontalScroll();
+        };
+    }
+
+    private DiffViewModel? _observed;
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(DiffViewModel.MaxLineCells):
+            case nameof(DiffViewModel.WordWrap):
+            case nameof(DiffViewModel.IsSideBySide):
+            case nameof(DiffViewModel.CodeFontSize):
+            case nameof(DiffViewModel.ShowLineNumbers):
+                UpdateHorizontalScroll();
+                break;
+            case nameof(DiffViewModel.HorizontalOffset):
+                if (_observed is not null && Math.Abs(CodeHScroll.Value - _observed.HorizontalOffset) > 0.01)
+                {
+                    CodeHScroll.Value = _observed.HorizontalOffset;
+                }
+                break;
+        }
+    }
+
+    // 行番号2列（40px×2）＋左端バー（3px）＋本文の左余白（8px）。DiffView.axaml の CellTemplate と合わせること。
+    private const double CellFixedWidthWithNumbers = 40 + 40 + 3 + 8;
+    private const double CellFixedWidthWithoutNumbers = 3 + 8;
+
+    /// <summary>
+    /// 本文の表示幅と、最も長い行の幅から、横スクロールの範囲を決める。1桁のピクセル幅は
+    /// コード用フォントで "0" を実測して出し、全角は2桁として数えた桁数（MaxLineCells）に掛ける。
+    /// 見積もりが多少ずれても行が見えなくならないよう、右に16pxの余白を足す。
+    /// 折り返し中、またははみ出しが無いときは、スクロールバーを隠して位置を0へ戻す。
+    /// </summary>
+    private void UpdateHorizontalScroll()
+    {
+        if (DataContext is not DiffViewModel vm || Bounds.Width <= 0)
+        {
+            CodeHScroll.IsVisible = false;
+            return;
+        }
+
+        var columns = vm.IsSideBySide ? 2 : 1;
+        var fixedWidth = vm.ShowLineNumbers ? CellFixedWidthWithNumbers : CellFixedWidthWithoutNumbers;
+        var viewport = Math.Max(0, Bounds.Width / columns - fixedWidth);
+        var contentWidth = vm.MaxLineCells * MeasureCellWidth(vm.CodeFontSize) + 16;
+        var max = vm.WordWrap ? 0 : Math.Max(0, contentWidth - viewport);
+
+        CodeHScroll.Maximum = max;
+        CodeHScroll.ViewportSize = viewport;
+        CodeHScroll.LargeChange = Math.Max(40, viewport * 0.8);
+        CodeHScroll.SmallChange = 40;
+        CodeHScroll.IsVisible = max > 0;
+        if (max <= 0 && vm.HorizontalOffset != 0) vm.HorizontalOffset = 0;
+        else if (vm.HorizontalOffset > max) vm.HorizontalOffset = max;
+    }
+
+    private double MeasureCellWidth(double fontSize)
+    {
+        var family = this.TryFindResource("CodeFontFamily", out var f) && f is FontFamily ff
+            ? ff
+            : FontFamily.Default;
+        var text = new FormattedText("0", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(family), fontSize, Brushes.Black);
+        return Math.Max(1, text.WidthIncludingTrailingWhitespace);
     }
 
     private void OnPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
+        // 横方向のホイール（トラックパッドの横スワイプ・Shift+ホイール）は本文の横スクロールへ。
+        if (DataContext is DiffViewModel hv && CodeHScroll.IsVisible
+            && (e.KeyModifiers == KeyModifiers.Shift || Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y)))
+        {
+            var delta = e.KeyModifiers == KeyModifiers.Shift && Math.Abs(e.Delta.X) < 0.001 ? e.Delta.Y : e.Delta.X;
+            hv.HorizontalOffset = Math.Clamp(hv.HorizontalOffset - delta * 60, 0, CodeHScroll.Maximum);
+            e.Handled = true;
+            return;
+        }
+
         if (e.KeyModifiers != KeyModifiers.Control) return;
         if (DataContext is not DiffViewModel vm) return;
 

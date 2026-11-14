@@ -1,0 +1,63 @@
+<!--
+  設定画面の各タブ（Views/SettingsPanels配下）が共通で使う「項目」の書式。
+
+  型は全タブで同じ:
+      見出し（sectionHeading）
+        └ 項目 = 左: ラベル＋1行の説明 ／ 右: 入力欄   （チェックは CheckBox の下に説明）
+
+  Themes/Settings.axaml の fieldRow/fieldLabel（ラベル列を280pxで固定して左端を揃える方式）は、
+  長いラベルが入力欄を押し出して右端がガタつくうえ、説明を足す場所が無かったため、
+  説明を左列に積める「左: 文字（残り全部）／右: 入力欄（Auto）」の2列へ組み替えた。
+  Themes配下は別の担当が整理中のため触らず、この設定画面専用のファイルとしてここに置く。
+  色・文字の大きさ・高さは既存のトークン（DynamicResource）を参照するだけで、独自の値は持たない。
+  入力欄の幅だけは意味のある種類（数値は狭く、選択・ホットキーは標準、フォント名は広く）の
+  3段階に限り、ここ1か所で決める。
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 項目1つ分の入れ物。下の余白を全項目で揃える。 -->
+    <Style Selector="Grid.settingItem, StackPanel.settingItem">
+        <Setter Property="Margin" Value="0,0,0,14" />
+    </Style>
+
+    <!-- 左列（ラベル＋説明）。入力欄との間に16pxの余白を空け、幅が足りなければ折り返す。 -->
+    <Style Selector="StackPanel.settingText">
+        <Setter Property="Margin" Value="0,0,16,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="TextBlock.settingLabel">
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- 項目の説明（1〜2行）。本文より小さく控えめな色にする。 -->
+    <Style Selector="TextBlock.settingHint">
+        <Setter Property="FontSize" Value="{DynamicResource CaptionFontSize}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Margin" Value="0,2,0,0" />
+    </Style>
+
+    <!-- チェックボックスの説明: チェック枠の幅ぶん右へ寄せ、ラベルの真下に揃える。 -->
+    <Style Selector="TextBlock.settingHint.indented">
+        <Setter Property="Margin" Value="28,0,0,14" />
+    </Style>
+    <Style Selector="CheckBox.settingRow.hinted">
+        <Setter Property="Margin" Value="0,0,0,2" />
+    </Style>
+
+    <!-- 入力欄の幅（3種類）。右列に置くものだけで、下に全幅で置く入力欄には付けない。 -->
+    <Style Selector="TextBox.narrow, ComboBox.narrow">
+        <Setter Property="Width" Value="96" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBox.medium, ComboBox.medium">
+        <Setter Property="Width" Value="220" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBox.wide, ComboBox.wide">
+        <Setter Property="Width" Value="320" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+</Styles>

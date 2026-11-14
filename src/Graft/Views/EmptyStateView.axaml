@@ -48,8 +48,16 @@
                        Margin="0,12,0,0"
                        TextAlignment="Center"
                        TextWrapping="Wrap"
-                       Foreground="{DynamicResource TextSecondary}"
+                       Foreground="{DynamicResource TextPrimary}"
                        FontSize="{DynamicResource BodyFontSize}" />
+            <!-- 操作の案内（Hint）。説明の下に控えめに。空なら出さない。 -->
+            <TextBlock Text="{Binding Hint, ElementName=Root}"
+                       Margin="0,4,0,0"
+                       TextAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondary}"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       IsVisible="{Binding Hint, ElementName=Root, Converter={x:Static views:Converters.NotEmptyString}}" />
             <Button x:Name="ActionButton"
                     Content="{Binding ActionText, ElementName=Root}"
                     AutomationProperties.Name="{Binding ActionText, ElementName=Root}"
@@ -112,7 +120,7 @@
 
             <!--
                 エラー固有の操作（例: E710「AIがファイルを求めた」の「要求されたファイルを収集に追加」）。
-                ActionText/SecondaryActionTextは空状態でも使う共通のボタンで「解析」のように
+                ActionText/SecondaryActionTextは空状態でも使う共通のボタンで「貼り付けて解析」のように
                 エラーの原因と無関係な操作だが、こちらは今表示しているエラーの次の一手そのものなので、
                 一番上（エラーの説明のすぐ下）に置く。IssueActionTextが空（多くのエラー・呼び出し元）なら
                 ApplyIssueActionTextがボタンごと隠す。
@@ -128,7 +136,7 @@
 
             <!--
                 実機で確認された指摘2: 解析がエラーで失敗すると、直前まであったEmptyPanelの
-                「解析」「ファイルから解析」ボタンごと隠れてしまい、Escapeで空状態へ戻す以外に
+                「貼り付けて解析」「ファイルから解析」ボタンごと隠れてしまい、Escapeで空状態へ戻す以外に
                 復旧手段が無かった（Escapeが破棄コマンドだと知っている必要がある）。EmptyPanelと
                 同じActionText/ActionCommand等をここでも参照することで、呼び出し側
                 （GraftPanel.axaml）を変更せずにエラー状態でも同じ2つのボタンを出す。

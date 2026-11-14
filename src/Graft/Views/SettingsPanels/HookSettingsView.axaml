@@ -4,50 +4,75 @@
              xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.HookSettingsView"
              x:Name="Root"
-             AutomationProperties.Name="適用後フック設定">
+             AutomationProperties.Name="適用後に実行するコマンド設定">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
     <!--
-        仕様書6.5・3.1 適用後フック管理。プロジェクトごとにフック（名前・コマンド・失敗時挙動）を
-        追加・編集・削除し、projects.json へ保存する。レイアウトは「プロンプトテンプレート」タブ
-        （TemplateSettingsView）と同じ、プロジェクト選択＋一覧＋編集フォームの構成に合わせる。
-        このUserControl自身のDataContextは（TabItem経由で）SettingsViewModelを継承するため、
-        内側のGridで {Binding Hooks}（HookSettingsViewModel）へ明示的に設定し直す。
+        仕様書6.5・3.1 「適用後に実行するコマンド」タブ（旧: 適用後フック）。適用が成功した直後に
+        自動で走らせるコマンド（リンター等）を、プロジェクトごとに追加・編集・削除し、projects.json へ
+        保存する。レイアウトは「依頼文のテンプレート」タブ（TemplateSettingsView）と同じ、
+        プロジェクト選択＋一覧＋編集フォームの構成に合わせる。
+
+        DataContextの二層構造: このUserControl自身は（TabItem経由で）SettingsViewModelを継承する。
+        「コマンドの制限時間」はSettingsViewModelの項目（settings.jsonのhooks.timeoutSec）なので外側の
+        Gridに置き、プロジェクトごとの一覧と編集フォームは内側のGridで {Binding Hooks}
+        （HookSettingsViewModel）へ設定し直して使う。制限時間は旧「一般」タブにあったが、
+        この機能の設定なのでここへ移した（キー・値・既定値は変えていない）。
     -->
-    <Grid DataContext="{Binding Hooks}" Margin="16,8" RowDefinitions="Auto,*,Auto">
+    <Grid Margin="16,8" RowDefinitions="Auto,Auto,*">
+        <TextBlock Grid.Row="0" Text="制限時間" Classes="sectionHeading first" />
+        <Grid Grid.Row="1" Classes="settingItem" ColumnDefinitions="*,Auto">
+            <StackPanel Classes="settingText">
+                <TextBlock Text="コマンドの制限時間（秒）" Classes="settingLabel" />
+                <TextBlock Text="この時間を過ぎても終わらないコマンドは打ち切り、失敗として扱います。" Classes="settingHint" />
+            </StackPanel>
+            <TextBox Grid.Column="1" Classes="narrow" Text="{Binding HooksTimeoutSecText, UpdateSourceTrigger=LostFocus}"
+                     views:TextBoxCommitBehavior.CommitOnEnter="True"
+                     AutomationProperties.Name="コマンドの制限時間（秒）"
+                     views:HelpTip.Minimal="{Binding HooksTimeoutSecText, StringFormat='コマンドの制限時間（秒）: {0}'}"
+                     views:HelpTip.Standard="登録したコマンドを、何秒待っても終わらなければ打ち切るかです。既定は120秒です。"
+                     views:HelpTip.Detailed="適用が成功したあとに、このタブで登録したコマンド（例: リンターやフォーマッタの実行）を走らせる際、応答が返ってこない場合に待つ最大秒数です。既定は120秒で、これを超えるとコマンドは強制的に打ち切られ、失敗として扱われます（打ち切られてもファイルへの適用結果そのものは取り消されません）。時間のかかるテストなどを登録するときは、長めの値にしてください。" />
+        </Grid>
+
+    <Grid Grid.Row="2" DataContext="{Binding Hooks}" RowDefinitions="Auto,*,Auto">
 
         <StackPanel Grid.Row="0" Margin="0,0,0,8">
-            <WrapPanel Orientation="Horizontal">
-                <TextBlock Text="対象プロジェクト" Classes="fieldLabel" />
-                <ComboBox ItemsSource="{Binding Projects}"
+            <TextBlock Text="コマンドの一覧" Classes="sectionHeading" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="対象プロジェクト" Classes="settingLabel" />
+                    <TextBlock Text="コマンドはプロジェクトごとに登録します。リンターやフォーマッタなど、適用の直後に自動で実行したいものを書きます。コマンドは実際にファイルを書き換えられるため、内容をよく確認してから登録してください。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding Projects}"
                           ItemTemplate="{StaticResource NameItemTemplate}"
                           SelectedItem="{Binding SelectedProject}"
-                          AutomationProperties.Name="フックの対象プロジェクト"
-                          views:HelpTip.Standard="どのプロジェクトのフック一覧を編集するかを選びます。フックはプロジェクトごとに登録します。"
-                          views:HelpTip.Detailed="適用後フック（パッチ適用が成功した直後に自動実行するコマンド）は、プロジェクトごとに別々に登録されます。ここで選んだプロジェクトの一覧が下に表示され、追加・編集した内容もそのプロジェクトへ保存されます。" />
-            </WrapPanel>
-            <TextBlock Text="適用が成功した直後に、指定したコマンド（リンターやフォーマッタなど）を自動実行できます。コマンドは実際にファイルを書き換えられるため、内容をよく確認してから登録してください。"
-                       Classes="fieldHint" TextWrapping="Wrap" Margin="0,4,0,0" />
+                          AutomationProperties.Name="コマンドの対象プロジェクト"
+                          views:HelpTip.Standard="どのプロジェクトのコマンド一覧を編集するかを選びます。コマンドはプロジェクトごとに登録します。"
+                          views:HelpTip.Detailed="適用後に実行するコマンド（パッチ適用が成功した直後に自動実行するコマンド）は、プロジェクトごとに別々に登録されます。ここで選んだプロジェクトの一覧が下に表示され、追加・編集した内容もそのプロジェクトへ保存されます。" />
+            </Grid>
         </StackPanel>
 
         <!--
             項目1の付随修正: このタブ全体をSettingsWindow.axaml側でScrollViewerに包んだため、
             このGridの高さは「残り全部」ではなく必要最低限の高さとして測られる
             （ScrollViewer配下では星指定"*"は高さ無限大の中で評価され、実質Autoと同じに
-            振る舞う）。フック0件・未選択時はListBox/編集フォームの自然な高さがほぼ0になり、
+            振る舞う）。コマンド0件・未選択時はListBox/編集フォームの自然な高さがほぼ0になり、
             下のEmptyStateViewが窮屈に潰れてしまうため、MinHeightで最低限の高さを確保する。
         -->
         <Grid Grid.Row="1" MinHeight="320" ColumnDefinitions="280,Auto,*">
 
             <ListBox Grid.Column="0" ItemsSource="{Binding Hooks}" SelectedItem="{Binding SelectedHook}"
-                     AutomationProperties.Name="適用後フック一覧"
-                     views:HelpTip.Standard="登録済みの適用後フックの一覧です。選ぶと右側に内容が表示され、編集できます。"
-                     views:HelpTip.Detailed="このプロジェクトに登録されている適用後フックの一覧です。右側の文字は、失敗したときの挙動（下の「失敗時の挙動」参照）です。クリックすると右側に詳細が表示され、名前・コマンド・失敗時の挙動を編集できます。">
+                     AutomationProperties.Name="適用後に実行するコマンド一覧"
+                     views:HelpTip.Standard="登録済みの適用後に実行するコマンドの一覧です。選ぶと右側に内容が表示され、編集できます。"
+                     views:HelpTip.Detailed="このプロジェクトに登録されている適用後に実行するコマンドの一覧です。右側の文字は、失敗したときの挙動（右の「失敗したとき」参照）です。クリックすると右側に詳細が表示され、名前・コマンド・失敗したときの扱いを編集できます。">
                 <ListBox.ItemTemplate>
                     <DataTemplate DataType="vm:HookEntry">
                         <Grid AutomationProperties.Name="{Binding Name}" ColumnDefinitions="*,Auto">
                             <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Grid.Column="1" Foreground="{DynamicResource TextSecondary}"
                                        FontSize="{DynamicResource CaptionFontSize}"
-                                       Text="{Binding OnFailure}" />
+                                       Text="{Binding OnFailureLabel}" />
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -59,60 +84,61 @@
                   IsVisible="{Binding Converter={x:Static views:Converters.NotNull}}"
                   RowDefinitions="Auto,Auto,Auto,Auto">
                 <TextBox Grid.Row="0" Text="{Binding Name}" Margin="0,0,0,8"
-                         AutomationProperties.Name="フック名"
-                         views:HelpTip.Standard="このフックの名前です。一覧に表示するための、自分が分かればよい名前です。"
-                         views:HelpTip.Detailed="このフックを一覧上で見分けるための名前です（例:「ESLintを実行」）。実行するコマンドの内容には影響せず、単なる表示用のラベルです。" />
+                         AutomationProperties.Name="コマンド名"
+                         views:HelpTip.Standard="このコマンドの名前です。一覧に表示するための、自分が分かればよい名前です。"
+                         views:HelpTip.Detailed="このコマンドを一覧上で見分けるための名前です（例:「ESLintを実行」）。実行するコマンドの内容には影響せず、単なる表示用のラベルです。" />
                 <TextBox Grid.Row="1" Text="{Binding Command}" Margin="0,0,0,8"
                          FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
                          AutomationProperties.Name="実行コマンド"
                          views:HelpTip.Standard="適用成功後に実行するコマンドです。プロジェクトのルートフォルダを作業ディレクトリとして実行されます。"
-                         views:HelpTip.Detailed="パッチの適用が成功した直後に、シェル（コマンドプロンプトやターミナルと同じ仕組み）で実行されるコマンドです。プロジェクトのルートフォルダを作業ディレクトリとして実行されます（例:「npm run lint」「dotnet format」）。ここに書いたコマンドは実際にファイルを書き換えたり削除したりできてしまうため、内容をよく理解しているコマンドだけを登録してください。実行に失敗した場合の扱いは、下の「失敗時の挙動」で選べます。" />
-                <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
-                    <TextBlock Text="失敗時の挙動" Classes="fieldLabel" />
-                    <ComboBox ItemsSource="{Binding DataContext.Hooks.OnFailureOptions, ElementName=Root}"
+                         views:HelpTip.Detailed="パッチの適用が成功した直後に、シェル（コマンドプロンプトやターミナルと同じ仕組み）で実行されるコマンドです。プロジェクトのルートフォルダを作業ディレクトリとして実行されます（例:「npm run lint」「dotnet format」）。ここに書いたコマンドは実際にファイルを書き換えたり削除したりできてしまうため、内容をよく理解しているコマンドだけを登録してください。実行に失敗した場合の扱いは、下の「失敗したとき」で選べます。" />
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="失敗したとき" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox Classes="medium" ItemsSource="{Binding DataContext.Hooks.OnFailureOptions, ElementName=Root}"
                               ItemTemplate="{StaticResource LabelItemTemplate}"
                               SelectedValueBinding="{Binding Value}" SelectedValue="{Binding OnFailure}"
-                              AutomationProperties.Name="失敗時の挙動"
+                              AutomationProperties.Name="コマンドが失敗したときの扱い"
                               views:HelpTip.Standard="上のコマンドが失敗（0以外の終了コードやタイムアウト）したときに、どう扱うかを選びます。"
-                              views:HelpTip.Detailed="上のコマンドがエラー終了したり、「一般」タブの「フックのタイムアウト」を超えて応答が無かったりした場合の扱いを選びます。いずれの場合も、既に成功しているファイルへの適用結果そのものが取り消されることはありません（フックはあくまで適用後のおまけの処理です）。選択肢の詳細は一覧の並び順・文言を確認してください。" />
-                </WrapPanel>
+                              views:HelpTip.Detailed="上のコマンドがエラー終了したり、上の「コマンドの制限時間」を超えて応答が無かったりした場合の扱いを選びます。いずれの場合も、既に成功しているファイルへの適用結果そのものが取り消されることはありません（コマンドはあくまで適用後のおまけの処理です）。選べる扱いは、「記録のみ」「警告表示」「適用の取り消しを確認する」「自動で適用を取り消す」の4つです（取り消すと、この適用で書き換えたファイルは適用前の状態に戻ります）。" />
+                </StackPanel>
                 <TextBlock Grid.Row="3" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}"
                            FontSize="{DynamicResource CaptionFontSize}"
-                           Text="コマンドはプロジェクトルートを作業ディレクトリとして実行します。タイムアウト秒は「一般」タブの設定に従います。" />
+                           Text="コマンドは、プロジェクトのルートフォルダを作業フォルダとして実行します。制限時間は上の「コマンドの制限時間」に従います。" />
             </Grid>
 
             <!--
-                項目6: フックが1件も無いと、左のListBoxは空箱、右の編集フォームは
+                項目6: コマンドが1件も無いと、左のListBoxは空箱、右の編集フォームは
                 SelectedHookがnullで丸ごと非表示になり、タブのほぼ全面が「何をする画面か
                 分からない空白」になっていた（実機Xvfbで確認済み）。他の一覧
                 （ProjectPane/ExplorerView/HistoryPane等）と同じ共通EmptyStateViewを重ね、
-                「フックを追加」への導線も添える（項目7: 空状態の作り方を1系統へ寄せる）。
+                「コマンドを追加」への導線も添える（項目7: 空状態の作り方を1系統へ寄せる）。
             -->
             <views:EmptyStateView Grid.Column="0" Grid.ColumnSpan="3"
-                                  AutomationProperties.Name="適用後フック一覧（0件）"
+                                  AutomationProperties.Name="適用後に実行するコマンド一覧（0件）"
                                   IconGeometry="{DynamicResource IconHistoryGeometry}"
-                                  Message="適用後フックはまだ登録されていません"
-                                  ActionText="フックを追加"
+                                  Message="適用後に実行するコマンドはまだ登録されていません"
+                                  ActionText="コマンドを追加"
                                   ActionCommand="{Binding AddCommand}"
                                   ActionTooltip="リンターなど、適用が成功した直後に自動実行するコマンドを1件追加します。"
                                   State="{Binding Hooks.Count, Converter={x:Static views:Converters.CountToEmptyState}}" />
         </Grid>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-            <Button Content="フックを追加" Command="{Binding AddCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="フックを追加"
-                    views:HelpTip.Standard="新しい適用後フックを1件、空の内容で追加します。"
-                    views:HelpTip.Detailed="名前・コマンドが空の新しいフックを一覧に追加し、右側の編集欄で内容を書けるようにします。書いたら「保存」を押すまでprojects.jsonへは確定しません。" />
-            <Button Content="フックを削除" Command="{Binding DeleteCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="フックを削除"
-                    views:HelpTip.Standard="選んだフックを一覧から削除します。"
-                    views:HelpTip.Detailed="選択中のフックを一覧から削除します。「保存」を押すまでは取り消せますが、保存すると元に戻せません。過去に実行されたコマンドの結果（フックによる変更）自体には影響しません。" />
+            <Button Content="コマンドを追加" Command="{Binding AddCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="コマンドを追加"
+                    views:HelpTip.Standard="新しい適用後に実行するコマンドを1件、空の内容で追加します。"
+                    views:HelpTip.Detailed="名前・コマンドが空の新しいコマンドを一覧に追加し、右側の編集欄で内容を書けるようにします。書いたら「保存」を押すまでprojects.jsonへは確定しません。" />
+            <Button Content="コマンドを削除" Command="{Binding DeleteCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="コマンドを削除"
+                    views:HelpTip.Standard="選んだコマンドを一覧から削除します。"
+                    views:HelpTip.Detailed="選択中のコマンドを一覧から削除します。「保存」を押すまでは取り消せますが、保存すると元に戻せません。過去に実行されたコマンドの結果（コマンドによる変更）自体には影響しません。" />
             <Button Content="保存" Command="{Binding SaveCommand}" Margin="0,0,8,0"
-                    AutomationProperties.Name="適用後フックを保存"
+                    AutomationProperties.Name="適用後に実行するコマンドを保存"
                     views:HelpTip.Standard="ここまでの追加・編集・削除をprojects.jsonへ書き込みます。"
-                    views:HelpTip.Detailed="このタブでのフックの追加・編集・削除は、このボタンを押すまで確定しません（他のタブの即時反映方式とは異なります）。押すとprojects.jsonへ保存され、以降このプロジェクトを適用するたびに反映されます。" />
+                    views:HelpTip.Detailed="このタブでのコマンドの追加・編集・削除は、このボタンを押すまで確定しません（他のタブの即時反映方式とは異なります）。押すとprojects.jsonへ保存され、以降このプロジェクトを適用するたびに反映されます。" />
             <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
         </StackPanel>
+    </Grid>
     </Grid>
 </UserControl>

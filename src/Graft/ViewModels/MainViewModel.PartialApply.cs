@@ -66,6 +66,8 @@ public sealed partial class MainViewModel
         SetAlreadyAppliedRevision(null);
         ReplaceBlocks(failedPlans);
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(StatusSummaryMainText));
+        OnPropertyChanged(nameof(StatusSummaryFailedText));
         OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
         CommandRequery.Invalidate();

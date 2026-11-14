@@ -47,6 +47,11 @@ public sealed class PromptCopyViewModel : ObservableObject
     private bool _appendSelectedFiles;
     private int _refreshGeneration;
 
+    /// <summary>
+    /// コピー成功を知らせる出し先（ステータスバーの通知）。null のときはダイアログで知らせる。
+    /// </summary>
+    public Action<string>? Notify { get; set; }
+
     public PromptCopyViewModel(
         PromptTemplateStore templateStore,
         PromptTemplateRenderer renderer,
@@ -263,8 +268,12 @@ public sealed class PromptCopyViewModel : ObservableObject
         _templateStore.RecordCopy(_project.Id, DateTimeOffset.Now);
         IsOpen = false;
         StatusMessage = $"「{template.Template.Name}」をコピーしました。";
-        await _dialogs.ShowMessageAsync("プロンプトをコピーしました",
-            $"「{template.Template.Name}」（約{template.EstimatedTokens}トークン）をクリップボードへコピーしました。").ConfigureAwait(true);
+        var done = $"「{template.Template.Name}」（約{template.EstimatedTokens}トークン）をクリップボードへコピーしました。";
+        // 成功の知らせだけなので、通知の出し先が配線されていればステータスバーの数秒で消える
+        // 通知にする（MainViewModel.RebuildPromptContext）。未配線（単体で使うテスト等）の
+        // ときだけ従来どおりダイアログで知らせる。
+        if (Notify is not null) Notify(done);
+        else await _dialogs.ShowMessageAsync("依頼文をコピーしました", done).ConfigureAwait(true);
     }
 
     /// <summary>

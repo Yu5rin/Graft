@@ -48,6 +48,14 @@ public partial class SettingsWindow : Window
         Loaded += async (_, _) =>
             await SafeHandler.RunAsync("設定画面の初期化", () => viewModel.InitializeAsync()).ConfigureAwait(true);
 
+        // 保存メッセージは、開いたあとに利用者が操作したときだけ出す（SettingsViewModelの同名メンバのコメント参照）。
+        viewModel.ResetUserInteraction();
+        AddHandler(PointerPressedEvent, (_, _) => viewModel.NoteUserInteraction(), RoutingStrategies.Tunnel);
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key != Key.Escape) viewModel.NoteUserInteraction();
+        }, RoutingStrategies.Tunnel);
+
         // 不具合3: 「再起動」ボタン。ViewModelはAvaloniaのApplication型に依存させない方針のため
         // （SettingsViewModel.RestartRequestedのコメント参照）、実際の再起動はここ（コードビハインド）
         // からApp.RequestRestartへ委譲する（AboutView.OnLogViewerRequestedと同じ役割分担）。

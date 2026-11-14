@@ -21,7 +21,7 @@ public class MainViewModelQueueMessageTests
 
         message.Should().NotContain("0件をキューへ追加し", "何も追加していないのに「追加した」という表現は不自然");
         message.Should().Contain("解析できたブロックは無かった");
-        message.Should().Contain("続きを依頼するプロンプトをクリップボードへコピーしますか");
+        message.Should().Contain("続きの依頼文をクリップボードへコピーしますか");
     }
 
     [Fact(DisplayName = "解析できたブロックが1件以上のときは従来どおり件数を示す")]

@@ -102,7 +102,7 @@ public sealed partial class ShellViewModel
     /// <summary>パッチ検知の通知文言。</summary>
     public string ClipboardPatchNoticeText => "パッチ形式のテキストを検知しました。クリックで解析";
 
-    /// <summary>ステータスバーの通知をクリックしたときの「解析」（コマンドバーの「解析」と同じ処理）。</summary>
+    /// <summary>ステータスバーの通知をクリックしたときの「貼り付けて解析」（コマンドバーの「貼り付けて解析」と同じ処理）。</summary>
     public ICommand AnalyzeClipboardPatchCommand { get; }
 
     /// <summary>

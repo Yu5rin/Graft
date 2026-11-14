@@ -39,7 +39,7 @@ public sealed partial class ShellViewModel
         // 履歴ビューを開いて一覧へフォーカスする。OnShowFileHistoryRequestedと同じ理由で、
         // すでに履歴ビューが表示中ならスキップする（再選択はサイドビューを折りたたむ
         // トグル動作に巻き込まれるため）。
-        if (!IsHistoryActive) Graft.ShowHistoryCommand.Execute(null);
+        Graft.ShowHistoryCommand.Execute(null);
     }
 
     /// <summary>
@@ -63,7 +63,7 @@ public sealed partial class ShellViewModel
             {
                 await _dialogs.ShowMessageAsync(
                     "ファイルを開けません",
-                    $"{relativePath} は現在のプロジェクトにありません。このリビジョンより後に削除・移動された可能性があります。")
+                    $"{relativePath} は現在のプロジェクトにありません。この履歴より後に削除・移動された可能性があります。")
                     .ConfigureAwait(true);
                 return;
             }

@@ -84,9 +84,9 @@ public class CommandPaletteTests : IDisposable
         var (shell, window) = await OpenShellAsync().ConfigureAwait(true);
 
         PressCtrlShiftP(window);
-        shell.CommandPalette.Query = "接ぎ木パネルの開閉";
+        shell.CommandPalette.Query = "接ぎ木パネルを開閉";
 
-        shell.CommandPalette.Results.Should().ContainSingle(r => r.Title == "接ぎ木パネルの開閉");
+        shell.CommandPalette.Results.Should().ContainSingle(r => r.Title == "接ぎ木パネルを開閉");
         shell.CommandPalette.Results.Should().NotContain(r => r.Title == "設定を開く", "一致しない操作は絞り込み後の候補に出ないはず");
     }
 
@@ -97,7 +97,7 @@ public class CommandPaletteTests : IDisposable
         shell.IsGraftPanelOpen.Should().BeFalse("既定値");
 
         PressCtrlShiftP(window);
-        shell.CommandPalette.Query = "接ぎ木パネルの開閉";
+        shell.CommandPalette.Query = "接ぎ木パネルを開閉";
         shell.CommandPalette.SelectedResult.Should().NotBeNull();
 
         PressEnter(window);
@@ -117,7 +117,7 @@ public class CommandPaletteTests : IDisposable
         shell.CommandPalette.Open();
         shell.CommandPalette.Query = "解析結果を破棄";
 
-        var item = shell.CommandPalette.Results.Should().ContainSingle(r => r.Title == "破棄（解析結果を破棄）").Which;
+        var item = shell.CommandPalette.Results.Should().ContainSingle(r => r.Title == "解析結果を破棄").Which;
         item.IsEnabled.Should().BeFalse("実行できない状態のコマンドは選べないことが分かるよう区別される必要がある");
 
         shell.CommandPalette.SelectedResult = item;

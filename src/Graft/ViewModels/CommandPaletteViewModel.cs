@@ -15,7 +15,27 @@ namespace Graft.ViewModels;
 /// <param name="Parameter">Command.Execute/CanExecuteに渡すパラメータ（無ければnull）。</param>
 /// <param name="Gesture">ショートカット表記。<see cref="ShortcutCatalog"/>から逆引きした値を
 /// ShellViewModelが渡す（無い操作はnull）。</param>
-public sealed record PaletteCommandDescriptor(string Title, ICommand Command, object? Parameter, string? Gesture);
+/// <param name="Category">分類（ファイル／編集／表示／AIに渡す／AIから受け取る／履歴／設定とヘルプ）。
+/// 各行に添えて表示し、候補を分類順に並べる。<see cref="PaletteCategories"/>の定数を使う。</param>
+public sealed record PaletteCommandDescriptor(string Title, ICommand Command, object? Parameter, string? Gesture, string Category);
+
+/// <summary>
+/// コマンドパレットの分類名と、その並び順。ツールバー・メニューの区分（AIに渡す→AIから受け取る→履歴→
+/// 設定とヘルプ）と、エディタの一般的な区分（ファイル・編集・表示）を合わせた7つ。
+/// </summary>
+public static class PaletteCategories
+{
+    public const string File = "ファイル";
+    public const string Edit = "編集";
+    public const string View = "表示";
+    public const string Handoff = "AIに渡す";
+    public const string Receive = "AIから受け取る";
+    public const string History = "履歴";
+    public const string Help = "設定とヘルプ";
+
+    /// <summary>候補の分類の並び順。</summary>
+    public static IReadOnlyList<string> Order { get; } = new[] { File, Edit, View, Handoff, Receive, History, Help };
+}
 
 /// <summary>コマンドパレットの候補一覧の1件（表示用）。</summary>
 public sealed class CommandPaletteItem
@@ -23,6 +43,7 @@ public sealed class CommandPaletteItem
     public CommandPaletteItem(PaletteCommandDescriptor descriptor)
     {
         Title = descriptor.Title;
+        Category = descriptor.Category;
         GestureText = descriptor.Gesture ?? string.Empty;
         HasGesture = descriptor.Gesture is not null;
         Command = descriptor.Command;
@@ -32,6 +53,9 @@ public sealed class CommandPaletteItem
 
     /// <summary>操作名。</summary>
     public string Title { get; }
+
+    /// <summary>分類名。各行の左に添えて表示する。</summary>
+    public string Category { get; }
 
     /// <summary>ショートカット表記（無ければ空文字）。</summary>
     public string GestureText { get; }
@@ -56,10 +80,10 @@ public sealed class CommandPaletteItem
     /// <summary>読み上げ用の文言（8.14と同じ考え方）。実行できない項目はその旨を添える。</summary>
     public string AutomationName => (HasGesture, IsEnabled) switch
     {
-        (true, true) => $"{Title}（{GestureText}）",
-        (false, true) => Title,
-        (true, false) => $"{Title}（{GestureText}）、実行できません",
-        (false, false) => $"{Title}、実行できません",
+        (true, true) => $"{Category}、{Title}（{GestureText}）",
+        (false, true) => $"{Category}、{Title}",
+        (true, false) => $"{Category}、{Title}（{GestureText}）、実行できません",
+        (false, false) => $"{Category}、{Title}、実行できません",
     };
 }
 
@@ -163,6 +187,21 @@ public sealed class CommandPaletteViewModel : ObservableObject
         item.Command.Execute(item.Parameter);
     }
 
+    private FuzzyMatcher.FuzzyMatch MatchTitleOrCategory(PaletteCommandDescriptor c)
+    {
+        var byTitle = FuzzyMatcher.TryMatch(_query, c.Title);
+        return byTitle.IsMatch ? byTitle : FuzzyMatcher.TryMatch(_query, $"{c.Category} {c.Title}");
+    }
+
+    private static int CategoryRank(string category)
+    {
+        for (var i = 0; i < PaletteCategories.Order.Count; i++)
+        {
+            if (PaletteCategories.Order[i] == category) return i;
+        }
+        return PaletteCategories.Order.Count;
+    }
+
     private void UpdateResults()
     {
         Results.Clear();
@@ -170,12 +209,15 @@ public sealed class CommandPaletteViewModel : ObservableObject
         IEnumerable<PaletteCommandDescriptor> ordered;
         if (_query.Length == 0)
         {
-            ordered = _allCommands.OrderBy(c => c.Title, StringComparer.OrdinalIgnoreCase);
+            // 分類ごとに並べる（分類の順は PaletteCategories.Order）。同じ分類の中は、定義した順
+            // （よく使う順に並べてある）のまま。以前は操作名の五十音順で、関連する操作が散らばっていた。
+            ordered = _allCommands.OrderBy(c => CategoryRank(c.Category));
         }
         else
         {
+            // 操作名に一致しなければ、分類名つき（「履歴 取り消す」のような入力）でも探す。
             ordered = _allCommands
-                .Select(c => (Descriptor: c, Match: FuzzyMatcher.TryMatch(_query, c.Title)))
+                .Select(c => (Descriptor: c, Match: MatchTitleOrCategory(c)))
                 .Where(x => x.Match.IsMatch)
                 .OrderBy(x => x.Match.Tier)
                 .ThenBy(x => x.Match.RelativePathLength)

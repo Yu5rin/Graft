@@ -32,6 +32,15 @@ public sealed class JsonFileStore
     /// <summary>
     /// ファイルを読み込み、JSONとして解析できない場合は破損として退避したうえで
     /// 既定値を書き戻す。ファイルが存在しない場合は単に既定値を返す（破損扱いにしない）。
+    ///
+    /// 【入出力の失敗は破損と区別する】 ウイルス対策・同期ソフトなどが一瞬ファイルを掴んでいる
+    /// だけで読めないことがある。以前はこれも「解析できなかった」と同じ扱いにして退避・既定値での
+    /// 上書きまで進めており、settings.json などが既定値に戻ってしまった。今は読み取りの
+    /// IOException／UnauthorizedAccessException を短い待ちつつ計約1秒まで再試行し、それでも
+    /// 読めなければ、ファイルには一切触れず（退避も書き戻しもしない）、既定値に
+    /// 「一時的に読めなかった」問題（E402・警告）を付けて返す。さらに、その既定値を呼び出し側が
+    /// そのまま保存して実体を潰さないよう、このパスへの書き込みを次に正しく読めるまで止める
+    /// （<see cref="UnreadablePaths"/>）。
     /// </summary>
     public async Task<GraftResult<T>> ReadWithRecoveryAsync<T>(
         string path,
@@ -43,16 +52,45 @@ public sealed class JsonFileStore
         options ??= DefaultOptions;
         if (!File.Exists(path))
         {
+            UnreadablePaths.TryRemove(NormalizeKey(path), out _);
             return GraftResult<T>.Ok(createDefault());
         }
 
-        var parsed = await TryParseAsync<T>(path, options, ct).ConfigureAwait(false);
-        if (parsed is not null)
+        var (parsed, outcome, error) = await TryParseAsync<T>(path, options, ct).ConfigureAwait(false);
+        if (outcome == ParseOutcome.Parsed)
         {
-            return GraftResult<T>.Ok(parsed);
+            // 正しく読めたので、過去の読み取り失敗による書き込み保護は解除する。
+            UnreadablePaths.TryRemove(NormalizeKey(path), out _);
+            return GraftResult<T>.Ok(parsed!);
+        }
+
+        if (outcome == ParseOutcome.Unreadable)
+        {
+            UnreadablePaths[NormalizeKey(path)] = 0;
+            var issue = GraftIssue.Of(
+                ErrorCode.E402,
+                detail: $"{path} を一時的に読み取れませんでした（他のアプリが開いている可能性があります）。ファイルは変更せず、今回は既定値で動作します。この状態では上書き保存しません。{ExceptionMessages.Describe(error!)}",
+                path: path,
+                severity: Severity.Warning);
+            return GraftResult<T>.Ok(createDefault(), new[] { issue });
         }
 
         return await RecoverFromCorruptionAsync(path, createDefault, options, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 読み取りに失敗して既定値を返したパス（正規化済み）の集合。ここに載っている間は
+    /// <see cref="WriteAsync{T}"/> が何も書かない。インスタンスをまたぐ（各所が別々に
+    /// JsonFileStore を持つ）ため静的にしている。読めなかった実体は「中身が不明」であり、
+    /// 呼び出し側が既定値をそのまま保存すると本物の設定・履歴を失うため。
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> UnreadablePaths =
+        new(StringComparer.Ordinal);
+
+    private static string NormalizeKey(string path)
+    {
+        var full = Path.GetFullPath(path);
+        return OperatingSystem.IsWindows() ? full.ToUpperInvariant() : full;
     }
 
     /// <summary>ファイルを解析するだけで、破損時の退避は行わない検証用API。</summary>
@@ -68,7 +106,7 @@ public sealed class JsonFileStore
             return GraftResult<T>.Fail(ErrorCode.E404, detail: "ファイルが存在しません。", path: path);
         }
 
-        var parsed = await TryParseAsync<T>(path, options, ct).ConfigureAwait(false);
+        var (parsed, _, _) = await TryParseAsync<T>(path, options, ct).ConfigureAwait(false);
         return parsed is not null
             ? GraftResult<T>.Ok(parsed)
             : GraftResult<T>.Fail(ErrorCode.E404, detail: "JSONとして解析できませんでした。", path: path);
@@ -84,6 +122,15 @@ public sealed class JsonFileStore
         CancellationToken ct = default)
     {
         options ??= DefaultOptions;
+
+        // 読めなかった実体を、読めなかった結果の既定値で潰さない（ReadWithRecoveryAsync参照）。
+        // 例外にすると保存のたびに呼び出し元が落ちるため、何も書かずに戻る。利用者へは
+        // 読み込み時に返した E402 の問題で「今回は保存されない」ことが伝わっている。
+        if (UnreadablePaths.ContainsKey(NormalizeKey(path)))
+        {
+            return;
+        }
+
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -231,10 +278,12 @@ public sealed class JsonFileStore
     }
 
     /// <summary>TryParseAsyncでの読み取り共有違反(IOException)のリトライ上限回数。</summary>
-    private const int ReadShareViolationRetryCount = 5;
+    // 50ms x 20回で待ちの合計は約1秒（最後の失敗の後は待たないので実際は19回分）。ウイルス対策や
+    // 同期ソフトの一瞬の掴みを越えられ、かつ起動を長く止めない長さとして選んだ。
+    private const int ReadShareViolationRetryCount = 20;
 
     /// <summary>TryParseAsyncでの読み取り共有違反のリトライ間隔。</summary>
-    private static readonly TimeSpan ReadShareViolationRetryDelay = TimeSpan.FromMilliseconds(30);
+    private static readonly TimeSpan ReadShareViolationRetryDelay = TimeSpan.FromMilliseconds(50);
 
     /// <summary>
     /// テスト専用の内部シーム。読み取り中の共有違反(IOException)によりTryParseAsyncがリトライへ
@@ -256,44 +305,58 @@ public sealed class JsonFileStore
     /// </summary>
     internal static Action<string, int>? OnReadShareViolationRetry { get; set; }
 
-    private static async Task<T?> TryParseAsync<T>(string path, JsonSerializerOptions options, CancellationToken ct)
+    /// <summary>TryParseAsyncの結果の種別。</summary>
+    private enum ParseOutcome
+    {
+        /// <summary>JSONとして解析できた。</summary>
+        Parsed,
+        /// <summary>内容がJSONとして解析できない、または読み取り直前に消えた（破損扱い）。</summary>
+        Corrupt,
+        /// <summary>入出力の失敗で、再試行しても内容を読めなかった（中身は不明。破損とは限らない）。</summary>
+        Unreadable,
+    }
+
+    private static async Task<(T? Value, ParseOutcome Outcome, Exception? Error)> TryParseAsync<T>(
+        string path, JsonSerializerOptions options, CancellationToken ct)
         where T : class
     {
+        string text;
         try
         {
-            var text = string.Empty;
-            // 不具合1対応: Windowsは読み取り中のファイルへ強制的な共有ロックを掛けるため、
-            // 別タスクがQuarantineAsyncのFile.Move等でこのファイルを掴んでいる瞬間に
-            // File.ReadAllTextAsyncが共有違反のIOExceptionで失敗することがある
-            // （Linuxには強制共有ロックが無いため通常は表面化しない）。既存のRetryOnIoOrAccessDeniedAsync
-            // を再利用し、短い間隔で数回だけ読み直しを試みる。
+            var read = string.Empty;
+            // Windowsは読み取り中のファイルへ強制的な共有ロックを掛けるため、別タスクの
+            // QuarantineAsyncのFile.Moveや他プロセスがこのファイルを掴んでいる瞬間に
+            // File.ReadAllTextAsyncが共有違反のIOExceptionで失敗することがある。
+            // 短い間隔で計約1秒まで読み直しを試みる。
             await RetryOnIoOrAccessDeniedAsync(
-                async () => text = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false),
+                async () => read = await File.ReadAllTextAsync(path, ct).ConfigureAwait(false),
                 ReadShareViolationRetryCount, ReadShareViolationRetryDelay, ct,
                 onRetry: attempt => OnReadShareViolationRetry?.Invoke(path, attempt)).ConfigureAwait(false);
-            return JsonSerializer.Deserialize<T>(text, options);
-        }
-        catch (JsonException)
-        {
-            return null;
+            text = read;
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             // ReadWithRecoveryAsync冒頭のFile.Existsから、ここへ到達するまでの間に、同じ破損
             // ファイルを同時に読んでいた別タスクが先にQuarantineAsyncで退避（移動）してしまった
-            // 場合のTOCTOU（File.Exists後の隙間で対象が無くなる）。JsonExceptionと同様に
-            // 「解析できなかった」扱いで返し、呼び出し側の復旧フロー（QuarantineAsyncは対象が
-            // 既に無ければnullを返して「退避済み扱い」で続行する）へ委ねる。
-            return null;
+            // 場合のTOCTOU。「解析できなかった」扱いで返し、呼び出し側の復旧フロー
+            // （QuarantineAsyncは対象が既に無ければnullを返して「退避済み扱い」で続行する）へ委ねる。
+            return (null, ParseOutcome.Corrupt, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // RetryOnIoOrAccessDeniedAsyncの上限まで共有違反が解消しなかった場合。
-            // 「別タスクが処理中」とみなし、FileNotFoundException等と同様に「解析できなかった」
-            // 扱いで返すことで、呼び出し側の復旧フロー（既定値での再生成）へ穏当に委ねる。
-            // ここで例外をそのまま投げてしまうと、破損ファイルの並行復旧テストが意図する
-            // 「最終的に全タスクが既定値で成功する」という前提が崩れてしまう。
-            return null;
+            // 再試行の上限まで読めなかった。内容が壊れているのではなく「読めなかった」だけなので、
+            // 破損とは区別して返す（退避・上書きの対象にしない）。
+            return (null, ParseOutcome.Unreadable, ex);
+        }
+
+        try
+        {
+            var value = JsonSerializer.Deserialize<T>(text, options);
+            return value is null ? (null, ParseOutcome.Corrupt, null) : (value, ParseOutcome.Parsed, null);
+        }
+        catch (JsonException)
+        {
+            return (null, ParseOutcome.Corrupt, null);
         }
     }
 

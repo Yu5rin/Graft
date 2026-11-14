@@ -64,6 +64,13 @@ public sealed record BlockPlan
     /// 過小に見せないための選び方）。
     /// </summary>
     public int IndentCorrectionChars { get; init; }
+
+    /// <summary>
+    /// SR形式で、ドライラン時にこのペアが一致した位置（<see cref="ChangeUnitResult.MatchStartLines"/>）。
+    /// 本適用の再解決がドライランと同じ場所に当たったかの照合に使う
+    /// （<see cref="ApplyEngine.ApplyAsync"/>参照）。SR形式以外では空。
+    /// </summary>
+    public IReadOnlyList<int> MatchStartLines { get; init; } = Array.Empty<int>();
 }
 
 /// <summary>

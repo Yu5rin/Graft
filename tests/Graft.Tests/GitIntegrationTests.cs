@@ -259,6 +259,91 @@ public class GitIntegrationTests
         result.Paths.Should().BeEmpty();
     }
 
+    // ------------------------------------------------------------------
+    // D3: 自動コミットに、利用者が前からステージしていた無関係の変更が混ざる不具合。
+    // 以前は「git add <対象>」のあと「git commit -m」だけだったため、インデックスに
+    // 既にあった他のファイルまで同じコミットに入っていた。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "D3: 前からステージ済みの無関係なファイルはコミットに入らず、ステージされたまま残る")]
+    public async Task 無関係のステージ済み変更はコミットに混ざらない()
+    {
+        using var ws = new TempWorkspace();
+        await InitRepoAsync(ws.RootPath);
+        ws.WriteText("keep.txt", "元\n");
+        ws.WriteText("target.py", "x=1\n");
+        await RunGitAsync(ws.RootPath, "add", "--", "keep.txt", "target.py");
+        await RunGitAsync(ws.RootPath, "commit", "-q", "-m", "初期");
+
+        // 利用者が前からステージしていた無関係の変更（既存ファイルの編集と、新規ファイル）。
+        ws.WriteText("keep.txt", "利用者の編集\n");
+        ws.WriteText("userNew.txt", "利用者の新規\n");
+        await RunGitAsync(ws.RootPath, "add", "--", "keep.txt", "userNew.txt");
+        // パッチが変えたファイル（既存の編集と新規作成）。
+        ws.WriteText("target.py", "x=2\n");
+        ws.WriteText("created.py", "y=1\n");
+
+        var result = await new GitIntegration().CommitAsync(
+            ws.RootPath, "feat", "パッチ (r1)", new[] { "target.py", "created.py" });
+
+        result.IsSuccess.Should().BeTrue(result.Issues.FirstOrDefault()?.Detail);
+        var committed = await RunGitAsync(ws.RootPath, "show", "--name-only", "--pretty=format:", "HEAD");
+        Lines(committed).Should().BeEquivalentTo(new[] { "target.py", "created.py" }, "パッチが変えたパスだけがコミットされる");
+
+        var staged = await RunGitAsync(ws.RootPath, "diff", "--cached", "--name-only");
+        Lines(staged).Should().BeEquivalentTo(new[] { "keep.txt", "userNew.txt" }, "利用者のステージ済み変更はステージされたまま残る");
+    }
+
+    [Fact(DisplayName = "D3: 削除・改名されたパスも正しくコミットに入る")]
+    public async Task 削除と改名もコミットに入る()
+    {
+        using var ws = new TempWorkspace();
+        await InitRepoAsync(ws.RootPath);
+        ws.WriteText("gone.txt", "消える\n");
+        ws.WriteText("old.txt", "改名前\n");
+        ws.WriteText("other.txt", "無関係\n");
+        await RunGitAsync(ws.RootPath, "add", "--", ".");
+        await RunGitAsync(ws.RootPath, "commit", "-q", "-m", "初期");
+
+        ws.WriteText("other.txt", "無関係の編集\n");
+        await RunGitAsync(ws.RootPath, "add", "--", "other.txt");
+        System.IO.File.Delete(ws.Combine("gone.txt"));
+        System.IO.File.Move(ws.Combine("old.txt"), ws.Combine("new.txt"));
+
+        var result = await new GitIntegration().CommitAsync(
+            ws.RootPath, null, "削除と改名", new[] { "gone.txt", "old.txt", "new.txt" });
+
+        result.IsSuccess.Should().BeTrue(result.Issues.FirstOrDefault()?.Detail);
+        var committed = await RunGitAsync(ws.RootPath, "show", "--name-status", "--no-renames", "--pretty=format:", "HEAD");
+        Lines(committed.Replace('\t', ' ')).Should().BeEquivalentTo(new[] { "D gone.txt", "D old.txt", "A new.txt" });
+        Lines(await RunGitAsync(ws.RootPath, "diff", "--cached", "--name-only")).Should().Equal("other.txt");
+    }
+
+    [Fact(DisplayName = "D3: 日本語や記号を含むパスと、非常に多くのパスでも1コミットにまとまる")]
+    public async Task 特殊なパスと多数のパスでも1コミットにまとまる()
+    {
+        using var ws = new TempWorkspace();
+        await InitRepoAsync(ws.RootPath);
+        ws.WriteText("seed.txt", "x\n");
+        await RunGitAsync(ws.RootPath, "add", "--", ".");
+        await RunGitAsync(ws.RootPath, "commit", "-q", "-m", "初期");
+
+        var paths = new System.Collections.Generic.List<string> { "日本語 フォルダ/ファイル[1].txt", "glob*.txt" };
+        // コマンドライン長（Windowsで約3万文字）を確実に超える量。
+        for (var i = 0; i < 1500; i++) paths.Add($"many/ディレクトリ名をそれなりに長くしておく/file_with_a_long_name_{i:D5}.txt");
+        foreach (var p in paths) ws.WriteText(p, "内容\n");
+        ws.WriteText("unrelated.txt", "含めない\n");
+
+        var result = await new GitIntegration().CommitAsync(ws.RootPath, "chore", "多数", paths);
+
+        result.IsSuccess.Should().BeTrue(result.Issues.FirstOrDefault()?.Detail);
+        (await RunGitAsync(ws.RootPath, "rev-list", "--count", "HEAD")).Should().Be("2", "1回のコミットにまとまる");
+        (await RunGitAsync(ws.RootPath, "status", "--porcelain")).Should().Be("?? unrelated.txt");
+    }
+
+    private static string[] Lines(string text)
+        => text.Split('\n', System.StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).ToArray();
+
     /// <summary>git init と、テスト実行環境のグローバル設定に依存しないローカルのuser設定を行う。</summary>
     private static async Task InitRepoAsync(string root)
     {

@@ -18,9 +18,10 @@ using Xunit;
 namespace Graft.UiTests;
 
 /// <summary>
-/// F: メニューのショートカット表記の統一の回帰テスト。
-/// ショートカットを持つメニュー項目は「見出し (キー)」の形式（半角スペース＋括弧、
-/// 既存の「名前の変更 (F2)」「削除 (Delete)」と同じ表記）で統一する方針の取りこぼし防止。
+/// メニューのショートカット表記の回帰テスト。
+/// ショートカットを持つメニュー項目は、キーを見出しの文字へ埋め込まず（以前は「開く (Enter)」の形）、
+/// メニューの右側に出る <c>InputGesture</c> で表す方針の取りこぼし防止。見出しに「(キー)」が混ざると、
+/// キーの表記が揃わず、読み上げでも見出しが長くなる。
 ///
 /// 対象は仕様書どおり既存4画面（エクスプローラ・タブ・履歴・プロジェクト）＋今回追加した項目。
 /// 履歴・プロジェクトの既存項目にはショートカットに対応する項目が無い（ShellWindow.Keyboard.cs・
@@ -58,7 +59,7 @@ public class MenuShortcutLabelTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    [AvaloniaFact(DisplayName = "エクスプローラの「開く」はEnterキーのショートカットを持ち、表記に (Enter) が付いている")]
+    [AvaloniaFact(DisplayName = "エクスプローラの「開く」はEnterキーのショートカットを持ち、キーは見出しではなくInputGestureで出る")]
     public void エクスプローラの開くはEnter表記を持つ()
     {
         var view = new ExplorerView();
@@ -68,7 +69,8 @@ public class MenuShortcutLabelTests : IDisposable
 
         var menuItem = contextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Single(m => (m.Header?.ToString() ?? string.Empty).StartsWith("開く", StringComparison.Ordinal));
-        menuItem.Header.Should().Be("開く (Enter)");
+        menuItem.Header.Should().Be("開く");
+        menuItem.InputGesture!.Key.Should().Be(Key.Enter);
 
         // 表記のEnterと実際のKeyBindingが同じOpenCommandを指していることを確認する
         // （表記と実体が食い違っていないか）。
@@ -77,7 +79,7 @@ public class MenuShortcutLabelTests : IDisposable
             "表記のEnterと実際のKeyBindingのコマンドが一致している必要がある");
     }
 
-    [AvaloniaFact(DisplayName = "タブ見出しの「閉じる」はCtrl+Wのショートカットを持ち、表記に (Ctrl+W) が付いている")]
+    [AvaloniaFact(DisplayName = "タブ見出しの「閉じる」はCtrl+Wのショートカットを持ち、キーは見出しではなくInputGestureで出る")]
     public async Task タブの閉じるはCtrlW表記を持つ()
     {
         var targetPath = Path.Combine(_projectDirectory, "a.txt");
@@ -96,10 +98,11 @@ public class MenuShortcutLabelTests : IDisposable
         var menuItem = tabGrid.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Single(m => (m.Header?.ToString() ?? string.Empty).StartsWith("閉じる", StringComparison.Ordinal));
 
-        menuItem.Header.Should().Be("閉じる (Ctrl+W)");
+        menuItem.Header.Should().Be("閉じる");
+        menuItem.InputGesture.Should().Be(new KeyGesture(Key.W, KeyModifiers.Control));
     }
 
-    [AvaloniaFact(DisplayName = "GraftPanelの「チェックを付ける／外す」はSpaceキーのショートカットを持ち、表記に (Space) が付いている")]
+    [AvaloniaFact(DisplayName = "GraftPanelの「チェックを付ける／外す」の見出しにはキーを埋め込まない")]
     public void GraftPanelのチェック切替はSpace表記を持つ()
     {
         var plan = new BlockPlan
@@ -112,10 +115,10 @@ public class MenuShortcutLabelTests : IDisposable
         };
         var block = new BlockItemViewModel(plan);
 
-        block.ToggleLabel.Should().Be("チェックを外す (Space)");
+        block.ToggleLabel.Should().Be("チェックを外す");
 
         block.IsSelected = false;
-        block.ToggleLabel.Should().Be("チェックを付ける (Space)");
+        block.ToggleLabel.Should().Be("チェックを付ける");
     }
 
     // ------------------------------------------------------------------

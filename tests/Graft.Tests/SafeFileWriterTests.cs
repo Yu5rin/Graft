@@ -269,4 +269,66 @@ public class SafeFileWriterTests
             }
         }
     }
+    // ------------------------------------------------------------------
+    // D2: Linuxで書き込みのたびに実行権限とシンボリックリンクが失われる不具合。
+    // Unixのモードとシンボリックリンクが意味を持つのはWindows以外だけなので、
+    // Windowsでは早期returnする（他のテストのWindows専用分岐と同じ書き方）。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "D2: 置換しても元ファイルのUnix実行権限が引き継がれる")]
+    public async Task 置換しても実行権限が残る()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        using var ws = new TempWorkspace();
+        var path = ws.WriteText("run.sh", "#!/bin/sh\necho old\n");
+        var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                 | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead;
+        File.SetUnixFileMode(path, mode);
+
+        var result = await SafeFileWriter.ReplaceAsync(path, Utf8("#!/bin/sh\necho new\n"));
+
+        result.IsSuccess.Should().BeTrue();
+        File.ReadAllText(path).Should().Contain("echo new");
+        File.GetUnixFileMode(path).Should().Be(mode, "書き込みのたびに実行権限を落としてはならない");
+    }
+
+    [Fact(DisplayName = "D2: 対象がシンボリックリンクなら、リンクを保ったままリンク先の実体を書き換える")]
+    public async Task シンボリックリンクを保ったまま実体を書き換える()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        using var ws = new TempWorkspace();
+        var real = ws.WriteText("real/actual.txt", "旧");
+        File.SetUnixFileMode(real, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var link = ws.Combine("link.txt");
+        File.CreateSymbolicLink(link, real);
+
+        var result = await SafeFileWriter.ReplaceAsync(link, Utf8("新"));
+
+        result.IsSuccess.Should().BeTrue();
+        new FileInfo(link).LinkTarget.Should().NotBeNull("リンクが通常ファイルに置き換わってはならない");
+        File.ReadAllText(real).Should().Be("新", "リンク先の実体が書き換わる");
+        File.ReadAllText(link).Should().Be("新");
+        File.GetUnixFileMode(real).HasFlag(UnixFileMode.UserExecute).Should().BeTrue("実体の実行権限も残る");
+        Directory.GetFiles(ws.Combine("real")).Should().ContainSingle("一時ファイルが実体の隣に残らない");
+    }
+
+    [Fact(DisplayName = "D2: 相対シンボリックリンク（別フォルダ向き）でも実体を書き換える")]
+    public async Task 相対リンクでも実体を書き換える()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        using var ws = new TempWorkspace();
+        var real = ws.WriteText("real/actual.txt", "旧");
+        ws.CreateDirectory("sub");
+        var link = ws.Combine("sub/link.txt");
+        File.CreateSymbolicLink(link, "../real/actual.txt");
+
+        var result = await SafeFileWriter.ReplaceAsync(link, Utf8("新"));
+
+        result.IsSuccess.Should().BeTrue();
+        new FileInfo(link).LinkTarget.Should().Be("../real/actual.txt");
+        File.ReadAllText(real).Should().Be("新");
+    }
 }

@@ -95,7 +95,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         AttachTabWatchers();
 
         RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => _project is not null, context: "ファイル一覧の更新");
-        OpenCommand = new RelayCommand<FileNodeViewModel>(ExecuteOpen);
+        OpenCommand = new RelayCommand<FileNodeViewModel>(ExecuteOpen, node => (node ?? SelectedNode) is not null);
         NewFileCommand = new RelayCommand<FileNodeViewModel>(node => _ = NewFileAsync(node ?? SelectedNode), _ => _project is not null);
         NewFolderCommand = new RelayCommand<FileNodeViewModel>(node => _ = NewFolderAsync(node ?? SelectedNode), _ => _project is not null);
         // 依頼「エクスプローラへ既存のファイルを取り込む手段」2: ツールバー・右クリックメニュー
@@ -104,10 +104,24 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         AddFileCommand = new RelayCommand<FileNodeViewModel>(
             node => _ = AddFilesAsync(node ?? SelectedNode), _ => _project is not null && !_isImporting);
         CancelImportCommand = new RelayCommand(() => _importCts?.Cancel(), () => _isImporting);
-        RenameCommand = new RelayCommand<FileNodeViewModel>(node => _ = RenameNodeAsync(node ?? SelectedNode));
-        DeleteCommand = new RelayCommand<FileNodeViewModel>(node => _ = DeleteNodeAsync(node ?? SelectedNode));
-        CopyPathCommand = new RelayCommand<FileNodeViewModel>(node => CopyPath(node ?? SelectedNode));
-        RevealCommand = new RelayCommand<FileNodeViewModel>(node => RevealInExplorer(node ?? SelectedNode));
+        // 右クリックメニューの「使えない項目は隠さず無効にする」ため、対象のノードが無い（ツリーの余白を
+        // 右クリックした）ときは、ノードが要る操作の CanExecute を false にする。
+        // 「パスをコピー」「エクスプローラーで表示」は、余白ではプロジェクトのフォルダ自体を対象にする。
+        RenameCommand = new RelayCommand<FileNodeViewModel>(
+            node => _ = RenameNodeAsync(node ?? SelectedNode), node => (node ?? SelectedNode) is not null);
+        DeleteCommand = new RelayCommand<FileNodeViewModel>(
+            node => _ = DeleteNodeAsync(node ?? SelectedNode), node => (node ?? SelectedNode) is not null);
+        CopyPathCommand = new RelayCommand<FileNodeViewModel>(
+            node => CopyPath(node ?? SelectedNode), node => (node ?? SelectedNode) is not null || _project is not null);
+        CopyRelativePathCommand = new RelayCommand<FileNodeViewModel>(
+            node => CopyRelativePath(node ?? SelectedNode), node => (node ?? SelectedNode) is { IsPlaceholder: false });
+        RevealCommand = new RelayCommand<FileNodeViewModel>(
+            node => RevealInExplorer(node ?? SelectedNode), node => (node ?? SelectedNode) is not null || _project is not null);
+        // 「AIに渡すファイルに追加」: ファイルだけが対象（フォルダは中身が多すぎて、一括で「内容も出す」に
+        // するのは意図と違うことが多い）。実際の追加は「AIに渡すファイルを選ぶ」画面の状態を持つ
+        // MainViewModel の責務のため、ここでは相対パスを通知するだけにする（ShowFileHistoryRequested と同じ構造）。
+        AddToContextCommand = new RelayCommand<FileNodeViewModel>(
+            node => RequestAddToContext(node ?? SelectedNode), node => (node ?? SelectedNode) is { IsDirectory: false, IsPlaceholder: false });
         UndoDeleteCommand = new AsyncRelayCommand(UndoDeleteAsync, () => _undoStore.CanUndo, context: "削除の取り消し");
         // ファイル単位の変更履歴: フォルダには適用できないため、対象がファイルのときだけ有効化する。
         ShowFileHistoryCommand = new RelayCommand<FileNodeViewModel>(
@@ -224,7 +238,17 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     public ICommand RenameCommand { get; }
     public ICommand DeleteCommand { get; }
     public ICommand CopyPathCommand { get; }
+
+    /// <summary>右クリックメニュー「相対パスをコピー」（プロジェクトのフォルダからの相対パス）。</summary>
+    public ICommand CopyRelativePathCommand { get; }
+
     public ICommand RevealCommand { get; }
+
+    /// <summary>
+    /// 右クリックメニュー「AIに渡すファイルに追加」。対象のファイルを「AIに渡すファイルを選ぶ」画面で
+    /// 「内容も出す」にする。通知は <see cref="AddToContextRequested"/>。
+    /// </summary>
+    public ICommand AddToContextCommand { get; }
 
     /// <summary>細かいユーザビリティ改善4: ファイル名絞り込みボックスの「×」（<see cref="FilterText"/>を空にする）。</summary>
     public ICommand ClearFilterCommand { get; }
@@ -252,6 +276,9 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     /// プロジェクトルート基準の相対パス（'/'区切り）。
     /// </summary>
     public event EventHandler<string>? ShowFileHistoryRequested;
+
+    /// <summary>「AIに渡すファイルに追加」の対象ファイル（プロジェクト相対パス）の通知。ShellViewModel が MainViewModel へ橋渡しする。</summary>
+    public event EventHandler<string>? AddToContextRequested;
 
     /// <summary>
     /// 課題2: ツリーの再構築でフォーカスが失われた直後にViewへ再フォーカスを促す
@@ -1086,7 +1113,8 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         if (!renamed.IsSuccess) { await ShowFailureAsync("名前を変更できませんでした", renamed.Issues).ConfigureAwait(true); return; }
 
         // 開いているタブを新しいパスへ追従させる（4.2・4.3）。
-        if (!node.IsDirectory) _editor.NotifyRenamed(node.FullPath, newFullPath);
+        if (node.IsDirectory) _editor.NotifyFolderRenamed(node.FullPath, newFullPath);
+        else _editor.NotifyRenamed(node.FullPath, newFullPath);
         await ReconcileDirectoryAsync(node.Parent, CancellationToken.None).ConfigureAwait(true);
     }
 
@@ -1098,6 +1126,10 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
             .ConfirmAsync("削除の確認", $"{kind}「{node.Name}」をごみ箱へ移動します。よろしいですか？")
             .ConfigureAwait(true);
         if (!confirmed) return;
+
+        // フォルダの削除は、配下で開いているタブも道連れになる。削除より前に閉じ（未保存があれば
+        // 保存確認）、キャンセルされたら削除しない。削除後に確認しても、保存先のフォルダが無い。
+        if (node.IsDirectory && !await _editor.CloseTabsUnderAsync(node.FullPath).ConfigureAwait(true)) return;
 
         // 8.8: 確認ダイアログでOKを押してから削除が終わるまでの間、待機表示（ペイン上端の
         // 不確定プログレスバー。ExplorerView.axamlのIsVisible="{Binding IsLoading}"）を出す。
@@ -1193,7 +1225,20 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private void CopyPath(FileNodeViewModel? node)
     {
         // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
+        // 対象が無い（ツリーの余白）ときは、プロジェクトのフォルダ自体のパスをコピーする。
         if (node is not null) _ui.Clipboard.SetText(node.FullPath);
+        else if (_project is not null) _ui.Clipboard.SetText(_project.Root);
+    }
+
+    private void CopyRelativePath(FileNodeViewModel? node)
+    {
+        if (node is not null) _ui.Clipboard.SetText(node.RelativePath);
+    }
+
+    private void RequestAddToContext(FileNodeViewModel? node)
+    {
+        if (node is null || node.IsDirectory || node.IsPlaceholder) return;
+        AddToContextRequested?.Invoke(this, node.RelativePath);
     }
 
     /// <summary>
@@ -1203,9 +1248,11 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     /// <see cref="IFileManagerLauncher"/>（Windows/Linuxの両方に対応し、対象がフォルダの
     /// ときはフォルダ自体を開く）へ揃える。
     /// </summary>
-    private static void RevealInExplorer(FileNodeViewModel? node)
+    private void RevealInExplorer(FileNodeViewModel? node)
     {
+        // ツリーの余白では、プロジェクトのフォルダ自体を表示する。
         if (node is not null) PlatformServices.Current.FileManager.Reveal(node.FullPath);
+        else if (_project is not null) PlatformServices.Current.FileManager.Reveal(_project.Root);
     }
 
     /// <summary>ShowFileHistoryCommandの実体。対象がファイルであることはCanExecute側で保証済み。</summary>

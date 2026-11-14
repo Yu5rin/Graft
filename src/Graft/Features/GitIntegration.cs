@@ -198,7 +198,23 @@ public class GitIntegration
         };
     }
 
-    /// <summary>7.5 適用後に "type: summary" の形式でコミットする（type が null なら summary のみ）。</summary>
+    /// <summary>
+    /// 7.5 適用後に "type: summary" の形式でコミットする（type が null なら summary のみ）。
+    ///
+    /// 【パッチが変えたパスだけをコミットする】 以前は「git add &lt;対象&gt;」のあと
+    /// 「git commit -m」だけを実行していた。この形だと、利用者が前からステージしていた
+    /// 無関係の変更までインデックスごと同じコミットに入ってしまう。そこで新規ファイルのために
+    /// 先に「git add -- &lt;対象&gt;」でインデックスへ載せたうえで、コミットも
+    /// 「git commit -m &lt;msg&gt; -- &lt;対象&gt;」（--only 相当）にして対象のパスに限る。
+    /// 他のステージ済みの変更はコミットに入らず、ステージされたまま残る。削除・改名も、
+    /// 対象に旧パスと新パスの両方を含めれば（呼び出し側が渡す）、削除としてコミットに入る。
+    ///
+    /// 【パスはコマンドラインに載せずファイルで渡す】 パッチが数千ファイルに及ぶと、パスを引数に
+    /// 並べたコマンドラインが Windows の上限（約3万文字）を超える。分割して複数コミットにすると
+    /// 1回の適用が1コミットにならないため、パス一覧を一時ファイルに書き
+    /// 「--pathspec-from-file」（NUL区切り）で渡して1コミットにまとめる（git 2.25 以降）。
+    /// 「--literal-pathspecs」で、ファイル名中の [ や * をパターンとして解釈させない。
+    /// </summary>
     public async Task<GraftResult<string>> CommitAsync(
         string projectRoot, string? type, string summary, IReadOnlyList<string> paths, CancellationToken ct = default)
     {
@@ -207,34 +223,51 @@ public class GitIntegration
             return GraftResult<string>.Fail(ErrorCode.E004, detail: "コミットメッセージのsummaryが空です。");
         }
 
-        if (paths.Count > 0)
-        {
-            var addResult = await AddPathsAsync(projectRoot, paths, ct).ConfigureAwait(false);
-            if (addResult is not null) return addResult;
-        }
-
         var message = string.IsNullOrWhiteSpace(type) ? summary : $"{type}: {summary}";
-        var commit = await RunGitAsync(projectRoot, new[] { "commit", "-m", message }, ct).ConfigureAwait(false);
-        if (!commit.Started || commit.ExitCode != 0)
+
+        if (paths.Count == 0)
         {
-            return GraftResult<string>.Fail(ErrorCode.E402, detail: $"git commit に失敗しました: {commit.Output}");
+            // 対象パスが無い呼び出しは従来どおり、インデックスにあるものをそのままコミットする。
+            var plain = await RunGitAsync(projectRoot, new[] { "commit", "-m", message }, ct).ConfigureAwait(false);
+            return plain.Started && plain.ExitCode == 0
+                ? GraftResult<string>.Ok(message)
+                : GraftResult<string>.Fail(ErrorCode.E402, detail: $"git commit に失敗しました: {plain.Output}");
         }
 
-        return GraftResult<string>.Ok(message);
-    }
-
-    private static async Task<GraftResult<string>?> AddPathsAsync(
-        string projectRoot, IReadOnlyList<string> paths, CancellationToken ct)
-    {
-        var addArgs = new List<string> { "add", "--" };
-        addArgs.AddRange(paths);
-        var add = await RunGitAsync(projectRoot, addArgs, ct).ConfigureAwait(false);
-        if (!add.Started || add.ExitCode != 0)
+        var pathspecFile = Path.Combine(Path.GetTempPath(), $"graft-pathspec-{Guid.NewGuid():N}.txt");
+        try
         {
-            return GraftResult<string>.Fail(ErrorCode.E402, detail: $"git add に失敗しました: {add.Output}");
-        }
+            // NUL区切り・BOM無しUTF-8。引用符や改行を含む名前もそのまま渡せる。
+            await File.WriteAllTextAsync(pathspecFile, string.Join('\0', paths) + "\0", GitOutputEncoding, ct)
+                .ConfigureAwait(false);
+            var pathspecArgs = new[] { $"--pathspec-from-file={pathspecFile}", "--pathspec-file-nul" };
 
-        return null;
+            var addArgs = new List<string> { "--literal-pathspecs", "add" };
+            addArgs.AddRange(pathspecArgs);
+            var add = await RunGitAsync(projectRoot, addArgs, ct).ConfigureAwait(false);
+            if (!add.Started || add.ExitCode != 0)
+            {
+                return GraftResult<string>.Fail(ErrorCode.E402, detail: $"git add に失敗しました: {add.Output}");
+            }
+
+            var commitArgs = new List<string> { "--literal-pathspecs", "commit", "-m", message };
+            commitArgs.AddRange(pathspecArgs);
+            var commit = await RunGitAsync(projectRoot, commitArgs, ct).ConfigureAwait(false);
+            if (!commit.Started || commit.ExitCode != 0)
+            {
+                return GraftResult<string>.Fail(ErrorCode.E402, detail: $"git commit に失敗しました: {commit.Output}");
+            }
+
+            return GraftResult<string>.Ok(message);
+        }
+        finally
+        {
+            try { File.Delete(pathspecFile); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 一時ファイルの後始末の失敗はコミットの結果に影響させない。
+            }
+        }
     }
 
     private static IReadOnlyList<string> ParsePorcelainPaths(string output)

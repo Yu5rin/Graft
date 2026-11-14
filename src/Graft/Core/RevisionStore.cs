@@ -79,7 +79,7 @@ public sealed partial class RevisionStore
             return GraftResult<RevisionSummary>.Ok(summary, issues);
         }
 
-        return GraftResult<RevisionSummary>.Fail(ErrorCode.E405, $"リビジョン {revision} の実体が見つかりません", path: projectDir);
+        return GraftResult<RevisionSummary>.Fail(ErrorCode.E405, $"履歴 {revision} の実体が見つかりません", path: projectDir);
     }
 
     /// <summary>
@@ -387,7 +387,7 @@ public sealed partial class RevisionStore
             ProjectId = projectId,
             AppliedAt = appliedAt,
             Status = RevisionStatus.InProgress,
-            Summary = "(manifest.json が破損していたため再生成されました)",
+            Summary = "(履歴の記録ファイル（manifest.json）が破損していたため再生成されました)",
         };
 
     /// <summary>
@@ -400,7 +400,11 @@ public sealed partial class RevisionStore
         {
             if (entry.Operation is EntryOperation.Create or EntryOperation.Mkdir) continue; // 退避対象なし
 
-            var backupRelative = entry.Operation == EntryOperation.Rename ? entry.RenamedFrom : entry.Path;
+            // 変更前の内容の在り処。RENAMEの移動先を同じパッチで編集したmodifyは、移動先ではなく
+            // 移動元のバックアップを指す（RevisionEntryLinks参照）。renameの移動元が記録されていない
+            // ときは、従来どおり判定の対象から外す。
+            var backupRelative = RevisionEntryLinks.ResolveBackupPath(manifest.Entries, entry);
+            if (entry.Operation == EntryOperation.Rename && string.IsNullOrEmpty(entry.RenamedFrom)) continue;
             if (string.IsNullOrEmpty(backupRelative)) continue;
 
             var normalized = BackupPathUtil.NormalizeRelativePath(backupRelative);

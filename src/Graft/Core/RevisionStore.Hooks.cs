@@ -21,7 +21,7 @@ public sealed partial class RevisionStore
         var folder = FindRevisionFolder(projectDir, revision);
         if (folder is null)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E405, $"リビジョン {revision} の実体が見つかりません", path: projectDir);
+            return GraftResult<bool>.Fail(ErrorCode.E405, $"履歴 {revision} の実体が見つかりません", path: projectDir);
         }
 
         var manifestPath = Path.Combine(folder, "manifest.json");
@@ -37,7 +37,7 @@ public sealed partial class RevisionStore
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の更新に失敗しました: {ExceptionMessages.Describe(ex)}", path: manifestPath);
+            return GraftResult<bool>.Fail(ErrorCode.E401, $"履歴の記録ファイル（manifest.json）を更新できませんでした: {ExceptionMessages.Describe(ex)}", path: manifestPath);
         }
 
         return GraftResult<bool>.Ok(true, readResult.Issues);

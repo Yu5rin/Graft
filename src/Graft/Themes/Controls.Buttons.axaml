@@ -1,0 +1,138 @@
+<!--
+  ボタンの種類（見た目の整備で新設）と、文字スタイルのクラス。
+
+  【使い方】 Button に Classes を付けるだけで切り替わる。付けなければ「標準」。
+    Classes="primary"  主。アクセント色の塗り。1画面（1ダイアログ）に原則1つ。
+                       例: 適用、ダイアログの確定（OK・保存・実行）
+    （指定なし）       標準。枠ありの中立なボタン。
+    Classes="subtle"   控えめ。枠も塗りも無く、hoverで薄く塗る。ツールバー・見出し横のアイコンボタン、
+                       閉じる（×）など。
+    Classes="danger"   危険。削除・破棄など取り返しにくい操作。枠と文字が赤系で、hoverで薄い赤を敷く。
+  ToggleButton には現状この種類は無い（オンの状態を示す専用の見た目のため）。
+
+  【なぜControlThemeではなくカスケードStyleか】
+  ButtonのControlTheme（Controls.axaml）はテンプレートと標準の見た目だけを持つ。種類は
+  「クラスで上書きする差分」なので、Application.Styles に置くStyleとして書く。StyleはControlThemeの
+  Setterより優先されるため、Background/Foreground/BorderBrushをここで上書きできる。
+  hover/pressed/disabled/focusは疑似クラス付きのStyle（StyleTrigger優先度）で、テンプレート内の
+  TemplateBindingより強く、PART_Borderの塗りを確実に差し替えられる。
+
+  【内側の文字・アイコンの色】
+  ボタンの中身をStackPanel＋アイコン＋TextBlockで組むと、TextBlockはControls.Base.axamlの暗黙スタイル
+  （Foreground=TextPrimary固定）を持つため、ボタン側のForegroundが届かない。種類ごとに
+  「そのボタンの子孫のTextBlock／IconGlyph」の色もここで合わせる。無効時の灰色は
+  TextBlock:disabled（Controls.Base.axaml）とIconGlyph:disabled（Icons.axaml）が疑似クラス付きで
+  上書きするので、ここでは通常時の色だけ書けばよい。
+
+  【色の根拠】 PrimaryBg / PrimaryFg / DangerFg などは各テーマ（Dark.axaml 等）の
+  「ボタンの種類（主・危険）用の色」に、文字とのコントラスト比の実測つきで定義してある。
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Graft.Views">
+
+    <!-- ========== 主（primary） ========== -->
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{DynamicResource PrimaryBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBg}" />
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryFg}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.primary TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryFg}" />
+    </Style>
+    <Style Selector="Button.primary views|IconGlyph">
+        <Setter Property="Stroke" Value="{DynamicResource PrimaryFg}" />
+    </Style>
+    <Style Selector="Button.primary:pointerover /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource PrimaryBgHover}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBgHover}" />
+    </Style>
+    <Style Selector="Button.primary:pressed /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource PrimaryBgPressed}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBgPressed}" />
+    </Style>
+    <!-- 塗りがAccentなので、フォーカスリング（Accent系）は塗りに溶けて見えなくなる。リングだけ
+         本文色（TextPrimary）に差し替える。PrimaryFg（塗り上の文字色）にすると、暗いテーマで
+         リングが背景と同じ暗色になり、塗りの縁が欠けて見えた（実機の画面で確認）。
+         TextPrimaryは背景とも塗りとも逆の明暗なので、どちらの上でも輪郭が分かる。 -->
+    <Style Selector="Button.primary:focus /template/ Border#PART_FocusRing">
+        <Setter Property="BorderBrush" Value="{DynamicResource TextPrimary}" />
+    </Style>
+    <!-- 無効: 塗りを外して標準ボタン相当の薄い見た目にする（主のまま青く光らせない）。 -->
+    <Style Selector="Button.primary:disabled">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+    </Style>
+    <Style Selector="Button.primary:disabled /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource BgSurface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+    </Style>
+
+    <!-- ========== 控えめ（subtle） ========== -->
+    <Style Selector="Button.subtle">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.subtle:pointerover /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource BgHover}" />
+    </Style>
+    <Style Selector="Button.subtle:pressed /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource BgSelected}" />
+    </Style>
+    <Style Selector="Button.subtle:disabled">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.subtle:disabled /template/ Border#PART_Border">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <!-- ========== 危険（danger） ========== -->
+    <Style Selector="Button.danger">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DangerFg}" />
+        <Setter Property="Foreground" Value="{DynamicResource DangerFg}" />
+    </Style>
+    <Style Selector="Button.danger TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource DangerFg}" />
+    </Style>
+    <Style Selector="Button.danger views|IconGlyph">
+        <Setter Property="Stroke" Value="{DynamicResource DangerFg}" />
+    </Style>
+    <Style Selector="Button.danger:pointerover /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource DangerBgHover}" />
+    </Style>
+    <Style Selector="Button.danger:pressed /template/ Border#PART_Border">
+        <Setter Property="Background" Value="{DynamicResource DangerBgPressed}" />
+    </Style>
+    <Style Selector="Button.danger:disabled">
+        <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+    </Style>
+    <Style Selector="Button.danger:disabled /template/ Border#PART_Border">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <!-- 種類ごとの「子孫のTextBlock／IconGlyph」の色指定（上の Button.xxx TextBlock など）は、
+         無効時の灰色（TextBlock:disabled・IconGlyph:disabled）より後に評価されて勝ってしまう
+         ことが実機の画面で分かった（無効なのに「破棄」が赤いまま）。無効時の色は種類ごとに
+         明示して上書きする。 -->
+    <Style Selector="Button.primary:disabled TextBlock, Button.danger:disabled TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+    </Style>
+    <Style Selector="Button.primary:disabled views|IconGlyph, Button.danger:disabled views|IconGlyph">
+        <Setter Property="Stroke" Value="{DynamicResource TextDisabled}" />
+    </Style>
+
+    <!-- ========== 文字スタイル: セクション見出し ========== -->
+    <!-- 14px・SemiBold（Tokens.axaml SectionHeading*）。アクセント色は使わず本文色にする
+         （アクセントは「選択・主ボタン・フォーカス」に限るため）。 -->
+    <Style Selector="TextBlock.section-heading">
+        <Setter Property="FontSize" Value="{DynamicResource SectionHeadingFontSize}" />
+        <Setter Property="FontWeight" Value="{DynamicResource SectionHeadingFontWeight}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+    </Style>
+
+</Styles>

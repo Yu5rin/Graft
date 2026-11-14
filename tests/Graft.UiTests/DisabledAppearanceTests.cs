@@ -123,9 +123,9 @@ public class DisabledAppearanceTests : IDisposable
         vm.Graft.DiscardCommand.CanExecute(null).Should().BeFalse("ビューモデル側は最初から無効のはず");
 
         IsEffectivelyDisabled(FindButtonByName(window, "解析結果を破棄")).Should().BeTrue();
-        IsEffectivelyDisabled(FindButtonByName(window, "プレビューを再実行")).Should().BeTrue();
+        IsEffectivelyDisabled(FindButtonByName(window, "適用できるかを再チェック")).Should().BeTrue();
         IsEffectivelyDisabled(FindButtonByName(window, "適用を実行")).Should().BeTrue();
-        IsEffectivelyDisabled(FindButtonByName(window, "失敗ブロックの修正依頼プロンプトをコピー")).Should().BeTrue();
+        IsEffectivelyDisabled(FindButtonByName(window, "失敗ブロックの修正依頼文をコピー")).Should().BeTrue();
     }
 
     [AvaloniaFact(DisplayName = "「破棄」ボタン（アイコン＋文字）は無効時にアイコンと文字の両方がtext.disabledへ変わる")]
@@ -153,7 +153,7 @@ public class DisabledAppearanceTests : IDisposable
         var discard = FindButtonByName(window, "解析結果を破棄");
         var discardLabel = discard.GetVisualDescendants().OfType<TextBlock>().Single(t => Equals(t.Text, "破棄"));
 
-        var recovery = FindButtonByName(window, "失敗ブロックの修正依頼プロンプトをコピー");
+        var recovery = FindButtonByName(window, "失敗ブロックの修正依頼文をコピー");
         // Content="修正を依頼"（文字列）はContentPresenterが暗黙にTextBlockを生成する。
         var recoveryLabel = recovery.GetVisualDescendants().OfType<TextBlock>()
             .Single(t => Equals(t.Text, "修正を依頼"));

@@ -2,29 +2,71 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.RawJsonSettingsView"
-             AutomationProperties.Name="設定JSON直接編集">
-    <!-- 14章「jsonの直接編集も可能」に対応する。 -->
+             AutomationProperties.Name="詳細設定（settings.json）">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
     <!--
+        「詳細（settings.json）」タブ（旧: JSON編集）。14章「jsonの直接編集も可能」に対応する。
+        他のタブに置き場が無い項目（ログレベル）と、設定の書き出し／読み込みもここに置く。
+        どれも「普段は触らない・設定ファイルそのものに関わる」性質で、旧「一般」では利用者が
+        よく触る項目（テーマ・ホットキー）の間に混ざっていた。
+        上の2つの項目はScrollViewerに入れず固定の高さで置き、残りの高さは全部JSONの編集欄へ回す
+        （編集欄は内側でスクロールするため、タブ全体をScrollViewerで包むと二重スクロールになる）。
+
         実機不具合対応（エラーが右端で見切れる）: 以前はボタンとエラー文言を1つの横並び
-        StackPanel（Grid.Row=2）に並べていた。StackPanelは並べる方向（ここでは横）に
-        無限の幅を子へ与えるため、TextWrapping="Wrap"を書いても折り返しは一切起きず、
-        「JSONを解析できませんでした: '@' is an invalid start of a value. Path: $ | LineNumb…」の
-        ように、いちばん役に立つ行番号の手前で右端に切られて読めなかった。
-        エラー文言は独立した行（Grid.Row=3）へ移し、Gridの列幅に従って折り返させる。
+        StackPanelに並べていた。StackPanelは並べる方向（ここでは横）に無限の幅を子へ与えるため、
+        TextWrapping="Wrap"を書いても折り返しは一切起きず、「JSONを解析できませんでした:
+        '@' is an invalid start of a value. Path: $ | LineNumb…」のように、いちばん役に立つ行番号の
+        手前で右端に切られて読めなかった。エラー文言は独立した行へ置き、Gridの列幅に従って折り返させる。
     -->
-    <Grid Margin="16,8" RowDefinitions="Auto,*,Auto,Auto">
-        <TextBlock Grid.Row="0"
-                   Text="settings.json を直接編集できます。保存時に検証し、不正な値は既定値へフォールバックします。"
-                   TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,8" />
-        <TextBox Grid.Row="1" Text="{Binding JsonText}"
+    <Grid Margin="16,8" RowDefinitions="Auto,Auto,*,Auto,Auto">
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="ログと設定ファイル" Classes="sectionHeading first" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="ログレベル" Classes="settingLabel" />
+                    <TextBlock Text="ログファイルに書く情報の詳しさです。普段は「info」のままで構いません。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding LogLevelOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedLogLevel}"
+                          AutomationProperties.Name="ログレベル"
+                          views:HelpTip.Minimal="{Binding SelectedLogLevel, StringFormat='ログレベル: {0}'}"
+                          views:HelpTip.Standard="ログファイルへ書き出す情報の詳しさを選びます。普段は既定の「info」のままで構いません。"
+                          views:HelpTip.Detailed="Graftの動作記録（ログファイル）にどこまで細かい情報を残すかを選びます。「trace」「debug」が最も詳しく、「error」が最も少なくなります（trace &gt; debug &gt; info &gt; warn &gt; error の順に少なくなります）。既定は「info」です。不具合の調査を頼まれたときなど、詳しいログが必要と言われた場合だけ「debug」以上へ変更してください。詳しくするほどログファイルの容量が増えます。" />
+            </Grid>
+            <TextBlock Text="設定の書き出しと読み込み" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow hinted" Content="設定だけを対象にする（プロジェクトの一覧を除く）"
+                      IsChecked="{Binding ExportSettingsOnly}" AutomationProperties.Name="設定のみを対象にする"
+                      views:HelpTip.Standard="下の書き出し／読み込みで、登録済みプロジェクトの一覧を含めるかどうかです。既定はオフ（含める）です。"
+                      views:HelpTip.Detailed="下の「設定を書き出す」「設定を読み込む」の対象範囲を絞り込みます。オフ（既定）のときは、この画面の各種設定に加えて登録済みプロジェクトの一覧も一緒に書き出し・読み込みします。オンにすると、プロジェクトの一覧は対象から外れ、テーマやエディタなどの設定だけをやり取りします。他のPCへ設定だけを持っていきたい（プロジェクトの登録はそちらで別途行う）場合に使います。" />
+            <TextBlock Text="オンにすると、書き出し・読み込みの対象から、登録したプロジェクトの一覧を外します。" Classes="settingHint indented" />
+            <StackPanel Orientation="Horizontal">
+                <Button Content="設定を書き出す" Command="{Binding ExportCommand}" Margin="0,0,8,0"
+                        AutomationProperties.Name="設定をエクスポート"
+                        views:HelpTip.Standard="現在の設定をJSONファイルとして書き出します。ファイルへの保存先を選ぶダイアログが開きます。"
+                        views:HelpTip.Detailed="この画面で調整した内容（テーマ・エディタ・適用の制限などの設定、上のチェックがオフならプロジェクトの一覧も）を1つのJSONファイルへまとめて書き出します。保存先を選ぶダイアログが開くので、別のPCへ持っていく用のバックアップや、同僚と設定を共有する用途に使えます。現在のファイルの中身には一切影響しません。" />
+                <Button Content="設定を読み込む" Command="{Binding ImportCommand}"
+                        AutomationProperties.Name="設定をインポート"
+                        views:HelpTip.Standard="「設定を書き出す」で書き出したJSONファイルを読み込み、現在の設定を上書きします。読み込むファイルを選ぶダイアログが開きます。"
+                        views:HelpTip.Detailed="「設定を書き出す」で書き出したJSONファイルを選んで読み込み、この画面のすべての設定を読み込んだ内容で上書きします。現在の設定は読み込んだ内容に置き換わるため、必要であれば先に「設定を書き出す」で今の設定を書き出しておくと安心です。ファイルの内容（コード）には影響しません。" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,8">
+            <TextBlock Text="settings.json を直接編集" Classes="sectionHeading" />
+            <TextBlock Text="他のタブに無い細かい設定を、設定ファイルの中身そのままで編集できます。保存するときに検証し、不正な値は既定値に置き換えます。"
+                       Classes="settingHint" />
+        </StackPanel>
+        <TextBox Grid.Row="2" Text="{Binding JsonText}"
                  AcceptsReturn="True" AcceptsTab="True" TextWrapping="NoWrap"
                  FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                  AutomationProperties.Name="settings.jsonの内容"
                  views:HelpTip.Standard="他のタブの設定項目をまとめて保持しているJSONファイルの中身です。ここを直接書き換えて「検証して保存」で反映できます。"
-                 views:HelpTip.Detailed="このアプリの全設定（テーマ・エディタ・安全機構など、他のタブで見られる項目すべて）は settings.json というファイルに保存されており、ここではその中身をテキストとして直接編集できます。「一般」タブなどで用意されていない細かい項目を調整したいときの上級者向けの手段です。編集してもこの場では確定せず、下の「検証して保存」を押した時点で初めて反映されます。誤った形式のまま保存しようとした場合は、下にエラーが表示され保存されません（設定ファイルが壊れることはありません）。ファイルの内容（コード）には影響しません。" />
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                 views:HelpTip.Detailed="このアプリの全設定（テーマ・エディタ・適用の制限など、他のタブで見られる項目すべて）は settings.json というファイルに保存されており、ここではその中身をテキストとして直接編集できます。「一般」タブなどで用意されていない細かい項目を調整したいときの上級者向けの手段です。編集してもこの場では確定せず、下の「検証して保存」を押した時点で初めて反映されます。誤った形式のまま保存しようとした場合は、下にエラーが表示され保存されません（設定ファイルが壊れることはありません）。ファイルの内容（コード）には影響しません。" />
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,8,0,0">
             <Button Content="検証して保存" Command="{Binding SaveJsonCommand}"
                     AutomationProperties.Name="JSONを検証して保存"
                     views:HelpTip.Standard="上のJSONの形式を確認してから設定へ反映します。不正な形式なら保存されずエラーが表示されます。"
@@ -32,7 +74,7 @@
         </StackPanel>
         <!-- 折り返せる独立した行に置く（上のGridのコメント参照）。読み上げにも確実に届くよう
              LiveSettingをAssertiveにする（保存を押した結果として出る、利用者が今すぐ知るべき情報）。 -->
-        <TextBlock Grid.Row="3" Text="{Binding JsonParseError}" Foreground="{DynamicResource StateError}"
+        <TextBlock Grid.Row="4" Text="{Binding JsonParseError}" Foreground="{DynamicResource StateError}"
                    Margin="0,8,0,0" TextWrapping="Wrap"
                    AutomationProperties.Name="JSONのエラー内容"
                    AutomationProperties.LiveSetting="Assertive"

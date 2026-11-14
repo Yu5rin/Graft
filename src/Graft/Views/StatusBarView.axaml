@@ -71,13 +71,13 @@
                         Command="{Binding AnalyzeClipboardPatchCommand}"
                         Margin="12,0,0,0"
                         Padding="6,2"
-                        Background="Transparent"
+                        Classes="subtle"
                         BorderThickness="0"
                         Foreground="{DynamicResource Accent}"
                         FontSize="{DynamicResource StatusBarFontSize}"
                         IsVisible="{Binding HasClipboardPatchNotice}"
                         AutomationProperties.Name="パッチ形式のテキストを検知しました。クリックで解析"
-                        ToolTip.Tip="クリックすると、コマンドバーの「解析」と同じ処理でクリップボードの内容を読み直します。自動では解析・適用しません。" />
+                        ToolTip.Tip="クリックすると、コマンドバーの「貼り付けて解析」と同じ処理でクリップボードの内容を読み直します。自動では解析・適用しません。" />
 
                 <!--
                     ステータスバーの警告表示について: 書き込み不可（課題1）・シンタックス
@@ -111,7 +111,7 @@
                         Command="{Binding Explorer.UndoDeleteCommand}"
                         Margin="12,0,0,0"
                         Padding="6,2"
-                        Background="Transparent"
+                        Classes="subtle"
                         BorderThickness="0"
                         Foreground="{DynamicResource Accent}"
                         FontSize="{DynamicResource StatusBarFontSize}"
@@ -126,19 +126,50 @@
                     Ctrl+Zと同じUndoCommand（既存の単発復元経路）をそのまま再利用するため、
                     クリックすると取り消しの確認ダイアログを挟んだうえで直前のリビジョンを取り消す。
                 -->
-                <Button Content="{Binding Graft.ApplyUndoNoticeText}"
+                <!-- 通知の文言は通常の文字色にし、押せる「元に戻す」だけをリンクの見た目にする
+                     （全体をリンク色にすると、押せない説明文まで押せそうに見えたため）。 -->
+                <TextBlock Text="{Binding Graft.ApplyUndoNoticeMessage}"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.HasApplyUndoNotice}" />
+                <Button Content="元に戻す"
                         Command="{Binding Graft.UndoCommand}"
-                        Margin="12,0,0,0"
+                        Margin="4,0,0,0"
                         Padding="6,2"
-                        Background="Transparent"
+                        Classes="subtle"
                         BorderThickness="0"
                         Foreground="{DynamicResource Accent}"
                         FontSize="{DynamicResource StatusBarFontSize}"
                         IsVisible="{Binding Graft.HasApplyUndoNotice}"
                         AutomationProperties.Name="{Binding Graft.ApplyUndoNoticeText}"
-                        local:HelpTip.Standard="適用直後に数秒だけ表示される通知です。クリックすると直前のリビジョンを元に戻せます。"
-                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「このリビジョンを取り消す」やCtrl+Zと同じ復元処理で、たった今適用したリビジョンを元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Zからいつでも元に戻せます。"
-                        ToolTip.Tip="クリックすると直前に適用したリビジョンを元に戻します。" />
+                        local:HelpTip.Standard="適用直後に数秒だけ表示される通知です。クリックすると直前の適用を元に戻せます。"
+                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示される通知です。クリックすると、履歴パネルの「この適用を取り消す」やCtrl+Alt+Zと同じ復元処理で、たった今適用した履歴を元に戻せます（取り消し前に確認ダイアログが出ます）。数秒で自動的に消えますが、消えた後も履歴パネルやCtrl+Alt+Zからいつでも元に戻せます。"
+                        ToolTip.Tip="クリックすると直前に適用した変更を取り消します。" />
+
+                <!--
+                    成功を知らせるだけの短い通知（破棄しました・コピーしました・キューへ追加しました等。
+                    MainViewModel.DiscardUndo.cs・StatusNoticeViewModel.cs）。数秒で自動的に消える。
+                    文言は通常の文字色、押せる操作（「元に戻す」等）だけをリンクの見た目にする。
+                -->
+                <TextBlock Text="{Binding Graft.Notice.Text}"
+                           Margin="12,0,0,0"
+                           MaxWidth="460"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.Notice.IsVisible}"
+                           AutomationProperties.Name="{Binding Graft.Notice.Text}" />
+                <Button Content="{Binding Graft.Notice.ActionLabel}"
+                        Command="{Binding Graft.Notice.ActionCommand}"
+                        Margin="4,0,0,0"
+                        Padding="6,2"
+                        Classes="subtle"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource Accent}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Graft.Notice.HasAction}"
+                        AutomationProperties.Name="{Binding Graft.Notice.ActionLabel}" />
 
                 <!--
                     適用直後は接ぎ木パネルのブロック一覧が空になり、変更したファイルを開く入口が
@@ -150,15 +181,15 @@
                         Command="{Binding ShowAppliedRevisionCommand}"
                         Margin="4,0,0,0"
                         Padding="6,2"
-                        Background="Transparent"
+                        Classes="subtle"
                         BorderThickness="0"
                         Foreground="{DynamicResource Accent}"
                         FontSize="{DynamicResource StatusBarFontSize}"
                         IsVisible="{Binding Graft.HasApplyUndoNotice}"
                         AutomationProperties.Name="適用した変更を履歴で見る"
-                        local:HelpTip.Standard="適用直後に数秒だけ表示されます。クリックすると、いま適用したリビジョンを履歴で開き、変更したファイルの差分を表示します。"
-                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示されます。クリックすると、サイドバーの履歴でいま適用したリビジョンが選ばれ、エディタ領域に変更したファイルの差分が開きます。差分の各ファイルの見出しにある「ファイルを開く」から、変更したファイルをそのままエディタで開けます。数秒で自動的に消えますが、消えた後も履歴から同じ操作ができます。"
-                        ToolTip.Tip="クリックすると、いま適用したリビジョンの変更を履歴で表示します。" />
+                        local:HelpTip.Standard="適用直後に数秒だけ表示されます。クリックすると、いま適用した変更を履歴で開き、変更したファイルの差分を表示します。"
+                        local:HelpTip.Detailed="パッチの適用に成功した直後、ステータスバーに数秒だけ表示されます。クリックすると、サイドバーの履歴でいま適用した履歴が選ばれ、エディタ領域に変更したファイルの差分が開きます。差分の各ファイルの見出しにある「ファイルを開く」から、変更したファイルをそのままエディタで開けます。数秒で自動的に消えますが、消えた後も履歴から同じ操作ができます。"
+                        ToolTip.Tip="クリックすると、いま適用した変更を履歴で表示します。" />
 
                 <!--
                     機能追加（1.0.25）: 「確認なしで自動更新する」（設定のバージョン情報タブ）の結果を
@@ -182,7 +213,7 @@
                         Command="{Binding RestartForUpdateCommand}"
                         Margin="4,0,0,0"
                         Padding="6,2"
-                        Background="Transparent"
+                        Classes="subtle"
                         BorderThickness="0"
                         Foreground="{DynamicResource Accent}"
                         FontSize="{DynamicResource StatusBarFontSize}"
@@ -194,7 +225,7 @@
                         Command="{Binding DismissUpdateNoticeCommand}"
                         Margin="2,0,0,0"
                         Padding="6,2"
-                        Background="Transparent"
+                        Classes="subtle"
                         BorderThickness="0"
                         Foreground="{DynamicResource TextSecondary}"
                         FontSize="{DynamicResource StatusBarFontSize}"
@@ -208,10 +239,23 @@
                 失敗が1件でもあれば既存のStateErrorトークンを参照して目立たせる
                 （下のstatusSummary.failedスタイル参照。トークンの定義値自体は変更しない）。
             -->
-            <TextBlock Grid.Column="1" Text="{Binding Graft.StatusSummaryText}"
-                       Classes.failed="{Binding Graft.HasFailedBlocks}"
-                       Classes="statusSummary"
-                       VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
+            <!--
+                見た目の整備: 失敗があるときは、全体を赤くせず「N件失敗」の部分だけをStateErrorにする
+                （適用可・要確認の件数まで警告に見えていたため）。ひとまとまりの文として読み上げられるよう、
+                StackPanel自体に全文（Graft.StatusSummaryText）をAutomationのNameとして付ける。
+            -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                        AutomationProperties.Name="{Binding Graft.StatusSummaryText}">
+                <TextBlock Text="{Binding Graft.StatusSummaryMainText}"
+                           VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
+                <TextBlock Text=" / " VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.HasFailedBlocks}" />
+                <TextBlock Text="{Binding Graft.StatusSummaryFailedText}"
+                           Classes="statusSummary failed"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.HasFailedBlocks}" />
+            </StackPanel>
         </Grid>
     </Border>
 

@@ -44,7 +44,12 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="Padding" Value="12,4" />
+        <!-- 見た目の整備: 高さは ControlHeight(28) の下限で揃え、角丸は RadiusSm(3)。
+             旧Paddingは縦6で、13px文字の行高20.8と合わせて約34pxになり、画面ごとに
+             ボタンの高さがばらついていた（実測。Tokens.axaml「寸法トークン」参照）。 -->
+        <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
         <Setter Property="Cursor" Value="Hand" />
@@ -61,7 +66,8 @@
                     <Border Name="PART_Border"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}">
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
                         <!-- 修正: HorizontalAlignmentがCenter直値になっており、
                              呼び出し側がHorizontalContentAlignment="Left"等を指定しても
                              無視されていた（実測: ManualMarkdownRendererの目次リンクや
@@ -81,6 +87,7 @@
                     <Border Name="PART_FocusRing"
                             BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
                             IsHitTestVisible="False"
                             Opacity="0" />
                 </Grid>
@@ -112,7 +119,12 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="Padding" Value="12,4" />
+        <!-- 見た目の整備: 高さは ControlHeight(28) の下限で揃え、角丸は RadiusSm(3)。
+             旧Paddingは縦6で、13px文字の行高20.8と合わせて約34pxになり、画面ごとに
+             ボタンの高さがばらついていた（実測。Tokens.axaml「寸法トークン」参照）。 -->
+        <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
         <Setter Property="Cursor" Value="Hand" />
@@ -122,7 +134,8 @@
                     <Border Name="PART_Border"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}">
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
                         <ContentPresenter Name="PART_ContentPresenter"
                                           Content="{TemplateBinding Content}"
                                           ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -134,6 +147,7 @@
                     <Border Name="PART_FocusRing"
                             BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
                             IsHitTestVisible="False"
                             Opacity="0" />
                 </Grid>
@@ -155,6 +169,73 @@
         </Style>
     </ControlTheme>
 
+    <!-- ========== RadioButton ========== -->
+    <!--
+        見た目の整備で新設。以前は定義が無く、Fluent既定の青い丸が出て、テーマのアクセント色
+        （Dracula=紫、Nord=水色など）と食い違っていた（差分ビューの「並列／統合」で目立った）。
+        CheckBoxと同じ作法に揃える: 22x22の占有領域にフォーカスリングを収め、選択時は
+        外周の枠と内側の点をAccentにする。点は文字色ではなくAccent単色で、色だけに頼らず
+        「内側に点がある」という形でも選択を示す（8.14）。
+    -->
+    <ControlTheme x:Key="{x:Type RadioButton}" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
+        <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Grid ColumnDefinitions="Auto,*" Background="Transparent">
+                    <Grid Width="22" Height="22" VerticalAlignment="Center">
+                        <Border Name="PART_Outer"
+                                Width="16" Height="16"
+                                CornerRadius="8"
+                                BorderBrush="{DynamicResource TextSecondary}"
+                                BorderThickness="1.5"
+                                Background="{DynamicResource BgSurface}" />
+                        <Border Name="PART_Dot"
+                                Width="8" Height="8"
+                                CornerRadius="4"
+                                Background="{DynamicResource Accent}"
+                                IsVisible="False" />
+                        <Border Name="PART_FocusRing"
+                                CornerRadius="11"
+                                BorderBrush="{DynamicResource FocusRing}"
+                                BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                                IsHitTestVisible="False"
+                                Opacity="0" />
+                    </Grid>
+                    <ContentPresenter Grid.Column="1"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      Margin="6,0,0,0"
+                                      VerticalAlignment="Center"
+                                      RecognizesAccessKey="True" />
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+        <Style Selector="^:checked /template/ Border#PART_Dot">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="^:checked /template/ Border#PART_Outer">
+            <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_Outer">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+        </Style>
+        <Style Selector="^:focus /template/ Border#PART_FocusRing">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
+        <Style Selector="^:disabled /template/ Border#PART_Outer">
+            <Setter Property="BorderBrush" Value="{DynamicResource TextDisabled}" />
+        </Style>
+        <Style Selector="^:disabled /template/ Border#PART_Dot">
+            <Setter Property="Background" Value="{DynamicResource TextDisabled}" />
+        </Style>
+    </ControlTheme>
+
     <!-- ========== TextBox ========== -->
     <ControlTheme x:Key="{x:Type TextBox}" TargetType="TextBox">
         <Setter Property="Background" Value="{DynamicResource BgSurface}" />
@@ -163,7 +244,9 @@
         <Setter Property="SelectionBrush" Value="{DynamicResource BgSelected}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
         <!-- 1行入力は枠の中央に置く。複数行のときは下のスタイルで上寄せへ切り替える。 -->
@@ -174,7 +257,8 @@
                     <Border Name="PART_Border"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}">
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
                         <!--
                             スクロールバーの表示可否は、利用側が ScrollViewer の添付プロパティで
                             指定する。ここで固定値を書くと指定が届かず、複数行の入力欄で
@@ -213,6 +297,7 @@
                     <Border Name="PART_FocusRing"
                             BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
                             IsHitTestVisible="False"
                             Opacity="0" />
                 </Grid>
@@ -242,6 +327,7 @@
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="8,4" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource CaptionFontSize}" />
     </ControlTheme>

@@ -10,7 +10,7 @@ namespace Graft.UiTests;
 
 /// <summary>
 /// 修正依頼文のコピー経路の検証。
-/// 右クリックメニューの「修正依頼プロンプトをコピー」は、ヘルプ文が「このブロックの」なのに、
+/// 右クリックメニューの「修正依頼文をコピー」は、ヘルプ文が「このブロックの」なのに、
 /// 引数を渡していなかったため失敗ブロックすべてがコピーされていた。メニューはその行のブロック
 /// だけを、ボタン（「修正を依頼」）は従来どおり失敗ブロックすべてをコピーすることを確かめる。
 /// 併せて、切れたパッチの継続依頼が受け取った形式に合わせて出ることも、画面の流れで確かめる
@@ -55,7 +55,7 @@ public class RecoveryPromptScenarioTests : IDisposable
         return shell;
     }
 
-    [AvaloniaFact(DisplayName = "右クリックの「修正依頼プロンプトをコピー」: 押した行のブロックだけがコピーされる")]
+    [AvaloniaFact(DisplayName = "右クリックの「修正依頼文をコピー」: 押した行のブロックだけがコピーされる")]
     public async Task 右クリックは1ブロックだけをコピーする()
     {
         var shell = await ParseTwoFailedBlocksAsync().ConfigureAwait(true);
@@ -67,7 +67,8 @@ public class RecoveryPromptScenarioTests : IDisposable
         _clipboard.Text.Should().Contain("■ b.txt").And.Contain("B-ONLY-SEARCH").And.Contain("B-REPLACE");
         _clipboard.Text.Should().NotContain("a.txt").And.NotContain("A-ONLY-SEARCH",
             "別のブロックの内容が混ざってはならない（修正前は失敗ブロックすべてがコピーされた）");
-        _dialogs.Messages.Last().Message.Should().Contain("「b.txt」");
+        // 成功の知らせはダイアログではなくステータスバーの通知で出る（C9）。
+        shell.Graft.Notice.Text.Should().Contain("「b.txt」");
     }
 
     [AvaloniaFact(DisplayName = "右クリックのコマンドを実行すると、押した行のブロックだけがクリップボードへ入る")]
@@ -111,7 +112,7 @@ public class RecoveryPromptScenarioTests : IDisposable
         _clipboard.Text.Should().Contain("■ a.txt").And.Contain("A-ONLY-SEARCH");
         _clipboard.Text.Should().Contain("■ b.txt").And.Contain("B-ONLY-SEARCH");
         _clipboard.Text.Should().Contain("同じGraft形式で出力してください");
-        _dialogs.Messages.Last().Message.Should().Contain("2件の失敗ブロック");
+        shell.Graft.Notice.Text.Should().Contain("2件の失敗ブロック");
     }
 
     [AvaloniaFact(DisplayName = "継続依頼: 標準SR形式で受け取った切れたパッチの続きは、標準SR形式で頼む")]

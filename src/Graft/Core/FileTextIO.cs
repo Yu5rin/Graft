@@ -11,6 +11,10 @@ namespace Graft.Core;
 /// </summary>
 public static class FileTextIO
 {
+    /// <summary>文字コードを判定できないファイルへの書き込みを止めたときのメッセージ（E218の詳細）。</summary>
+    public const string UnsupportedEncodingDetail =
+        "このファイルの文字コード（UTF-8・Shift_JIS 以外）には対応していないため、内容を壊さないよう書き込みを止めました";
+
     /// <summary>ファイルを読み込み、テキストと見た目（<see cref="TextShape"/>）を返す。</summary>
     public static async Task<GraftResult<(string Text, TextShape Shape)>> ReadAsync(string fullPath, CancellationToken ct = default)
     {
@@ -35,6 +39,16 @@ public static class FileTextIO
     /// </summary>
     public static async Task<GraftResult<bool>> WriteAsync(string fullPath, string text, TextShape shape, CancellationToken ct = default)
     {
+        // 文字コードを判定できず置換つきで読んだ内容は、元のバイト列を復元できない。そのまま書くと
+        // 変更していない部分まで文字化けして元に戻せなくなるため、呼び出し元（適用・エディタの保存・
+        // 他の書き込み経路）を問わず、ここで一括して止める。適用ではドライランの段階で先に
+        // E218にしているが（DryRunPlanner）、ドライランと書き込みの間にファイルが差し替わった場合の
+        // 最後の砦でもある。
+        if (shape.UnsupportedEncoding)
+        {
+            return GraftResult<bool>.Fail(ErrorCode.E218, UnsupportedEncodingDetail, path: fullPath);
+        }
+
         var bytes = EncodeWithShape(text, shape);
         return await SafeFileWriter.ReplaceAsync(fullPath, bytes, ct).ConfigureAwait(false);
     }

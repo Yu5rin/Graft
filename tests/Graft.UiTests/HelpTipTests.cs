@@ -188,7 +188,7 @@ public class HelpTipTests : IDisposable
         var shell = _windows.Track(new ShellWindow());
         shell.Show();
         var analyzeButton = shell.GetVisualDescendants().OfType<Button>()
-            .Single(b => Equals(AutomationProperties.GetName(b), "クリップボードのパッチを解析"));
+            .Single(b => Equals(AutomationProperties.GetName(b), "クリップボードの回答を解析"));
 
         ToolTip.GetTip(analyzeButton).Should().BeOfType<TextBlock>()
             .Which.Text.Should().Contain("ここが接ぎ木の入口です");
@@ -277,7 +277,8 @@ public class HelpTipTests : IDisposable
         var vm = new SettingsViewModel(appPaths, new NullDialogService(), new AvaloniaUiServices());
         await vm.InitializeAsync();
 
-        var view = new EditorSettingsView { DataContext = vm };
+        // エディタの文字の大きさは「一般」タブ（表示）へ移した。
+        var view = new GeneralSettingsView { DataContext = vm };
         var window = _windows.Track(new Window { Content = view });
         window.Show();
 

@@ -68,6 +68,13 @@ public static class SafeFileWriter
     internal static async Task<GraftResult<bool>> ReplaceAsync(
         string fullPath, byte[] content, IPrimaryReplaceOp primaryOp, IMoveOp moveOp, CancellationToken ct)
     {
+        // D2: 対象がシンボリックリンクなら、リンク自体ではなくリンク先の実体を差し替える。
+        // 一時ファイルを「リンクのあるフォルダ」へ作ってリンクの上へ Move すると、リンクが
+        // 通常ファイルに置き換わり、本来の実体（別フォルダやリポジトリ外にあることが多い）は
+        // 古いままになってしまう。実体のパスへ解決してから以降の処理を行えば、一時ファイルも
+        // 実体と同じフォルダに作られ、同一ボリュームでの原子的な差し替えが保たれる。
+        fullPath = ResolveSymbolicLinkTarget(fullPath);
+
         var directory = Path.GetDirectoryName(fullPath);
         if (string.IsNullOrEmpty(directory))
         {
@@ -110,6 +117,49 @@ public static class SafeFileWriter
             path: fullPath);
     }
 
+    /// <summary>
+    /// 対象がシンボリックリンクなら、最終的なリンク先の絶対パスを返す（Windows以外のみ）。
+    /// Windowsは従来どおり何もしない（リンクの扱いを変えない）。リンク先が無い（宙に浮いた
+    /// リンク）場合も解決先のパスを返し、そこへ新規作成する。解決に失敗したときは元のパスを
+    /// そのまま使う（従来と同じ挙動に倒す）。
+    /// </summary>
+    private static string ResolveSymbolicLinkTarget(string fullPath)
+    {
+        if (OperatingSystem.IsWindows()) return fullPath;
+
+        try
+        {
+            var info = new FileInfo(fullPath);
+            if (info.LinkTarget is null) return fullPath;
+            var finalTarget = info.ResolveLinkTarget(returnFinalTarget: true);
+            return finalTarget?.FullName ?? fullPath;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return fullPath;
+        }
+    }
+
+    /// <summary>
+    /// 一時ファイルは FileMode.Create の既定モード（umask 次第で 0644 など）で作られるため、
+    /// そのまま差し替えると元ファイルの実行権限などが落ちる。差し替え前に元ファイルのモードを
+    /// 一時ファイルへ引き継ぐ（Windows以外のみ。Windowsにはこのモードが無い）。
+    /// 失敗しても書き込み自体は妨げない（権限の引き継ぎは付加的な保護のため）。
+    /// </summary>
+    private static void CopyUnixFileMode(string targetPath, string tempPath)
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            File.SetUnixFileMode(tempPath, File.GetUnixFileMode(targetPath));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            // モードを引き継げないファイルシステム（FAT 等）では既定のままにする。
+        }
+    }
+
     /// <summary>一次経路→退避方式→最終手段の1サイクル分。成功時も検証はまだ行っていない。</summary>
     private static async Task<GraftResult<bool>> ReplaceOnceAsync(
         string fullPath, byte[] content, string directory, IPrimaryReplaceOp primaryOp, IMoveOp moveOp, CancellationToken ct)
@@ -127,6 +177,12 @@ public static class SafeFileWriter
             TryDelete(tempPath);
             // 対象ファイルにはまだ一切手を付けていないため安全（元の内容のまま）。
             return GraftResult<bool>.Fail(ErrorCode.E402, $"一時ファイルの作成に失敗しました: {ExceptionMessages.Describe(ex)}", path: fullPath);
+        }
+
+        // 元ファイルのUnixモード（実行権限など）を、差し替える前に一時ファイルへ引き継ぐ。
+        if (targetExisted)
+        {
+            CopyUnixFileMode(LongPath.Extended(fullPath), LongPath.Extended(tempPath));
         }
 
         try

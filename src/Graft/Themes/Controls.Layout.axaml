@@ -18,10 +18,12 @@
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
         <Setter Property="Padding" Value="12,8" />
+        <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
         <Setter Property="Template">
             <ControlTemplate>
                 <Grid>
-                    <Border Name="PART_Bg" Background="Transparent" Padding="{TemplateBinding Padding}">
+                    <Border Name="PART_Bg" Background="Transparent" Padding="{TemplateBinding Padding}"
+                            CornerRadius="{DynamicResource RadiusSm}">
                         <ContentPresenter Content="{TemplateBinding Header}"
                                           ContentTemplate="{TemplateBinding HeaderTemplate}"
                                           HorizontalAlignment="Center"
@@ -400,15 +402,45 @@
         ローカルで明示しているため問題無い。既定値を持たせず、垂直スプリッタは
         Width、水平スプリッタはHeightを使用側で必ず明示する方針に変える。
     -->
+    <!--
+        見た目の整備: スプリッターが「明るすぎる」という指摘への対応。以前は6pxの帯全体を
+        BorderSubtle（Darkで#3B4049、背景#151619比で約1.8:1）で塗っていたため、ペインの
+        境目に太い明るい帯が見えていた。つかむ領域（6px）は変えずに、見せるのは中央の
+        1pxの線だけにし、色もさらに半透明（Opacity 0.55）にして目立たなくする。
+        ホバー・ドラッグ中だけAccentの線に変えて、「ここは動かせる」ことを示す
+        （ヒット領域は透明な外側のBorderなので、見た目が細くなってもつかみやすさは同じ）。
+        Backgroundは使う側がローカルで指定していても線の色として使われる。
+    -->
     <ControlTheme x:Key="{x:Type GridSplitter}" TargetType="GridSplitter">
         <Setter Property="Background" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Stretch" />
         <Setter Property="Template">
             <ControlTemplate>
-                <Border Background="{TemplateBinding Background}" />
+                <Border Background="Transparent">
+                    <Border Name="PART_Line"
+                            Background="{TemplateBinding Background}"
+                            Opacity="0.55"
+                            Width="1" Height="1"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
             </ControlTemplate>
         </Setter>
+        <!-- 縦の境目（幅6）は線を縦いっぱいへ、横の境目（高さ6）は線を横いっぱいへ伸ばす。 -->
+        <Style Selector="^ /template/ Border#PART_Line">
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Height" Value="NaN" />
+        </Style>
+        <Style Selector="^[Height=6] /template/ Border#PART_Line">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Width" Value="NaN" />
+            <Setter Property="Height" Value="1" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Border#PART_Line">
+            <Setter Property="Background" Value="{DynamicResource Accent}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
         <Style Selector="^:pointerover">
             <Setter Property="Background" Value="{DynamicResource Accent}" />
         </Style>

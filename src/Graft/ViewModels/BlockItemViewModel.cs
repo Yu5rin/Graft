@@ -164,9 +164,9 @@ public sealed class BlockItemViewModel : ObservableObject
 
     /// <summary>
     /// B: ブロック一覧の右クリックメニュー「チェックを付ける／外す」の動的ラベル
-    /// （Space キーと同じ、ショートカット表記込み。仕様書9.5・ShortcutsWindow.axaml参照）。
+    /// （Space キーと同じ操作。キーは見出しへ埋め込まず、右クリックメニュー側が InputGesture で右側に出す）。
     /// </summary>
-    public string ToggleLabel => (IsSelected ? "チェックを外す" : "チェックを付ける") + " (Space)";
+    public string ToggleLabel => IsSelected ? "チェックを外す" : "チェックを付ける";
 
     /// <summary>読み上げ・アクセシビリティ用の行全体の説明（8.14）。</summary>
     public string AutomationName => $"{PathText}、{DescriptionText}、{StatusText}、{AddedRemovedText}";

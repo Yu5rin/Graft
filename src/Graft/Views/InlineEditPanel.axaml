@@ -43,7 +43,7 @@
                         <TextBlock Text="{Binding ResultSummary}" VerticalAlignment="Center"
                                    AutomationProperties.Name="再判定結果" />
                     </StackPanel>
-                    <Button Grid.Column="1" Content="この修正で適用に含める" Margin="8,0,0,0"
+                    <Button Classes="primary" Grid.Column="1" Content="この修正で適用に含める" Margin="8,0,0,0"
                             Command="{Binding AdoptCommand}"
                             IsVisible="{Binding HasAdoptHandler}"
                             AutomationProperties.Name="この修正で適用に含める"

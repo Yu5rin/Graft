@@ -38,6 +38,19 @@ public sealed record ChangeUnitResult
     /// <summary>実機不具合対応（修正4）: このユニットの代表インデント補正量。BlockPlan
     /// へそのまま引き継ぐ（<see cref="BlockPlan.IndentCorrectionChars"/>参照）。</summary>
     public int IndentCorrectionChars { get; init; }
+
+    /// <summary>
+    /// SR形式で、このユニットが一致した位置（照合の基準テキスト上の開始行。0始まり。昇順）。
+    /// SR形式以外では空。
+    ///
+    /// 【なぜ持つか】 本適用（<see cref="ApplyEngine"/>）はファイルを読み直して再解決する。ドライランの後に
+    /// 外部でファイルが書き換わっていると、同じSEARCHが別の場所に一致したり、あいまい一致の段階が
+    /// 変わったりしうるが、以前はそれに気づかず、プレビューで確認した内容と違う場所へ書いていた。
+    /// ドライラン時の位置と段階を覚えておき、再解決の結果と突き合わせるための値。基準テキストは
+    /// 選択状態に依らず（ペアごとに独立に照合する）同じなので、一部のペアのチェックを外しても
+    /// 位置は変わらない。
+    /// </summary>
+    public IReadOnlyList<int> MatchStartLines { get; init; } = Array.Empty<int>();
 }
 
 /// <summary>
@@ -120,7 +133,8 @@ public static class BlockResolver
         IReadOnlySet<SearchReplacePair>? includedPairs)
     {
         var baseText = JoinText(baseLines);
-        var resolved = others.SelectMany(b => ResolveBlockEdits(baseText, baseLines.Count, b, matcher, includedPairs)).ToList();
+        var resolved = RejectOverlappingEdits(
+            others.SelectMany(b => ResolveBlockEdits(baseText, baseLines.Count, b, matcher, includedPairs)).ToList());
 
         foreach (var failed in resolved.Where(r => !r.Success))
         {
@@ -143,6 +157,83 @@ public static class BlockResolver
         ApplyBlockEditsInOrder(working, successful, units);
         return working;
     }
+
+    /// <summary>
+    /// 照合に成功したペアどうしで、置き換える行の範囲が重なっているものを失敗に変える。
+    /// <para>
+    /// 【なぜ必要か】 各ペアは同じ「元のテキスト」に対して別々に照合され、適用は末尾側から行単位で
+    /// 行う（<see cref="ApplyBlockEditsInOrder"/>）。範囲が重なると、先に適用した側が消した行を
+    /// もう一方がさらに消す／行番号が前後にずれた位置へ差し込む、といった形で結果が壊れる。実測では、
+    /// l1〜l6 の6行に「l2〜l4 を4行へ」「l4〜l5 を4行へ」を適用すると、エラーも警告も出ないまま
+    /// 2つ目のペアの先頭行（Y4）が消えた内容が「成功」として書き込まれた。完全に同じペアが2つあると
+    /// 置換後の内容が二重に入った。パッチキューで複数のパッチを結合した場合（PatchQueue.Merge）も
+    /// 同じ経路を通るため、ここで一括して防ぐ。
+    /// </para>
+    /// <para>
+    /// 先に現れた（ブロック順・ペア順で前の）ペアを生かし、後のペアを失敗にする。AI は一般に
+    /// 上から順に書くため、前のペアを正とするほうが利用者の意図に近いと判断した。
+    /// 同じ位置・同じ置換内容の完全な重複も、黙って1つにまとめず失敗にする。まとめて通すと
+    /// 「2つ書いたのに1つしか効いていない」ことが画面に出ず、原因に気づけない。
+    /// 重複は AI の出力の取り違えであることが多く、利用者に見える形で止めるほうが安全。
+    /// </para>
+    /// <para>
+    /// 検査するのは行を置き換える編集（LineCount &gt; 0）だけ。APPEND は末尾、PREPEND は先頭へ
+    /// 行を足すだけ（範囲を持たない）で、SR の範囲と境界で接しても内容は壊れない。1つのペアが
+    /// OCCURRENCE=ALL で複数箇所に当たる場合の、そのペア内の編集どうしは対象にしない
+    /// （別のペアとの重なりだけを見る。既存の仕様を変えないため）。
+    /// </para>
+    /// </summary>
+    private static List<ResolvedBlock> RejectOverlappingEdits(List<ResolvedBlock> resolved)
+    {
+        var accepted = new List<ResolvedBlock>();
+        var result = new List<ResolvedBlock>(resolved.Count);
+
+        foreach (var block in resolved)
+        {
+            if (!block.Success)
+            {
+                result.Add(block);
+                continue;
+            }
+
+            var conflict = block.Edits.Any(e => e.LineCount > 0)
+                ? accepted.FirstOrDefault(a => ConflictsWith(a, block))
+                : null;
+            if (conflict is null)
+            {
+                result.Add(block);
+                accepted.Add(block);
+                continue;
+            }
+
+            var isDuplicate = IsSameEdits(conflict, block);
+            var detail = isDuplicate
+                ? "同じ位置を同じ内容に置き換えるペアが重複しています。二重に適用すると内容が壊れるため、後のペアを適用しません。重複しているペアを1つ取り除いてください。"
+                : "このペアのSEARCH部は、先のペアが置き換える行と重なっています。両方を適用すると内容が壊れるため、後のペアを適用しません。"
+                  + "重なっているペアを1つにまとめるか、SEARCH部が重ならないよう分けてください。";
+            result.Add(new ResolvedBlock
+            {
+                Block = block.Block,
+                Pair = block.Pair,
+                Success = false,
+                Issues = new[] { GraftIssue.Of(ErrorCode.E105, detail, path: block.Block.Path) },
+            });
+        }
+
+        return result;
+    }
+
+    private static bool ConflictsWith(ResolvedBlock accepted, ResolvedBlock candidate)
+        => accepted.Edits.Where(a => a.LineCount > 0).Any(a =>
+            candidate.Edits.Where(c => c.LineCount > 0).Any(c =>
+                a.StartLine < c.StartLine + c.LineCount && c.StartLine < a.StartLine + a.LineCount));
+
+    private static bool IsSameEdits(ResolvedBlock a, ResolvedBlock b)
+        => a.Edits.Count == b.Edits.Count
+           && a.Edits.Zip(b.Edits).All(t =>
+               t.First.StartLine == t.Second.StartLine
+               && t.First.LineCount == t.Second.LineCount
+               && t.First.NewLines.Select(l => l.Text).SequenceEqual(t.Second.NewLines.Select(l => l.Text)));
 
     private static IReadOnlyList<ResolvedBlock> ResolveBlockEdits(
         string baseText, int baseLineCount, PatchBlock block, MatchEngine matcher, IReadOnlySet<SearchReplacePair>? includedPairs)
@@ -270,6 +361,9 @@ public static class BlockResolver
                     BeforeText = beforeByOwner[owner],
                     AfterText = JoinText(working),
                     IndentCorrectionChars = owner.IndentCorrectionChars,
+                    MatchStartLines = owner.Pair is null
+                        ? Array.Empty<int>()
+                        : owner.Edits.Select(e => e.StartLine).OrderBy(l => l).ToList(),
                 });
             }
         }

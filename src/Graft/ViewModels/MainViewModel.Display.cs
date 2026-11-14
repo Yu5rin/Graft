@@ -39,6 +39,20 @@ public sealed partial class MainViewModel
     {
         get
         {
+            if (_dryRun is null) return StatusSummaryMainText;
+            return _dryRun.FailedCount > 0 ? $"{StatusSummaryMainText} / {StatusSummaryFailedText}" : StatusSummaryMainText;
+        }
+    }
+
+    /// <summary>
+    /// 見た目の整備: <see cref="StatusSummaryText"/>のうち「N件失敗」を除いた部分。ステータスバーは
+    /// この部分を通常の文字色、<see cref="StatusSummaryFailedText"/>だけを赤で並べて出す
+    /// （以前は失敗が1件でもあると、要約の全体が赤くなり、適用可・要確認の件数まで警告に見えた）。
+    /// </summary>
+    public string StatusSummaryMainText
+    {
+        get
+        {
             if (_dryRun is null) return "解析結果はありません";
 
             var applying = Blocks.Count(b => b.IsSelected && b.Plan.CanApply);
@@ -47,12 +61,24 @@ public sealed partial class MainViewModel
                 ? $"{applying}件を適用（{excludedByChoice}件は対象外）"
                 : $"{applying}件適用可";
             var baseText = $"{head} / {_dryRun.ConfirmationCount}件要確認";
-            if (_dryRun.FailedCount > 0) baseText = $"{baseText} / {_dryRun.FailedCount}件失敗";
             // 適用済みのパッチ（E302）は適用ボタンが押せない。「N件適用可」だけが出ていると
             // 押せない理由が分からないため、先頭に理由を足す（MainViewModel.AlreadyApplied.cs）。
             return _alreadyAppliedRevision is { } applied ? $"r{applied}で適用済み / {baseText}" : baseText;
         }
     }
+
+    /// <summary>
+    /// 接ぎ木パネルの見出しにある「適用」ボタンの文言。解析結果があるときは「適用 (N件)」と、
+    /// いま押すと書き込まれる件数（チェックが付いていて適用できるブロックの数。
+    /// <see cref="StatusSummaryMainText"/>の「N件適用可」と同じ数え方）を添える。
+    /// 件数をボタンに出すのは、押す直前に「何件を書き換えるのか」を目で確かめられるようにするため
+    /// （ステータスバーを見に行かなくて済む）。解析結果が無いときは件数が無意味なので「適用」だけにする。
+    /// </summary>
+    public string ApplyButtonText
+        => _dryRun is null ? "適用" : $"適用 ({Blocks.Count(b => b.IsSelected && b.Plan.CanApply)}件)";
+
+    /// <summary>失敗があるときだけ「N件失敗」。無ければ空文字（ステータスバー側は <see cref="HasFailedBlocks"/> で出し分ける）。</summary>
+    public string StatusSummaryFailedText => _dryRun is { FailedCount: > 0 } d ? $"{d.FailedCount}件失敗" : string.Empty;
 
     /// <summary>
     /// UI点検（項目9）: ステータスバー右側の接ぎ木状態表示を、失敗が1件でもあれば色で目立たせる

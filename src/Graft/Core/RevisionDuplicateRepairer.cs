@@ -418,7 +418,7 @@ public sealed class RevisionDuplicateRepairer
         if (root is null)
         {
             issues.Add(GraftIssue.Of(
-                ErrorCode.E404, "manifest.json を読み取れないため、リビジョン番号を書き換えませんでした",
+                ErrorCode.E404, "履歴の記録ファイル（manifest.json）を読み取れないため、履歴番号を書き換えませんでした",
                 path: manifestPath, severity: Severity.Warning));
             return;
         }

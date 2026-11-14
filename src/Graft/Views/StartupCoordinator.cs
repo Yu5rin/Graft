@@ -24,7 +24,6 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
 {
     private const string MutexNamePrefix = "Graft.SingleInstance.";
     private const string MainWindowTitle = "Graft";
-    private const string PromptCopyHotkey = "Ctrl+Shift+C";
 
     private readonly AppPaths _appPaths;
 
@@ -690,7 +689,16 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 即時反映方式のため、これは「保存できたと思い込んだまま実は消えている」実害の大きい
         // 抜け道だった）。SettingsViewModel.CommitAndSaveAsync と同じSafeHandler経由に揃え、
         // 失敗時は他の保存失敗と同じダイアログ通知（+ロガーが書ければログにも記録）を行う。
-        if (_settingsStore is not null)
+        //
+        // C11: ただし、常駐の SettingsViewModel を通さずに settings.json を丸ごと保存すると、
+        // そのViewModelが持つ古い値で次の設定保存が書き戻してしまい、ここでの切り替えが元に戻る。
+        // 保存は SettingsViewModel に一本化する（SetClipboardWatchEnabledLive 参照）。
+        // ViewModel が未生成の起動直後だけ、従来の直接保存に落とす。
+        if (_settingsViewModel is not null)
+        {
+            _settingsViewModel.SetClipboardWatchEnabledLive(enabled);
+        }
+        else if (_settingsStore is not null)
         {
             _ = SafeHandler.RunAsync("設定の保存", () => _settingsStore.SaveAsync(_settings));
         }
@@ -742,7 +750,7 @@ public sealed partial class StartupCoordinator : IAsyncDisposable
         // 必ず両方揃っているはずだが、念のため両方揃っている場合のみ再登録を試みる。
         if (MainWindow is not null && _shellViewModel is not null)
         {
-            ReapplyHotkeyIfChanged(updated.Hotkey, MainWindow, _shellViewModel.Graft);
+            ReapplyHotkeyIfChanged(updated.Hotkey, updated.PromptHotkey, MainWindow, _shellViewModel.Graft);
         }
     }
 

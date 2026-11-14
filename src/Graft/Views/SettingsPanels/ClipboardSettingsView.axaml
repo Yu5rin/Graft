@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.SettingsPanels.ClipboardSettingsView"
+             AutomationProperties.Name="クリップボード監視設定">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
+    <!--
+        「クリップボード監視」タブ。旧「表示・コンテキスト」にあった5項目を独立させた。
+        監視が使えない環境の理由（ClipboardWatchUnsupportedReason）の表示は従来どおり。
+    -->
+    <!--
+        書式（見出し → 項目[ラベル・1行の説明・入力]）は SettingsPanelStyles.axaml のクラス
+        （settingItem/settingLabel/settingHint と narrow/medium/wide の幅3種）を全タブで共有する。
+        入力欄の確定の仕方（ComboBox/CheckBoxは即時、TextBoxはフォーカスを外した時かEnter）は
+        従来から変えていない（「100」を「50」に打ち替える途中の「10」が保存されてしまうのを防ぐため。
+        ViewModelの保存の仕組みには触れていない）。
+        ScrollViewer自身にPaddingを持たせず内側のStackPanelのMarginへ置くのは、AvaloniaのScrollViewerが
+        PaddingをExtentの外側に適用して末尾要素が見切れる（実機で確認済み）ため。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,8,16,16">
+            <TextBlock Text="クリップボード監視" Classes="sectionHeading first" />
+            <CheckBox Classes="settingRow hinted" Content="クリップボード監視を有効にする"
+                      IsChecked="{Binding ClipboardWatchEnabled}"
+                      IsEnabled="{Binding IsClipboardWatchSupported}"
+                      AutomationProperties.Name="クリップボード監視を有効にする"
+                      views:HelpTip.Standard="AIの回答らしき内容がクリップボードにコピーされたことを自動的に検知します。既定はオフです。"
+                      views:HelpTip.Detailed="オンにすると、Graftがバックグラウンドで動いている間、クリップボードにコピーされた内容を監視し、Graftが読み取れる形式のパッチらしき文章が見つかると自動的に反応します（反応時の挙動は下で選べます）。既定はオフです。「貼り付けて解析」ボタンを毎回押す手間を省きたい場合に使いますが、機密情報を含む文章をコピーした際にも反応してしまう可能性があるため、常時監視されることが気になる場合はオフのままにしてください。" />
+            <TextBlock Text="AIの回答らしき内容がコピーされたことを、自動で見つけます。" Classes="settingHint indented" />
+            <TextBlock Text="{Binding ClipboardWatchUnsupportedReason}" Classes="fieldHint"
+                       IsVisible="{Binding !IsClipboardWatchSupported}" TextWrapping="Wrap" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="見つけたときの知らせ方" Classes="settingLabel" />
+                    <TextBlock Text="パッチらしき内容を見つけたときに、どう知らせるかを選びます。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding ClipboardActionOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}"
+                          SelectedValue="{Binding SelectedClipboardAction}"
+                          AutomationProperties.Name="クリップボード監視反応時の挙動"
+                          views:HelpTip.Minimal="{Binding SelectedClipboardAction, StringFormat='反応時の挙動: {0}'}"
+                          views:HelpTip.Standard="クリップボード監視がパッチらしき内容を検知したときの通知方法を選びます。既定は「トレイ通知のみ」です。"
+                          views:HelpTip.Detailed="上のクリップボード監視がパッチらしき内容を見つけたときの反応方法を選びます。「トレイ通知のみ」（既定）はタスクトレイに控えめな通知を出すだけで、ウィンドウは前面に出てきません。「非アクティブ表示」はGraftのウィンドウを表示しますが前面には出さず、「アクティブ表示」はウィンドウを前面に出して即座に確認できるようにします。作業の邪魔になりにくい順に「トレイ通知のみ」→「非アクティブ表示」→「アクティブ表示」です。いずれの場合も、実際にファイルへ書き込まれることはなく、「適用」を押すまでは安全です。なお、下の「検知したら前面に表示する」がオンの間は、この設定に関わらず常にウィンドウが前面に出ます。オフの間は、自動解析したかどうかに関わらずこの設定にそのまま従います。" />
+            </Grid>
+            <CheckBox Classes="settingRow hinted" Content="検知したら自動で解析する"
+                      IsChecked="{Binding ClipboardAutoParse}"
+                      IsEnabled="{Binding IsClipboardWatchSupported}"
+                      AutomationProperties.Name="クリップボード監視で検知したら自動で解析する"
+                      views:HelpTip.Standard="クリップボード監視がパッチ形式を検知したら、その場で自動的に解析します。既定はオンです。オフにすると通知のみになり、クリックするまで解析されません。"
+                      views:HelpTip.Detailed="オンにすると（既定）、クリップボード監視がパッチ形式のテキストを検知した瞬間に自動的に解析し、接ぎ木パネルを開いて結果を表示します。ただし、既に解析済みの結果が接ぎ木パネルに残っている場合や、パッチキューに未適用のブロックが残っている場合は、確認中・作業中の内容を自動解析で見失わないよう自動解析を行わず、従来どおり通知のみにとどめます（クリックすれば解析できます）。オフにすると常に通知のみとなり、内容を確認してから任意のタイミングでクリックして解析できます。いずれの場合も、実際にファイルへ書き込まれることはなく、「適用」を押すまでは安全です。" />
+            <TextBlock Text="見つけたら、その場で解析まで進めます。オフにすると、知らせるだけにします。" Classes="settingHint indented" />
+            <CheckBox Classes="settingRow hinted" Content="検知したら前面に表示する"
+                      IsChecked="{Binding ClipboardActivateOnDetect}"
+                      IsEnabled="{Binding IsClipboardWatchSupported}"
+                      AutomationProperties.Name="クリップボード監視で検知したら前面に表示する"
+                      views:HelpTip.Standard="クリップボード監視がパッチ形式を検知したら、自動解析の有無に関わらずGraftのウィンドウを前面に表示します。既定はオンです。オフにすると、自動解析の有無に関わらず「反応時の挙動」の設定にそのまま従います。"
+                      views:HelpTip.Detailed="オンにすると（既定）、クリップボード監視がパッチ形式のテキストを検知した瞬間に、上の「検知したら自動で解析する」の設定や「反応時の挙動」の選択に関わらず、必ずGraftのウィンドウを前面に表示します。最小化されていれば元の大きさへ戻し、タスクトレイに隠れていればまず表示してから前面化します。既に前面に表示されている場合は何もしません（不要なちらつきを避けるためです）。オフにすると、自動解析したかどうかに関わらず、前面化するかどうかは上の「反応時の挙動」の設定に厳密に従います。「トレイ通知のみ」ならウィンドウは前面に出さず通知だけを出し、「非アクティブ表示」なら表示はしても前面には出さず、「アクティブ表示」を選んだ場合のみ前面化します（自動解析した結果であっても、「トレイ通知のみ」「非アクティブ表示」を選んでいる間は前面には出しません）。Windowsでは、他のアプリを操作中はOSの制約により前面化が拒否され、タスクバーのアイコンが点滅するだけになることがあります（不具合ではありません）。" />
+            <TextBlock Text="見つけたら、Graft のウィンドウを前面に出します。" Classes="settingHint indented" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

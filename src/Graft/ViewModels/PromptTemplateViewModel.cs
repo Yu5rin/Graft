@@ -18,6 +18,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
     private readonly ProjectStore _projectStore;
     private readonly ContextCollector _collector;
     private readonly PromptTemplateRenderer _renderer;
+    private readonly RevisionStore _revisionStore;
     private readonly IDialogService _dialogService;
     private readonly IUiServices _ui;
 
@@ -40,6 +41,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
         _templateStore = new PromptTemplateStore(appPaths);
         _collector = new ContextCollector(appPaths);
         _renderer = new PromptTemplateRenderer(_collector);
+        _revisionStore = new RevisionStore(appPaths);
 
         Templates = new ObservableCollection<TemplateEntry>();
         Projects = new ObservableCollection<Project>();
@@ -196,8 +198,7 @@ public sealed class PromptTemplateViewModel : ObservableObject
         var target = ResolveCopyTarget();
         if (target is null) return;
 
-        var request = new ContextRequest { Project = _selectedProject, Settings = _settings, Mode = ContextMode.TreeAndSelected };
-        var rendered = await _renderer.RenderAsync(target.Source, request, null).ConfigureAwait(true);
+        var rendered = await RenderForCopyAsync(_selectedProject, target).ConfigureAwait(true);
         if (!rendered.IsSuccess)
         {
             ErrorIssue = rendered.Errors.FirstOrDefault();
@@ -206,7 +207,9 @@ public sealed class PromptTemplateViewModel : ObservableObject
 
         _ui.Clipboard.SetText(rendered.Value);
         _templateStore.RecordCopy(_selectedProject.Id, DateTimeOffset.Now);
-        StatusMessage = $"「{target.Name}」をクリップボードへコピーしました。";
+        // メイン画面のコピー（PromptCopyViewModel）と同じく、コピーした文面の概算トークン数を添える。
+        var copiedTokens = TokenEstimator.Estimate(rendered.Value, _settings.Context.TokenRatio);
+        StatusMessage = $"「{target.Name}」（約{copiedTokens}トークン）をクリップボードへコピーしました。";
     }
 
     private async Task SetAsProjectDefaultAsync()
@@ -233,27 +236,46 @@ public sealed class PromptTemplateViewModel : ObservableObject
         return _selectedTemplate;
     }
 
+    /// <summary>
+    /// 「コピー」で実際にクリップボードへ入る文面を作る。コピーと推定トークン数の両方がこの1か所を通るので、
+    /// 一覧の数字は「コピーしたときの文面」を数えたものになる。
+    /// 直近の履歴の要約（<c>{{lastRevision}}</c>）と「選んだファイルも付ける」の設定は、メイン画面の依頼文の
+    /// コピー（PromptCopyViewModel）と同じものを渡す。以前はここだけ要約を空・ファイル付けなしで
+    /// 展開していたため、同じテンプレートでも画面によって文面と数字が食い違っていた。
+    /// 選んだファイルそのもの（「ファイルを選ぶ」画面の選択）は設定画面からは分からないので含まれない。
+    /// </summary>
+    private async Task<GraftResult<string>> RenderForCopyAsync(Project project, TemplateEntry entry)
+    {
+        var request = new ContextRequest { Project = project, Settings = _settings, Mode = ContextMode.TreeAndSelected };
+        var list = await _revisionStore.ListAsync(project.Id).ConfigureAwait(true);
+        var lastRevision = list.IsSuccess ? list.Value.FirstOrDefault()?.Manifest.Summary : null;
+        return await _renderer
+            .RenderAsync(entry.Source, request, lastRevision, appendFilesIfAbsent: _settings.Context.AppendFilesToPrompt)
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 一覧の推定トークン数を、コピーされる文面（<see cref="RenderForCopyAsync"/>）で数え直す。
+    /// プロジェクトが無い・展開に失敗したときは、ひな形そのものを数えた小さい数字を出すと
+    /// 「展開後はずっと大きい」ことが隠れて数え方が食い違って見えるため、数えずに「未算出」にする。
+    /// </summary>
     private async Task RecomputeEstimatesAsync()
     {
         if (_selectedProject is null)
         {
-            foreach (var entry in Templates)
-            {
-                entry.EstimatedTokens = TokenEstimator.Estimate(entry.Body, _settings.Context.TokenRatio);
-            }
+            foreach (var entry in Templates) entry.EstimatedTokens = TemplateEntry.NotEstimated;
             return;
         }
 
         IsBusy = true;
         try
         {
-            var request = new ContextRequest { Project = _selectedProject, Settings = _settings, Mode = ContextMode.TreeAndSelected };
             foreach (var entry in Templates)
             {
-                var rendered = await _renderer.RenderAsync(entry.Source, request, null).ConfigureAwait(true);
+                var rendered = await RenderForCopyAsync(_selectedProject, entry).ConfigureAwait(true);
                 entry.EstimatedTokens = rendered.IsSuccess
                     ? TokenEstimator.Estimate(rendered.Value, _settings.Context.TokenRatio)
-                    : TokenEstimator.Estimate(entry.Body, _settings.Context.TokenRatio);
+                    : TemplateEntry.NotEstimated;
             }
         }
         finally
@@ -282,7 +304,10 @@ public sealed class TemplateEntry : ObservableObject
 {
     private string _name;
     private string _body;
-    private int _estimatedTokens;
+    private int _estimatedTokens = NotEstimated;
+
+    /// <summary>推定トークン数がまだ数えられていない（プロジェクト未選択・展開に失敗）ことを表す値。</summary>
+    public const int NotEstimated = -1;
 
     public TemplateEntry(PromptTemplate source)
     {
@@ -314,8 +339,14 @@ public sealed class TemplateEntry : ObservableObject
     public int EstimatedTokens
     {
         get => _estimatedTokens;
-        set => SetProperty(ref _estimatedTokens, value);
+        set
+        {
+            if (SetProperty(ref _estimatedTokens, value)) OnPropertyChanged(nameof(EstimatedTokensText));
+        }
     }
+
+    /// <summary>一覧の右側に出す文字。数えられていないときは数字の代わりに「—」を出す。</summary>
+    public string EstimatedTokensText => _estimatedTokens < 0 ? "—" : $"約{_estimatedTokens}トークン";
 
     public void UpdateSource(PromptTemplate updated)
     {

@@ -19,9 +19,10 @@ public sealed partial class MainViewModel
 {
     /// <summary>
     /// 4.8/7章 適用前チェック用フック。ドライラン開始時に対象ファイルの絶対パス一覧を渡して呼ぶ。
-    /// falseが返るとドライランを中止する。
+    /// Cancelledが返るとドライランを中止する。Savedは「保存が起きた」ことを伝える
+    /// （適用の側はこれを見て解析し直す。<see cref="SaveTargetsAndReanalyzeAsync"/>）。
     /// </summary>
-    public Func<IReadOnlyList<string>, Task<bool>>? BeforeApplyAsync { get; set; }
+    public Func<IReadOnlyList<string>, Task<TargetSaveOutcome>>? BeforeApplyAsync { get; set; }
 
     /// <summary>
     /// 4.8/7章 適用後フック。適用が成功したら、書き換わったファイルの絶対パス一覧を渡して必ず呼ぶ。
@@ -36,6 +37,13 @@ public sealed partial class MainViewModel
     /// 同様に確認済みとして素通りさせる。
     /// </summary>
     public event EventHandler<ApplyPreviewRequestedEventArgs>? ApplyPreviewRequested;
+
+    /// <summary>
+    /// 適用処理（要約確認〜書き込み〜適用後フック〜Git自動コミット）が実行中かどうか。
+    /// アプリを閉じる操作が、書き込みの途中でプロセスを終わらせてしまわないよう、
+    /// 終わるまで待つために参照する（ShellWindow.OnClosing）。
+    /// </summary>
+    public bool IsApplyInProgress => _isApplyInProgress;
 
     /// <summary>ApplyCommandの実体。要約入力・確認ダイアログを経て本適用し、6.5適用後フックを実行する。</summary>
     private async Task ApplyAsync()
@@ -84,9 +92,45 @@ public sealed partial class MainViewModel
             return;
         }
 
+        // チェックの組み合わせが成り立たない場合（RENAMEを外して移動先への変更だけ残した、FULLを外して
+        // それを前提にした変更だけ残した、等）は、要約入力や確認ダイアログを通した後で中止になるより前に、
+        // ここで理由と直し方を案内する。適用エンジンも書き込み前に同じ判定で止める
+        // （ApplyEngine.CheckSelection参照）ので、ここは早めに知らせるための二重の備え。
+        var selectionIssues = ApplyEngine.CheckSelection(updatedPlans);
+        if (selectionIssues.Count > 0)
+        {
+            await _dialogs
+                .ShowMessageAsync("このチェックの組み合わせでは適用できません",
+                    string.Join(Environment.NewLine + Environment.NewLine, selectionIssues.Select(i => i.Detail ?? i.ToDisplayText())))
+                .ConfigureAwait(true);
+            return;
+        }
+
+        // 未保存の編集の確認と保存は、要約入力・確認ダイアログ・プレビューより前に行う（C3）。
+        // 解析して差分を見ている間に対象をエディタで直し、保存しないまま適用すると、適用は
+        // ディスクの内容に対して行われ、直後の再読込でエディタの未保存の編集が消えていた。
+        // 保存を拒んだ場合は適用を始めない。保存が起きるとディスクの内容が解析時から変わり、
+        // 適用エンジンが一致位置の食い違い（E301）で中止するため、ここで解析し直してから進める
+        // （MainViewModel.ApplySave.cs）。確認ダイアログやプレビューより前に置くのは、利用者が
+        // 見る差分を保存後の内容に対するものにするため。
+        //
+        // 書き込みの直前（確認のあと）にもう一度確かめる処理は置かない。確認ダイアログ
+        // （AvaloniaDialogService.ShowModal）も適用前プレビュー（ApplyPreviewWindow.ShowDialog）も、
+        // オーナーウィンドウの入力を塞ぐモーダルで、その間にエディタを編集することはできないため、
+        // ここで保存した状態が書き込みまで保たれる。
+        var saved = await SaveTargetsAndReanalyzeAsync(dryRun, context, updatedPlans).ConfigureAwait(true);
+        if (saved is null) return;
+        if (!ReferenceEquals(saved.Value.DryRun, dryRun))
+        {
+            dryRun = saved.Value.DryRun;
+            context = saved.Value.Context;
+            updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
+            updatedDryRun = dryRun with { Plans = updatedPlans };
+        }
+
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
-            var input = await _dialogs.PromptAsync("要約を入力", "このリビジョンの概要を入力してください。", null).ConfigureAwait(true);
+            var input = await _dialogs.PromptAsync("要約を入力", "この適用の概要を入力してください。", null).ConfigureAwait(true);
             if (string.IsNullOrWhiteSpace(input)) return;
             var patchWithSummary = updatedDryRun.Patch with { Meta = updatedDryRun.Patch.Meta with { Summary = input } };
             updatedDryRun = updatedDryRun with { Patch = patchWithSummary };
@@ -172,7 +216,7 @@ public sealed partial class MainViewModel
             await TryAutoCommitAfterApplyAsync(project, result.Value).ConfigureAwait(true);
         }
 
-        // 実機で確認された指摘1: 既定のマウス操作だと「解析」→「適用」→プレビュー窓の「適用」→
+        // 実機で確認された指摘1: 既定のマウス操作だと「貼り付けて解析」→「適用」→プレビュー窓の「適用」→
         // 完了ダイアログの「OK」で4クリックかかり、しかもOKを押した瞬間にステータスバーへ
         // 「rN として適用しました — 元に戻す」（ShowApplyUndoNotice、下記）が出る。同じ「適用が
         // 完了した」という情報を、押しても何も増えないモーダルとステータスバーの二重で見せて
@@ -248,7 +292,7 @@ public sealed partial class MainViewModel
                 // ドライランの見込みから動いていた（その間に別の操作が番号を進めた）。
                 // 使う番号を払い出された番号へ改め、食い違いが分かるようログに残す。
                 Logger?.Info("apply",
-                    $"リビジョン番号が見込みのr{context.Revision}からr{reserved.Value}に変わりました" +
+                    $"履歴番号が見込みのr{context.Revision}からr{reserved.Value}に変わりました" +
                     "（解析の後に別の操作が番号を進めたため）",
                     revision: reserved.Value);
             }
@@ -260,7 +304,7 @@ public sealed partial class MainViewModel
         // 補正するため、番号がずれたままでも致命的にはならない）。ログにだけ残し、
         // 見込みの番号のまま続行する。
         SafeHandler.OnUnexpected?.Invoke(
-            "リビジョン番号の更新",
+            "履歴番号の更新",
             new InvalidOperationException(
                 reserved.Errors.FirstOrDefault()?.Detail ?? "不明なエラーでprojects.jsonを更新できませんでした"));
         return context;
@@ -291,14 +335,14 @@ public sealed partial class MainViewModel
     {
         DismissApplyUndoNotice();
         var undone = await History.UndoLatestAsync().ConfigureAwait(true);
-        if (!undone) await _dialogs.ShowMessageAsync("元に戻せません", "取り消し可能な直前のリビジョンがありません。").ConfigureAwait(true);
+        if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消せる直前の適用がありません。").ConfigureAwait(true);
     }
 
     /// <summary>RunDryRunAsyncの冒頭から呼ぶ。フック未設定時は常にtrue。</summary>
     private async Task<bool> ConfirmTargetsSavedAsync(string projectRoot)
     {
         if (BeforeApplyAsync is null) return true;
-        return await BeforeApplyAsync(ResolveTargetFullPaths(projectRoot)).ConfigureAwait(true);
+        return await BeforeApplyAsync(ResolveTargetFullPaths(projectRoot)).ConfigureAwait(true) != TargetSaveOutcome.Cancelled;
     }
 
     /// <summary>ApplyAsync成功直後から呼ぶ。フック未設定時は何もしない。</summary>

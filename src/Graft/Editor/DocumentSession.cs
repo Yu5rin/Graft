@@ -108,6 +108,22 @@ public sealed class DocumentSession : IDisposable
     public TextShape Shape { get; private set; }
 
     /// <summary>
+    /// 文字コードを判定できない（EUC-JP・Windows-1252など）ため、開けるが保存できないファイルかどうか。
+    /// trueの間、エディタは読み取り専用で表示し、理由を通知バーに出す
+    /// （<see cref="TextShape.UnsupportedEncoding"/>・<see cref="SaveAsync"/>）。
+    /// </summary>
+    public bool IsEncodingReadOnly => Shape.UnsupportedEncoding;
+
+    /// <summary>
+    /// 保存しようとする内容に、ファイルの文字コード（Shift_JIS等）で表せない文字が含まれるとき、
+    /// 続行してよいかを利用者に尋ねる手段。引数はファイル名と、表せない文字の説明。trueなら保存する。
+    /// 未設定（null）のときは確認が取れないものとして保存しない（壊す側に倒さない）。
+    /// このクラスはダイアログを知らない設計のため、<see cref="EditorTabManager"/>が
+    /// <c>IDialogService</c>を使う処理を差し込む。
+    /// </summary>
+    public Func<string, string, Task<bool>>? ConfirmLossySave { get; set; }
+
+    /// <summary>
     /// 課題3: <see cref="LongLineThreshold"/>を超える行を含むかどうか。<see cref="OpenAsync"/>時に
     /// 一度だけ判定する。trueの場合、エディタ側（EditorPane）はその極端に長い行に限って
     /// 構文強調・括弧の言語認識を打ち切り（ファイル全体は対象外）、ステータスバーで
@@ -202,7 +218,47 @@ public sealed class DocumentSession : IDisposable
         // クラス冒頭のコメント参照: まだUIスレッドにいるこの時点で捕捉しておく。
         var ui = Dispatcher.UIThread;
 
-        var result = await FileTextIO.WriteAsync(FullPath, Document.Text, Shape, ct).ConfigureAwait(false);
+        // 文字コードを判定できないファイルは、開いて読めても保存できない（読み取り専用。
+        // TextShape.UnsupportedEncodingのコメント参照）。保存すると読み込み時に置換された
+        // U+FFFDがそのまま書かれ、変更していない行まで文字化けして元に戻せなくなる。
+        // FileTextIO.WriteAsyncも同じ理由で止めるが、E701へ包み直される前に、利用者へ
+        // 原因が分かるE218のまま返す。
+        if (Shape.UnsupportedEncoding)
+        {
+            return GraftResult<bool>.Fail(ErrorCode.E218, FileTextIO.UnsupportedEncodingDetail, path: FullPath);
+        }
+
+        // 【保存を始めた時点の内容を基準にする】 書き込みは非同期で、その間もエディタは打鍵を
+        // 受け付ける。以前は書き込みが終わった時点で無条件に「保存済み」の印（MarkAsOriginalFile）を
+        // 付けていたため、書き込み中に打った文字まで保存済み扱いになり、タブの「未保存」表示が消えて
+        // 閉じるときの確認も出なくなった（ディスクには入っていない文字が黙って消える）。
+        // ここで保存する文字列と文書の版を控え、終わったときに文書が変わっていなければ印を付ける。
+        // 変わっていれば印は付けず、未保存のまま残す（書き込み中に打った分が未保存として残るのが
+        // 正しい。副作用として、その後に保存内容まで取り消しても未保存表示は残るが、
+        // 安全側の誤差なので許容する）。
+        // 文字列と版は、最初の await より前に、同期で同時に控える（SaveAsync はUIスレッドから
+        // 呼ばれる。冒頭の ui の捕捉と同じ前提）。ui.InvokeAsync で控えると、UIスレッドの
+        // キューへ積まれて後回しになり、呼び出しの直後に打たれた文字まで「保存を始めた時点の
+        // 内容」に含まれてしまう（SaveRaceTests が検出した）。
+        var text = Document.Text;
+        var versionAtStart = Document.Version;
+
+        // 文字コードで表せない文字（Shift_JISへの絵文字など）は、書くと「?」に化ける。
+        // 黙って書かず、確認を取る（適用のドライランが警告で知らせるのと同じ趣旨）。
+        // 確認の手段（ConfirmLossySave）が無い呼び出しでは、壊す側に倒さず保存しない。
+        var unrepresentable = EncodingSafety.FindUnrepresentable(text, Shape.Encoding);
+        if (unrepresentable.Count > 0)
+        {
+            var detail = $"{EncodingSafety.Describe(unrepresentable)}は、このファイルの文字コード（{Shape.Encoding.EncodingName}）で表せないため、"
+                + "保存すると別の文字（?など）に置き換わります";
+            var confirmed = ConfirmLossySave is not null && await ConfirmLossySave(FileName, detail).ConfigureAwait(false);
+            if (!confirmed)
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E219, detail + "。保存を取りやめました", path: FullPath);
+            }
+        }
+
+        var result = await FileTextIO.WriteAsync(FullPath, text, Shape, ct).ConfigureAwait(false);
         if (!result.IsSuccess)
         {
             // FileTextIO.WriteAsyncはCore内部の書き込み失敗としてE402を返すが、エディタからの
@@ -212,10 +268,39 @@ public sealed class DocumentSession : IDisposable
                 i => GraftIssue.Of(ErrorCode.E701, i.Detail, i.LineNumber, i.Path, i.Severity)));
         }
 
+        // 自分が書いた内容の印。保存の直後のファイル監視（250ms待ってから通知する）が、
+        // 自分の保存を「外部で変更された」と取り違えないための照合に使う
+        // （<see cref="DiskMatchesLastSaveAsync"/>）。UIスレッドを使わない計算なのでここで済ませる。
+        var savedHash = FileTextIO.ComputeHash(text);
+
         // UndoStackの更新はTextDocumentの所有スレッド（UIスレッド）で行う必要がある
         // （クラス冒頭のコメント参照）。
-        await ui.InvokeAsync(() => Document.UndoStack.MarkAsOriginalFile());
+        await ui.InvokeAsync(() =>
+        {
+            _lastSavedHash = savedHash;
+            if (versionAtStart.CompareAge(Document.Version) == 0) Document.UndoStack.MarkAsOriginalFile();
+        });
         return result;
+    }
+
+    private string? _lastSavedHash;
+
+    /// <summary>
+    /// いまディスク上にある内容が、このセッションが最後に保存した内容と同じかどうか。
+    ///
+    /// 【なぜ必要か】 保存の直後、ファイル監視は250msのまとめ待ちのあとに「変更があった」と通知する。
+    /// その間に利用者が打鍵すると、通知の時点で文書は未保存になっており、自分の保存を外部の変更と
+    /// 取り違えて衝突の表示を出していた（「再読込」を選ぶと、保存後に打った文字が消える）。
+    /// ディスクの内容が自分の保存した内容と同じなら、誰も外から書き換えていないので、通知は無視してよい。
+    /// 一度も保存していない、またはディスクを読めないときは false（従来どおり衝突として扱う）。
+    /// </summary>
+    public async Task<bool> DiskMatchesLastSaveAsync(CancellationToken ct = default)
+    {
+        var saved = _lastSavedHash;
+        if (saved is null) return false;
+
+        var read = await FileTextIO.ReadAsync(FullPath, ct).ConfigureAwait(false);
+        return read.IsSuccess && string.Equals(FileTextIO.ComputeHash(read.Value.Text), saved, StringComparison.Ordinal);
     }
 
     /// <summary>

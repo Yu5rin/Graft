@@ -27,6 +27,9 @@ public sealed partial class ShellViewModel
     /// <summary>B: ブロック右クリックメニュー「チェックを付ける／外す」。</summary>
     public ICommand ToggleBlockCheckCommand { get; private set; } = null!;
 
+    /// <summary>ブロック右クリックメニュー「相対パスをコピー」。ブロックが変更する対象ファイルの相対パス。</summary>
+    public ICommand CopyBlockPathCommand { get; private set; } = null!;
+
     private void InitializeGraftPanelContextMenuCommands()
     {
         CopyBlockDiffCommand = new RelayCommand<BlockItemViewModel>(
@@ -48,6 +51,10 @@ public sealed partial class ShellViewModel
                 _ = SafeHandler.RunAsync("修正依頼プロンプトのコピー", () => Graft.CopyRecoveryPromptForBlockAsync(block));
             },
             block => block is { IsError: true });
+
+        CopyBlockPathCommand = new RelayCommand<BlockItemViewModel>(
+            block => { if (block is not null) _ui.Clipboard.SetText(block.PathText); },
+            block => block is not null && !string.IsNullOrEmpty(block.PathText));
 
         ToggleBlockCheckCommand = new RelayCommand<BlockItemViewModel>(
             block => block?.Toggle(),

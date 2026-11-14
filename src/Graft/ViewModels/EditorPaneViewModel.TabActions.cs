@@ -20,11 +20,24 @@ public sealed partial class EditorPaneViewModel
     /// <summary>タブ見出し右クリックメニュー「すべてのタブを閉じる」。</summary>
     public ICommand CloseAllTabsCommand { get; private set; } = null!;
 
-    /// <summary>タブ見出し右クリックメニュー「フルパスをコピー」。</summary>
+    /// <summary>タブ見出し右クリックメニュー「パスをコピー」（フルパス）。</summary>
     public ICommand CopyFullPathCommand { get; private set; } = null!;
 
-    /// <summary>タブ見出し右クリックメニュー「ファイルマネージャで表示」。</summary>
+    /// <summary>タブ見出し右クリックメニュー「相対パスをコピー」（プロジェクトのフォルダからの相対パス）。</summary>
+    public ICommand CopyRelativePathCommand { get; private set; } = null!;
+
+    /// <summary>タブ見出し右クリックメニュー「エクスプローラーで表示」（Windows以外は「ファイルマネージャーで表示」）。</summary>
     public ICommand RevealInFileManagerCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// タブ見出し右クリックメニュー「AIに渡すファイルに追加」。このタブのファイルを「AIに渡すファイルを
+    /// 選ぶ」画面で「内容も出す」にする。実際の追加は MainViewModel の責務のため、プロジェクト相対パスを
+    /// <see cref="AddToContextRequested"/> で通知するだけにする（ShellViewModel が橋渡しする）。
+    /// </summary>
+    public ICommand AddToContextCommand { get; private set; } = null!;
+
+    /// <summary>「AIに渡すファイルに追加」の対象ファイル（プロジェクト相対パス）の通知。</summary>
+    public event EventHandler<string>? AddToContextRequested;
 
     /// <summary>コンストラクタから呼び出し、右クリックメニュー用コマンドを組み立てる。</summary>
     private void InitializeTabActionCommands()
@@ -44,6 +57,12 @@ public sealed partial class EditorPaneViewModel
             // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
             if (tab is { Kind: EditorTabKind.Document }) Ui.Clipboard.SetText(tab.Session.FullPath);
         });
+        CopyRelativePathCommand = new RelayCommand<EditorTabViewModel>(
+            tab => { if (tab is { Kind: EditorTabKind.Document }) Ui.Clipboard.SetText(tab.Session.RelativePath); },
+            tab => tab is { Kind: EditorTabKind.Document });
+        AddToContextCommand = new RelayCommand<EditorTabViewModel>(
+            tab => { if (tab is { Kind: EditorTabKind.Document }) AddToContextRequested?.Invoke(this, tab.Session.RelativePath); },
+            tab => tab is { Kind: EditorTabKind.Document });
         RevealInFileManagerCommand = new RelayCommand<EditorTabViewModel>(tab =>
         {
             if (tab is { Kind: EditorTabKind.Document }) PlatformServices.Current.FileManager.Reveal(tab.Session.FullPath);

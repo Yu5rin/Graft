@@ -3,78 +3,58 @@
              xmlns:views="clr-namespace:Graft.Views"
              x:Class="Graft.Views.SettingsPanels.GeneralSettingsView"
              AutomationProperties.Name="一般設定">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
     <!--
-        14章「一般」区分。テーマ・適用モード・ホットキー・ログレベルに加え、バックアップ・
-        世代管理・Git連携・適用後フック・エクスポート/インポートをまとめる。
-        書式（fieldLabel/fieldRow/sectionHeading）は Themes/Settings.axaml のクラス。
-        DataContextはTabItem経由でSettingsViewModelを継承する。
-
-        即時反映方式（14章）: ComboBox/CheckBoxは既定のバインディングのまま（選択・切替の
-        瞬間にViewModelへ届き、そのまま保存される）。TextBoxはUpdateSourceTrigger=LostFocusを
-        明示し、フォーカスを外すまで確定させない（「100」を「50」に打ち替える途中の
-        「10」や空文字が確定してしまうのを防ぐ）。Enterキーでも確定できるよう
-        views:TextBoxCommitBehavior.CommitOnEnterを添付する。
+        「一般」タブ: 表示（テーマ・フォント・文字の大きさ）／起動と常駐／キー の3つだけ。
+        旧「一般」には適用・履歴・Git・コマンド・保存先・書き出しまで同居して約2000pxの縦長に
+        なっていたため、適用と履歴に関わる項目は ApplySettingsView へ、ログレベルと設定の
+        書き出し／読み込みは RawJsonSettingsView（詳細）へ、コマンドの制限時間は
+        HookSettingsView へ移した（settings.jsonのキー・値・既定値は変えていない）。
     -->
     <!--
-        AvaloniaのScrollViewerはPaddingをScrollContentPresenterの外側へ適用するため、
-        Padding指定だとスクロール範囲（Extent）に下端の余白が含まれず末尾要素が
-        下端で見切れる（実機で確認済みの不具合）。ScrollViewer自身にはPaddingを
-        持たせず、内側のStackPanelのMarginへ移すことでExtentに余白を含める。
-        下端はスクロールバー等との干渉を避けるため他辺よりやや広めに取る。
+        書式（見出し → 項目[ラベル・1行の説明・入力]）は SettingsPanelStyles.axaml のクラス
+        （settingItem/settingLabel/settingHint と narrow/medium/wide の幅3種）を全タブで共有する。
+        入力欄の確定の仕方（ComboBox/CheckBoxは即時、TextBoxはフォーカスを外した時かEnter）は
+        従来から変えていない（「100」を「50」に打ち替える途中の「10」が保存されてしまうのを防ぐため。
+        ViewModelの保存の仕組みには触れていない）。
+        ScrollViewer自身にPaddingを持たせず内側のStackPanelのMarginへ置くのは、AvaloniaのScrollViewerが
+        PaddingをExtentの外側に適用して末尾要素が見切れる（実機で確認済み）ため。
     -->
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="16,8,16,16">
-            <TextBlock Text="一般" Classes="sectionHeading first" />
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="テーマ" Classes="fieldLabel" />
-                <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedValueBinding="{Binding Value}"
+            <TextBlock Text="表示" Classes="sectionHeading first" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="テーマ" Classes="settingLabel" />
+                    <TextBlock Text="画面全体の配色です。「システム追従」はOSの設定に合わせます。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding ThemeOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTheme}"
                           AutomationProperties.Name="テーマ"
                           views:HelpTip.Minimal="{Binding SelectedTheme, StringFormat='テーマ: {0}'}"
                           views:HelpTip.Standard="画面全体の配色を選びます。既定は「システム追従」です。"
                           views:HelpTip.Detailed="Graftの画面全体の配色を選びます。既定ライト・既定ダークに加え、セピア・GitHub風・Solarized Light/Dark・Nord・Dracula・Nightの計9種のプリセットから選べます。プリセットを選ぶとその配色に固定され、「システム追従」（既定）を選ぶとOSの設定（Windowsの「色」設定など）に応じて既定ライト/既定ダークが自動的に切り替わります（9つのプリセットへは追従しません）。見た目だけの設定で、ファイルの内容には一切影響しません。選んだ瞬間にその場で切り替わります。" />
-            </StackPanel>
-            <!-- 利用者からの要望: ツールチップの詳しさを4段階で選べるようにする。テーマの
-                 すぐ下に置く。選択の反映は views:HelpTip（添付プロパティ方式）が担う。 -->
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="操作の説明" Classes="fieldLabel" />
-                <ComboBox ItemsSource="{Binding TooltipDetailOptions}" SelectedValueBinding="{Binding Value}"
+            </Grid>
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="操作の説明" Classes="settingLabel" />
+                    <TextBlock Text="ボタンなどにカーソルを合わせたときに出る説明の詳しさです。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding TooltipDetailOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedTooltipDetail}"
                           AutomationProperties.Name="操作の説明"
                           views:HelpTip.Minimal="{Binding SelectedTooltipDetail, StringFormat='操作の説明: {0}'}"
                           views:HelpTip.Standard="ボタンなどにカーソルを合わせたときに出る説明の詳しさを選びます。既定は「標準の説明」です。"
                           views:HelpTip.Detailed="画面上のボタンやチェックボックスにマウスを乗せたときに出る、この吹き出し説明の詳しさを選びます。「表示しない」は吹き出しを一切出さず、「最低限」は今その項目に入っている値だけを一言で示し、「標準の説明」（既定）は1文の短い説明、「くわしい説明」は初めて使う人向けに噛み砕いた長い説明を出します。ここで選んだ瞬間、開いている画面全体の説明がその場で切り替わります（アプリの再起動は不要）。" />
-            </StackPanel>
-
-            <!--
-                検討書「フォント設定」。UIフォント／本文フォント／等幅（コード）フォントを
-                別々に選べるようにする。OSにインストール済みのフォントから選ぶ形にし、
-                手入力させない（FontFamilyOptions/MonospaceFontFamilyOptions。
-                SettingsViewModel参照）。列挙に失敗した環境（HasFontFamilyOptions/
-                HasMonospaceFontFamilyOptionsがfalse）だけ、ComboBoxの代わりにテキスト入力へ
-                フォールバックする（検討書の要件）。各ComboBoxの項目はFontChoiceItemTemplate
-                （Controls.Input.axaml）でそのフォント自体を使って描画され、選ぶ前に見た目が
-                分かる。プレビュー行はPaneのsettings.js（renderFontField）に倣い
-                「あア亜 Aa Bb Cc 0123」で和文・欧文・数字を一度に確認できるようにした。
-                選んだ瞬間にComboBox自体のプレビュー・下のプレビュー行・画面全体の表示
-                （AppFontManager経由）がその場で切り替わる。
-
-                【並び順（UI→本文→等幅）】 影響範囲の広い順に並べてある。UIフォントは画面
-                ほぼ全体（メニュー・ボタン・一覧・本文の地の文の既定値）に効き、本文フォントは
-                取扱説明書・Markdownプレビューの地の文だけに効き、等幅フォントはコード扱いの
-                文字だけに効く。
-
-                【利用者からの指摘対応: 「本文フォント」の分割】 v1.0.20までの「本文フォント」欄は
-                名前と実態が合っておらず、選んだフォントがMarkdownプレビューの本文だけでなく
-                メニュー・ボタン・一覧など画面全体のUI文字まで巻き込んでしまい、字の縦位置が
-                ずれて見える問題があった。v1.0.21でこの欄を実態どおり「UIフォント」へ改名し、
-                取扱説明書・Markdownプレビューの地の文専用の「本文フォント」欄を新設して
-                分離した（Settings.FontFamily/BodyTextFontFamilyのコメント参照）。
-            -->
-            <TextBlock Text="フォント" Classes="sectionHeading" />
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="UIフォント" Classes="fieldLabel" />
-                <ComboBox IsVisible="{Binding HasFontFamilyOptions}"
+            </Grid>
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="画面のフォント" Classes="settingLabel" />
+                    <TextBlock Text="メニュー・ボタン・一覧など、画面の文字に使います。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="wide" IsVisible="{Binding HasFontFamilyOptions}"
                           ItemsSource="{Binding FontFamilyOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource FontChoiceItemTemplate}"
                           SelectedValue="{Binding SelectedFontFamily}"
@@ -82,30 +62,24 @@
                           views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='UIフォント: {0}'}"
                           views:HelpTip.Standard="メニュー・ボタン・一覧など、画面全体のUIの文字に使うフォントを選びます。既定は「(既定)」（アプリの既定フォント）です。"
                           views:HelpTip.Detailed="メニュー・ボタン・タブの一覧・設定画面など、画面全体のUIの文字に使うフォントを、OSにインストール済みのフォントから選びます。「(既定)」を選ぶとアプリの既定フォント（プラットフォームごとのフォールバック列）に戻ります。選んだ瞬間にその場で画面へ反映されます。取扱説明書やMarkdownプレビューの地の文（見出し・段落・箇条書きなど）には、この欄ではなく下の「本文フォント」が使われます。コード表示に使うフォントは別枠の「等幅フォント」で選びます。" />
-                <TextBox IsVisible="{Binding !HasFontFamilyOptions}"
-                         Text="{Binding SelectedFontFamily, UpdateSourceTrigger=LostFocus}" Width="240"
+                <TextBox Grid.Column="1" Classes="wide" IsVisible="{Binding !HasFontFamilyOptions}"
+                         Text="{Binding SelectedFontFamily, UpdateSourceTrigger=LostFocus}"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="UIフォント（手入力）"
                          views:HelpTip.Minimal="{Binding SelectedFontFamily, StringFormat='UIフォント: {0}'}"
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
-            </StackPanel>
-            <!-- UI点検（項目7）対応: fieldHintクラスのForeground（TextSecondary）のままだと
-                 「フォントの見え方を確かめる」ためのプレビュー文字列が画面で一番薄い色になり、
-                 ライト系テーマでは判断しづらかった。Classesは残したまま、Foregroundだけを
-                 明示的にTextPrimaryへ上書きする（色担当の修正）。
-                 UI点検（項目13）対応: FontSize直値15pxをPreviewSampleFontSizeトークンへ
-                 切り出した（レイアウト担当の修正。見た目のサイズは変えていない）。 -->
+            </Grid>
             <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="{DynamicResource PreviewSampleFontSize}"
                        Foreground="{DynamicResource TextPrimary}"
                        FontFamily="{Binding SelectedFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
                        AutomationProperties.Name="UIフォントのプレビュー" />
-
-            <!-- v1.0.21で新設。UIフォント欄と同じ作り（ComboBox＋列挙失敗時のTextBoxフォールバック
-                 ＋プレビュー行）。 -->
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="本文フォント" Classes="fieldLabel" />
-                <ComboBox IsVisible="{Binding HasFontFamilyOptions}"
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="本文フォント" Classes="settingLabel" />
+                    <TextBlock Text="取扱説明書や Markdown プレビューの文章に使います。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="wide" IsVisible="{Binding HasFontFamilyOptions}"
                           ItemsSource="{Binding FontFamilyOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource FontChoiceItemTemplate}"
                           SelectedValue="{Binding SelectedBodyTextFontFamily}"
@@ -113,22 +87,24 @@
                           views:HelpTip.Minimal="{Binding SelectedBodyTextFontFamily, StringFormat='本文フォント: {0}'}"
                           views:HelpTip.Standard="取扱説明書とMarkdownプレビューの地の文に使うフォントを選びます。既定は「(既定)」（UIフォントと同じ既定フォント）です。"
                           views:HelpTip.Detailed="取扱説明書とMarkdownプレビューの地の文（見出し・段落・箇条書き・表など）に使うフォントを、OSにインストール済みのフォントから選びます。「(既定)」を選ぶとアプリの既定フォント（上の「UIフォント」と同じフォールバック列）に戻ります。選んだ瞬間にその場で画面へ反映されます。コードブロック・インラインコードはこの欄の影響を受けず、常に「等幅フォント」の設定に従います。すでに「UIフォント」に好みのフォントを設定している場合、その設定は引き続きメニュー・ボタン・一覧などUI全体に効きますが、取扱説明書やMarkdownプレビューの地の文には効かなくなるため、両方に同じフォントを使いたいときはこちらにも同じものを選んでください。" />
-                <TextBox IsVisible="{Binding !HasFontFamilyOptions}"
-                         Text="{Binding SelectedBodyTextFontFamily, UpdateSourceTrigger=LostFocus}" Width="240"
+                <TextBox Grid.Column="1" Classes="wide" IsVisible="{Binding !HasFontFamilyOptions}"
+                         Text="{Binding SelectedBodyTextFontFamily, UpdateSourceTrigger=LostFocus}"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="本文フォント（手入力）"
                          views:HelpTip.Minimal="{Binding SelectedBodyTextFontFamily, StringFormat='本文フォント: {0}'}"
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
-            </StackPanel>
+            </Grid>
             <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,10" FontSize="{DynamicResource PreviewSampleFontSize}"
                        Foreground="{DynamicResource TextPrimary}"
                        FontFamily="{Binding SelectedBodyTextFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
                        AutomationProperties.Name="本文フォントのプレビュー" />
-
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="等幅フォント（コード用）" Classes="fieldLabel" />
-                <ComboBox IsVisible="{Binding HasMonospaceFontFamilyOptions}"
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="コード用のフォント（等幅）" Classes="settingLabel" />
+                    <TextBlock Text="エディタや差分など、コードの表示に使います。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="wide" IsVisible="{Binding HasMonospaceFontFamilyOptions}"
                           ItemsSource="{Binding MonospaceFontFamilyOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource FontChoiceItemTemplate}"
                           SelectedValue="{Binding SelectedMonospaceFontFamily}"
@@ -136,173 +112,89 @@
                           views:HelpTip.Minimal="{Binding SelectedMonospaceFontFamily, StringFormat='等幅フォント: {0}'}"
                           views:HelpTip.Standard="コードエディタやコードブロックの表示に使う等幅フォントを選びます。既定は「(既定)」（アプリの既定フォント）です。"
                           views:HelpTip.Detailed="コードエディタ（中央のエディタ領域）や、Markdownプレビュー・diff表示・JSON編集タブなど「コード扱い」の文字に使うフォントを、OSにインストール済みの等幅フォントから選びます。等幅かどうかはフォント自身が持つメタデータ、またはそれが無い場合は「i」と「W」の描画幅の比較で判定しています。「(既定)」を選ぶとアプリの既定の等幅フォントに戻ります。選んだ瞬間にエディタ側の表示もその場で切り替わります。上の「本文フォント」とは別枠の設定です。" />
-                <TextBox IsVisible="{Binding !HasMonospaceFontFamilyOptions}"
-                         Text="{Binding SelectedMonospaceFontFamily, UpdateSourceTrigger=LostFocus}" Width="240"
+                <TextBox Grid.Column="1" Classes="wide" IsVisible="{Binding !HasMonospaceFontFamilyOptions}"
+                         Text="{Binding SelectedMonospaceFontFamily, UpdateSourceTrigger=LostFocus}"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
                          AutomationProperties.Name="等幅フォント（手入力）"
                          views:HelpTip.Minimal="{Binding SelectedMonospaceFontFamily, StringFormat='等幅フォント: {0}'}"
                          views:HelpTip.Standard="このOS環境ではインストール済みフォントの一覧を取得できなかったため、フォント名を直接入力する形になっています。空欄なら既定のフォントを使います。"
                          views:HelpTip.Detailed="OSにインストール済みのフォントを列挙できなかった環境向けのフォールバックです（本来は一覧から選ぶ形ですが、列挙に失敗した場合だけこの入力欄に切り替わります）。入力したフォント名が実際にはインストールされていない場合、アプリの既定フォントで表示されます。空欄にすると既定のフォントに戻ります。" />
-            </StackPanel>
-            <!-- UI点検（項目7）対応: 上の本文フォントのプレビューと同じ理由で
-                 ForegroundをTextPrimaryへ明示的に上書きする（色担当の修正）。
-                 UI点検（項目13）対応: FontSize直値15pxをPreviewSampleFontSizeトークンへ
-                 切り出した（レイアウト担当の修正。見た目のサイズは変えていない）。 -->
+            </Grid>
             <TextBlock Text="プレビュー: あア亜 Aa Bb Cc 0123" Classes="fieldHint" Margin="0,-4,0,8" FontSize="{DynamicResource PreviewSampleFontSize}"
                        Foreground="{DynamicResource TextPrimary}"
                        FontFamily="{Binding SelectedMonospaceFontFamily, Converter={x:Static views:Converters.FontFamilyOrDefault}}"
                        AutomationProperties.Name="等幅フォントのプレビュー" />
-
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="適用モード" Classes="fieldLabel" />
-                <ComboBox ItemsSource="{Binding ApplyModeOptions}" SelectedValueBinding="{Binding Value}"
-                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedApplyMode}"
-                          AutomationProperties.Name="適用モード"
-                          views:HelpTip.Minimal="{Binding SelectedApplyMode, StringFormat='適用モード: {0}'}"
-                          views:HelpTip.Standard="パッチの一部が当てはまらなかったときの扱いを選びます。既定の「全件適用」は1件でも失敗すると何も書き換えません。"
-                          views:HelpTip.Detailed="AIの回答に含まれる変更のうち一部だけが実際のコードに当てはまらなかった場合の挙動を選びます。「全件適用（All or Nothing）」（既定）は、1件でも当てはまらない変更があれば、その回答に含まれる変更を1つも書き込まずに中止します（中途半端な状態になるのを防ぎます）。「部分適用可」は、当てはまった変更だけを書き込み、当てはまらなかった変更は失敗として一覧に残します。迷ったら既定のままで問題ありません。" />
-            </StackPanel>
-            <CheckBox Classes="settingRow" Content="適用前にプレビューを表示する" IsChecked="{Binding ShowPreview}"
-                      AutomationProperties.Name="適用前にプレビューを表示する"
-                      views:HelpTip.Standard="「適用」を押したときに、書き込む前に差分を確認する画面を挟みます。既定はオンです。"
-                      views:HelpTip.Detailed="オンにすると（既定）、コマンドバーの「適用」を押したときにファイルへ書き込む前に、変更内容の差分を確認できるプレビュー画面が必ず挟まります。そこで「適用」を押すまでファイルは書き換わりません。オフにすると、プレビューを経由せずに即座に書き込まれるようになります。バックアップは無効にしない限り自動で作られるため、オフにしてもいつでも履歴から元に戻せますが、書き込む前に確認したい場合はオンのままにしておくことをおすすめします。" />
-            <CheckBox Classes="settingRow" Content="パッチメタデータのsummaryを必須にする" IsChecked="{Binding RequireSummary}"
-                      AutomationProperties.Name="パッチメタデータのsummaryを必須にする"
-                      views:HelpTip.Standard="AIの回答にひとこと要約（summary）が無い場合に警告するかどうかです。既定はオンです。"
-                      views:HelpTip.Detailed="AIに渡すプロンプトテンプレートは、各変更の先頭に「summary」というひとこと要約を書くよう指示しています。オンにすると（既定）、解析した回答にsummaryが無い場合に警告として扱われます。オフにすると、summaryが無くても警告せずに読み進めます。適用そのものを止める設定ではなく、あくまで気付きやすくするための注意喚起です。" />
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="グローバルホットキー" Classes="fieldLabel" />
-                <TextBox Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}" Width="220"
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="エディタの文字の大きさ" Classes="settingLabel" />
+                    <TextBlock Text="コードの文字の大きさです。エディタ上で Ctrl+マウスホイールでも変えられます。" Classes="settingHint" />
+                </StackPanel>
+                <TextBox Grid.Column="1" Classes="narrow" Text="{Binding EditorFontSizeText, UpdateSourceTrigger=LostFocus}"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="グローバルホットキー"
-                         views:HelpTip.Minimal="{Binding Hotkey, StringFormat='グローバルホットキー: {0}'}"
-                         views:HelpTip.Standard="Graftがバックグラウンドにあっても、クリップボードの内容を貼り付けて解析するショートカットキーです。既定はCtrl+Alt+Vです。"
-                         views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでクリップボードの内容をGraftへ渡して解析できるショートカットキーです（コマンドバーの「解析」ボタンと同じ動作）。既定は「Ctrl+Alt+V」です。「Ctrl+Shift+K」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。他のアプリと衝突する組み合わせを入力すると、Graft側では反応しないことがあります。" />
-            </StackPanel>
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="ログレベル" Classes="fieldLabel" />
-                <ComboBox ItemsSource="{Binding LogLevelOptions}" SelectedValueBinding="{Binding Value}"
-                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedLogLevel}"
-                          AutomationProperties.Name="ログレベル"
-                          views:HelpTip.Minimal="{Binding SelectedLogLevel, StringFormat='ログレベル: {0}'}"
-                          views:HelpTip.Standard="ログファイルへ書き出す情報の詳しさを選びます。普段は既定の「info」のままで構いません。"
-                          views:HelpTip.Detailed="Graftの動作記録（ログファイル）にどこまで細かい情報を残すかを選びます。「trace」「debug」が最も詳しく、「error」が最も少なくなります（trace &gt; debug &gt; info &gt; warn &gt; error の順に少なくなります）。既定は「info」です。不具合の調査を頼まれたときなど、詳しいログが必要と言われた場合だけ「debug」以上へ変更してください。詳しくするほどログファイルの容量が増えます。" />
-            </StackPanel>
-
-            <!--
-                課題2・3・不具合修正: ウィンドウを閉じたときの動作／最小化でタスクトレイへ格納／
-                PC起動時の自動起動。この3項目は変更した瞬間に即時反映される（保存ボタンはない）。
-            -->
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="ウィンドウを閉じたときの動作" Classes="fieldLabel" />
-                <ComboBox ItemsSource="{Binding CloseBehaviorOptions}" SelectedValueBinding="{Binding Value}"
+                         AutomationProperties.Name="エディタのフォントサイズ"
+                         views:HelpTip.Minimal="{Binding EditorFontSizeText, StringFormat='フォントサイズ: {0}'}"
+                         views:HelpTip.Standard="コード表示の文字の大きさです。既定は13です。エディタ上でCtrl+マウスホイールでも変更できます。"
+                         views:HelpTip.Detailed="中央のエディタ領域に表示するコードの文字サイズ（pt）です。既定は13です。エディタの上にカーソルを置いてCtrlキーを押しながらマウスホイールを回しても同じように変更でき、そちらで変えた値もここへ反映されます。表示だけの設定でファイルの内容には影響しません。" />
+            </Grid>
+            <TextBlock Text="起動と常駐" Classes="sectionHeading" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="ウィンドウを閉じたとき" Classes="settingLabel" />
+                    <TextBlock Text="×で閉じたときに、アプリを終了するか、タスクトレイに残すかを選びます。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding CloseBehaviorOptions}" SelectedValueBinding="{Binding Value}"
                           ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding CloseBehavior}"
                           AutomationProperties.Name="ウィンドウを閉じたときの動作"
                           views:HelpTip.Minimal="{Binding CloseBehavior, StringFormat='ウィンドウを閉じたときの動作: {0}'}"
                           views:HelpTip.Standard="×ボタンでウィンドウを閉じたときの動作を選びます。「終了する」ならアプリごと終了し、「タスクトレイに常駐する」ならウィンドウを隠すだけで動作を続けます。"
                           views:HelpTip.Detailed="ウィンドウ右上の×ボタンを押したときの挙動を選びます。「終了する」（既定）を選ぶと、×を押した時点でGraftのプロセスごと終了します。「タスクトレイに常駐する」を選ぶと、×を押してもプロセスは終了せずウィンドウが隠れるだけになり、タスクトレイのアイコンの「開く」で再表示、「終了」で完全に終了できます。クリップボード監視やホットキー貼り付けをすぐ使えるよう、常に起動しておきたいときに使います。お使いの環境がタスクトレイに対応していない場合は、この選択肢自体が表示されません（×で閉じると常に終了します）。" />
-            </StackPanel>
-            <TextBlock Text="このデスクトップ環境ではタスクトレイ（StatusNotifierItem）に対応していないため、常駐は選べません。×で閉じると終了します。"
+            </Grid>
+            <TextBlock Text="このデスクトップ環境ではタスクトレイに対応していないため、常駐は選べません。×で閉じると終了します。"
                        Classes="fieldHint" IsVisible="{Binding !IsTraySupported}"
                        TextWrapping="Wrap" />
-            <CheckBox Classes="settingRow" Content="最小化でタスクトレイへ格納する" IsChecked="{Binding MinimizeToTray}"
+            <CheckBox Classes="settingRow hinted" Content="最小化でタスクトレイへ格納する" IsChecked="{Binding MinimizeToTray}"
                       IsEnabled="{Binding IsTraySupported}"
                       AutomationProperties.Name="最小化でタスクトレイへ格納する"
                       views:HelpTip.Standard="オンにすると、ウィンドウを最小化した瞬間にタスクトレイへ格納されます。既定はオフで、通常のWindowsアプリと同じく最小化してもタスクバーには残ります。"
                       views:HelpTip.Detailed="オフ（既定）のときは、Windowsの通常の慣習どおり最小化してもタスクバーにアイコンが残り、タスクバーから元に戻せます。オンにすると、最小化した瞬間にウィンドウがタスクバーからも消え、タスクトレイのアイコン（左クリックまたは「開く」）からのみ復帰できるようになります。クリップボード監視やホットキー貼り付けをすぐ使えるよう常駐させつつ、タスクバーを占有したくない場合に使います。お使いの環境がタスクトレイに対応していない場合は、オンにしても実際には通常の最小化のままになります（この場合はチェックボックス自体が無効化されます）。" />
-            <TextBlock Text="このデスクトップ環境ではタスクトレイ（StatusNotifierItem）に対応していないため、最小化は常に通常の最小化になります。"
+            <TextBlock Text="ウィンドウを最小化すると、タスクバーではなくタスクトレイにしまいます。" Classes="settingHint indented" />
+            <TextBlock Text="このデスクトップ環境ではタスクトレイに対応していないため、最小化は常に通常の最小化になります。"
                        Classes="fieldHint" IsVisible="{Binding !IsTraySupported}"
                        TextWrapping="Wrap" />
-            <CheckBox Classes="settingRow" Content="PC起動時に自動で起動する" IsChecked="{Binding LaunchAtStartup}"
+            <CheckBox Classes="settingRow hinted" Content="PC起動時に自動で起動する" IsChecked="{Binding LaunchAtStartup}"
                       IsEnabled="{Binding IsAutoStartSupported}"
                       AutomationProperties.Name="PC起動時に自動で起動する"
                       views:HelpTip.Standard="オンにすると、PCの起動時にGraftが自動的に立ち上がるようになります。"
                       views:HelpTip.Detailed="オンにすると、次回以降PCを起動したときにGraftが自動的に立ち上がるようになります。レジストリは使わず、OS標準のスタートアップフォルダ（Windows）やXDG autostart（Linux）に登録する方式です。オフに戻すと登録は解除されます。登録・解除に失敗した場合は、その場でダイアログに理由が表示されます。" />
+            <TextBlock Text="パソコンを起動したときに、Graft も自動で起動します。" Classes="settingHint indented" />
             <TextBlock Text="{Binding AutoStartUnsupportedReason}" Classes="fieldHint"
                        IsVisible="{Binding !IsAutoStartSupported}" TextWrapping="Wrap" />
-
-            <!--
-                機能3（データ保存先の選択）: 既定は「ポータブル」（exeのフォルダ直下のdataフォルダにsettings.json・
-                projects.json・back/・logs/を置く。1.0.26で「exeと同じフォルダ」から変更）。Program Files配下等、書き込めない場所に
-                置かれても保存できるよう「ユーザーフォルダ（%APPDATA%\Graft 等）」へ切り替えられる
-                ようにする。実処理・設計判断はSettingsViewModel.DataDirectory.csのコメント参照。
-                コピー中は他の項目と同じくIsBusyでスピナーを表示するが、この操作自体は
-                「移行」ボタン以外は無効化しない（既存の他の設定変更を妨げる理由が無いため）。
-            -->
-            <TextBlock Text="データ保存先" Classes="sectionHeading" />
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="現在の保存先" Classes="fieldLabel" />
-                <TextBlock Text="{Binding DataDirectoryModeLabel}" VerticalAlignment="Center"
-                           AutomationProperties.Name="現在のデータ保存先モード" />
-            </StackPanel>
-            <TextBlock Text="{Binding DataDirectoryPath}" Classes="fieldHint" TextWrapping="Wrap"
-                       FontFamily="{DynamicResource CodeFontFamily}"
-                       AutomationProperties.Name="現在のデータ保存先のパス" />
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                <Button Content="{Binding DataDirectoryActionLabel}" Command="{Binding MigrateDataDirectoryCommand}"
-                        AutomationProperties.Name="データ保存先を切り替える"
-                        views:HelpTip.Standard="settings.json・プロジェクト定義・バックアップ・ログを新しい場所へコピーします。切り替えの反映には再起動が必要です。"
-                        views:HelpTip.Detailed="「ポータブル」（実行ファイルのフォルダ直下の data フォルダ）と「ユーザーフォルダ」（Windowsなら%APPDATA%\Graft）を切り替えます。押すと今のデータ一式を新しい場所へコピーし、コピーが完了して内容を確認できてから切り替え用の設定を書き換えます。元の場所のデータは、再起動したときに、新しい場所へ取り込み直して内容を確かめたうえで削除されます。この場でファイルの書き込み先が切り替わるわけではなく、実際に新しい場所を使い始めるにはGraftの再起動が必要です。ユーザーフォルダを選んだ場合は、次の起動で自動的に data フォルダへ戻ることはありません。実行ファイルのフォルダに書き込めない環境では、切り替え用の設定ファイル自体を保存できず失敗することがあります。" />
-                <TextBlock Text="この変更を使うには再起動してください。" Margin="12,0,0,0" VerticalAlignment="Center"
-                           Foreground="{DynamicResource StateWarn}"
-                           IsVisible="{Binding IsDataDirectoryMigrationPending}"
-                           AutomationProperties.Name="データ保存先の切り替えには再起動が必要" />
-            </StackPanel>
-
-            <TextBlock Text="バックアップ・世代管理" Classes="sectionHeading" />
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="最大保持リビジョン数（0で無制限）" Classes="fieldLabel" />
-                <TextBox Text="{Binding MaxRevisionsText, UpdateSourceTrigger=LostFocus}" Width="120"
+            <TextBlock Text="キー" Classes="sectionHeading" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="グローバルホットキー" Classes="settingLabel" />
+                    <TextBlock Text="他のアプリを使っているときでも、クリップボードの内容を Graft に取り込んで解析するキーです。" Classes="settingHint" />
+                </StackPanel>
+                <TextBox Grid.Column="1" Classes="medium" Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="最大保持リビジョン数"
-                         views:HelpTip.Minimal="{Binding MaxRevisionsText, StringFormat='最大保持リビジョン数: {0}'}"
-                         views:HelpTip.Standard="履歴（バックアップ）を何件まで残すかです。既定は100件で、超えると古いものから自動で消えます。"
-                         views:HelpTip.Detailed="サイドバーの「履歴」に残しておくバックアップの最大件数です。既定は100件で、これを超えると一番古いリビジョンから自動的に整理されます（「世代整理でごみ箱を使用する」がオンなら、消える前にごみ箱へ移動します）。0にすると件数の上限を無くせますが、プロジェクトが大きい・変更頻度が高いとディスクを圧迫し続けるおそれがあるため、通常は既定のままにしておくことをおすすめします。" />
-            </StackPanel>
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="バックアップ合計上限（MB、0で無制限）" Classes="fieldLabel" />
-                <TextBox Text="{Binding MaxTotalMBText, UpdateSourceTrigger=LostFocus}" Width="120"
+                         AutomationProperties.Name="グローバルホットキー"
+                         views:HelpTip.Minimal="{Binding Hotkey, StringFormat='グローバルホットキー: {0}'}"
+                         views:HelpTip.Standard="Graftがバックグラウンドにあっても、クリップボードの内容を貼り付けて解析するショートカットキーです。既定はCtrl+Alt+Vです。"
+                         views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでクリップボードの内容をGraftへ渡して解析できるショートカットキーです（コマンドバーの「貼り付けて解析」ボタンと同じ動作）。既定は「Ctrl+Alt+V」です。「Ctrl+Shift+K」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。他のアプリと衝突する組み合わせを入力すると、Graft側では反応しないことがあります。" />
+            </Grid>
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="依頼文コピーのホットキー" Classes="settingLabel" />
+                    <TextBlock Text="AIへの依頼文をコピーするキーです。空欄にするとOS全体には登録しません。" Classes="settingHint" />
+                </StackPanel>
+                <TextBox Grid.Column="1" Classes="medium" Text="{Binding PromptHotkey, UpdateSourceTrigger=LostFocus}"
                          views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="バックアップ合計上限"
-                         views:HelpTip.Minimal="{Binding MaxTotalMBText, StringFormat='バックアップ合計上限（MB）: {0}'}"
-                         views:HelpTip.Standard="バックアップ全体で使ってよいディスク容量の上限（MB）です。既定は500MBです。"
-                         views:HelpTip.Detailed="このプロジェクトのバックアップが合計でどれだけディスク容量を使ってよいかの上限です。既定は500MBで、超えそうになると古いリビジョンから自動的に整理されます（件数の上限と同時に働きます）。0にすると容量の上限を無くせますが、その場合は上のリビジョン数の上限だけが歯止めになります。両方0にすると、ディスクが尽きるまで際限なくバックアップが増え続けるため注意してください。" />
-            </StackPanel>
-            <CheckBox Classes="settingRow" Content="世代整理でごみ箱を使用する" IsChecked="{Binding UseRecycleBin}"
-                      AutomationProperties.Name="世代整理でごみ箱を使用する"
-                      views:HelpTip.Standard="古いバックアップを削除するとき、完全に消さずごみ箱へ送ります。既定はオンです。"
-                      views:HelpTip.Detailed="上の上限を超えて古いバックアップを整理するとき、オンにしておくと（既定）OSのごみ箱へ移動するだけになり、必要になったらごみ箱から拾い直せます。オフにすると、整理されたバックアップはその場で完全に削除され、二度と取り戻せません。ディスク容量が厳しい場合を除き、オンのままにしておくことを強くおすすめします。" />
-
-            <TextBlock Text="Git連携・適用後フック" Classes="sectionHeading" />
-            <CheckBox Classes="settingRow" Content="適用後に自動コミットする" IsChecked="{Binding AutoCommit}"
-                      AutomationProperties.Name="適用後に自動コミットする"
-                      views:HelpTip.Standard="「適用」が成功するたびに、そのプロジェクトのGitへ自動でコミットします。既定はオフです。"
-                      views:HelpTip.Detailed="オンにすると、パッチの「適用」が成功するたびに、対象プロジェクトがGitリポジトリであれば自動的にコミットが作られます。Graftのバックアップとは別に、Git側の履歴としても変更を追いたい場合に使います。既定はオフで、コミットは自分の好きなタイミングで手動で行う運用になります。プロジェクトがGitリポジトリでない場合、この設定はオンにしても何も起きません。自動コミットはあくまでGit側の記録用で、誤ってコミットしても元のバックアップ（履歴）から復元できます。" />
-            <StackPanel Classes="fieldRow">
-                <TextBlock Text="フックのタイムアウト（秒）" Classes="fieldLabel" />
-                <TextBox Text="{Binding HooksTimeoutSecText, UpdateSourceTrigger=LostFocus}" Width="120"
-                         views:TextBoxCommitBehavior.CommitOnEnter="True"
-                         AutomationProperties.Name="フックのタイムアウト秒数"
-                         views:HelpTip.Minimal="{Binding HooksTimeoutSecText, StringFormat='フックのタイムアウト（秒）: {0}'}"
-                         views:HelpTip.Standard="「適用後フック」タブで登録したコマンドを、何秒待っても終わらなければ打ち切るかです。既定は120秒です。"
-                         views:HelpTip.Detailed="適用が成功したあとに「適用後フック」タブで登録したコマンド（例: リンターやフォーマッタの実行）を走らせる際、応答が返ってこない場合に待つ最大秒数です。既定は120秒で、これを超えるとコマンドは強制的に打ち切られ、失敗として扱われます（打ち切られてもファイルへの適用結果そのものは取り消されません）。時間のかかるコマンドを登録している場合は、この値を伸ばしてください。" />
-            </StackPanel>
-
-            <TextBlock Text="エクスポート／インポート" Classes="sectionHeading" />
-            <CheckBox Classes="settingRow" Content="設定のみを対象にする（プロジェクト定義を除外）"
-                      IsChecked="{Binding ExportSettingsOnly}" AutomationProperties.Name="設定のみを対象にする"
-                      views:HelpTip.Standard="下のエクスポート／インポートで、登録済みプロジェクトの一覧を含めるかどうかです。既定はオフ（含める）です。"
-                      views:HelpTip.Detailed="下の「エクスポート」「インポート」の対象範囲を絞り込みます。オフ（既定）のときは、この画面の各種設定に加えて登録済みプロジェクトの一覧も一緒に書き出し・読み込みします。オンにすると、プロジェクトの一覧は対象から外れ、テーマやエディタなどの設定だけをやり取りします。他のPCへ設定だけを持っていきたい（プロジェクトの登録はそちらで別途行う）場合に使います。" />
-            <StackPanel Orientation="Horizontal">
-                <Button Content="エクスポート" Command="{Binding ExportCommand}" Margin="0,0,8,0"
-                        AutomationProperties.Name="設定をエクスポート"
-                        views:HelpTip.Standard="現在の設定をJSONファイルとして書き出します。ファイルへの保存先を選ぶダイアログが開きます。"
-                        views:HelpTip.Detailed="この画面で調整した内容（テーマ・エディタ・安全機構などの設定、上のチェックがオフならプロジェクトの一覧も）を1つのJSONファイルへまとめて書き出します。保存先を選ぶダイアログが開くので、別のPCへ持っていく用のバックアップや、同僚と設定を共有する用途に使えます。現在のファイルの中身には一切影響しません。" />
-                <Button Content="インポート" Command="{Binding ImportCommand}"
-                        AutomationProperties.Name="設定をインポート"
-                        views:HelpTip.Standard="エクスポートで書き出したJSONファイルを読み込み、現在の設定を上書きします。読み込むファイルを選ぶダイアログが開きます。"
-                        views:HelpTip.Detailed="「エクスポート」で書き出したJSONファイルを選んで読み込み、この画面のすべての設定を読み込んだ内容で上書きします。現在の設定は読み込んだ内容に置き換わるため、必要であれば先に「エクスポート」で今の設定を書き出しておくと安心です。ファイルの内容（コード）には影響しません。" />
-            </StackPanel>
+                         Watermark="空欄ならGraftの画面内だけ"
+                         AutomationProperties.Name="依頼文コピーのホットキー"
+                         views:HelpTip.Minimal="{Binding PromptHotkey, StringFormat='依頼文コピーのホットキー: {0}'}"
+                         views:HelpTip.Standard="AIへの依頼文をコピーするOS全体のショートカットキーです。既定はCtrl+Shift+Cです。空欄にするとOS全体には登録せず、Graftの画面内だけで効きます。"
+                         views:HelpTip.Detailed="他のアプリを操作していても、このキーを押すだけでAIへの依頼文（依頼文のテンプレート）をコピーできるショートカットキーです。既定は「Ctrl+Shift+C」ですが、ブラウザの開発者ツールなど他のアプリと衝突する場合は、別の組み合わせに変えるか、空欄にしてください。空欄にするとOS全体のキーとしては登録されず、Graftのウィンドウを操作しているときだけ同じ操作がCtrl+Shift+Cで効きます。「Ctrl+Alt+C」のように「+」区切りで入力し、フォーカスを外すかEnterで確定します。" />
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

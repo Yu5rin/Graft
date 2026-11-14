@@ -153,7 +153,7 @@ public class InProgressRevisionDialogTests : IDisposable
 
         prompt.Should().Contain("中断検証", "対処不能な「r1が…」だけの文言ではなく、プロジェクト名を明示するはず");
         prompt.Should().Contain("r1");
-        prompt.Should().Contain("ロールバックしますか", "「確認してください」ではなく、実行可能な提案（ロールバック）である必要がある");
+        prompt.Should().Contain("適用前の状態に戻しますか", "「確認してください」ではなく、実行可能な提案（ロールバック）である必要がある");
         prompt.Should().NotContain("バックアップフォルダを確認してください",
             "削除した2枚目（MainViewModel.CheckInProgressAsync）の対処不能な文言が復活していないことの確認");
     }

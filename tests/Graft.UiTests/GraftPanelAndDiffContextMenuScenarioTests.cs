@@ -73,10 +73,10 @@ public class GraftPanelAndDiffContextMenuScenarioTests : IDisposable
         var headers = blockRow.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Select(m => m.Header?.ToString()).ToList();
 
-        headers.Should().Contain("対象ファイルを開く");
-        headers.Should().Contain("このブロックの差分をコピー");
-        headers.Should().Contain("修正依頼プロンプトをコピー");
-        headers.Should().Contain("チェックを外す (Space)", "適用可のブロックは既定でチェック済みのため「外す」表記になる");
+        // 並び: 適用に含める／外す → 対象ファイルを開く → コピー（差分・相対パス・修正依頼文）。
+        headers.Should().Equal(
+            new[] { "チェックを外す", "対象ファイルを開く", "このブロックの差分をコピー", MenuText.CopyRelativePath, "修正依頼文をコピー" },
+            "適用可のブロックは既定でチェック済みのため「外す」表記になる。キーは見出しへ埋め込まない");
 
         var missing = blockRow.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
             .Where(m => HelpTip.GetStandard(m) is null)
@@ -106,7 +106,7 @@ public class GraftPanelAndDiffContextMenuScenarioTests : IDisposable
         parsed.IsSuccess.Should().BeTrue("既存のunified diff取り込みで解析できる形式である必要がある");
     }
 
-    [AvaloniaFact(DisplayName = "「修正依頼プロンプトをコピー」は失敗ブロックのときだけ有効（成功ブロックでは無効）")]
+    [AvaloniaFact(DisplayName = "「修正依頼文をコピー」は失敗ブロックのときだけ有効（成功ブロックでは無効）")]
     public async Task 修正依頼プロンプトは失敗ブロックのときだけ有効()
     {
         var targetPath = Path.Combine(_projectDirectory, "sample.txt");
@@ -141,12 +141,12 @@ public class GraftPanelAndDiffContextMenuScenarioTests : IDisposable
 
         var okRow = FindBlockContextMenu(window, okBlock);
         var okMenuItem = okRow.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
-            .Single(m => Equals(m.Header?.ToString(), "修正依頼プロンプトをコピー"));
+            .Single(m => Equals(m.Header?.ToString(), "修正依頼文をコピー"));
         okMenuItem.IsEnabled.Should().BeFalse("成功ブロックの行では無効化されている必要がある");
 
         var errorRow = FindBlockContextMenu(window, errorBlock);
         var errorMenuItem = errorRow.ContextMenu!.GetLogicalDescendants().OfType<MenuItem>()
-            .Single(m => Equals(m.Header?.ToString(), "修正依頼プロンプトをコピー"));
+            .Single(m => Equals(m.Header?.ToString(), "修正依頼文をコピー"));
         errorMenuItem.IsEnabled.Should().BeTrue("失敗ブロックの行では有効になっている必要がある");
         errorMenuItem.Command.Should().BeSameAs(shell.CopyBlockRecoveryPromptCommand,
             "メニューは「このブロックだけ」をコピーするコマンドを使う（全失敗ブロックをコピーするCopyRecoveryPromptCommandではない）");

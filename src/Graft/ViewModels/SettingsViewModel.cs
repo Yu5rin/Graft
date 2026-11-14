@@ -69,6 +69,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _selectedApplyMode = "partial";
     private bool _showPreview; private bool _requireSummary;
     private string _hotkey = string.Empty;
+    private string _promptHotkey = string.Empty;
     private string _selectedLogLevel = "info";
     private bool _clipboardWatchEnabled;
     private string _selectedClipboardAction = "notify";
@@ -82,6 +83,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _rangeWarningLinesText = "0";
     private string _newFileEncoding = "utf-8";
     private bool _newFileBom;
+    private string _newFileNewLine = "auto";
     private bool _syntaxEnabled;
     private bool _showLineNumbers;
     private string _contextLinesText = "0";
@@ -385,6 +387,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool ShowPreview { get => _showPreview; set => SetEditableProperty(ref _showPreview, value); }
     public bool RequireSummary { get => _requireSummary; set => SetEditableProperty(ref _requireSummary, value); }
     public string Hotkey { get => _hotkey; set => SetEditableProperty(ref _hotkey, value); }
+
+    /// <summary>「AIへの依頼文をコピー」のOS全体のホットキー。空ならOS全体には登録しない。</summary>
+    public string PromptHotkey { get => _promptHotkey; set => SetEditableProperty(ref _promptHotkey, value ?? string.Empty); }
     public string SelectedLogLevel { get => _selectedLogLevel; set => SetEditableProperty(ref _selectedLogLevel, value); }
     public bool ClipboardWatchEnabled { get => _clipboardWatchEnabled; set => SetEditableProperty(ref _clipboardWatchEnabled, value); }
     public string SelectedClipboardAction { get => _selectedClipboardAction; set => SetEditableProperty(ref _selectedClipboardAction, value); }
@@ -398,6 +403,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     public string RangeWarningLinesText { get => _rangeWarningLinesText; set => SetEditableProperty(ref _rangeWarningLinesText, value); }
     public string NewFileEncoding { get => _newFileEncoding; set => SetEditableProperty(ref _newFileEncoding, value); }
     public bool NewFileBom { get => _newFileBom; set => SetEditableProperty(ref _newFileBom, value); }
+    public string NewFileNewLine { get => _newFileNewLine; set => SetEditableProperty(ref _newFileNewLine, value); }
+
+    /// <summary>新規ファイルの改行コードの選択肢（<see cref="EncodingSettings.NewFileNewLine"/>）。</summary>
+    public IReadOnlyList<ChoiceOption> NewFileNewLineOptions { get; } = new[]
+    {
+        new ChoiceOption("自動（周りのファイルに合わせる）", "auto"),
+        new ChoiceOption("CRLF（Windows）", "crlf"),
+        new ChoiceOption("LF（Linux / macOS）", "lf"),
+    };
     public bool SyntaxEnabled { get => _syntaxEnabled; set => SetEditableProperty(ref _syntaxEnabled, value); }
     public bool ShowLineNumbers { get => _showLineNumbers; set => SetEditableProperty(ref _showLineNumbers, value); }
     public string ContextLinesText { get => _contextLinesText; set => SetEditableProperty(ref _contextLinesText, value); }
@@ -674,6 +688,28 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     public void SetAppendFilesToPromptLive(bool value) => AppendFilesToPrompt = value;
 
+    /// <summary>
+    /// トレイメニューの「クリップボード監視」の切り替えを、設定画面のチェックボックスと同じ経路
+    /// （<see cref="ClipboardWatchEnabled"/>のsetter→保存→onLiveSettingsChanged）に乗せて永続化する。
+    ///
+    /// 【なぜ必要か】 以前のトレイ側は、起動側(StartupCoordinator)が持つ設定の写しだけを書き換えて
+    /// settings.json へ丸ごと保存していた。常駐するこの <see cref="SettingsViewModel"/> はそれを知らず、
+    /// 古い値のまま持っている。そのため、トレイで切り替えたあとに設定画面で別の項目を1つ変えると、
+    /// このViewModelが古い値（監視の状態を含む）でsettings.jsonを丸ごと書き戻し、トレイの切り替えが
+    /// 元に戻った（1.0.24で直した「古いスナップショットの書き戻し」と同じ型）。
+    /// 保存をこのViewModelに一本化すれば、常に最新の値で書かれる。
+    /// </summary>
+    public void SetClipboardWatchEnabledLive(bool value) => ClipboardWatchEnabled = value;
+
+    // 設定画面を開いたあとに、利用者が実際に操作したか（保存メッセージを出すかどうかの判定用）。
+    private bool _userInteracted;
+
+    /// <summary>設定画面を開いた直後に呼ぶ。以降、操作があるまで保存メッセージは出さない。</summary>
+    public void ResetUserInteraction() => _userInteracted = false;
+
+    /// <summary>利用者がこの画面を操作した（クリック・キー入力）ことを知らせる。</summary>
+    public void NoteUserInteraction() => _userInteracted = true;
+
     private async Task LoadAsync(CancellationToken ct)
     {
         await RunBusyAsync(async () =>
@@ -799,7 +835,15 @@ public sealed partial class SettingsViewModel : ObservableObject
             // ValidationIssues・JsonText（JSONタブへの反映）・Templatesへの反映を1本化する。
             await ApplyLoadedResultAsync(GraftResult<Settings>.Ok(candidate)).ConfigureAwait(true);
         }).ConfigureAwait(true);
-        StatusMessage = "設定を保存しました。";
+
+        // 見た目の整備: 設定画面を開いただけで「設定を保存しました。」と出る問題への対処。
+        // ComboBox等の初期化の書き戻しで、利用者が何も触っていないのに内容がわずかに食い違い、
+        // 保存が走ることがある（保存自体は無害）。メッセージは、この画面を開いたあとに利用者が
+        // 実際に操作（クリック・キー入力）したときだけ出す（SettingsWindowがNoteUserInteractionを呼ぶ）。
+        if (_userInteracted)
+        {
+            StatusMessage = "設定を保存しました。";
+        }
 
         // 課題2: 実行中のShellWindow.CloseBehaviorへその場で反映する。
         _onLiveSettingsChanged?.Invoke(candidate);
@@ -902,7 +946,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             "既定値に戻す",
             "すべての設定を既定値に戻します。よろしいですか？" +
             "\n対象は設定（テーマ・マッチング・安全機構などsettings.jsonの内容）のみです。" +
-            "プロジェクト定義・適用後フック・プロンプトテンプレート・リビジョン履歴は変更されません。")
+            "プロジェクト定義・適用後に実行するコマンド・依頼文テンプレート・履歴は変更されません。")
             .ConfigureAwait(true);
         if (!confirmed) return;
 
@@ -956,7 +1000,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void PopulateEditableFieldsCore(Settings s)
     {
         SelectedTheme = s.Theme; SelectedTooltipDetail = s.TooltipDetail; SelectedApplyMode = s.ApplyMode; ShowPreview = s.ShowPreview;
-        RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; SelectedLogLevel = s.LogLevel;
+        RequireSummary = s.RequireSummary; Hotkey = s.Hotkey; PromptHotkey = s.PromptHotkey; SelectedLogLevel = s.LogLevel;
         ClipboardWatchEnabled = s.ClipboardWatch.Enabled; SelectedClipboardAction = s.ClipboardWatch.Action;
         ClipboardAutoParse = s.ClipboardWatch.AutoParse; ClipboardActivateOnDetect = s.ClipboardWatch.ActivateOnDetect;
         MaxRevisionsText = s.Backup.MaxRevisions.ToString(CultureInfo.InvariantCulture);
@@ -965,6 +1009,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         AllowSimilarityMatch = s.Matching.AllowSimilarityMatch;
         RangeWarningLinesText = s.Matching.RangeWarningLines.ToString(CultureInfo.InvariantCulture);
         NewFileEncoding = s.Encoding.NewFileEncoding; NewFileBom = s.Encoding.NewFileBom;
+        NewFileNewLine = s.Encoding.NewFileNewLine;
         SyntaxEnabled = s.Syntax.Enabled; ShowLineNumbers = s.Syntax.ShowLineNumbers;
         ContextLinesText = s.Diff.ContextLines.ToString(CultureInfo.InvariantCulture);
         WordWrap = s.Diff.WordWrap; ShowWhitespace = s.Diff.ShowWhitespace; SideBySide = s.Diff.SideBySide;
@@ -1014,6 +1059,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ShowPreview = _showPreview,
         RequireSummary = _requireSummary,
         Hotkey = _hotkey,
+        PromptHotkey = _promptHotkey,
         LogLevel = _selectedLogLevel,
         CloseBehavior = _closeBehavior,
         LaunchAtStartup = _launchAtStartup,
@@ -1031,7 +1077,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             AllowSimilarityMatch = _allowSimilarityMatch,
             RangeWarningLines = ParseInt(_rangeWarningLinesText),
         },
-        Encoding = new EncodingSettings { NewFileEncoding = _newFileEncoding, NewFileBom = _newFileBom },
+        Encoding = new EncodingSettings { NewFileEncoding = _newFileEncoding, NewFileBom = _newFileBom, NewFileNewLine = _newFileNewLine },
         Syntax = new SyntaxSettings { Enabled = _syntaxEnabled, ShowLineNumbers = _showLineNumbers },
         Diff = new DiffSettings { ContextLines = ParseInt(_contextLinesText), WordWrap = _wordWrap, ShowWhitespace = _showWhitespace, SideBySide = _sideBySide },
         Safety = new SafetySettings

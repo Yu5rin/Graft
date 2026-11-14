@@ -15,8 +15,9 @@ public sealed class BackupSession
     private readonly string _projectId;
     private readonly string _projectRoot;
     private readonly string _manifestPath;
-    private readonly List<string> _storedPaths = new();
-    private readonly List<string> _createdPaths = new();
+    // 適用が何をしたかの記録。メモリ上のこの一覧がロールバックの元で、同じ内容をバックアップフォルダの
+    // journal.jsonl へも都度追記する（BackupJournal参照）。落ちたあとの起動時ロールバックは後者から戻す。
+    private readonly List<JournalOp> _ops = new();
     private readonly RevisionManifest _beganManifest;
 
     internal BackupSession(
@@ -86,7 +87,7 @@ public sealed class BackupSession
             return GraftResult<bool>.Fail(remapped);
         }
 
-        _storedPaths.Add(normalized.Value);
+        Record(new JournalOp(BackupJournal.Stored, normalized.Value));
         return GraftResult<bool>.Ok(true);
     }
 
@@ -104,7 +105,7 @@ public sealed class BackupSession
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return GraftResult<bool>.Fail(ErrorCode.E401, $"manifest.json の確定に失敗しました: {ExceptionMessages.Describe(ex)}", path: _manifestPath);
+            return GraftResult<bool>.Fail(ErrorCode.E401, $"履歴の記録ファイル（manifest.json）を確定できませんでした: {ExceptionMessages.Describe(ex)}", path: _manifestPath);
         }
 
         return await AppendToIndexAsync(manifest, ct).ConfigureAwait(false);
@@ -159,18 +160,9 @@ public sealed class BackupSession
     /// </summary>
     public async Task<GraftResult<bool>> RollbackAsync(CancellationToken ct = default)
     {
-        var issues = new List<GraftIssue>();
-
-        foreach (var relativePath in _storedPaths)
-        {
-            var restoreResult = await RestoreOneAsync(relativePath, ct).ConfigureAwait(false);
-            issues.AddRange(restoreResult.Issues);
-        }
-
-        foreach (var relativePath in _createdPaths)
-        {
-            DeleteCreatedFile(relativePath, issues);
-        }
+        // 新規作成ファイルの削除 → 改名を戻す → 退避の書き戻し → 作ったフォルダの削除、の順で、
+        // 新しい記録から古い記録へたどる（BackupJournal.RollbackAsync参照）。
+        var issues = await BackupJournal.RollbackAsync(FolderPath, _projectRoot, _ops, ct).ConfigureAwait(false);
 
         if (issues.Any(i => i.Severity == Severity.Error))
         {
@@ -187,7 +179,7 @@ public sealed class BackupSession
             // ファイルは戻せているので失敗にはしない。印だけが in_progress で残り、
             // 起動時の検出が（最新の場合に限り）知らせる。
             issues.Add(GraftIssue.Of(
-                ErrorCode.E401, $"ロールバック済みの印（manifest.json）を書けませんでした: {ExceptionMessages.Describe(ex)}",
+                ErrorCode.E401, $"元に戻した印（manifest.json）を書けませんでした: {ExceptionMessages.Describe(ex)}",
                 path: _manifestPath, severity: Severity.Warning));
         }
 
@@ -195,47 +187,62 @@ public sealed class BackupSession
     }
 
     /// <summary>
-    /// 適用中に新規作成したファイルを記録する（ロールバック時に削除するため）。
+    /// 適用中に新規作成するファイルを記録する（ロールバック時に削除するため）。
     /// 不正な相対パスは黙って無視する（呼び出し側は事前に検証済みである前提）。
+    /// <b>ファイルを書く前</b>に呼ぶこと。記録を先にしておけば、書いた直後に落ちても起動時のロールバックが
+    /// 削除できる。実在しないファイルの削除は何もしないので、書くのに失敗しても害は無い。
     /// </summary>
     public void TrackCreated(string relativePath)
     {
         var normalized = BackupPathUtil.NormalizeRelativePath(relativePath);
         if (normalized.IsSuccess)
         {
-            _createdPaths.Add(normalized.Value);
+            Record(new JournalOp(BackupJournal.Created, normalized.Value));
         }
     }
 
-    private async Task<GraftResult<bool>> RestoreOneAsync(string relativePath, CancellationToken ct)
+    /// <summary>
+    /// 改名（移動）が成功した直後に呼ぶ。ロールバックで移動先を移動元へ戻す。
+    /// 不正な相対パスは黙って無視する。
+    /// </summary>
+    public void TrackRenamed(string fromRelativePath, string toRelativePath)
     {
-        // relativePathは_storedPaths由来で既に正規化済み（StoreAsync参照）。読み取りは
-        // 新旧レイアウトの解決・存在確認・旧レイアウト特有の破損検出（E216）まで含めて
-        // BackupPathUtil.ReadBackupFileAsyncへ委譲する（RevisionRestorerの復元系と共通）。
-        var readResult = await BackupPathUtil.ReadBackupFileAsync(FolderPath, relativePath, ct).ConfigureAwait(false);
-        if (!readResult.IsSuccess)
+        var from = BackupPathUtil.NormalizeRelativePath(fromRelativePath);
+        var to = BackupPathUtil.NormalizeRelativePath(toRelativePath);
+        if (from.IsSuccess && to.IsSuccess)
         {
-            return GraftResult<bool>.Fail(readResult.Issues);
+            Record(new JournalOp(BackupJournal.Renamed, From: from.Value, To: to.Value));
         }
-
-        var targetFull = Path.GetFullPath(Path.Combine(_projectRoot, relativePath));
-        return await SafeFileWriter.ReplaceAsync(targetFull, readResult.Value, ct).ConfigureAwait(false);
     }
 
-    private void DeleteCreatedFile(string relativePath, List<GraftIssue> issues)
+    /// <summary>
+    /// フォルダを作成する。この呼び出しで<b>新しく作られた</b>フォルダ（<paramref name="fullDirectoryPath"/>と、
+    /// それまで無かった親フォルダ）だけを記録し、ロールバックで空のときに限り消す。もともとあったフォルダは
+    /// 記録しない。プロジェクトルートの外側のパスや、相対パスにできないパスは作るだけで記録しない。
+    /// </summary>
+    public void CreateDirectoryTracked(string fullDirectoryPath)
     {
-        var fullPath = Path.GetFullPath(Path.Combine(_projectRoot, relativePath));
-        var ioPath = LongPath.Extended(fullPath);
-        try
+        // まだ無い祖先を、浅い方から深い方へ集める。
+        var missing = new Stack<string>();
+        for (var dir = fullDirectoryPath; !string.IsNullOrEmpty(dir) && !Directory.Exists(LongPath.Extended(dir));
+             dir = Path.GetDirectoryName(dir))
         {
-            if (File.Exists(ioPath))
-            {
-                File.Delete(ioPath);
-            }
+            missing.Push(dir);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+        Directory.CreateDirectory(LongPath.Extended(fullDirectoryPath));
+
+        foreach (var dir in missing)
         {
-            issues.Add(GraftIssue.Of(ErrorCode.E402, $"新規作成ファイルの削除に失敗しました: {ExceptionMessages.Describe(ex)}", path: relativePath));
+            var relative = Path.GetRelativePath(_projectRoot, dir);
+            if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)) continue;
+            Record(new JournalOp(BackupJournal.Mkdir, relative));
         }
+    }
+
+    private void Record(JournalOp op)
+    {
+        _ops.Add(op);
+        BackupJournal.TryAppend(FolderPath, op);
     }
 }

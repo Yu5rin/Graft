@@ -144,7 +144,7 @@ public static class SelfUpdateInstaller
 
         var message = rollbackErrors is null
             ? errorMessage
-            : $"{errorMessage}（さらに巻き戻し中にも失敗しました: {string.Join("; ", rollbackErrors)}。手動での復旧が必要な可能性があります）";
+            : $"{errorMessage}（さらに元に戻す途中にも失敗しました: {string.Join("; ", rollbackErrors)}。手動での復旧が必要な可能性があります）";
         return SelfUpdateInstallOutcome.Fail(message, failedFileName);
     }
 }

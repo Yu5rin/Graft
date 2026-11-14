@@ -1,0 +1,140 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.SettingsPanels.ApplySettingsView"
+             AutomationProperties.Name="適用と履歴設定">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
+    <!--
+        「適用と履歴」タブ: パッチを適用するときの動き（モード・プレビュー・要約）、履歴とバックアップの
+        残し方、新規ファイルの書き方、Git、データの保存場所。旧「一般」と旧「表示・コンテキスト」の
+        「新規ファイル」から集めた。Git連携の設定は自動コミットの1項目だけなので、独立した
+        タブにはせずここへ置く（エディタの変更帯の表示はエディタ側の設定のため移していない）。
+    -->
+    <!--
+        書式（見出し → 項目[ラベル・1行の説明・入力]）は SettingsPanelStyles.axaml のクラス
+        （settingItem/settingLabel/settingHint と narrow/medium/wide の幅3種）を全タブで共有する。
+        入力欄の確定の仕方（ComboBox/CheckBoxは即時、TextBoxはフォーカスを外した時かEnter）は
+        従来から変えていない（「100」を「50」に打ち替える途中の「10」が保存されてしまうのを防ぐため。
+        ViewModelの保存の仕組みには触れていない）。
+        ScrollViewer自身にPaddingを持たせず内側のStackPanelのMarginへ置くのは、AvaloniaのScrollViewerが
+        PaddingをExtentの外側に適用して末尾要素が見切れる（実機で確認済み）ため。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,8,16,16">
+            <TextBlock Text="適用" Classes="sectionHeading first" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="適用モード" Classes="settingLabel" />
+                    <TextBlock Text="一部の変更が当てはまらなかったときに、当てはまった分だけ書き込むか、全体をやめるかを選びます。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="medium" ItemsSource="{Binding ApplyModeOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}" SelectedValue="{Binding SelectedApplyMode}"
+                          AutomationProperties.Name="適用モード"
+                          views:HelpTip.Minimal="{Binding SelectedApplyMode, StringFormat='適用モード: {0}'}"
+                          views:HelpTip.Standard="パッチの一部が当てはまらなかったときの扱いを選びます。既定の「部分適用可」は、当てはまった変更だけを書き込みます。「全件適用」は1件でも失敗すると何も書き換えません。"
+                          views:HelpTip.Detailed="AIの回答に含まれる変更のうち一部だけが実際のコードに当てはまらなかった場合の挙動を選びます。「部分適用可」（既定）は、当てはまった変更だけを書き込み、当てはまらなかった変更は失敗として一覧に残します。「全件適用（All or Nothing）」は、1件でも当てはまらない変更があれば、その回答に含まれる変更を1つも書き込まずに中止します（中途半端な状態になるのを防ぎます）。迷ったら既定のままで問題ありません。" />
+            </Grid>
+            <CheckBox Classes="settingRow hinted" Content="適用前に確認画面を表示する" IsChecked="{Binding ShowPreview}"
+                      AutomationProperties.Name="適用前に確認画面を表示する"
+                      views:HelpTip.Standard="「適用」を押したときに、書き込む前に差分を確認する画面を挟みます。既定はオンです。"
+                      views:HelpTip.Detailed="オンにすると（既定）、接ぎ木パネルの「適用」を押したときにファイルへ書き込む前に、変更内容の差分を確認できる確認画面が必ず挟まります。そこで「適用」を押すまでファイルは書き換わりません。オフにすると、適用前の確認画面は出ず、代わりに「N件を適用します。よろしいですか？」という確認のダイアログだけが出て、「はい」を押すと書き込まれます（確認なしに即座に書き込まれることはありません）。バックアップは無効にしない限り自動で作られるため、どちらでもいつでも履歴から元に戻せますが、書き込む前に差分を見て確認したい場合はオンのままにしておくことをおすすめします。" />
+            <TextBlock Text="「適用」を押すと、書き込む前に変更内容を確認する画面を挟みます。" Classes="settingHint indented" />
+            <CheckBox Classes="settingRow hinted" Content="要約（summary）の入力を必須にする" IsChecked="{Binding RequireSummary}"
+                      AutomationProperties.Name="パッチメタデータのsummaryを必須にする"
+                      views:HelpTip.Standard="AIの回答にひとこと要約（summary）が無いパッチを適用するとき、要約の入力を求めるかどうかです。入力せずに閉じると適用を中止します。既定はオンです。"
+                      views:HelpTip.Detailed="AIに渡す依頼文のテンプレートは、各変更の先頭に「summary」というひとこと要約を書くよう指示しています。オンにすると（既定）、summaryが無いパッチを適用するときに「要約を入力」の画面が出て、入力しないまま閉じると適用を中止します（履歴に残る見出しが空にならないようにするためです）。オフにすると、summaryが無くてもそのまま適用します。summaryが書かれているパッチでは、この設定に関わらず何も聞かれません。" />
+            <TextBlock Text="AIの回答に要約が付いていないとき、適用の前に入力を求めます。" Classes="settingHint indented" />
+            <TextBlock Text="履歴とバックアップ" Classes="sectionHeading" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="履歴の最大保持数（0で無制限）" Classes="settingLabel" />
+                    <TextBlock Text="適用のたびに履歴が1件（r3 のような番号）残ります。超えた分は古いものから消えます。" Classes="settingHint" />
+                </StackPanel>
+                <TextBox Grid.Column="1" Classes="narrow" Text="{Binding MaxRevisionsText, UpdateSourceTrigger=LostFocus}"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="履歴の最大保持数"
+                         views:HelpTip.Minimal="{Binding MaxRevisionsText, StringFormat='履歴の最大保持数: {0}'}"
+                         views:HelpTip.Standard="履歴（バックアップ）を何件まで残すかです。既定は100件で、超えると古いものから自動で消えます。"
+                         views:HelpTip.Detailed="サイドバーの「履歴」に残しておくバックアップの最大件数です。既定は100件で、これを超えると一番古い履歴から自動的に整理されます（「古い履歴の整理にごみ箱を使う」がオンなら、消える前にごみ箱へ移動します）。0にすると件数の上限を無くせますが、プロジェクトが大きい・変更頻度が高いとディスクを圧迫し続けるおそれがあるため、通常は既定のままにしておくことをおすすめします。" />
+            </Grid>
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="バックアップの合計上限（MB、0で無制限）" Classes="settingLabel" />
+                    <TextBlock Text="バックアップ全体が使うディスク容量の上限です。超えると古いものから消えます。" Classes="settingHint" />
+                </StackPanel>
+                <TextBox Grid.Column="1" Classes="narrow" Text="{Binding MaxTotalMBText, UpdateSourceTrigger=LostFocus}"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="バックアップ合計上限"
+                         views:HelpTip.Minimal="{Binding MaxTotalMBText, StringFormat='バックアップ合計上限（MB）: {0}'}"
+                         views:HelpTip.Standard="バックアップ全体で使ってよいディスク容量の上限（MB）です。既定は500MBです。"
+                         views:HelpTip.Detailed="このプロジェクトのバックアップが合計でどれだけディスク容量を使ってよいかの上限です。既定は500MBで、超えそうになると古い履歴から自動的に整理されます（件数の上限と同時に働きます）。0にすると容量の上限を無くせますが、その場合は上の履歴の保持数の上限だけが歯止めになります。両方0にすると、ディスクが尽きるまで際限なくバックアップが増え続けるため注意してください。" />
+            </Grid>
+            <CheckBox Classes="settingRow hinted" Content="古い履歴の整理にごみ箱を使う" IsChecked="{Binding UseRecycleBin}"
+                      AutomationProperties.Name="古い履歴の整理にごみ箱を使う"
+                      views:HelpTip.Standard="古いバックアップを削除するとき、完全に消さずごみ箱へ送ります。既定はオンです。"
+                      views:HelpTip.Detailed="上の上限を超えて古いバックアップを整理するとき、オンにしておくと（既定）OSのごみ箱へ移動するだけになり、必要になったらごみ箱から拾い直せます。オフにすると、整理されたバックアップはその場で完全に削除され、二度と取り戻せません。ディスク容量が厳しい場合を除き、オンのままにしておくことを強くおすすめします。" />
+            <TextBlock Text="古い履歴を整理するとき、完全に消さずにごみ箱へ送ります。" Classes="settingHint indented" />
+            <TextBlock Text="新規ファイル" Classes="sectionHeading" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="文字コード" Classes="settingLabel" />
+                    <TextBlock Text="適用で新しく作るファイルの文字コードです（例: utf-8）。" Classes="settingHint" />
+                </StackPanel>
+                <TextBox Grid.Column="1" Classes="narrow" Text="{Binding NewFileEncoding, UpdateSourceTrigger=LostFocus}"
+                         views:TextBoxCommitBehavior.CommitOnEnter="True"
+                         AutomationProperties.Name="新規ファイルのエンコーディング"
+                         views:HelpTip.Minimal="{Binding NewFileEncoding, StringFormat='エンコーディング: {0}'}"
+                         views:HelpTip.Standard="パッチの適用でこれまで存在しなかったファイルを新規作成するとき使う文字コードです。既定はutf-8です。"
+                         views:HelpTip.Detailed="AIの回答に含まれる変更が、プロジェクト内にまだ存在しないファイルの新規作成だった場合に使う文字コードです。既定は「utf-8」です。既存ファイルを編集する場合は、そのファイル自身の文字コードがそのまま使われるため、この設定は影響しません。特別な事情がない限り既定のままで問題ありません。" />
+            </Grid>
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="改行コード" Classes="settingLabel" />
+                    <TextBlock Text="新しく作るファイルの改行です。「自動」は、同じフォルダの既存ファイルに合わせます。" Classes="settingHint" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" Classes="wide" ItemsSource="{Binding NewFileNewLineOptions}" SelectedValueBinding="{Binding Value}"
+                          ItemTemplate="{StaticResource LabelItemTemplate}"
+                          SelectedValue="{Binding NewFileNewLine}"
+                          AutomationProperties.Name="新規ファイルの改行コード"
+                          views:HelpTip.Minimal="{Binding NewFileNewLine, StringFormat='改行コード: {0}'}"
+                          views:HelpTip.Standard="新規作成するファイルの改行コードです。既定の「自動」は、同じフォルダ（無ければプロジェクト）の既存ファイルに合わせます。"
+                          views:HelpTip.Detailed="パッチの適用で新しく作るファイル（と、改行が1つも無い既存ファイルへの追記）の改行コードです。既定の「自動」では、作る場所と同じフォルダにある既存のテキストファイル（数個）で多い方の改行に合わせ、同じフォルダに無ければ親のフォルダをプロジェクトのルートまで順に見ます。どこにも手がかりが無いときはOSの既定（Windowsは CRLF、それ以外は LF）にします。「CRLF」「LF」を選ぶと、周りのファイルに関わらず常にその改行で作ります。既存ファイルを編集する場合は、そのファイル自身の改行がそのまま使われるため、この設定は影響しません。" />
+            </Grid>
+            <CheckBox Classes="settingRow hinted" Content="BOMを付与する" IsChecked="{Binding NewFileBom}"
+                      AutomationProperties.Name="新規ファイルにBOMを付与する"
+                      views:HelpTip.Standard="新規作成するファイルの先頭に、UTF-8であることを示す目印（BOM）を付けます。既定はオフです。"
+                      views:HelpTip.Detailed="新規作成するファイルの先頭に、BOM（バイト順マーク。そのファイルがUTF-8であることを示す数バイトの目印）を付けるかどうかです。既定はオフです。一部のWindows向けツールはBOMがあることを前提にする場合がありますが、多くのプログラミング言語・ツールではBOMが無い方が望ましいため、特別な事情がなければオフのままで問題ありません。" />
+            <TextBlock Text="UTF-8 の目印（BOM）をファイルの先頭に付けます。通常はオフで構いません。" Classes="settingHint indented" />
+            <TextBlock Text="Git" Classes="sectionHeading" />
+            <CheckBox Classes="settingRow hinted" Content="適用後に自動コミットする" IsChecked="{Binding AutoCommit}"
+                      AutomationProperties.Name="適用後に自動コミットする"
+                      views:HelpTip.Standard="「適用」が成功するたびに、そのプロジェクトのGitへ自動でコミットします。既定はオフです。"
+                      views:HelpTip.Detailed="オンにすると、パッチの「適用」が成功するたびに、対象プロジェクトがGitリポジトリであれば自動的にコミットが作られます。Graftのバックアップとは別に、Git側の履歴としても変更を追いたい場合に使います。既定はオフで、コミットは自分の好きなタイミングで手動で行う運用になります。プロジェクトがGitリポジトリでない場合、この設定はオンにしても何も起きません。自動コミットはあくまでGit側の記録用で、誤ってコミットしても元のバックアップ（履歴）から復元できます。" />
+            <TextBlock Text="適用に成功するたびに、そのプロジェクトの Git へ自動でコミットします。" Classes="settingHint indented" />
+            <TextBlock Text="データの保存場所" Classes="sectionHeading" />
+            <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                <StackPanel Classes="settingText">
+                    <TextBlock Text="現在の保存先" Classes="settingLabel" />
+                    <TextBlock Text="設定・プロジェクトの一覧・履歴・ログを置く場所です。" Classes="settingHint" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding DataDirectoryModeLabel}" VerticalAlignment="Center"
+                           AutomationProperties.Name="現在のデータ保存先モード" />
+            </Grid>
+            <TextBlock Text="{Binding DataDirectoryPath}" Classes="fieldHint" TextWrapping="Wrap"
+                       FontFamily="{DynamicResource CodeFontFamily}"
+                       AutomationProperties.Name="現在のデータ保存先のパス" />
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <Button Content="{Binding DataDirectoryActionLabel}" Command="{Binding MigrateDataDirectoryCommand}"
+                        AutomationProperties.Name="データ保存先を切り替える"
+                        views:HelpTip.Standard="settings.json・プロジェクト定義・バックアップ・ログを新しい場所へコピーします。切り替えの反映には再起動が必要です。"
+                        views:HelpTip.Detailed="「ポータブル」（実行ファイルのフォルダ直下の data フォルダ）と「ユーザーフォルダ」（Windowsなら%APPDATA%\Graft）を切り替えます。押すと今のデータ一式を新しい場所へコピーし、コピーが完了して内容を確認できてから切り替え用の設定を書き換えます。元の場所のデータは、再起動したときに、新しい場所へ取り込み直して内容を確かめたうえで削除されます。この場でファイルの書き込み先が切り替わるわけではなく、実際に新しい場所を使い始めるにはGraftの再起動が必要です。ユーザーフォルダを選んだ場合は、次の起動で自動的に data フォルダへ戻ることはありません。実行ファイルのフォルダに書き込めない環境では、切り替え用の設定ファイル自体を保存できず失敗することがあります。" />
+                <TextBlock Text="この変更を使うには再起動してください。" Margin="12,0,0,0" VerticalAlignment="Center"
+                           Foreground="{DynamicResource StateWarn}"
+                           IsVisible="{Binding IsDataDirectoryMigrationPending}"
+                           AutomationProperties.Name="データ保存先の切り替えには再起動が必要" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

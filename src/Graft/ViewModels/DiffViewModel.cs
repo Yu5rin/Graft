@@ -246,6 +246,8 @@ public sealed partial class DiffViewModel : ObservableObject
         _flatFull = null;
         _expansions.Clear();
         Lines.Clear();
+        MaxLineCells = 0;
+        HorizontalOffset = 0;
 
         foreach (var edit in InlineEdits) edit.Dispose();
         InlineEdits.Clear();

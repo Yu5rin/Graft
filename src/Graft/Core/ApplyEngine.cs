@@ -93,6 +93,12 @@ public sealed partial class ApplyEngine
             return GraftResult<RevisionManifest>.Fail(noneIssues);
         }
 
+        // チェックの組み合わせが成り立たない（RENAMEを外して移動先への変更だけ残した、FULLを外して
+        // それを前提にしたSRだけ残した、等）なら、書き込みを始める前に止める
+        // （ApplyEngine.Verification.cs参照）。
+        var selectionIssues = CheckSelection(plan.Plans);
+        if (selectionIssues.Count > 0) return GraftResult<RevisionManifest>.Fail(selectionIssues);
+
         if (ctx.Settings.ApplyMode != "partial")
         {
             // 「全件適用（All or Nothing）」: 選択状態を問わず、パッチ全体に1件でも適用できない
@@ -125,18 +131,39 @@ public sealed partial class ApplyEngine
         if (!began.IsSuccess) return GraftResult<RevisionManifest>.Fail(began.Issues);
         var session = began.Value;
 
-        var backedUp = await BackupTargetsAsync(session, plan.Plans, ctx, ct).ConfigureAwait(false);
-        if (!backedUp.IsSuccess)
+        // 退避から書き込みまでの間に、IOException・UnauthorizedAccessException以外の例外（想定外の例外や
+        // 取り消し）が出ても、必ずロールバックを試みる。以前はこの2つ以外が出るとRollbackAsyncを通らずに
+        // 呼び出し元へ抜け、一部のファイルだけが書き換わったまま、manifestもin_progressで残っていた。
+        GraftResult<bool> backedUp;
+        GraftResult<List<RevisionEntry>> executed;
+        try
         {
-            await session.RollbackAsync(ct).ConfigureAwait(false);
-            return GraftResult<RevisionManifest>.Fail(backedUp.Issues);
+            backedUp = await BackupTargetsAsync(session, plan.Plans, ctx, ct).ConfigureAwait(false);
+            if (!backedUp.IsSuccess)
+            {
+                return await RollbackAndFailAsync(session, backedUp.Issues).ConfigureAwait(false);
+            }
+
+            executed = await ExecuteAsync(plan.Plans, ctx, session, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 取り消された場合もファイルは元へ戻してから伝える。ここで使うトークンは、取り消し済みの
+            // ct ではなく None にする（ct を使うと、戻す処理自体が最初に取り消されて何も戻らない）。
+            await session.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return await RollbackAndFailAsync(session, new[]
+            {
+                GraftIssue.Of(ErrorCode.E402, $"適用中に想定外のエラーが起きました: {ExceptionMessages.Describe(ex)}"),
+            }).ConfigureAwait(false);
         }
 
-        var executed = await ExecuteAsync(plan.Plans, ctx, session, ct).ConfigureAwait(false);
         if (!executed.IsSuccess)
         {
-            await session.RollbackAsync(ct).ConfigureAwait(false);
-            return GraftResult<RevisionManifest>.Fail(executed.Issues);
+            return await RollbackAndFailAsync(session, executed.Issues).ConfigureAwait(false);
         }
 
         // 実機不具合対応（履歴の「Nファイル」が実際の変更件数と食い違う）:
@@ -163,7 +190,12 @@ public sealed partial class ApplyEngine
         };
         var finalManifest = initial with { Status = RevisionStatus.Success, Entries = executed.Value, Stats = appliedStats };
         var completed = await session.CompleteAsync(finalManifest, ct).ConfigureAwait(false);
-        if (!completed.IsSuccess) return GraftResult<RevisionManifest>.Fail(completed.Issues);
+        if (!completed.IsSuccess)
+        {
+            // manifestを確定できなかった。ファイルだけが書き換わって印がin_progressのまま残るより、
+            // この場で元へ戻して失敗として伝える。
+            return await RollbackAndFailAsync(session, completed.Issues).ConfigureAwait(false);
+        }
 
         // 不具合1対応: 7.4の世代管理（RevisionStore.EnforceRetentionAsync）は実装済みだったが
         // 呼び出し元が存在せず、設定画面の「最大保持リビジョン数」「バックアップ合計上限」が
@@ -184,6 +216,24 @@ public sealed partial class ApplyEngine
         // ため、あわせて合流させる。適用が成功したこと自体には影響しない付随情報。
         var mergedIssues = dupIssues.Issues.Concat(executed.Issues).Concat(completed.Issues).Concat(retention.Issues).ToList();
         return GraftResult<RevisionManifest>.Ok(finalManifest, mergedIssues);
+    }
+
+    /// <summary>
+    /// ロールバックして失敗を返す。ロールバック自体が失敗したとき（戻せなかったファイルがあるとき）は、
+    /// その旨と戻せなかった理由を失敗に加える。以前は戻す処理の結果を捨てていたため、一部のファイルが
+    /// 書き換わったままなのに、利用者へは元の失敗の理由だけが伝わり、状態が中途半端なことに気づけなかった。
+    /// この場合manifestはin_progressのまま残り、次回起動時の検出（E403）がロールバックを提案する。
+    /// </summary>
+    private static async Task<GraftResult<RevisionManifest>> RollbackAndFailAsync(
+        BackupSession session, IReadOnlyList<GraftIssue> cause)
+    {
+        var rollback = await session.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+        if (rollback.IsSuccess) return GraftResult<RevisionManifest>.Fail(cause);
+
+        var notice = GraftIssue.Of(ErrorCode.E403,
+            "適用の失敗後、元の状態へ戻す処理にも失敗しました。一部のファイルが書き換わったままになっている可能性があります。" +
+            "次回の起動時に、バックアップから戻すかどうかを確認します。履歴からこの適用を選んで取り消すこともできます");
+        return GraftResult<RevisionManifest>.Fail(cause.Concat(rollback.Issues).Append(notice).ToList());
     }
 
     // ------------------------------------------------------------------
@@ -262,10 +312,10 @@ public sealed partial class ApplyEngine
         var entries = new List<RevisionEntry>();
         var eligible = plans.Where(p => p.IsSelected && p.CanApply).ToList();
 
-        var mkdirResult = ExecuteMkdirs(eligible, ctx, entries);
+        var mkdirResult = ExecuteMkdirs(eligible, ctx, session, entries);
         if (!mkdirResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(mkdirResult.Issues);
 
-        var renameResult = ExecuteRenames(eligible, ctx, entries);
+        var renameResult = ExecuteRenames(eligible, ctx, session, entries);
         if (!renameResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(renameResult.Issues);
 
         var textResult = await ExecuteTextFilesAsync(eligible, ctx, session, entries, ct).ConfigureAwait(false);
@@ -274,10 +324,33 @@ public sealed partial class ApplyEngine
         var deleteResult = ExecuteDeletes(eligible, ctx, entries);
         if (!deleteResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(deleteResult.Issues);
 
+        await FillRenameHashesAsync(entries, ctx, ct).ConfigureAwait(false);
+
         return GraftResult<List<RevisionEntry>>.Ok(entries, textResult.Issues);
     }
 
-    private static GraftResult<bool> ExecuteMkdirs(List<BlockPlan> eligible, ApplyContext ctx, List<RevisionEntry> entries)
+    /// <summary>
+    /// renameのentryに、適用が終わった時点の移動先の内容のハッシュ（HashAfter）を記録する。取り消しの前に
+    /// 「適用後に移動先を手で編集していないか」を確かめるため（RevisionRestorer.CheckHashesAsync参照）。
+    /// 以前はrenameにHashAfterが無く、改名しただけのリビジョンは適用後の変更を検出できなかった。
+    /// 移動先を同じパッチで編集したときも、最後に読み直すので、編集後の内容のハッシュになる
+    /// （modifyのentryのHashAfterと一致する）。読めない（バイナリ等）ときは記録せず、取り消し時は
+    /// 移動元のバックアップとの比較に任せる。
+    /// </summary>
+    private static async Task FillRenameHashesAsync(List<RevisionEntry> entries, ApplyContext ctx, CancellationToken ct)
+    {
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (entries[i].Operation != EntryOperation.Rename) continue;
+            var resolved = ctx.Guard.Resolve(entries[i].Path);
+            if (!resolved.IsSuccess) continue;
+            var read = await FileTextIO.ReadAsync(resolved.Value, ct).ConfigureAwait(false);
+            if (read.IsSuccess) entries[i] = entries[i] with { HashAfter = FileTextIO.ComputeHash(read.Value.Text) };
+        }
+    }
+
+    private static GraftResult<bool> ExecuteMkdirs(
+        List<BlockPlan> eligible, ApplyContext ctx, BackupSession session, List<RevisionEntry> entries)
     {
         foreach (var p in eligible.Where(p => p.Operation == EntryOperation.Mkdir))
         {
@@ -286,7 +359,9 @@ public sealed partial class ApplyEngine
 
             try
             {
-                Directory.CreateDirectory(LongPath.Extended(resolved.Value));
+                // この適用で新しく作ったフォルダだけを記録する。失敗してロールバックするとき、
+                // 空のまま残らないよう消すため（BackupSession.CreateDirectoryTracked参照）。
+                session.CreateDirectoryTracked(resolved.Value);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -298,7 +373,8 @@ public sealed partial class ApplyEngine
         return GraftResult<bool>.Ok(true);
     }
 
-    private static GraftResult<bool> ExecuteRenames(List<BlockPlan> eligible, ApplyContext ctx, List<RevisionEntry> entries)
+    private static GraftResult<bool> ExecuteRenames(
+        List<BlockPlan> eligible, ApplyContext ctx, BackupSession session, List<RevisionEntry> entries)
     {
         foreach (var p in eligible.Where(p => p.Operation == EntryOperation.Rename))
         {
@@ -308,11 +384,22 @@ public sealed partial class ApplyEngine
             if (!fromResolved.IsSuccess) return GraftResult<bool>.Fail(fromResolved.Issues);
             if (!toResolved.IsSuccess) return GraftResult<bool>.Fail(toResolved.Issues);
 
+            // ドライラン後に移動先へファイルができた場合にも、上書きで失わないよう止める。
+            if (RenameTarget.IsOccupied(fromResolved.Value, toResolved.Value))
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E220, $"移動先: {rename.ToPath}", path: rename.ToPath);
+            }
+
             try
             {
                 var toDir = Path.GetDirectoryName(toResolved.Value);
-                if (!string.IsNullOrEmpty(toDir)) Directory.CreateDirectory(LongPath.Extended(toDir));
-                File.Move(LongPath.Extended(fromResolved.Value), LongPath.Extended(toResolved.Value), overwrite: true);
+                if (!string.IsNullOrEmpty(toDir)) session.CreateDirectoryTracked(toDir);
+                // overwrite: true にしない。上の判定をすり抜けて移動先に実体があっても、
+                // 黙って上書きせず IOException（→E402）で止めてロールバックへ回す。
+                File.Move(LongPath.Extended(fromResolved.Value), LongPath.Extended(toResolved.Value));
+                // 移動に成功した直後に記録する。失敗した移動を記録すると、ロールバックが利用者の
+                // 既存のファイルを「改名で作られたもの」と取り違えて消しうる（BackupJournal参照）。
+                session.TrackRenamed(rename.FromPath, rename.ToPath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -362,9 +449,15 @@ public sealed partial class ApplyEngine
             // 確実にこのファイルを削除できるようにしている。
 
             var stage = plansForFile.Max(p => p.Stage);
+            // この適用でRENAMEの移動先になったファイルを編集したなら、変更前の内容は移動元のバックアップに
+            // ある（移動先は適用前には存在しなかった）。entryに移動元を持たせ、復元の可否の判定と
+            // 取り消しがそれをたどれるようにする（RevisionEntryLinks参照）。
+            var renamedFrom = entries.FirstOrDefault(e =>
+                e.Operation == EntryOperation.Rename && string.Equals(e.Path, group.Key, StringComparison.OrdinalIgnoreCase))?.RenamedFrom;
             entries.Add(new RevisionEntry
             {
                 Path = group.Key, Operation = existedBefore ? EntryOperation.Modify : EntryOperation.Create,
+                RenamedFrom = renamedFrom,
                 Desc = plansForFile[0].Description, MatchStage = (int)stage, HashBefore = hashBefore, HashAfter = hashAfter,
                 // 8.7: 差分画面で利用者がSEARCH部を書き換えたペアの数（RevisionEntry.InlineEditedPairs参照）。
                 InlineEditedPairs = plansForFile.Count(p => p.Pair is { IsSearchEdited: true }),
@@ -403,20 +496,41 @@ public sealed partial class ApplyEngine
             originalWithTerminators = SplitLinesWithTerminators(read.Value.Text);
             originalLines = originalWithTerminators.Select(l => l.Text).ToList();
             shape = read.Value.Shape;
+            // 改行が1つも無い既存ファイルは、ドライランが新規ファイルと同じ決め方で選んだ改行コードを使う
+            // （既定の\r\nのままだと、LFのプロジェクトにCRLFが混ざる）。
+            if (!shape.NewLineKnown && plansForFile[0].Shape is { } plannedShape)
+                shape = shape with { NewLine = plannedShape.NewLine, NewLineKnown = true };
             hashBefore = FileTextIO.ComputeHash(read.Value.Text);
             originalTextForVerify = read.Value.Text;
         }
-        else
+        var seen = new HashSet<PatchBlock>(ReferenceEqualityComparer.Instance);
+        var blocks = plansForFile.Select(p => p.Block).Where(seen.Add).ToList();
+        // SR形式は1ペア=1件のBlockPlanになる。同一ブロックの別ペアが選択されていても、このファイル
+        // グループに含まれないペア（＝ユーザーが選択を外した成功ペア）は再解決の対象から除く。
+        var includedPairs = new HashSet<SearchReplacePair>(
+            plansForFile.Where(p => p.Pair is not null).Select(p => p.Pair!), ReferenceEqualityComparer.Instance);
+        var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher, includedPairs);
+
+        // 再解決の結果がドライラン時のプランと一致しているかを確かめる。以前はここで resolution.Units の
+        // 成否を見ておらず、ドライランの後にファイルが変わっても、選択の組み合わせが成り立たなくても、
+        // 何も書き込まないまま（または空のファイルを作って）「成功」として記録していた
+        // （ApplyEngine.Verification.cs参照）。まだこのファイルには書き込んでいないので、中止すれば
+        // 呼び出し元（ApplyAsync）が、ここまでに書いた他のファイルをロールバックする。
+        var mismatch = VerifyResolutionMatchesPlans(path, plansForFile, resolution, existed);
+        if (mismatch is not null) return GraftResult<(bool, string?, string)>.Fail(mismatch.Issues);
+
+        if (!existed)
         {
             // 4.5: FULL形式でファイルが存在しない場合は親フォルダごと作成する。
             // 同名のファイルが既にある等で作成できない場合、例外を投げず失敗として返す
             // （附録A: ユーザー操作起因の失敗はGraftResultで扱う）。
+            // 上の突き合わせより後に置く: 食い違いで中止するときに、空の親フォルダだけを残さないため。
             var parentDir = Path.GetDirectoryName(fullPath);
             if (!string.IsNullOrEmpty(parentDir))
             {
                 try
                 {
-                    Directory.CreateDirectory(LongPath.Extended(parentDir));
+                    session.CreateDirectoryTracked(parentDir);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
                 {
@@ -425,31 +539,25 @@ public sealed partial class ApplyEngine
                 }
             }
         }
-
-        var seen = new HashSet<PatchBlock>(ReferenceEqualityComparer.Instance);
-        var blocks = plansForFile.Select(p => p.Block).Where(seen.Add).ToList();
-        // SR形式は1ペア=1件のBlockPlanになる。同一ブロックの別ペアが選択されていても、このファイル
-        // グループに含まれないペア（＝ユーザーが選択を外した成功ペア）は再解決の対象から除く。
-        var includedPairs = new HashSet<SearchReplacePair>(
-            plansForFile.Where(p => p.Pair is not null).Select(p => p.Pair!), ReferenceEqualityComparer.Instance);
-        var resolution = BlockResolver.ResolveFile(originalLines, blocks, _matcher, includedPairs);
         var finalText = ComposeFinalText(resolution.FinalLines, originalWithTerminators, shape);
         // テスト専用フック（DebugCorruptFinalTextForTestsのコメント参照）。本番では常にnullのため
         // 素通りする。
         if (DebugCorruptFinalTextForTests is not null) finalText = DebugCorruptFinalTextForTests(finalText);
 
+        // 修正6: TrackCreatedは書き込みの<b>前</b>に呼ぶ（以前は「書き込みが成功した直後」だった）。
+        // この後のバイト検証（VerifyWrittenContentMatchesPatch）で不一致を検出して失敗を返す経路が
+        // あるが、その時点で既にファイルは物理的に作成済みのため、記録を後回しにすると
+        // ロールバック（BackupSession.RollbackAsync）がこの新規作成ファイルを削除対象として
+        // 認識できず、壊れた内容のファイルが削除されずに残ってしまう
+        // （ExecuteTextFilesAsyncの呼び出し元コメントも参照）。さらに、書き込みの直後にアプリが落ちた場合に
+        // 起動時のロールバックが削除できるよう、ディスク上の記録（journal.jsonl）にも先に残す必要がある。
+        // 書き込みが失敗してファイルができなかった場合、実在しないファイルの削除は何もしないので害は無い。
+        if (!existed) session.TrackCreated(path);
+
         var clearedReadOnly = ClearReadOnlyIfNeeded(fullPath, ctx);
         var written = await FileTextIO.WriteAsync(fullPath, finalText, shape, ct).ConfigureAwait(false);
         RestoreReadOnlyIfNeeded(fullPath, clearedReadOnly);
         if (!written.IsSuccess) return GraftResult<(bool, string?, string)>.Fail(written.Issues);
-
-        // 修正6: TrackCreatedは「ディスクへの書き込みが成功した直後」に呼ぶ。この後の
-        // バイト検証（VerifyWrittenContentMatchesPatch）で不一致を検出して失敗を返す経路が
-        // あるが、その時点で既にファイルは物理的に作成済みのため、記録を後回しにすると
-        // ロールバック（BackupSession.RollbackAsync）がこの新規作成ファイルを削除対象として
-        // 認識できず、壊れた内容のファイルが削除されずに残ってしまう
-        // （ExecuteTextFilesAsyncの呼び出し元コメントも参照）。
-        if (!existed) session.TrackCreated(path);
 
         // 実機不具合対応: hashAfterはメモリ上のfinalTextからではなく、書き込み直後にディスクを
         // 読み直した実測値から計算する。SafeFileWriterは既にバイト列レベルでの検証を済ませて

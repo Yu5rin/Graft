@@ -31,37 +31,39 @@ public static class ShortcutCatalog
     {
         // ============== 接ぎ木の操作 ==============
         new ShortcutEntry("接ぎ木の操作", "Ctrl+Shift+V",
-            "クリップボードのAIの回答を読み取って解析します。接ぎ木の入口です。", "PasteAndParse"),
+            "クリップボードのAIの回答を読み取って解析します（ツールバーの「貼り付けて解析」）。接ぎ木の入口です。", "PasteAndParse"),
         new ShortcutEntry("接ぎ木の操作", "Ctrl+Enter",
-            "解析した変更を実際のファイルへ適用します。", "Apply"),
+            "チェックの付いた変更を実際のファイルへ適用します（接ぎ木パネルの「適用」）。", "Apply"),
         new ShortcutEntry("接ぎ木の操作", "Ctrl+Alt+Z",
-            "直前に適用したリビジョンを元に戻します。", "Undo"),
+            "直前に適用した変更を取り消します（画面下の通知の「元に戻す」と同じです）。", "Undo"),
         new ShortcutEntry("接ぎ木の操作", "Ctrl+J",
             "接ぎ木パネル（下部）を開閉します。", "ToggleGraftPanel"),
         new ShortcutEntry("接ぎ木の操作", "Ctrl+Shift+C",
-            "AIへの依頼文（プロンプトテンプレート）をコピーします。", "CopyPrompt"),
+            "AIへの依頼文（依頼文テンプレート）をコピーします。OS全体で効くキーなので、他のアプリを操作中でも使えます（設定の「依頼文コピーのホットキー」で変更・無効化できます。空にするとGraftの画面内だけで効きます）。", "CopyPrompt"),
         new ShortcutEntry("接ぎ木の操作", "Ctrl+Alt+1〜9",
             "登録したプロジェクトを番号で切り替えます。"),
         new ShortcutEntry("接ぎ木の操作", "Space",
             "（ブロック一覧にフォーカス中）選択したブロックの適用チェックを切り替えます。"),
+        // Escでは解析結果を破棄しない（絞り込み欄やポップアップを閉じようとしただけで消えるため）。
+        // 破棄は接ぎ木パネルの「破棄」ボタンとコマンドパレットから行う（数秒だけ「元に戻す」が出る）。
         new ShortcutEntry("接ぎ木の操作", "Escape",
-            "解析中のパッチを破棄し、ブロック一覧を空にします。", "Discard"),
+            "いちばん手前のもの（開いているメニュー・絞り込み欄の文字）を1つ閉じます。解析結果は破棄しません。"),
 
         // ============== ファイル・エディタ ==============
         new ShortcutEntry("ファイル・エディタ", "Ctrl+P",
             "ファイル名であいまい検索して開きます（クイックオープン）。", "QuickOpen"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+S",
-            "現在のタブを保存します。"),
+            "現在のタブを保存します。", "Save"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+Shift+S",
-            "開いているタブをすべて保存します。"),
+            "開いているタブをすべて保存します。", "SaveAll"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+W",
-            "現在のタブを閉じます（未保存なら保存確認あり）。"),
+            "現在のタブを閉じます（未保存なら保存確認あり）。", "CloseTab"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+Shift+T",
             "直前に閉じたタブを、カーソル位置ごと開き直します（最大10件、新しい順）。", "ReopenLastClosedTab"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+Tab",
             "直近使用した順にタブを切り替えます。"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+G",
-            "指定した行番号へ移動します。"),
+            "指定した行番号へ移動します。", "GoToLine"),
         new ShortcutEntry("ファイル・エディタ", "Ctrl+/",
             "（ファイル編集中）現在行のコメントを切り替えます。"),
         new ShortcutEntry("ファイル・エディタ", "Alt+↑ / Alt+↓",
@@ -85,11 +87,23 @@ public static class ShortcutCatalog
         new ShortcutEntry("ファイル・エディタ", "Ctrl+Shift+[",
             "カーソル位置の折りたたみ範囲を、内側も含めて再帰的に畳みます。", "FoldRecursive"),
 
+        // ============== エクスプローラ ==============
+        // ExplorerView.axaml の UserControl.KeyBindings（エクスプローラにフォーカスがあるときだけ効く）。
+        // 以前は一覧に載っておらず、右クリックメニューの見出しにだけ「(F2)」のように書かれていた。
+        new ShortcutEntry("エクスプローラ", "Enter",
+            "（エクスプローラにフォーカス中）選択したファイルを開きます。フォルダなら開閉します。", "OpenNode"),
+        new ShortcutEntry("エクスプローラ", "F2",
+            "（エクスプローラにフォーカス中）選択したファイル・フォルダの名前を変更します。", "RenameNode"),
+        new ShortcutEntry("エクスプローラ", "Delete",
+            "（エクスプローラにフォーカス中）選択したファイル・フォルダを削除します（ごみ箱へ）。", "DeleteNode"),
+        new ShortcutEntry("エクスプローラ", "Ctrl+Z",
+            "（エクスプローラにフォーカス中）直前の削除を元に戻します。", "UndoDelete"),
+
         // ============== 検索 ==============
         new ShortcutEntry("検索", "Ctrl+F",
-            "開いているファイル内を検索します。"),
+            "開いているファイル内を検索します。", "Find"),
         new ShortcutEntry("検索", "Ctrl+H",
-            "開いているファイル内を置換します。"),
+            "開いているファイル内を置換します。", "Replace"),
         new ShortcutEntry("検索", "Ctrl+Shift+F",
             "プロジェクト全体を横断検索します。", "SelectSearch"),
 

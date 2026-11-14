@@ -34,7 +34,7 @@
                      Background="{DynamicResource BgSurface}"
                      AutomationProperties.Name="キュー内のブロック一覧"
                      views:HelpTip.Standard="「キューへ追加」で溜めておいた変更の一覧です。まだファイルには反映されていません。"
-                     views:HelpTip.Detailed="コマンドバーの「キューへ追加」で順番待ちに溜めておいた変更の一覧です。AIの回答が複数回に分けて送られてきたときに使う仕組みで、ここに並んでいる間はまだファイルへ反映されていません。不要な項目は各行の「削除」で個別に取り除け、すべて揃ったら下の「結合して適用へ進む」でまとめて確認・適用できます。">
+                     views:HelpTip.Detailed="接ぎ木パネルの「キューへ追加」で順番待ちに溜めておいた変更の一覧です。AIの回答が複数回に分けて送られてきたときに使う仕組みで、ここに並んでいる間はまだファイルへ反映されていません。不要な項目は各行の「削除」で個別に取り除け、すべて揃ったら下の「結合して適用へ進む」でまとめて確認・適用できます。">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
@@ -42,7 +42,19 @@
                 </ListBox.Styles>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="0,4" ColumnDefinitions="*,Auto">
+                        <Grid Margin="0,4" ColumnDefinitions="*,Auto" Background="Transparent">
+                            <!-- キューの項目の右クリックメニュー。右側の「削除」ボタンと同じコマンド。取り除く操作は
+                                 取り返しにくいため、区切り線で他と分けて最下段に置く（いまはこの1項目だけだが、
+                                 項目が増えても危険な操作が最後に来る並びを保つ）。 -->
+                            <Grid.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="キューから削除"
+                                              Command="{Binding DataContext.RemoveCommand, ElementName=Root}"
+                                              CommandParameter="{Binding}"
+                                              views:HelpTip.Standard="このブロックだけをキューから取り除きます。他のブロックには影響しません。"
+                                              AutomationProperties.Name="このブロックをキューから削除" />
+                                </ContextMenu>
+                            </Grid.ContextMenu>
                             <StackPanel Grid.Column="0">
                                 <TextBlock Text="{Binding PathText}"
                                            FontSize="{DynamicResource BodyFontSize}"
@@ -78,7 +90,7 @@
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,12,0,0">
-            <Button Content="すべて削除"
+            <Button Classes="danger" Content="すべて削除"
                     Command="{Binding ClearCommand}"
                     Margin="0,0,8,0"
                     views:HelpTip.Standard="キューに溜まっているブロックをすべて削除します（確認あり）。元に戻せないので注意してください。"
@@ -89,13 +101,13 @@
                 肯定的な既定操作（Enterで実行）は「結合して適用へ進む」とする（IsDefault）。
                 開いた直後の初期フォーカスもここへ当てる（QueueWindow.axaml.cs参照）。
             -->
-            <Button x:Name="MergeButton"
+            <Button Classes="primary" x:Name="MergeButton"
                     Content="結合して適用へ進む"
                     Command="{Binding MergeCommand}"
                     IsDefault="True"
                     Margin="0,0,8,0"
-                    views:HelpTip.Standard="キュー内のブロックを1つの変更としてまとめ、通常の解析結果と同じようにプレビュー・適用へ進みます。"
-                    views:HelpTip.Detailed="複数回に分けてキューへ追加しておいたブロックを1つの変更としてまとめ、コマンドバーの「解析」を実行したときと同じ画面（接ぎ木パネル）へ渡します。そこでいつも通り内容を確認し、「適用」を押すとまとめてファイルへ書き込まれます。"
+                    views:HelpTip.Standard="キュー内のブロックを1つの変更としてまとめ、通常の解析結果と同じように確認して適用へ進みます。"
+                    views:HelpTip.Detailed="複数回に分けてキューへ追加しておいたブロックを1つの変更としてまとめ、「貼り付けて解析」を実行したときと同じ画面（接ぎ木パネル）へ渡します。そこでいつも通り内容を確認し、「適用」を押すとまとめてファイルへ書き込まれます。"
                     AutomationProperties.Name="キューを結合して解析結果へ渡す" />
             <Button x:Name="CloseButton"
                     Content="閉じる"

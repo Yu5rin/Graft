@@ -271,25 +271,17 @@ public class ManualWindowTests : IDisposable
         CloseOwnedWindows(window);
     }
 
-    [AvaloniaFact(DisplayName = "ヘルプメニューには取扱説明書・キーボードショートカット一覧の2項目が両方並び、双方に到達できる")]
-    public void ヘルプメニューは両方の項目に到達できる()
+    [AvaloniaFact(DisplayName = "ヘルプメニュー（標準のMenuFlyout）には取扱説明書・キーボードショートカット一覧・使い方を学ぶが並び、どれもコマンドを持つ")]
+    public void ヘルプメニューは全項目に到達できる()
     {
         var (_, window) = OpenShellAsync();
 
-        var toggleButton = window.GetVisualDescendants().OfType<Button>()
-            .Single(b => AutomationProperties.GetName(b) == "ヘルプメニューを開く");
-        toggleButton.Focus();
-        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        var items = window.HelpMenuItems();
 
-        var manualItem = window.GetVisualDescendants().OfType<Button>()
-            .SingleOrDefault(b => AutomationProperties.GetName(b) == "取扱説明書を開く");
-        var shortcutsItem = window.GetVisualDescendants().OfType<Button>()
-            .SingleOrDefault(b => AutomationProperties.GetName(b) == "キーボードショートカット一覧を開く");
-
-        manualItem.Should().NotBeNull("ヘルプメニューから取扱説明書に到達できる必要がある");
-        shortcutsItem.Should().NotBeNull("ヘルプメニューからショートカット一覧にも引き続き到達できる必要がある");
-        HelpTip.GetStandard(manualItem!).Should().NotBeNull("追加したメニュー項目にはHelpTip.Standardが必要");
-        HelpTip.GetStandard(shortcutsItem!).Should().NotBeNull("既存のメニュー項目にも引き続きHelpTip.Standardが必要");
+        items.Select(i => i.Header).Should().Equal(
+            new object[] { "取扱説明書", "キーボードショートカット一覧", "使い方を学ぶ" },
+            "ヘルプメニューの項目と順序");
+        items.Should().OnlyContain(i => i.Command != null, "どの項目もコマンドで実行できる（自前のPopupではなく標準のメニュー）");
     }
 
     // ------------------------------------------------------------------

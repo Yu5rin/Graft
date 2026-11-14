@@ -73,8 +73,12 @@ public partial class ShellWindow
             // 何もせずそのままトンネルの続き（EditorPane側）へ委ねる。
             if (ShouldDeferEscapeToEditor()) return;
 
-            ViewModel.Graft.DiscardCommand.Execute(null);
-            e.Handled = true;
+            // Escは「いちばん手前のものを1つ閉じる」だけに使い、解析結果は破棄しない。
+            // 以前は何にフォーカスがあってもここで破棄しており、絞り込み欄で文字を消そうとした
+            // だけ・プロンプトのポップアップを閉じようとしただけで、解析結果が確認なしに消えた
+            // （実機で確認済み。しかも取り消す手段が無かった）。破棄は接ぎ木パネルの「破棄」
+            // ボタンとコマンドパレットから行う（どちらも数秒だけ「元に戻す」が出る）。
+            e.Handled = CloseTopmostOnEscape();
             return;
         }
 
@@ -144,15 +148,39 @@ public partial class ShellWindow
             // （テキストの取り消し）はこれより前のinTextInput分岐で既に処理済みのため衝突しない。
             if (e.Key == Key.Z && IsDescendant(focused, ExplorerViewControl)) return;
 
-            e.Handled = HandlePlainCtrlGatedShortcut(e.Key);
+            e.Handled = HandlePlainCtrlGatedShortcut(e);
             return;
         }
+    }
 
-        if (e.Key is >= Key.D1 and <= Key.D9)
+    /// <summary>
+    /// Escで「いちばん手前のもの」を1つだけ閉じる。手前にあるものの順は、
+    /// (1) 開いているポップアップ（依頼文のテンプレート選択。「？」メニューは標準のMenuFlyoutで、自分でEscを処理する）、
+    /// (2) 文字の入っている絞り込み・検索欄（<see cref="EscapeClearBehavior"/>の目印つき）。
+    /// どれも無ければ何もしない（false。解析結果は破棄しない）。
+    /// ComboBoxの一覧・右クリックメニュー等のAvalonia標準のポップアップは、別のウィンドウ
+    /// （PopupRoot）側で自分のEscを処理するため、ここには届かない。
+    /// </summary>
+    private bool CloseTopmostOnEscape()
+    {
+        if (ViewModel.Graft.PromptCopy is { IsOpen: true } promptCopy)
         {
-            // 附録A キーマップ移行: 素の1〜9は仕様書3.2によりCtrl+Alt+1〜9へ変更された。
-            ViewModel.NotifyLegacyKey(LegacyKey.ProjectDigit);
+            promptCopy.IsOpen = false;
+            return true;
         }
+
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        while (focused is not null)
+        {
+            if (focused is TextBox { Text.Length: > 0 } box && EscapeClearBehavior.GetEnabled(box))
+            {
+                box.Text = string.Empty;
+                return true;
+            }
+            focused = focused.GetVisualParent();
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -189,8 +217,9 @@ public partial class ShellWindow
             case Key.C: ViewModel.Graft.CopyPromptCommand.Execute(null); return true;
             case Key.V: ViewModel.Graft.PasteAndParseCommand.Execute(null); return true; // 素のCtrl+Vから変更（9.5）。
             case Key.H: ViewModel.Graft.ShowHistoryCommand.Execute(null); return true; // Ctrl+Hから変更（9.5）。
-            case Key.E: ViewModel.SelectSideView(SideViewKind.Explorer); return true;
-            case Key.F: ViewModel.SelectSideView(SideViewKind.Search); return true;
+            // 「開く」操作なので、表示中でも畳まずフォーカスを移す（ShellViewModel.ShowSideView）。
+            case Key.E: ViewModel.ShowSideView(SideViewKind.Explorer); return true;
+            case Key.F: ViewModel.ShowSideView(SideViewKind.Search); return true;
             case Key.S: _ = ViewModel.Editor.SaveAllAsync(); return true;
             // 機能3: 直前に閉じたタブを開き直す（ブラウザのCtrl+Shift+Tと同じ操作感）。
             // AvaloniaEdit・TextBox等の標準操作にCtrl+Shift+Tは無く、アプリ内の他のキーとも
@@ -225,6 +254,8 @@ public partial class ShellWindow
         {
             case Key.J: ViewModel.ToggleGraftPanelCommand.Execute(null); return true;
             case Key.S: _ = ViewModel.Editor.SaveActiveAsync(); return true;
+            // Ctrl+,（設定）は入力欄の中でも効かせる。エディタ・TextBoxの標準操作には無いキー。
+            case Key.OemComma: ViewModel.Graft.OpenSettingsCommand.Execute(null); return true;
             case Key.Enter: ViewModel.Graft.ApplyCommand.Execute(null); return true;
             // クイックオープン: AvaloniaEdit標準のキーバインドと衝突しないため、
             // エディタ内フォーカス時も含め常に反応させる（他の素のCtrl+*と同じ扱い）。
@@ -263,14 +294,19 @@ public partial class ShellWindow
     /// テキスト入力欄・エディタのいずれにもフォーカスが無いときだけ届く素のCtrl+*。
     /// V/Z/Hは附録Aのキーマップ移行通知（旧キーが押されたことを1回だけ知らせる）。
     /// </summary>
-    private bool HandlePlainCtrlGatedShortcut(Key key)
+    private bool HandlePlainCtrlGatedShortcut(KeyEventArgs keyArgs)
     {
-        switch (key)
+        switch (keyArgs.Key)
         {
-            case Key.V: ViewModel.NotifyLegacyKey(LegacyKey.PasteCtrlV); return true;
-            case Key.Z: ViewModel.NotifyLegacyKey(LegacyKey.UndoCtrlZ); return true;
-            case Key.H: ViewModel.NotifyLegacyKey(LegacyKey.HistoryCtrlH); return true;
-            case Key.OemComma: ViewModel.Graft.OpenSettingsCommand.Execute(null); return true;
+            // 入力欄の外のCtrl+Vは、ツールバーの「貼り付けて解析」と同じクリップボードの解析にする。
+            // 以前は「このキーは変更されました」というモーダルを出していたが、旧版を知らない
+            // 利用者には意味が通じない。入力欄・エディタの中のCtrl+Vは通常の貼り付けのまま
+            // （inTextInputで先に return する）。
+            case Key.V: ViewModel.Graft.PasteAndParseCommand.Execute(null); return true;
+            // Ctrl+Z（エクスプローラの削除の取り消しは呼び出し元で先に処理済み）・Ctrl+Y等は何もしない。
+            // Ctrl+F/H/G/W/Tab は、アクティブなタブに対して効かせる（EditorPane.TryHandleFromShell）。
+            case Key.F or Key.H or Key.G or Key.W or Key.Tab:
+                return EditorHost.Child is EditorPane pane && pane.TryHandleFromShell(keyArgs);
             // Ctrl+/: ショートカット一覧を開く。ドキュメントタブを開いたエディタ内では同じキーが
             // 行コメントの切り替え（EditorPane.axaml.cs）に使われているため、ここは
             // テキスト入力欄・エディタの外（inTextInputがfalse）でのみ届く経路にとどめ、

@@ -271,6 +271,7 @@ public partial class EditorPane : UserControl
         // 自動で入れ直す。上のPrepareForDocumentSwap（代入の"前"）とは働く時点が
         // 異なるため、順序が衝突することはない。
         Editor.Document = tab.Session.Document;
+        ApplyReadOnlyOption();
         ApplyWhitespaceOption();
         ApplyWordWrapOption();
         ApplyIndentGuideModeOption();
@@ -497,7 +498,19 @@ public partial class EditorPane : UserControl
     private void OnLoadedTabPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(EditorTabViewModel.WordWrapDisabledForTab)) ApplyWordWrapOption();
+        else if (e.PropertyName == nameof(EditorTabViewModel.IsEncodingReadOnly)) ApplyReadOnlyOption();
         else if (e.PropertyName == nameof(EditorTabViewModel.ShowMarkdownPreview)) ApplyMarkdownPreviewMode();
+    }
+
+    /// <summary>
+    /// 文字コードを判定できないファイル（<see cref="EditorTabViewModel.IsEncodingReadOnly"/>）は
+    /// エディタを読み取り専用にする。保存は<c>DocumentSession.SaveAsync</c>側でも止めているが、
+    /// 編集できてしまうと「保存できない変更」が残って閉じるたびに確認が出るため、編集自体を止める。
+    /// 通知バー（EditorPane.axaml「EncodingReadOnlyBar」）が理由を示す。
+    /// </summary>
+    private void ApplyReadOnlyOption()
+    {
+        Editor.IsReadOnly = _loadedTab is { Kind: EditorTabKind.Document } t && t.IsEncodingReadOnly;
     }
 
     private void ApplyIndentOptions(EditorTabViewModel tab)
@@ -559,6 +572,25 @@ public partial class EditorPane : UserControl
 
         await SafeHandler.RunAsync("エディタのキー操作", () => HandleAsyncShortcutsAsync(e, mods))
             .ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// フォーカスがエディタの外（サイドバー・接ぎ木パネル等）にあるときに、シェルから転送された
+    /// Ctrl+F／H／G／W／Tab をアクティブなタブに対して処理する（C7）。以前はエディタの中にフォーカスが
+    /// あるときしか効かず、エクスプローラで Ctrl+W を押しても何も起きなかった。
+    /// 処理した（アクティブなタブが対象になる）ときだけ true。
+    /// </summary>
+    public bool TryHandleFromShell(KeyEventArgs e)
+    {
+        if (_viewModel is null || e.KeyModifiers != KeyModifiers.Control) return false;
+        if (TryHandleTabNavigation(e, e.KeyModifiers)) return true;
+        if (TryHandleSearchShortcuts(e, e.KeyModifiers)) return true;
+        if (e.Key is Key.W or Key.G && _viewModel.ActiveTab is not null)
+        {
+            _ = SafeHandler.RunAsync("エディタのキー操作", () => HandleAsyncShortcutsAsync(e, e.KeyModifiers));
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Ctrl+Tab: 直近使用順のタブ切替。</summary>

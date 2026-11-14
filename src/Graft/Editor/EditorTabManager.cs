@@ -89,6 +89,12 @@ public sealed class EditorTabManager
             if (oldPreview is not null) RemoveTab(oldPreview);
         }
 
+        // 保存しようとする内容に文字コードで表せない文字（Shift_JISへの絵文字など）が含まれる
+        // ときの確認。DocumentSessionはダイアログを知らないので、ここで差し込む。
+        opened.Value.ConfirmLossySave = (fileName, detail) => _dialogs.ConfirmAsync(
+            "文字コードで表せない文字",
+            $"「{fileName}」: {detail}。このまま保存しますか？");
+
         var tab = new EditorTabViewModel(opened.Value, CloseAsync) { IsPreview = preview };
         Tabs.Add(tab);
         return GraftResult<EditorTabViewModel>.Ok(tab, opened.Issues);
@@ -141,12 +147,26 @@ public sealed class EditorTabManager
             .Select(t => t.Session.FullPath).ToList();
     }
 
-    /// <summary>指定パスに該当する開いているタブを、確認なしで再読込する（4.8: 適用後の再読込）。</summary>
+    /// <summary>
+    /// 指定パスに該当する開いているタブを再読込する（4.8: 適用後の再読込）。
+    ///
+    /// 未保存の編集があるタブは、黙って差し替えない。解析して差分を見ている間に同じファイルを
+    /// エディタで直し、保存しないまま適用すると、適用はディスクの内容に対して行われ、その直後の
+    /// 再読込でエディタの未保存の編集が確認なしに消えていた。適用の書き込みの前にも保存を促す
+    /// （MainViewModel.ApplyCoreAsync）が、その確認のあとに打鍵された場合などの最後の防御として、
+    /// 未保存のタブは既存の「外部で変更されました」の衝突表示（E702）に回す。利用者は
+    /// 「再読込（編集を破棄）」か「そのまま編集を続ける」かを自分で選べる。
+    /// </summary>
     public async Task ReloadIfOpenAsync(IEnumerable<string> fullPaths)
     {
         var set = new HashSet<string>(fullPaths, PathComparer);
         foreach (var tab in Tabs.Where(t => set.Contains(t.Session.FullPath)).ToList())
         {
+            if (tab.Session.IsModified)
+            {
+                tab.HasExternalConflict = true;
+                continue;
+            }
             await tab.Session.ReloadAsync().ConfigureAwait(true);
         }
     }
@@ -159,6 +179,49 @@ public sealed class EditorTabManager
 
         tab.Session.UpdatePath(newFullPath, _projectRoot ?? string.Empty);
         tab.NotifyPathChanged();
+    }
+
+    /// <summary>
+    /// <paramref name="dirFullPath"/>の配下にあるドキュメントタブ（フォルダ自身は対象外）。
+    /// 区切り文字まで含めて前方一致させる（「src」の配下に「src2」を含めないため）。
+    /// </summary>
+    public IReadOnlyList<EditorTabViewModel> TabsUnder(string dirFullPath)
+    {
+        var prefix = dirFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return Tabs.Where(t => t.Session.FullPath.StartsWith(prefix, comparison)).ToList();
+    }
+
+    /// <summary>
+    /// エクスプローラでのフォルダの名前変更・移動に追従し、配下で開いているタブのパスを付け替える。
+    /// 以前はファイルのときだけタブへ通知しており、フォルダの名前を変えると配下のタブが古いパスを
+    /// 指したままになった（保存すると古い場所に新しくファイルが作られてしまう）。
+    /// </summary>
+    public void NotifyFolderRenamed(string oldDirFullPath, string newDirFullPath)
+    {
+        var oldPrefix = oldDirFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var newPrefix = newDirFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        foreach (var tab in TabsUnder(oldDirFullPath))
+        {
+            var remainder = tab.Session.FullPath[oldPrefix.Length..]; // 先頭は区切り文字。
+            tab.Session.UpdatePath(newPrefix + remainder, _projectRoot ?? string.Empty);
+            tab.NotifyPathChanged();
+        }
+    }
+
+    /// <summary>
+    /// エクスプローラでのフォルダの削除に追従し、配下で開いているタブを閉じる。未保存の編集が
+    /// あるタブは、通常のタブの閉じ方と同じ保存確認（はい／いいえ／キャンセル）を出す。
+    /// キャンセルされたら false を返し、呼び出し側は削除を中止する。
+    /// 削除の<b>前</b>に呼ぶこと（削除後では、未保存の編集を保存する先が無い）。
+    /// </summary>
+    public async Task<bool> CloseTabsUnderAsync(string dirFullPath, Func<EditorTabViewModel, Task<bool>> close)
+    {
+        foreach (var tab in TabsUnder(dirFullPath))
+        {
+            if (!await close(tab).ConfigureAwait(true)) return false;
+        }
+        return true;
     }
 
     /// <summary>

@@ -87,19 +87,19 @@
                      AutomationProperties.Name="ツリーを読み込み中" />
 
         <!-- 見出しと操作ボタン -->
-        <Grid Grid.Row="1" Margin="12,10,8,4" ColumnDefinitions="*,Auto">
+        <Grid Grid.Row="1" Margin="12,0,8,0" MinHeight="{DynamicResource PaneHeaderHeight}" ColumnDefinitions="*,Auto">
             <TextBlock Grid.Column="0" Text="エクスプローラ" VerticalAlignment="Center"
                        FontSize="{DynamicResource PaneHeadingFontSize}"
                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                        Foreground="{DynamicResource TextSecondary}" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
-                <Button Command="{Binding NewFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding NewFileCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="新規ファイル"
                         local:HelpTip.Detailed="今選んでいるフォルダの直下に、空の新しいファイルを作成します（ファイルを選んでいる場合はその親フォルダの直下）。ファイル名を入力する欄が表示されるので、名前を付けて確定してください。拡張子（.mdなど）を付けるとその種類のファイルとして扱われますが、拡張子なしの名前（Dockerfileなど）でも作成できます。作成後は対象のフォルダが自動的に展開され、新しいファイルがツリー上で選択された状態でそのままエディタに開かれます。"
                         AutomationProperties.Name="新規ファイルを作成">
                     <local:IconGlyph Data="{DynamicResource IconFileGeometry}" />
                 </Button>
-                <Button Command="{Binding NewFolderCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding NewFolderCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="新規フォルダ"
                         local:HelpTip.Detailed="今選んでいるフォルダの直下に、新しい空のフォルダを作成します（ファイルを選んでいる場合はその親フォルダの直下）。フォルダ名を入力する欄が表示されるので、名前を付けて確定してください。作成後は対象のフォルダが自動的に展開され、新しいフォルダがツリー上で選択された状態になります。"
                         AutomationProperties.Name="新規フォルダを作成">
@@ -108,13 +108,13 @@
                 <!-- 利用者の指摘「ファイルをボタンやドラッグ＆ドロップでエクスプローラーに追加できない」への対応。
                      選んだ既存ファイルを、今選んでいるフォルダの直下へコピーで取り込む
                      （ドラッグ＆ドロップは本Viewのコードビハインド側、ExplorerView.axaml.cs参照）。 -->
-                <Button Command="{Binding AddFileCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding AddFileCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="ファイルを追加"
                         local:HelpTip.Detailed="外部のファイル選択ダイアログを開き、選んだ既存のファイルを今選んでいるフォルダの直下へコピーで取り込みます（ファイルを選んでいる場合はその親フォルダの直下）。元のファイルは消えず、そのまま残ります。エクスプローラのツリーへファイルやフォルダをドラッグ＆ドロップしても同じように取り込めます。取り込み先に同名の項目が既にある場合は、上書き・別名で保存・中止のいずれかを確認します。"
                         AutomationProperties.Name="ファイルを追加">
                     <local:IconGlyph Data="{DynamicResource IconPlusGeometry}" />
                 </Button>
-                <Button Command="{Binding RefreshCommand}" Padding="4" Background="Transparent" BorderThickness="0"
+                <Button Command="{Binding RefreshCommand}" Padding="4" Classes="subtle" BorderThickness="0"
                         local:HelpTip.Standard="更新"
                         local:HelpTip.Detailed="このファイルツリーの表示を、ディスク上の最新の状態に読み込み直します。Graftの外（他のアプリやAIの適用結果）でファイルが追加・削除されたのに一覧へ反映されていないときに使います。"
                         AutomationProperties.Name="ツリーを更新">
@@ -134,7 +134,7 @@
                        Foreground="{DynamicResource TextSecondary}"
                        AutomationProperties.Name="取り込みの進捗" />
             <Button Grid.Column="1" Content="中止" Command="{Binding CancelImportCommand}"
-                    Padding="6,0" Margin="4,0,0,0" Background="Transparent" BorderThickness="0"
+                    Padding="6,0" Margin="4,0,0,0" Classes="subtle" BorderThickness="0"
                     local:HelpTip.Standard="取り込みを中止します。ここまでにコピー済みのファイルはそのまま残ります。"
                     AutomationProperties.Name="取り込みを中止" />
         </Grid>
@@ -144,7 +144,7 @@
                   IsChecked="{Binding ShowExcludedFiles, Mode=TwoWay}"
                   AutomationProperties.Name="除外ファイルを表示する"
                   local:HelpTip.Standard="node_modulesなど、通常は隠しているファイル・フォルダも一覧に表示します。既定はオフです。"
-                  local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイル」画面）には影響しません。既定はオフです。" />
+                  local:HelpTip.Detailed="オンにすると、.gitignoreや設定の除外パターンによって普段は隠されているファイル・フォルダ（node_modulesやビルド成果物など）も、この一覧に表示されるようになります。表示するかどうかだけの設定で、AIへ渡すコンテキストの収集対象（「ファイルを選ぶ」画面）には影響しません。既定はオフです。" />
 
         <!--
             細かいユーザビリティ改善4: ファイル名絞り込み。Ctrl+Pのクイックオープン（「開く」ため）
@@ -162,6 +162,7 @@
                      Grid.Column="1"
                      Text="{Binding FilterText}"
                      Watermark="ファイル名で絞り込み"
+                     local:EscapeClearBehavior.Enabled="True"
                      AutomationProperties.Name="ファイル名でツリーを絞り込む"
                      local:HelpTip.Standard="入力した文字を名前に含むファイルだけをツリーに表示します。一致したファイルの親フォルダは自動的に展開されます。"
                      local:HelpTip.Detailed="ツリー上のファイルを、名前に入力した文字を含むものだけへ絞り込みます。Ctrl+Pのクイックオープンは「ファイルを開く」ための一覧ですが、こちらは「ツリーで眺める」ための絞り込みで、選んでも何も開きません。一致したファイルの親フォルダは自動的に展開され、絞り込みを空にすると元の展開状態へ戻ります。大きなプロジェクトでも入力のたびに固まらないよう、入力を少し待ってから検索します。" />
@@ -170,7 +171,7 @@
                     Command="{Binding ClearFilterCommand}"
                     Padding="6,0"
                     Margin="4,0,0,0"
-                    Background="Transparent"
+                    Classes="subtle"
                     BorderThickness="0"
                     IsVisible="{Binding HasFilterText}"
                     AutomationProperties.Name="絞り込みを解除"
@@ -205,55 +206,78 @@
                       Focusable="True"
                       AutomationProperties.Name="ファイルツリー">
                 <TreeView.ContextMenu>
+                    <!--
+                        並びは、上から「開く・AIに渡す・履歴」（よく使う安全な操作）→「新規作成・追加」→
+                        「パスのコピー・エクスプローラーで表示」→「名前の変更・削除の取り消し」（移動・変更）→
+                        区切り線をはさんで「削除」（取り返しにくい操作）。キーは見出しの文字へ埋め込まず、
+                        右側に InputGesture で出す。項目名は MenuText に集めた共通の言い方。
+                        使えない項目は隠さず無効にする（ツリーの余白を右クリックしたときは、ノードが要る
+                        項目が無効になり、新規作成・パスのコピー・エクスプローラーで表示はプロジェクトの
+                        フォルダ自体が対象になる。ExplorerView.axaml.cs の OnTreePointerPressed 参照）。
+                    -->
                     <ContextMenu>
-                        <MenuItem Header="開く (Enter)"
+                        <MenuItem Header="開く"
+                                  InputGesture="Enter" local:MenuGestureLabel.Text="Enter"
                                   Command="{Binding OpenCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="開く" />
+                        <MenuItem Header="{x:Static local:MenuText.AddToContext}"
+                                  Command="{Binding AddToContextCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  local:HelpTip.Standard="このファイルを、「AIに渡すファイルを選ぶ」画面で「内容も出す」にします。依頼文と一緒にAIへ渡せます。ファイルだけが対象です。"
+                                  AutomationProperties.Name="このファイルをAIに渡すファイルに追加" />
+                        <MenuItem Header="このファイルの変更履歴"
+                                  Command="{Binding ShowFileHistoryCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  local:HelpTip.Standard="このファイルに関わる履歴だけに絞り込んで、履歴ビューに一覧表示します。"
+                                  local:HelpTip.Detailed="サイドバーの履歴ビューを開き、このファイルの変更を含む履歴だけに絞り込んで一覧表示します。一覧から1件選ぶと、通常の履歴と同じくその履歴でのこのファイルの差分をタブで確認できます。フォルダには使えません。絞り込みは履歴ビュー上部のバナーの「×」でいつでも解除できます。"
+                                  AutomationProperties.Name="このファイルの変更履歴を表示" />
                         <Separator />
-                        <MenuItem Header="新規ファイル..."
+                        <MenuItem Header="新規ファイル…"
                                   Command="{Binding NewFileCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="新規ファイルを作成" />
-                        <MenuItem Header="新規フォルダ..."
+                        <MenuItem Header="新規フォルダ…"
                                   Command="{Binding NewFolderCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="新規フォルダを作成" />
-                        <MenuItem Header="ここにファイルを追加..."
+                        <MenuItem Header="ここにファイルを追加…"
                                   Command="{Binding AddFileCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   local:HelpTip.Standard="ファイル選択ダイアログで選んだ既存のファイルを、ここ（フォルダを右クリックした場合はそのフォルダ、ファイルを右クリックした場合はその親フォルダ）へコピーで取り込みます。"
                                   AutomationProperties.Name="ここにファイルを追加" />
                         <Separator />
-                        <MenuItem Header="名前の変更 (F2)"
+                        <MenuItem Header="{x:Static local:MenuText.CopyPath}"
+                                  Command="{Binding CopyPathCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="パスをコピー" />
+                        <MenuItem Header="{x:Static local:MenuText.CopyRelativePath}"
+                                  Command="{Binding CopyRelativePathCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  local:HelpTip.Standard="プロジェクトのフォルダからの相対パスをクリップボードへコピーします。AIへの依頼文に書くときに使えます。"
+                                  AutomationProperties.Name="相対パスをコピー" />
+                        <MenuItem Header="{x:Static local:MenuText.RevealInFileManager}"
+                                  Command="{Binding RevealCommand}"
+                                  CommandParameter="{Binding SelectedNode}"
+                                  AutomationProperties.Name="OSのファイルマネージャで表示" />
+                        <Separator />
+                        <MenuItem Header="名前の変更"
+                                  InputGesture="F2"
                                   Command="{Binding RenameCommand}"
                                   CommandParameter="{Binding SelectedNode}"
                                   AutomationProperties.Name="名前を変更" />
-                        <MenuItem Header="削除 (Delete)"
-                                  Command="{Binding DeleteCommand}"
-                                  CommandParameter="{Binding SelectedNode}"
-                                  AutomationProperties.Name="ごみ箱へ削除" />
-                        <MenuItem Header="削除を元に戻す (Ctrl+Z)"
+                        <MenuItem Header="削除を元に戻す"
+                                  InputGesture="Ctrl+Z"
                                   Command="{Binding UndoDeleteCommand}"
                                   local:HelpTip.Standard="直前にこのエクスプローラから削除した項目を元の場所へ戻します"
                                   local:HelpTip.Detailed="直前にこのエクスプローラから削除したファイルまたはフォルダを、Graftが退避しておいた内容から元の場所へ書き戻します。Ctrl+Z（エクスプローラにフォーカスがあるとき）でも同じ操作ができます。連続で削除した場合は、新しい方から順に1件ずつ戻ります。復元先に同名の項目が既にある場合は上書きせず、失敗として通知します。"
                                   AutomationProperties.Name="削除を元に戻す" />
                         <Separator />
-                        <MenuItem Header="このファイルの変更履歴"
-                                  Command="{Binding ShowFileHistoryCommand}"
+                        <MenuItem Header="削除"
+                                  InputGesture="Delete"
+                                  Command="{Binding DeleteCommand}"
                                   CommandParameter="{Binding SelectedNode}"
-                                  local:HelpTip.Standard="このファイルに関わるリビジョンだけに絞り込んで、履歴ビューに一覧表示します。"
-                                  local:HelpTip.Detailed="サイドバーの履歴ビューを開き、このファイルの変更を含むリビジョンだけに絞り込んで一覧表示します。一覧から1件選ぶと、通常の履歴と同じくそのリビジョンでのこのファイルの差分をタブで確認できます。フォルダには使えません。絞り込みは履歴ビュー上部のバナーの「×」でいつでも解除できます。"
-                                  AutomationProperties.Name="このファイルの変更履歴を表示" />
-                        <Separator />
-                        <MenuItem Header="パスをコピー"
-                                  Command="{Binding CopyPathCommand}"
-                                  CommandParameter="{Binding SelectedNode}"
-                                  AutomationProperties.Name="パスをコピー" />
-                        <MenuItem Header="エクスプローラで表示"
-                                  Command="{Binding RevealCommand}"
-                                  CommandParameter="{Binding SelectedNode}"
-                                  AutomationProperties.Name="OSのエクスプローラで表示" />
+                                  AutomationProperties.Name="ごみ箱へ削除" />
                     </ContextMenu>
                 </TreeView.ContextMenu>
                 <TreeView.ItemTemplate>

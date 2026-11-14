@@ -132,8 +132,10 @@ public partial class ShellWindow : Window
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
+        viewModel.RequestFocusSideView += OnRequestFocusSideView;
         viewModel.RequestOpenShortcuts += OnRequestOpenShortcuts;
         viewModel.RequestOpenManual += OnRequestOpenManual;
+        viewModel.RequestEditorShortcut += OnRequestEditorShortcut;
         // 画面上のチュートリアル（コーチマーク）。実体（ShellWindow.Tutorial.cs）は
         // Controlの座標計算等Avalonia固有の知識を要するためView側の責務とし、ここでは
         // ShellViewModel側からの要求（ツールバー「?」メニュー・コマンドパレット）を
@@ -197,6 +199,29 @@ public partial class ShellWindow : Window
     private ManualWindow? _manualWindow;
 
     /// <summary>Ctrl+/・ツールバーの「?」メニュー「キーボードショートカット一覧」。静的な内容のため専用ViewModelは持たない。</summary>
+    /// <summary>
+    /// コマンドパレットからのエディタ内の操作。キー操作（Ctrl+F・Ctrl+H・Ctrl+G・Ctrl+W）と同じ
+    /// <see cref="EditorPane.TryHandleFromShell"/> へ、同じキーのイベントを渡す。
+    /// </summary>
+    private void OnRequestEditorShortcut(object? sender, string name)
+    {
+        var key = name switch
+        {
+            "Find" => Key.F,
+            "Replace" => Key.H,
+            "GoToLine" => Key.G,
+            "CloseTab" => Key.W,
+            _ => Key.None,
+        };
+        if (key == Key.None || EditorHost.Child is not EditorPane pane) return;
+        pane.TryHandleFromShell(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = key,
+            KeyModifiers = KeyModifiers.Control,
+        });
+    }
+
     private void OnRequestOpenShortcuts(object? sender, EventArgs e)
     {
         if (_shortcutsWindow is { } existing)
@@ -231,9 +256,28 @@ public partial class ShellWindow : Window
 
     /// <summary>9.2: 「履歴」ボタン・Ctrl+Shift+H。サイドバーの履歴ビューを開いて一覧へフォーカスする。</summary>
     private void OnRequestFocusHistory(object? sender, EventArgs e)
+        => ViewModel.ShowSideView(SideViewKind.History); // 表示してフォーカスは OnRequestFocusSideView で移す。
+
+    /// <summary>
+    /// 「開く」操作でサイドビューを表示したあと、そのビューの入力先へフォーカスを移す。
+    /// 折りたたみから表示へ戻った直後はレイアウトが未確定でFocus()が効かないため、
+    /// レイアウト確定後まで遅延させる（検索ビューの OnRequestFocusSearchView と同じ事情）。
+    /// </summary>
+    private void OnRequestFocusSideView(object? sender, SideViewKind kind)
     {
-        ViewModel.SelectSideView(SideViewKind.History);
-        HistoryPaneControl.ListBoxElement.Focus();
+        Dispatcher.UIThread.Post(() => FocusSideView(kind), DispatcherPriority.Background);
+    }
+
+    private void FocusSideView(SideViewKind kind)
+    {
+        Control target = kind switch
+        {
+            SideViewKind.Search => SearchViewControl.QueryBoxElement,
+            SideViewKind.Explorer => ExplorerViewControl.TreeElement,
+            SideViewKind.History => HistoryPaneControl.ListBoxElement,
+            _ => ProjectPaneControl.ListBoxElement,
+        };
+        target.Focus();
     }
 
     /// <summary>
@@ -537,6 +581,20 @@ public partial class ShellWindow : Window
             return;
         }
 
+        // 閉じる前の確認（C2）。×ボタンもトレイメニューの「終了」も、ここで確認を挟む。
+        // 以前は未保存の編集が確認なしに消えていた（仕様書は「終了する際は保存確認」としている）。
+        // 確認は非同期（ダイアログ・適用の完了待ち）なので、いったん閉じるのを取り消して
+        // 済んでから閉じ直す。確認の要らない（未保存も適用の実行中も無い）ときは、
+        // 取り消さずそのまま続けるため、従来の同期的な閉じ方は変わらない。
+        // トレイに常駐する設定のときは上で隠して戻っているので、ここへは来ない（確認しない）。
+        if (!_closeConfirmed
+            && (ViewModel.Graft.IsApplyInProgress || ViewModel.Editor.UnsavedDocumentNames().Count > 0))
+        {
+            e.Cancel = true;
+            if (!_closeCheckInProgress) _ = ConfirmThenCloseAsync();
+            return;
+        }
+
         // 指摘6: 非モーダル化したショートカット一覧・取扱説明書（Owner=thisで開いている）は、
         // Avaloniaの既定動作でもOwnerが閉じれば連動して閉じるが、上のトレイ分岐で「隠すだけ」を
         // 選んだ場合はここへ到達しない（＝子ウィンドウは開いたまま残る想定どおり）。実際に
@@ -598,6 +656,39 @@ public partial class ShellWindow : Window
         {
             Logger?.Error("shutdown", $"レイアウト・タブ構成の保存に失敗しました: {ex}");
         }
+    }
+
+    private bool _closeConfirmed;
+    private bool _closeCheckInProgress;
+
+    /// <summary>
+    /// 閉じる操作の確認（C2）。適用の実行中なら終わるまで待ち（書き込みの途中でプロセスが
+    /// 終わると履歴とファイルが食い違う）、そのあと未保存の編集を確認する。キャンセルや保存失敗なら
+    /// 閉じない。トレイメニューの「終了」で立った <see cref="IsForceClosing"/> も、キャンセル時は
+    /// 戻す（残すと、次の×でトレイへ隠れずに終了してしまう）。
+    /// </summary>
+    private async Task ConfirmThenCloseAsync()
+    {
+        _closeCheckInProgress = true;
+        var proceed = false;
+        try
+        {
+            while (ViewModel.Graft.IsApplyInProgress) await Task.Delay(100).ConfigureAwait(true);
+            proceed = await ViewModel.Editor.ConfirmSaveBeforeExitAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            _closeCheckInProgress = false;
+        }
+
+        if (!proceed)
+        {
+            IsForceClosing = false;
+            return;
+        }
+
+        _closeConfirmed = true;
+        Close();
     }
 
     /// <summary>layout.json が壊れていた場合等にGridLengthが受け付けない値（NaN・0以下）を弾く。</summary>

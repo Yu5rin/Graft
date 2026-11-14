@@ -253,6 +253,8 @@ public sealed class CrossFileSearchEngine
             if (ShouldStopWalking(state)) yield break;
             var rel = ToRelative(root, subDir);
             if (filter.IsIgnored(rel, isDirectory: true)) continue;
+            // フォルダのリンクは中へ入らない（輪で同じファイルを重ねて検索しない。DirectoryLinks参照）。
+            if (DirectoryLinks.IsLink(subDir)) continue;
 
             await foreach (var hit in WalkAsync(root, subDir, filter, regex, options, state, ct).ConfigureAwait(false))
             {

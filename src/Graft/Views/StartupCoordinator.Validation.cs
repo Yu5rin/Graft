@@ -252,8 +252,16 @@ public sealed partial class StartupCoordinator
         }
     }
 
-    /// <summary>6.3/E403: 中途半端な適用状態を通知し、承諾された場合のみロールバックを実行する。</summary>
-    private static async Task OfferRollbackAsync(
+    /// <summary>
+    /// 6.3/E403: 中途半端な適用状態を通知し、承諾された場合のみロールバックを実行する。
+    ///
+    /// 戻せたかどうかは<see cref="RevisionRestorer.RestoreAsync"/>の結果で決まり、rolled_back の印も
+    /// そちらが戻せたときだけ付ける。以前はここで結果の成否だけを見て自前で印を付けていたが、復元側が
+    /// 何も戻さずに成功を返していたため、戻っていないのに印だけが付き、以後は検出もされなかった。
+    /// 戻せなかったときは、その理由を利用者に見せる（印は付かないので、次回の起動時にまた知らせる）。
+    /// 戻せたが確認してほしいこと（新しく作ったファイルの記録が無い古い形式など）があれば、それも伝える。
+    /// </summary>
+    internal static async Task OfferRollbackAsync(
         InProgressRevisionIssue issue, IDialogService dialogService, RevisionRestorer revisionRestorer)
     {
         var confirmed = await dialogService
@@ -263,25 +271,36 @@ public sealed partial class StartupCoordinator
 
         foreach (var revision in issue.Revisions)
         {
+            var label = $"r{revision.Manifest.Revision}";
             var restored = await revisionRestorer
                 .RestoreAsync(issue.ProjectId, issue.ProjectRoot, revision, force: true)
                 .ConfigureAwait(true);
-            if (restored.IsSuccess)
+
+            if (!restored.IsSuccess)
             {
-                await MarkRolledBackAsync(revision).ConfigureAwait(true);
+                await dialogService
+                    .ShowMessageAsync(
+                        "元の状態に戻せませんでした",
+                        $"プロジェクト「{issue.ProjectName}」の{label}を適用前の状態へ戻せませんでした。" +
+                        "一部のファイルが書き換わったままの可能性があります。次回の起動時にもう一度確認します。" +
+                        Environment.NewLine + Environment.NewLine +
+                        string.Join(Environment.NewLine, restored.Errors.Select(i => "・" + i.ToDisplayText())))
+                    .ConfigureAwait(true);
+                continue;
+            }
+
+            var notes = restored.Issues.Where(i => i.Severity != Severity.Error).ToList();
+            if (notes.Count > 0)
+            {
+                await dialogService
+                    .ShowMessageAsync(
+                        "元の状態に戻しました（確認事項があります）",
+                        $"プロジェクト「{issue.ProjectName}」の{label}を適用前の状態へ戻しました。" +
+                        Environment.NewLine + Environment.NewLine +
+                        string.Join(Environment.NewLine, notes.Select(i => "・" + i.ToDisplayText())))
+                    .ConfigureAwait(true);
             }
         }
-    }
-
-    /// <summary>ロールバック後、manifest.jsonのstatusを更新し次回起動時に再度提案されないようにする。</summary>
-    private static async Task MarkRolledBackAsync(RevisionSummary revision)
-    {
-        if (!revision.IsRestorable) return;
-
-        var manifestPath = Path.Combine(revision.FolderPath, "manifest.json");
-        var rolledBack = revision.Manifest with { Status = RevisionStatus.RolledBack };
-        await new JsonFileStore().WriteAsync(manifestPath, rolledBack, JsonFileStore.DefaultOptions)
-            .ConfigureAwait(true);
     }
 
     // ------------------------------------------------------------------

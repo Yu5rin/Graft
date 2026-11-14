@@ -308,7 +308,9 @@ public sealed class AvaloniaDialogService : IDialogService
     /// </summary>
     private static Window BuildShell(string title, out StackPanel body)
     {
-        body = new StackPanel { Margin = new Thickness(20) };
+        // 見た目の整備: 余白は Tokens.axaml の DialogPadding（16）に合わせる。コードから作るウィンドウは
+        // 手元で DynamicResource を引かず、同じ値を直接書いている（値を変えるときは両方を直すこと）。
+        body = new StackPanel { Margin = new Thickness(16) };
 
         // 不具合4対応: 起動時の問題を1枚のダイアログへ集約すると、件数が多い日は本文が
         // 長くなる。SizeToContent.WidthAndHeightのみだと高さの上限が無く、画面からはみ出して
@@ -424,6 +426,12 @@ public sealed class AvaloniaDialogService : IDialogService
             MinWidth = 84,
             Margin = new Thickness(8, 0, 0, 0),
         };
+        // 見た目の整備: 既定（Enterで確定される）ボタンは「主」にする。1つのダイアログで
+        // IsDefaultは1つだけなので、「主は原則1つ」の約束もそのまま守られる。
+        if (isDefault)
+        {
+            button.Classes.Add("primary");
+        }
         AutomationProperties.SetName(button, label);
         return button;
     }

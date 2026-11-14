@@ -57,6 +57,21 @@
          UI部品の基準3:1を満たすため、独立したFocusRingColorは持たずAccentへそのまま乗せる。 -->
     <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
 
+    <!-- ========== ボタンの種類（主・危険）用の色（デザインの土台） ========== -->
+    <!-- 主ボタンの塗り #4C8DFF・文字 #101216 のコントラスト比は5.86:1（基準4.5:1）。
+         Accentそのままで基準を満たすので、塗りはAccentと同値。
+         hover/pressedは塗りを明るくして段階を付ける。危険ボタンは枠と文字をStateError系にし、
+         hoverで同系色の薄い塗り（BgSurfaceへStateErrorを16%／28%混ぜた色）を敷く。
+         DangerFg（#E5646E）はBgSurface比5.07:1。 -->
+    <Color x:Key="PrimaryBgColor">#4C8DFF</Color>
+    <SolidColorBrush x:Key="PrimaryBg" Color="{StaticResource PrimaryBgColor}" />
+    <SolidColorBrush x:Key="PrimaryBgHover" Color="#619BFF" />
+    <SolidColorBrush x:Key="PrimaryBgPressed" Color="#73A6FF" />
+    <SolidColorBrush x:Key="PrimaryFg" Color="#101216" />
+    <SolidColorBrush x:Key="DangerFg" Color="#E5646E" />
+    <SolidColorBrush x:Key="DangerBgHover" Color="#3C292E" />
+    <SolidColorBrush x:Key="DangerBgPressed" Color="#543237" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
     <!-- UI点検（項目5）対応: 旧値#2A2E34はBgBaseに対し実測1.33:1で、区切り線がほぼ視認
          できなかった。同じ色相・彩度のまま明度を上げ（暗い背景なので明るくする方向）、

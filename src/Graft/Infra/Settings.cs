@@ -50,6 +50,14 @@ public sealed record Settings
     /// <summary>グローバルホットキー（8.10章）。</summary>
     public string Hotkey { get; init; } = "Ctrl+Alt+V";
 
+    /// <summary>
+    /// 「AIへの依頼文をコピー」のOS全体のホットキー（4.8.4）。既定はCtrl+Shift+C。
+    /// 空にするとOS全体には登録せず、Graftの画面内（Ctrl+Shift+C）だけで効く。
+    /// 他のアプリ（ブラウザの開発者ツール等）が同じ組み合わせを使っていて衝突する場合の逃げ道。
+    /// settings.json に項目が無い古い設定は、この既定値で読み込まれる。
+    /// </summary>
+    public string PromptHotkey { get; init; } = "Ctrl+Shift+C";
+
     /// <summary>バックアップ・世代管理設定（7.4章）。</summary>
     public BackupSettings Backup { get; init; } = new();
 
@@ -327,6 +335,14 @@ public sealed record EncodingSettings
 
     /// <summary>新規ファイルにBOMを付与するか。</summary>
     public bool NewFileBom { get; init; } = false;
+
+    /// <summary>
+    /// 新規ファイルの改行コード。<c>auto</c>（既定）・<c>crlf</c>・<c>lf</c>。
+    /// <c>auto</c>は同じフォルダ（無ければプロジェクト）の既存テキストファイルで優勢な改行に合わせ、
+    /// 分からなければOSの既定にする（<see cref="Graft.Core.NewLineResolver"/>）。
+    /// settings.json にこの項目が無い旧版の設定ファイルは <c>auto</c> として読まれる。
+    /// </summary>
+    public string NewFileNewLine { get; init; } = "auto";
 }
 
 /// <summary>シンタックスハイライト設定（8.6章）。</summary>

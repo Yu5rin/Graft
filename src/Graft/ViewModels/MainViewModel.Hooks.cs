@@ -49,7 +49,7 @@ public sealed partial class MainViewModel
 
         if (actions.Contains(HookFailureAction.Warn))
         {
-            await _dialogs.ShowMessageAsync("適用後フックが失敗しました", BuildHookFailureMessage(failed)).ConfigureAwait(true);
+            await _dialogs.ShowMessageAsync("適用後に実行するコマンドが失敗しました", BuildHookFailureMessage(failed)).ConfigureAwait(true);
         }
         // ignore: manifestへの記録のみ行い、UIへは通知しない。
         return false;
@@ -68,7 +68,7 @@ public sealed partial class MainViewModel
         if (askFirst)
         {
             var confirmed = await _dialogs
-                .ConfirmAsync("適用後フックが失敗しました", $"{detail}{Environment.NewLine}{Environment.NewLine}直前の状態へロールバックしますか？")
+                .ConfirmAsync("適用後に実行するコマンドが失敗しました", $"{detail}{Environment.NewLine}{Environment.NewLine}直前の状態に戻しますか？")
                 .ConfigureAwait(true);
             if (!confirmed) return false;
         }
@@ -76,8 +76,8 @@ public sealed partial class MainViewModel
         var summary = await _revisionStore.ReadAsync(project.Id, revision).ConfigureAwait(true);
         if (!summary.IsSuccess)
         {
-            await _dialogs.ShowMessageAsync("ロールバックに失敗しました",
-                $"リビジョンr{revision}が見つからないため、手動で履歴から復元してください。").ConfigureAwait(true);
+            await _dialogs.ShowMessageAsync("元の状態に戻せませんでした",
+                $"履歴r{revision}が見つからないため、手動で履歴から復元してください。").ConfigureAwait(true);
             return true; // 復元は試みた（失敗した）。状態が不確実なため呼び出し元はコミットしてはならない。
         }
 
@@ -85,14 +85,14 @@ public sealed partial class MainViewModel
             .RestoreAsync(project.Id, project.Root, summary.Value, force: true)
             .ConfigureAwait(true);
 
-        var title = askFirst ? "ロールバックしました" : "フック失敗のため自動的にロールバックしました";
+        var title = askFirst ? "元の状態に戻しました" : "適用後のコマンドが失敗したため、自動的に元の状態に戻しました";
         if (restored.IsSuccess)
         {
             await _dialogs.ShowMessageAsync(title, detail).ConfigureAwait(true);
         }
         else
         {
-            await _dialogs.ShowMessageAsync("ロールバックに失敗しました",
+            await _dialogs.ShowMessageAsync("元の状態に戻せませんでした",
                 string.Join(Environment.NewLine, restored.Errors.Select(i => i.ToDisplayText()))).ConfigureAwait(true);
         }
 

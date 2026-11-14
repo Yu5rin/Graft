@@ -80,7 +80,9 @@
          新値#7F868FはBgBase比3.15:1・BgSurface比3.68:1（いずれもUI部品の基準3:1以上）。
          TextSecondary（BgBase比5.24:1）よりは明らかに薄く、「無効に見える」印象は
          保たれる。 -->
-    <Color x:Key="TextDisabledColor">#7F868F</Color>
+    <!-- 無効状態の文字が薄すぎて読めない指摘への対応: 旧値#7F868F はBgSurfaceに対し3.68:1だった。色相を保ったまま
+         明度だけ下げ、基準4.5:1へ（新値はTextSecondary#59636E比1.33:1で、無効らしさは枠・塗りの変化でも示す）。 -->
+    <Color x:Key="TextDisabledColor">#6F767E</Color>
     <SolidColorBrush x:Key="TextDisabled" Color="{StaticResource TextDisabledColor}" />
 
     <!-- ========== アクセント（1色のみ） ========== -->
@@ -91,6 +93,21 @@
     <!-- Accent自体がBgBase比4.45:1・BgSurface比5.19:1・BgSelected比4.56:1といずれも
          UI部品の基準3:1を満たすため、独立したFocusRingColorは持たずAccentへそのまま乗せる。 -->
     <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
+
+    <!-- ========== ボタンの種類（主・危険）用の色（デザインの土台） ========== -->
+    <!-- 主ボタンの塗り #0969DA・文字 #FFFFFF のコントラスト比は5.19:1（基準4.5:1）。
+         Accentそのままで基準を満たすので、塗りはAccentと同値。
+         hover/pressedは塗りを暗くして段階を付ける。危険ボタンは枠と文字をStateError系にし、
+         hoverで同系色の薄い塗り（BgSurfaceへStateErrorを16%／28%混ぜた色）を敷く。
+         DangerFg（#D73A49）はBgSurface比4.57:1。 -->
+    <Color x:Key="PrimaryBgColor">#0969DA</Color>
+    <SolidColorBrush x:Key="PrimaryBg" Color="{StaticResource PrimaryBgColor}" />
+    <SolidColorBrush x:Key="PrimaryBgHover" Color="#0A60C6" />
+    <SolidColorBrush x:Key="PrimaryBgPressed" Color="#0A58B3" />
+    <SolidColorBrush x:Key="PrimaryFg" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="DangerFg" Color="#D73A49" />
+    <SolidColorBrush x:Key="DangerBgHover" Color="#F9DFE2" />
+    <SolidColorBrush x:Key="DangerBgPressed" Color="#F4C8CC" />
 
     <!-- ========== 境界線（必要最小限） ========== -->
     <!-- UI点検（項目5）対応: 旧値#D0D7DE（GitHub Primerのborder.default相当）はBgBaseに

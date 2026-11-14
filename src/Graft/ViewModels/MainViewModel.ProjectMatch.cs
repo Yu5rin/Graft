@@ -170,7 +170,10 @@ public sealed partial class MainViewModel
                 // 退避しておいたパッチを直後に復元することで、切り替え後も同じパッチで
                 // ドライランを継続できるようにする。
                 var keep = _currentPatch;
-                ProjectPane.SelectedItem = item; // 8.10: 勝手な無音切替ではなく、確認済みの明示的な切替として行う。
+                // 8.10: 勝手な無音切替ではなく、確認済みの明示的な切替として行う。
+                // 開いているタブの未保存の確認が出る場合があるため、切り替えの完了を待つ
+                // （キャンセルされた場合は選択が元に戻り、現在のプロジェクトのまま続行する）。
+                await ProjectPane.SelectAsync(item).ConfigureAwait(true);
                 _currentPatch = keep;
             }
         }

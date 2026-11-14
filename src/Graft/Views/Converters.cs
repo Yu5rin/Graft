@@ -77,6 +77,14 @@ public static class Converters
         new FuncValueConverter<int, bool>(count => count == 0);
 
     /// <summary>
+    /// 件数（int）が0件なら空状態にする。<see cref="CollectionToEmptyState"/>は参照そのものを見るため、
+    /// 要素の増減で通知が来ない。件数（Count。ObservableCollectionが変更通知を出す）をバインドして
+    /// 使えるよう、int版を別に用意した（開いているファイルが無いときのエディタ領域）。
+    /// </summary>
+    public static readonly IValueConverter CountToEmptyStateMode =
+        new FuncValueConverter<int, EmptyStateMode>(count => count == 0 ? EmptyStateMode.Empty : EmptyStateMode.None);
+
+    /// <summary>
     /// UI点検（項目7）: コレクションが0件かどうかで空状態にする。<see cref="IsEmptyCollection"/>と
     /// 同じ判定をEmptyStateMode向けに返す版。「対象ファイルがありません」「出力プレビューが
     /// まだ無い」「除外パターンが無い」など、専用の状態列挙を持たない一覧向けに、共通の
@@ -162,16 +170,29 @@ public static class Converters
         {
             var list = values.ToList();
             var windowWidth = list.Count > 0 ? list[0] : 0;
-            var comboWidth = list.Count > 1 ? list[1] : 0;
-            var settingsWidth = list.Count > 2 ? list[2] : 0;
-            var shortcutsWidth = list.Count > 3 ? list[3] : 0;
+            // 2番目以降はすべて「ボタン列の外にあって、幅を差し引くべき要素」の実測幅
+            // （プロジェクト選択と、右端グループの履歴・設定・？）。要素が増減しても、
+            // ここは数え直さずに済む。
+            var occupied = list.Skip(1).Sum();
 
             // Gridの左右マージン12px×2＋ボタン列の左マージン12px＝36px。
             // 実測できないレイアウト上の固定余白のみ定数として残す。
             const double fixedMargins = 36;
 
-            return Math.Max(0, windowWidth - comboWidth - settingsWidth - shortcutsWidth - fixedMargins);
+            return Math.Max(0, windowWidth - occupied - fixedMargins);
         });
+
+    /// <summary>
+    /// コマンドバーの「AIに渡す」「AIから受け取る」の見出しを出すかどうか。見出しは説明のための
+    /// 飾りなので、幅が足りないときは見出しを先に隠し、ボタンは残す。
+    /// しきい値は、見出しとボタンの全体が右端グループと重ならない最小のウィンドウ幅を、実機の
+    /// 画面写真（1440・1280・1100・960px）で測って決めた。1100pxで見出しを出しても右端グループとの間に約80pxの余裕が残る（ToolbarLabelsMinWidth）。
+    /// </summary>
+    public static readonly IValueConverter WideEnoughForToolbarLabels =
+        new FuncValueConverter<double, bool>(width => width >= ToolbarLabelsMinWidth);
+
+    /// <summary>見出しを出すウィンドウ幅の下限（px）。</summary>
+    public const double ToolbarLabelsMinWidth = 1100;
 
     /// <summary>trueなら残り幅いっぱい（1*）、falseなら0。差分ビューの片側折りたたみ用。</summary>
     public static readonly IValueConverter BoolToStarGridLength =

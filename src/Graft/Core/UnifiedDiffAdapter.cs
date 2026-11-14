@@ -185,9 +185,49 @@ public static class UnifiedDiffAdapter
         public IEnumerable<string> ReplaceLines() => Lines.Where(l => l.Kind != '-').Select(l => l.Text);
     }
 
+    /// <summary>ハンクの見出し <c>@@ -a,b +c,d @@</c> の行数部分（b と d。省略時は 1）。</summary>
+    private static readonly System.Text.RegularExpressions.Regex HunkHeaderCounts = new(
+        @"^@@ -\d+(?:,(?<old>\d+))? \+\d+(?:,(?<new>\d+))? @@",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 見出しが宣言した、ハンクに含まれる元側・新側の行数。読み取れない見出し
+    /// （数字が無い、形が違う、桁あふれ）は null を返し、従来どおり行数を使わない判定にする。
+    /// </summary>
+    private static (int Old, int New)? ParseDeclaredCounts(string headerLine)
+    {
+        var m = HunkHeaderCounts.Match(headerLine);
+        if (!m.Success) return null;
+
+        var oldText = m.Groups["old"].Success ? m.Groups["old"].Value : "1";
+        var newText = m.Groups["new"].Success ? m.Groups["new"].Value : "1";
+        if (!int.TryParse(oldText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var oldCount)
+            || !int.TryParse(newText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var newCount))
+        {
+            return null;
+        }
+
+        return (oldCount, newCount);
+    }
+
     private static (Hunk Hunk, int Next) ParseHunk(IReadOnlyList<string> lines, int i)
     {
         var headerLine = i + 1;
+        // 見出しが宣言した行数。ハンクの中にいる間（宣言した行をまだ読み切っていない間）は、
+        // 「--- 」「+++ 」で始まる行をファイルのヘッダとは見なさない。
+        //
+        // 【なぜ必要か】 SQL や Lua のコメントは「-- 」で始まる。そのコメント行を削除すると
+        // 差分では「-」を頭に付けた「--- コメント」になり、直後にコメントを追加する行が
+        // 「++ 」で始まると「+++ ...」になる。この2行は見た目がファイルのヘッダ
+        // （--- a/x と +++ b/x）と同じなので、以前はハンクの途中で打ち切られ、以降の行が
+        // 取り込まれなかった（実測: 削除行「-- old」＋追加行「++ new」のハンクが、
+        // ファイルのヘッダと誤読された）。
+        // 判定は「この削除行1つと追加行1つを入れる余地が、宣言した行数にまだ残っているか」。
+        // 余地があればハンクの本文、使い切っていればファイルのヘッダとして扱う。
+        // 行数を宣言していない・読み取れない見出し（AIが数字を書かない等）では、従来どおり行数を使わない。
+        var declared = ParseDeclaredCounts(lines[i]);
+        var remainingOld = declared?.Old ?? 0;
+        var remainingNew = declared?.New ?? 0;
         i++; // "@@ ... @@" 見出し行を消費
 
         var body = new List<(char, string)>();
@@ -195,7 +235,8 @@ public static class UnifiedDiffAdapter
         {
             var line = lines[i];
             if (line.StartsWith("@@", StringComparison.Ordinal)) break;
-            if (IsFileHeaderPair(lines, i)) break;
+            var insideDeclaredHunk = declared is not null && remainingOld >= 1 && remainingNew >= 1;
+            if (!insideDeclaredHunk && IsFileHeaderPair(lines, i)) break;
 
             // "\ No newline at end of file" は無視してよい（クラッシュしないことのみ保証）。
             if (line.StartsWith("\\ No newline", StringComparison.Ordinal)) { i++; continue; }
@@ -204,6 +245,8 @@ public static class UnifiedDiffAdapter
             {
                 // 一部の生成AIは空の文脈行から先頭スペースを落とすため、寛容に文脈行として扱う。
                 body.Add((' ', string.Empty));
+                remainingOld--;
+                remainingNew--;
                 i++;
                 continue;
             }
@@ -212,6 +255,8 @@ public static class UnifiedDiffAdapter
             if (marker is ' ' or '-' or '+')
             {
                 body.Add((marker, line[1..]));
+                if (marker != '+') remainingOld--;
+                if (marker != '-') remainingNew--;
                 i++;
                 continue;
             }

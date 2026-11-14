@@ -79,10 +79,31 @@ public sealed class RevisionRowViewModel
     // 9章: UIの文言は日本語で統一する。増減の +/- は記号として残す。
     public string StatsText => $"{Revision.Manifest.Stats.Files}ファイル   +{Revision.Manifest.Stats.Added} -{Revision.Manifest.Stats.Removed}";
 
-    /// <summary>復元可能かどうか（仕様書13.1）。バックアップ実体が失われている場合は false。</summary>
-    public bool CanRestore => Revision.IsRestorable;
+    /// <summary>
+    /// 元に戻した（status: rolled_back）かどうか。取り消し済みのリビジョンと、適用に失敗して元に戻した
+    /// リビジョンの両方を含む。取り消しはバックアップを書き戻すので、重ねて取り消すと、取り消したあとの
+    /// 変更を古い内容で上書きしてしまう。そのため復元の対象にしない（<see cref="CanRestore"/>）。
+    /// </summary>
+    public bool IsRolledBack => Revision.Manifest.Status == RevisionStatus.RolledBack;
 
-    public string RestorabilityText => Revision.IsRestorable ? string.Empty : "復元不可（バックアップの実体が見つかりません）";
+    /// <summary>
+    /// 成功した適用を取り消し済み（entries を持つ rolled_back）かどうか。entries が空の rolled_back は、
+    /// 適用に失敗して元に戻したもの（取り消したのではない）。
+    /// </summary>
+    public bool IsUndone => IsRolledBack && Revision.Manifest.Entries.Count > 0;
+
+    /// <summary>復元可能かどうか（仕様書13.1）。バックアップ実体が失われている場合、および元に戻し済みの場合は false。</summary>
+    public bool CanRestore => Revision.IsRestorable && !IsRolledBack;
+
+    /// <summary>
+    /// 復元できない理由の表示。一覧で、取り消し済みのリビジョンがそれと分かるようにする
+    /// （色のみに依存しない文言表示。HistoryPane.axamlが <see cref="CanRestore"/> が false のときに出す）。
+    /// </summary>
+    public string RestorabilityText =>
+        IsUndone ? "取り消し済み"
+        : IsRolledBack ? "適用に失敗し、元に戻しました"
+        : Revision.IsRestorable ? string.Empty
+        : "復元不可（バックアップの実体が見つかりません）";
 
     /// <summary>色のみに依存しないための読み上げ用テキスト（8.14）。</summary>
     public string AutomationName
@@ -90,7 +111,7 @@ public sealed class RevisionRowViewModel
         get
         {
             var basic = $"{RevisionLabel}、{AppliedAtText}、{TypeText}、{SummaryText}、{StatsText}";
-            return CanRestore ? basic : $"{basic}、復元不可";
+            return CanRestore ? basic : IsRolledBack ? $"{basic}、{RestorabilityText}" : $"{basic}、復元不可";
         }
     }
 }
@@ -155,6 +176,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // ファイル単位の変更履歴（エクスプローラの右クリックメニュー「このファイルの変更履歴」）:
         // 絞り込みを解除して通常の全件表示へ戻すためのコマンド（バナーの「×」ボタン用）。
         ClearFileFilterCommand = new RelayCommand(() => FileFilterPath = null, () => IsFileFiltered);
+        // 右クリックメニュー「要約をコピー」。クリップボードの窓口は MainViewModel が渡す（ClipboardWriter）。
+        CopySummaryCommand = new RelayCommand(
+            () => { if (SelectedItem is { } item) ClipboardWriter?.Invoke(item.SummaryText); },
+            () => SelectedItem is not null && ClipboardWriter is not null);
         // E: 選択中リビジョンのback/フォルダをファイルマネージャで開く。フォルダの実体が
         // ディスク上に無ければ（history.jsonlのみ残っている等）無効化する。
         OpenBackupFolderCommand = new RelayCommand(
@@ -167,6 +192,19 @@ public sealed class HistoryPaneViewModel : ObservableObject
     }
 
     public ObservableCollection<RevisionRowViewModel> Items { get; } = new();
+
+    /// <summary>右クリックメニュー「要約をコピー」。選択中の履歴の要約をクリップボードへコピーする。</summary>
+    public ICommand CopySummaryCommand { get; }
+
+    /// <summary>クリップボードへ書く窓口（MainViewModel が IUiServices のクリップボードを渡す）。</summary>
+    public Action<string>? ClipboardWriter { get; set; }
+
+    /// <summary>
+    /// 数秒で消える通知を出す窓口（MainViewModel が StatusNoticeViewModel を渡す）。取り消しが終わったことを
+    /// 「r3 を取り消しました」と伝える。以前は取り消しが終わっても何も出ず、一覧が更新されるだけで、
+    /// 本当に取り消せたのかが分かりにくかった。
+    /// </summary>
+    public Action<string>? Notify { get; set; }
 
     /// <summary>
     /// 課題2-2: 種別絞り込みドロップダウンの先頭に出す「絞り込みなし」の選択肢。
@@ -329,8 +367,19 @@ public sealed class HistoryPaneViewModel : ObservableObject
     public HistoryDatePreset DatePreset
     {
         get => _datePreset;
-        set => SetProperty(ref _datePreset, value, () => OnDatePresetChanged(value));
+        set => SetProperty(ref _datePreset, value, () =>
+        {
+            OnPropertyChanged(nameof(IsCustomDateRange));
+            OnDatePresetChanged(value);
+        });
     }
+
+    /// <summary>
+    /// 日付の手入力欄（開始日〜終了日）を出すかどうか。期間で「指定期間」を選んでいる間だけ true。
+    /// プリセットを選ぶと欄へ自動で反映されるため、普段は隠して絞り込みの段数を減らす
+    /// （HistoryPane.axaml の絞り込み欄のコメント参照）。
+    /// </summary>
+    public bool IsCustomDateRange => _datePreset == HistoryDatePreset.Custom;
 
     private void OnDatePresetChanged(HistoryDatePreset preset)
     {
@@ -405,6 +454,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
                 OnPropertyChanged(nameof(IsFileFiltered));
                 OnPropertyChanged(nameof(FileFilterBannerText));
                 OnPropertyChanged(nameof(EmptyStateMessage));
+                OnPropertyChanged(nameof(EmptyStateHint));
                 ((RelayCommand)ClearFileFilterCommand).RaiseCanExecuteChanged();
             }
         }
@@ -425,6 +475,12 @@ public sealed class HistoryPaneViewModel : ObservableObject
         => FileFilterPath is null
             ? "AIの出力を適用すると、ここに履歴が残ります"
             : $"「{FileFilterPath}」の変更履歴はありません";
+
+    /// <summary>一覧が空のときの操作の案内（EmptyStateViewのHint）。</summary>
+    public string EmptyStateHint
+        => FileFilterPath is null
+            ? "ツールバーの「貼り付けて解析」でAIの出力を読み取り、「適用」を押すと最初の履歴ができます。"
+            : "右上の「×」（絞り込みの解除）で、すべての履歴を表示できます。";
 
     /// <summary>
     /// エクスプローラの右クリックメニュー「このファイルの変更履歴」から呼ぶ。対象ファイルの
@@ -545,7 +601,9 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// 最新リビジョンを選んでいるときは対象が無いため false（RestoreThroughCommandを無効化する）。
     /// フィルタで一覧が絞られていても、判定は常に全リビジョン（<see cref="_allRevisions"/>）基準で行う。</summary>
     private bool HasRestoreThroughTarget()
-        => SelectedItem is not null && _allRevisions.Any(r => r.Manifest.Revision > SelectedItem.Revision.Manifest.Revision);
+        => SelectedItem is { IsUndone: false }
+           && _allRevisions.Any(r => r.Manifest.Revision > SelectedItem.Revision.Manifest.Revision
+                                     && r.Manifest.Status != RevisionStatus.RolledBack);
 
     /// <summary>指定プロジェクトのリビジョン一覧を読み込む。</summary>
     public async Task LoadAsync(string projectId, string projectRoot, CancellationToken ct = default)
@@ -587,10 +645,14 @@ public sealed class HistoryPaneViewModel : ObservableObject
         FileFilterPath = null; // ファイル単位の絞り込みも解除する（次のプロジェクトへ引き継がないため）。
     }
 
-    /// <summary>Ctrl+Z（直前リビジョンの取り消し）用。最新リビジョンを復元する。</summary>
+    /// <summary>
+    /// Ctrl+Z（直前リビジョンの取り消し）用。最新の成功リビジョンを復元する。
+    /// 取り消し済み・失敗して戻したリビジョン（rolled_back）は飛ばす。以前は取り消しても success のまま
+    /// 一覧に残っていたため、続けて押すと同じリビジョンをまた取り消そうとしていた。
+    /// </summary>
     public async Task<bool> UndoLatestAsync(CancellationToken ct = default)
     {
-        var latest = Items.FirstOrDefault();
+        var latest = Items.FirstOrDefault(i => i.Revision.Manifest.Status == RevisionStatus.Success);
         if (latest is null || !latest.CanRestore)
         {
             return false;
@@ -662,6 +724,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         await MarkProjectAppliedAsync(ct).ConfigureAwait(true);
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
+        Notify?.Invoke($"{target.RevisionLabel} を取り消しました");
         return true;
     }
 
@@ -699,7 +762,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
         if (preview.RevisionsToUndo.Count == 0)
         {
             await _dialogs
-                .ShowMessageAsync("ここまで戻す", $"{target.RevisionLabel} は最新のリビジョンのため、取り消す対象がありません。")
+                .ShowMessageAsync("ここまで戻す", $"{target.RevisionLabel} は最新の履歴のため、取り消す対象がありません。")
                 .ConfigureAwait(true);
             return false;
         }
@@ -709,8 +772,8 @@ public sealed class HistoryPaneViewModel : ObservableObject
             await _dialogs
                 .ShowMessageAsync(
                     "ここまで戻せませんでした",
-                    $"取り消し対象にバックアップの実体が失われているリビジョンが含まれるため中止しました（{names}）。" +
-                    "順序を保ったまま取り消せないリビジョンを飛ばして続行すると内容が壊れるため、この操作は実行できません。")
+                    $"取り消し対象にバックアップの実体が失われている履歴が含まれるため中止しました（{names}）。" +
+                    "順序を保ったまま取り消せない履歴を飛ばして続行すると内容が壊れるため、この操作は実行できません。")
                 .ConfigureAwait(true);
             return false;
         }
@@ -819,13 +882,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
             }
 
             Logger?.Info("restore-through",
-                $"{target.RevisionLabel}まで戻す操作を行いましたが、ファイルは既にこの状態のため変更はありませんでした（リビジョンは記録していません）",
+                $"{target.RevisionLabel}まで戻す操作を行いましたが、ファイルは既にこの状態のため変更はありませんでした（履歴には記録していません）",
                 durationMs: stopwatch.ElapsedMilliseconds);
             // 一覧の再読み込みを行わない経路のため、ここで待機表示を明示的に下ろす。
             State = stateBeforeRestore;
             await _dialogs
                 .ShowMessageAsync("変更はありませんでした",
-                    $"ファイルは既に {target.RevisionLabel} を適用した直後の状態のため、変更はありませんでした。リビジョンは記録していません。")
+                    $"ファイルは既に {target.RevisionLabel} を適用した直後の状態のため、変更はありませんでした。履歴には記録していません。")
                 .ConfigureAwait(true);
             return true;
         }
@@ -888,9 +951,9 @@ public sealed class HistoryPaneViewModel : ObservableObject
 
         var message =
             $"{target.RevisionLabel} を適用した直後の状態まで戻します。\n\n" +
-            $"取り消すリビジョン（{preview.RevisionsToUndo.Count}件、新しい順）:\n{revisionList}\n\n" +
+            $"取り消す履歴（{preview.RevisionsToUndo.Count}件、新しい順）:\n{revisionList}\n\n" +
             $"影響を受けるファイル（{preview.AffectedPaths.Count}件）:\n{fileList}\n\n" +
-            "この操作自体も新しいリビジョンとして記録されるため、後から「このリビジョンを取り消す」で取り消せます。よろしいですか？";
+            "この操作自体も新しい履歴として記録されるため、後から「この適用を取り消す」で取り消せます。よろしいですか？";
         return _dialogs.ConfirmAsync("ここまで戻す確認", message);
     }
 
@@ -950,7 +1013,10 @@ public sealed class HistoryPaneViewModel : ObservableObject
             return null;
         }
 
-        var relative = entry.Operation == EntryOperation.Rename ? entry.RenamedFrom : entry.Path;
+        // 変更前の内容は、改名された先を編集したentryでは移動元のバックアップにある（RevisionEntryLinks参照）。
+        var relative = entry.Operation == EntryOperation.Rename
+            ? entry.RenamedFrom
+            : RevisionEntryLinks.ResolveBackupPath(revision.Manifest.Entries, entry);
         if (string.IsNullOrEmpty(relative))
         {
             return null;

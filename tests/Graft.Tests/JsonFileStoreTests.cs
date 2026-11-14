@@ -233,6 +233,67 @@ public class JsonFileStoreTests
     }
 
     // ------------------------------------------------------------------
+    // D1: 「読めなかった（入出力の失敗）」と「中身が壊れている」を分ける。
+    // 他プロセス（ウイルス対策・同期ソフト）が一瞬掴んでいるだけの正常なファイルを、
+    // 破損として退避し既定値で上書きしてはならない。
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "D1: 掴まれ続けて読めない正常なファイルは、退避も上書きもせず、一時的に読めなかった問題を付けて既定値を返す")]
+    public async Task 読めないだけの正常ファイルは退避も上書きもしない()
+    {
+        using var ws = new TempWorkspace();
+        var dir = ws.CreateDirectory("app");
+        var path = Path.Combine(dir, "data.json");
+        var json = System.Text.Json.JsonSerializer.Serialize(new Box { Value = "本物" }, JsonFileStore.DefaultOptions);
+        await File.WriteAllTextAsync(path, json);
+
+        var store = new JsonFileStore();
+        var exclusiveHandle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+        try
+        {
+            var result = await store.ReadWithRecoveryAsync(path, () => new Box { Value = "既定" });
+
+            result.IsSuccess.Should().BeTrue();
+            result.ValueOrDefault!.Value.Should().Be("既定");
+            result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E402 && i.Severity == Severity.Warning,
+                "破損（E404）ではなく、一時的に読めなかった入出力の問題として伝える");
+            result.Issues.Should().NotContain(i => i.Code == ErrorCode.E404);
+            Directory.GetFiles(dir, "data.json.corrupt.*").Should().BeEmpty("読めないだけのファイルを退避してはならない");
+
+            // 既定値をそのまま保存しても、読めなかった実体を上書きしない。
+            exclusiveHandle.Dispose();
+            await store.WriteAsync(path, result.ValueOrDefault, JsonFileStore.DefaultOptions);
+            (await File.ReadAllTextAsync(path)).Should().Be(json, "読めなかった結果の既定値で実体を上書きしてはならない");
+
+            // 次に正しく読めた時点で保護は外れ、通常どおり保存できる。
+            var reread = await store.ReadWithRecoveryAsync(path, () => new Box { Value = "既定" });
+            reread.ValueOrDefault!.Value.Should().Be("本物");
+            reread.Issues.Should().BeEmpty();
+            await store.WriteAsync(path, new Box { Value = "更新" }, JsonFileStore.DefaultOptions);
+            (await File.ReadAllTextAsync(path)).Should().Contain("更新");
+        }
+        finally
+        {
+            exclusiveHandle.Dispose();
+        }
+    }
+
+    [Fact(DisplayName = "D1: 読めないファイルへの再試行は計1秒程度まで粘る")]
+    public async Task 読めない場合は1秒程度まで再試行する()
+    {
+        using var ws = new TempWorkspace();
+        var path = Path.Combine(ws.CreateDirectory("app"), "data.json");
+        await File.WriteAllTextAsync(path, "{}");
+
+        using var exclusiveHandle = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await new JsonFileStore().ReadWithRecoveryAsync(path, () => new Box());
+        sw.Stop();
+
+        sw.Elapsed.Should().BeGreaterThan(TimeSpan.FromMilliseconds(700), "短い待ちを挟んで数回では掴みが解けるのを待ちきれない");
+    }
+
+    // ------------------------------------------------------------------
     // 不具合1（Windows実機・2回目の指摘）: 破損復旧時の「既定値の書き戻し」が共有違反の
     // リトライ上限まで解消しない場合、例外がReadWithRecoveryAsyncの呼び出し元まで漏れていた。
     //

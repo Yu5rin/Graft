@@ -23,6 +23,8 @@
         <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
         <StyleInclude Source="avares://Graft/Themes/Icons.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Controls.Base.axaml" />
+        <!-- ボタンの種類（primary / subtle / danger）とセクション見出しのクラス。 -->
+        <StyleInclude Source="avares://Graft/Themes/Controls.Buttons.axaml" />
         <StyleInclude Source="avares://Graft/Themes/Settings.axaml" />
         <!-- Windows実機報告 案件1: 本文エディタのScrollBarだけを1.5倍に太くする
              カスケードStyle。詳細はThemes/EditorScrollBar.axaml参照。 -->
