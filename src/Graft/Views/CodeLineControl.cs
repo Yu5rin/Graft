@@ -45,6 +45,16 @@ public sealed class CodeLineControl : TextBlock
     public static readonly StyledProperty<DiffLineKind> DiffKindProperty =
         AvaloniaProperty.Register<CodeLineControl, DiffLineKind>(nameof(DiffKind), DiffLineKind.Unchanged);
 
+    /// <summary>
+    /// 本文だけを左へずらす量（px、0以上）。差分ビューの横スクロール用（監査 H1）。
+    /// 行番号や左端バーは別のコントロールなので動かず、本文だけが動く。はみ出た部分は
+    /// 呼び出し側のクリップ（ClipToBounds）で隠す。折り返し中や、スクロールしない一覧では常に0のまま。
+    /// </summary>
+    public static readonly StyledProperty<double> ScrollOffsetXProperty =
+        AvaloniaProperty.Register<CodeLineControl, double>(nameof(ScrollOffsetX), 0.0);
+
+    public double ScrollOffsetX { get => GetValue(ScrollOffsetXProperty); set => SetValue(ScrollOffsetXProperty, value); }
+
     public CodeLineControl()
     {
         TextWrapping = TextWrapping.NoWrap;
@@ -81,6 +91,15 @@ public sealed class CodeLineControl : TextBlock
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
+
+        if (change.Property == ScrollOffsetXProperty)
+        {
+            // 位置を動かすだけなので、Inlinesの組み直し（Rebuild）はしない。
+            RenderTransform = change.GetNewValue<double>() > 0
+                ? new TranslateTransform(-change.GetNewValue<double>(), 0)
+                : null;
+            return;
+        }
 
         if (change.Property == LineTextProperty
             || change.Property == TokensProperty

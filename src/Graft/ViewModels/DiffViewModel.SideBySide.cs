@@ -70,7 +70,39 @@ public sealed partial class DiffViewModel
             : ApplyExpansions();
 
         var rows = IsSideBySide ? BuildSideBySideRows(entries) : BuildUnifiedRows(entries);
-        foreach (var row in rows) Lines.Add(row);
+        var maxCells = 0;
+        foreach (var row in rows)
+        {
+            Lines.Add(row);
+            if (row.IsOmitted) continue;
+            maxCells = Math.Max(maxCells, Math.Max(TextCells.Count(row.Left.Text), row.Right?.Text is { } rt ? TextCells.Count(rt) : 0));
+        }
+        MaxLineCells = maxCells;
+        HorizontalOffset = 0;
+    }
+
+    // ------------------------------------------------------------------
+    // 横スクロール（監査 H1: 長い行が行番号ごとずれる不具合の対処）
+    // ------------------------------------------------------------------
+    //
+    // 以前は、行（Grid）全体を1つの横スクロールへ入れていたため、行ごとに幅の決まり方が
+    // ばらばらになり、長い行だけ右の列が左へずれて、右側の行番号まで本文と一緒に動いた
+    // （実機で確認）。いまは、行番号と左端バーの列を固定し、本文だけを共通の横位置
+    // （HorizontalOffset）で動かす。左右両方の本文が同じ量だけ動くので、並べて見比べやすい。
+    // 本文の最大幅は、表示中の行の「桁数」（全角は2桁）の最大値（MaxLineCells）から見積もる。
+    // 実際の幅の計算（1桁のピクセル幅を掛ける）はフォントを知っているViewが担う。
+
+    private int _maxLineCells;
+    private double _horizontalOffset;
+
+    /// <summary>表示中の行のうち最も長い行の桁数（全角は2桁として数える。タブは1桁）。</summary>
+    public int MaxLineCells { get => _maxLineCells; private set => SetProperty(ref _maxLineCells, value); }
+
+    /// <summary>本文の横スクロール位置（px、0以上）。折り返し中は常に0。</summary>
+    public double HorizontalOffset
+    {
+        get => _horizontalOffset;
+        set => SetProperty(ref _horizontalOffset, Math.Max(0, value));
     }
 
     private List<DiffLineViewModel> BuildUnifiedRows(List<FlatEntry> entries)

@@ -63,14 +63,23 @@
                                StrokeDashArray="1,1" />
                 </Panel>
 
-                <views:CodeLineControl Grid.Column="3" Margin="8,0,0,0"
-                                       LineText="{Binding Text}" Tokens="{Binding Tokens}"
-                                       InlineHighlights="{Binding InlineSpans}" DiffKind="{Binding Kind}"
-                                       IsDiffRow="True"
-                                       AutomationProperties.Name="{Binding AutomationName}"
-                                       ShowWhitespace="{Binding DataContext.ShowWhitespace, ElementName=Root}"
-                                       TextWrapping="{Binding DataContext.WordWrap, ElementName=Root,
-                                                      Converter={x:Static views:Converters.BoolToTextWrapping}}" />
+                <!--
+                    監査 H1: 本文の列は幅を固定（*）し、はみ出した分はクリップして、共通の横位置
+                    （DiffViewModel.HorizontalOffset）で本文だけを動かす。行番号（列0・1）と左端バー（列2）は
+                    動かない。以前は行全体を横スクロールへ入れており、長い行だけ右の列が左へずれて
+                    行番号ごと動いていた。
+                -->
+                <views:ScrollClipPanel Grid.Column="3" Margin="8,0,0,0">
+                    <views:CodeLineControl HorizontalAlignment="Left"
+                                           LineText="{Binding Text}" Tokens="{Binding Tokens}"
+                                           InlineHighlights="{Binding InlineSpans}" DiffKind="{Binding Kind}"
+                                           IsDiffRow="True"
+                                           AutomationProperties.Name="{Binding AutomationName}"
+                                           ScrollOffsetX="{Binding DataContext.HorizontalOffset, ElementName=Root}"
+                                           ShowWhitespace="{Binding DataContext.ShowWhitespace, ElementName=Root}"
+                                           TextWrapping="{Binding DataContext.WordWrap, ElementName=Root,
+                                                          Converter={x:Static views:Converters.BoolToTextWrapping}}" />
+                </views:ScrollClipPanel>
             </Grid>
         </DataTemplate>
 
@@ -101,7 +110,7 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid Background="{DynamicResource BgSurface}" RowDefinitions="Auto,Auto,*,Auto">
+    <Grid Background="{DynamicResource BgSurface}" RowDefinitions="Auto,Auto,*,Auto,Auto">
 
         <!-- ツールバー -->
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="{DynamicResource SpacingSmThickness}">
@@ -174,7 +183,7 @@
         <ListBox Grid.Row="2" ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource RowTemplate}"
                  Background="Transparent" BorderThickness="0"
                  FontFamily="{DynamicResource CodeFontFamily}" FontSize="{Binding CodeFontSize}"
-                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                  AutomationProperties.Name="差分表示">
             <!--
                 C: 差分表示の右クリックメニュー。並行して同ファイルで進む左右並列表示対応との
@@ -213,11 +222,17 @@
             </ListBox.Styles>
         </ListBox>
 
+        <!-- 本文の横スクロールバー（左右の本文が一緒に動く）。折り返し中・はみ出しが無いときは
+             コードビハインド（DiffView.axaml.cs）が非表示にする。 -->
+        <ScrollBar x:Name="CodeHScroll" Grid.Row="3" Orientation="Horizontal" Minimum="0" Maximum="0"
+                   AllowAutoHide="False" IsVisible="False"
+                   AutomationProperties.Name="差分の本文を横へスクロール" />
+
         <!-- 8.7: マッチ失敗ブロックのインライン編集（SEARCH/REPLACEペア単位）。
              対象ファイルが存在しない（E210）場合はここではなく下のMissingFilePanelを出す
              （DiffViewModel.IsMissingFile・BuildInlineEditsのコメント参照。E210のときは
              InlineEditsが常に空になるため、この2つが同時に表示されることはない）。 -->
-        <ItemsControl Grid.Row="3" ItemsSource="{Binding InlineEdits}"
+        <ItemsControl Grid.Row="4" ItemsSource="{Binding InlineEdits}"
                       IsVisible="{Binding HasInlineEdits}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate DataType="vm:InlineEditViewModel">
@@ -234,7 +249,7 @@
             ここでは編集を促さず、事実（ファイルが無いこと・確認した絶対パス）と、次に取れる
             現実的な行動（パスの確認／新規作成として作り直してもらう）だけを案内する。
         -->
-        <Border Grid.Row="3" IsVisible="{Binding IsMissingFile}"
+        <Border Grid.Row="4" IsVisible="{Binding IsMissingFile}"
                 Background="{DynamicResource BgElevated}" BorderBrush="{DynamicResource StateError}"
                 BorderThickness="0,1,0,0" Padding="{DynamicResource SpacingMdThickness}">
             <StackPanel Spacing="6">
