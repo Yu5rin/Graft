@@ -117,14 +117,21 @@ public sealed class SearchViewModel : ObservableObject
         CopyPathCommand = new RelayCommand<SearchHitViewModel>(hit =>
         {
             // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
-            if (hit is not null) _clipboard.SetText(hit.FullPath);
+            if (hit is null) return;
+            _clipboard.SetText(hit.FullPath);
+            Notify?.Invoke(CopyNoticeText.PathCopied(hit.FullPath));
         });
         RevealCommand = new RelayCommand<SearchHitViewModel>(hit =>
         {
             if (hit is not null) PlatformServices.Current.FileManager.Reveal(hit.FullPath);
         });
         CopyRelativePathCommand = new RelayCommand<SearchHitViewModel>(
-            hit => { if (RelativePathOf(hit) is { } relative) _clipboard.SetText(relative); },
+            hit =>
+            {
+                if (RelativePathOf(hit) is not { } relative) return;
+                _clipboard.SetText(relative);
+                Notify?.Invoke(CopyNoticeText.RelativePathCopied(relative));
+            },
             hit => RelativePathOf(hit) is not null);
         AddToContextCommand = new RelayCommand<SearchHitViewModel>(
             hit => { if (RelativePathOf(hit) is { } relative) AddToContextRequested?.Invoke(this, relative); },
@@ -158,6 +165,12 @@ public sealed class SearchViewModel : ObservableObject
     public ICommand JumpCommand { get; }
 
     /// <summary>A: 結果行の右クリックメニュー「パスをコピー」。</summary>
+    /// <summary>
+    /// 「パスをコピー」「相対パスをコピー」を数秒で消える通知で伝える窓口。ShellViewModel が
+    /// MainViewModel.Notice に結ぶ（プロジェクト一覧の Notify と同じ作り。コンストラクタ引数は増やさない）。
+    /// </summary>
+    public Action<string>? Notify { get; set; }
+
     public ICommand CopyPathCommand { get; }
 
     /// <summary>A: 結果行の右クリックメニュー「エクスプローラーで表示」（Windows以外は「ファイルマネージャーで表示」）。</summary>

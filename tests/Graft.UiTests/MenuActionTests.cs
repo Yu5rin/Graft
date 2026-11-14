@@ -95,4 +95,99 @@ public class MenuActionTests
         pane.RevealCommand.CanExecute(null).Should().BeFalse("フォルダが見つからないときは開けないので無効");
         pane.CopyPathCommand.CanExecute(null).Should().BeTrue("コピーは、探す手がかりになるので有効のまま");
     }
+
+    [AvaloniaFact(DisplayName = "エクスプローラの「パスをコピー」「相対パスをコピー」は、名前つきの通知を出す。余白ではプロジェクトの文面になる")]
+    public async Task エクスプローラのコピーで通知が出る()
+    {
+        using var h = await ShellHarness.CreateAsync().ConfigureAwait(true);
+        Directory.CreateDirectory(h.ProjectPath("sub"));
+        await File.WriteAllTextAsync(h.ProjectPath("sub/a.txt"), "A\n").ConfigureAwait(true);
+        await h.RegisterProjectAsync().ConfigureAwait(true);
+        await ShellHarness.WaitUntilAsync(() => h.Shell.Explorer.RootNodes.Count > 0).ConfigureAwait(true);
+
+        var folder = h.Shell.Explorer.RootNodes.Single(n => n.Name == "sub");
+        folder.IsExpanded = true;
+        await ShellHarness.WaitUntilAsync(() => folder.Children.Any(n => n.Name == "a.txt")).ConfigureAwait(true);
+        var file = folder.Children.Single(n => n.Name == "a.txt");
+
+        h.Shell.Explorer.CopyPathCommand.Execute(file);
+        h.Clipboard.Text.Should().Be(file.FullPath);
+        h.Shell.Graft.Notice.IsVisible.Should().BeTrue();
+        h.Shell.Graft.Notice.Text.Should().Be("a.txt のパスをコピーしました");
+
+        h.Shell.Explorer.CopyRelativePathCommand.Execute(file);
+        h.Clipboard.Text.Should().Be("sub/a.txt");
+        h.Shell.Graft.Notice.Text.Should().Be("a.txt の相対パスをコピーしました");
+
+        h.Shell.Explorer.CopyPathCommand.Execute(folder);
+        h.Shell.Graft.Notice.Text.Should().Be("sub のパスをコピーしました", "フォルダも名前で知らせる");
+
+        h.Shell.Explorer.SelectedNode = null; // 余白を右クリックした状態
+        h.Shell.Explorer.CopyPathCommand.Execute(null);
+        h.Clipboard.Text.Should().Be(h.ProjectDirectory);
+        h.Shell.Graft.Notice.Text.Should().Be("プロジェクトのパスをコピーしました", "余白ではプロジェクト一覧と同じ文面");
+    }
+
+    [AvaloniaFact(DisplayName = "エディタのタブの「パスをコピー」「相対パスをコピー」は、名前つきの通知を出す")]
+    public async Task エディタのタブのコピーで通知が出る()
+    {
+        using var h = await ShellHarness.CreateAsync().ConfigureAwait(true);
+        Directory.CreateDirectory(h.ProjectPath("sub"));
+        await File.WriteAllTextAsync(h.ProjectPath("sub/a.txt"), "A\n").ConfigureAwait(true);
+        await h.RegisterProjectAsync().ConfigureAwait(true);
+        var opened = await h.Shell.Editor.OpenFileAsync(h.ProjectPath("sub/a.txt")).ConfigureAwait(true);
+        opened.IsSuccess.Should().BeTrue();
+        var tab = h.Shell.Editor.Tabs.Single(t => t.Kind == EditorTabKind.Document);
+
+        h.Shell.Editor.CopyFullPathCommand.Execute(tab);
+        h.Clipboard.Text.Should().Be(tab.Session.FullPath);
+        h.Shell.Graft.Notice.Text.Should().Be("a.txt のパスをコピーしました");
+
+        h.Shell.Editor.CopyRelativePathCommand.Execute(tab);
+        h.Clipboard.Text.Should().Be("sub/a.txt");
+        h.Shell.Graft.Notice.Text.Should().Be("a.txt の相対パスをコピーしました");
+    }
+
+    [AvaloniaFact(DisplayName = "検索結果の「パスをコピー」「相対パスをコピー」は、名前つきの通知を出す")]
+    public async Task 検索結果のコピーで通知が出る()
+    {
+        using var h = await ShellHarness.CreateAsync().ConfigureAwait(true);
+        Directory.CreateDirectory(h.ProjectPath("sub"));
+        await File.WriteAllTextAsync(h.ProjectPath("sub/a.txt"), "hello\n").ConfigureAwait(true);
+        await h.RegisterProjectAsync().ConfigureAwait(true);
+
+        var fullPath = h.ProjectPath("sub/a.txt");
+        var hit = new SearchHitViewModel(new Graft.Features.SearchHit
+        {
+            FullPath = fullPath,
+            RelativePath = "sub/a.txt",
+            LineNumber = 1,
+            LineText = "hello",
+            ColumnStart = 0,
+            MatchLength = 5,
+        });
+
+        h.Shell.Search.CopyPathCommand.Execute(hit);
+        h.Clipboard.Text.Should().Be(fullPath);
+        h.Shell.Graft.Notice.Text.Should().Be("a.txt のパスをコピーしました");
+
+        h.Shell.Search.CopyRelativePathCommand.Execute(hit);
+        h.Clipboard.Text.Should().Be("sub/a.txt");
+        h.Shell.Graft.Notice.Text.Should().Be("a.txt の相対パスをコピーしました");
+    }
+
+    [AvaloniaFact(DisplayName = "接ぎ木パネルのブロックの「相対パスをコピー」は、名前つきの通知を出す")]
+    public async Task 接ぎ木パネルのコピーで通知が出る()
+    {
+        using var h = await ShellHarness.CreateAsync().ConfigureAwait(true);
+        Directory.CreateDirectory(h.ProjectPath("sub"));
+        await File.WriteAllTextAsync(h.ProjectPath("sub/a.txt"), "A\n").ConfigureAwait(true);
+        await h.RegisterProjectAsync().ConfigureAwait(true);
+        await h.ParseAsync("sub/a.txt", "A", "B").ConfigureAwait(true);
+
+        var block = h.Shell.Graft.Blocks.Single();
+        h.Shell.CopyBlockPathCommand.Execute(block);
+        h.Clipboard.Text.Should().Be("sub/a.txt");
+        h.Shell.Graft.Notice.Text.Should().Be("a.txt の相対パスをコピーしました");
+    }
 }

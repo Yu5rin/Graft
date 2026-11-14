@@ -119,7 +119,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
     {
         if (SelectedItem is not { } item || ClipboardWriter is null) return;
         ClipboardWriter(item.Project.Root);
-        Notify?.Invoke("プロジェクトのパスをコピーしました");
+        Notify?.Invoke(CopyNoticeText.ProjectPathCopied);
     }
 
     /// <summary>コマンドバー・空状態から呼ぶ「フォルダ選択で登録」（仕様書3.2）。</summary>

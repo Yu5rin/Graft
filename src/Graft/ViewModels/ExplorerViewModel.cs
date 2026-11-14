@@ -237,6 +237,12 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
 
     public ICommand RenameCommand { get; }
     public ICommand DeleteCommand { get; }
+    /// <summary>
+    /// 「パスをコピー」「相対パスをコピー」を数秒で消える通知で伝える窓口。ShellViewModel が
+    /// MainViewModel.Notice に結ぶ（プロジェクト一覧の Notify と同じ作り。コンストラクタ引数は増やさない）。
+    /// </summary>
+    public Action<string>? Notify { get; set; }
+
     public ICommand CopyPathCommand { get; }
 
     /// <summary>右クリックメニュー「相対パスをコピー」（プロジェクトのフォルダからの相対パス）。</summary>
@@ -1226,13 +1232,23 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     {
         // IClipboardAccess.SetTextは失敗しても例外を投げない契約のため、ここでの保護は不要。
         // 対象が無い（ツリーの余白）ときは、プロジェクトのフォルダ自体のパスをコピーする。
-        if (node is not null) _ui.Clipboard.SetText(node.FullPath);
-        else if (_project is not null) _ui.Clipboard.SetText(_project.Root);
+        if (node is not null)
+        {
+            _ui.Clipboard.SetText(node.FullPath);
+            Notify?.Invoke(CopyNoticeText.PathCopied(node.Name));
+        }
+        else if (_project is not null)
+        {
+            _ui.Clipboard.SetText(_project.Root);
+            Notify?.Invoke(CopyNoticeText.ProjectPathCopied); // プロジェクト一覧の「パスをコピー」と同じ文面。
+        }
     }
 
     private void CopyRelativePath(FileNodeViewModel? node)
     {
-        if (node is not null) _ui.Clipboard.SetText(node.RelativePath);
+        if (node is null) return;
+        _ui.Clipboard.SetText(node.RelativePath);
+        Notify?.Invoke(CopyNoticeText.RelativePathCopied(node.Name));
     }
 
     private void RequestAddToContext(FileNodeViewModel? node)

@@ -53,7 +53,12 @@ public sealed partial class ShellViewModel
             block => block is { IsError: true });
 
         CopyBlockPathCommand = new RelayCommand<BlockItemViewModel>(
-            block => { if (block is not null) _ui.Clipboard.SetText(block.PathText); },
+            block =>
+            {
+                if (block is null) return;
+                _ui.Clipboard.SetText(block.PathText);
+                Graft.Notice.Show(CopyNoticeText.RelativePathCopied(block.PathText)); // ShellViewModel 内なので直接 Notice へ出す。
+            },
             block => block is not null && !string.IsNullOrEmpty(block.PathText));
 
         ToggleBlockCheckCommand = new RelayCommand<BlockItemViewModel>(
