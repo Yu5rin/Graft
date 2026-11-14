@@ -93,6 +93,14 @@ public sealed partial class MainViewModel : ObservableObject
 
         PatchQueue = patchQueue;
         Queue = new QueueViewModel(patchQueue, dialogService);
+        // 積む・外す・空にするたびにキューを保存する（強制終了で積んだ内容を失わないため。C12）。
+        // 一覧（ツールバーの「キュー（N）」の件数を含む）も同じ合図で読み直し、どの経路で
+        // キューが変わっても表示が古い件数のまま残らないようにする。
+        patchQueue.Changed += (_, _) =>
+        {
+            Queue.Refresh();
+            _ = SafeHandler.RunAsync("パッチキューの保存", () => patchQueue.SaveAsync());
+        };
         Queue.MergeRequested += async (_, _) => await MergeQueueAndLoadAsync().ConfigureAwait(true);
 
         ProjectPane.ProjectSelected += OnProjectSelected;

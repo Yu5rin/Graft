@@ -20,8 +20,38 @@ public sealed class QueuedBlockRowViewModel
 
     public string PathText => Block.Block.Path;
 
+    /// <summary>
+    /// 変更の説明。ブロック見出しの説明が無いときは、SEARCH行の説明、無ければ操作の種類から補う。
+    /// 以前はブロック見出しの説明だけを見ていたため、説明は SEARCH 行の「# …」に書かれるのが普通の
+    /// SEARCH/REPLACE 形式では、ほぼ常に「（説明なし）」になっていた（接ぎ木パネルの一覧は
+    /// 同じ補い方をしており、そちらでは出ていた）。
+    /// </summary>
     public string DescriptionText
-        => string.IsNullOrWhiteSpace(Block.Block.Description) ? "（説明なし）" : Block.Block.Description!;
+    {
+        get
+        {
+            var block = Block.Block;
+            if (!string.IsNullOrWhiteSpace(block.Description)) return block.Description!;
+
+            if (block is Core.SearchReplaceBlock sr)
+            {
+                var first = sr.Pairs.Select(p => p.Description).FirstOrDefault(d => !string.IsNullOrWhiteSpace(d));
+                if (first is not null) return sr.Pairs.Count > 1 ? $"{first}（ほか{sr.Pairs.Count - 1}箇所）" : first;
+                return sr.Pairs.Count > 1 ? $"{sr.Pairs.Count}箇所の変更" : "変更";
+            }
+
+            return block.Kind switch
+            {
+                Core.BlockKind.FullContent => "ファイル全体の書き換え",
+                Core.BlockKind.Delete => "削除",
+                Core.BlockKind.Rename => "移動・改名",
+                Core.BlockKind.Mkdir => "フォルダ作成",
+                Core.BlockKind.Append => "末尾へ追記",
+                Core.BlockKind.Prepend => "先頭へ挿入",
+                _ => "変更",
+            };
+        }
+    }
 
     public string AddedAtText => Block.AddedAt.LocalDateTime.ToString("HH:mm:ss");
 

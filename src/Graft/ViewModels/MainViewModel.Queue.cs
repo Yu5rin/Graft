@@ -41,7 +41,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private async Task HandleTruncatedPatchAsync(Patch patch)
     {
-        var addResult = PatchQueue.Add(patch);
+        var addResult = PatchQueue.Add(patch, ProjectPane.SelectedItem?.Project.Id);
         Queue.Refresh();
 
         var duplicateCount = addResult.Issues.Count(i => i.Code == ErrorCode.E007);
@@ -83,7 +83,7 @@ public sealed partial class MainViewModel
     {
         if (_currentPatch is null) return Task.CompletedTask;
 
-        var result = PatchQueue.Add(_currentPatch);
+        var result = PatchQueue.Add(_currentPatch, ProjectPane.SelectedItem?.Project.Id);
         Queue.Refresh();
 
         var duplicateCount = result.Issues.Count(i => i.Code == ErrorCode.E007);
@@ -105,6 +105,29 @@ public sealed partial class MainViewModel
         {
             await _dialogs.ShowMessageAsync("キューが空です", "結合するブロックがありません。").ConfigureAwait(true);
             return;
+        }
+
+        // 別のプロジェクトを選んでいるときに積んだ項目が混ざっていたら、確認する（C12）。
+        // 結合はいま選んでいるプロジェクトに対して解析・適用されるため、気づかずに進めると
+        // 別のプロジェクトのファイルへ当てはめようとして、まず失敗するか、同名のファイルがあれば
+        // 意図しない場所を書き換える。
+        var currentProjectId = ProjectPane.SelectedItem?.Project.Id;
+        var otherProjects = PatchQueue.Items
+            .Where(i => i.ProjectId is not null && i.ProjectId != currentProjectId)
+            .Select(i => i.ProjectId!)
+            .Distinct()
+            .ToList();
+        if (otherProjects.Count > 0)
+        {
+            var names = otherProjects
+                .Select(id => ProjectPane.Items.FirstOrDefault(p => p.Project.Id == id)?.Project.DisplayName ?? "（削除されたプロジェクト）");
+            var currentName = ProjectPane.SelectedItem?.Project.DisplayName ?? "（未選択）";
+            var proceed = await _dialogs.ConfirmAsync(
+                "別のプロジェクトで積んだ変更が含まれています",
+                $"キューには、「{string.Join("」「", names)}」で積んだ変更が含まれています。" +
+                $"現在選んでいるのは「{currentName}」で、結合した変更はこのプロジェクトに対して解析・適用されます。" +
+                Environment.NewLine + Environment.NewLine + "このまま結合して解析しますか？").ConfigureAwait(true);
+            if (!proceed) return;
         }
 
         _currentPatch = merged.Value;
