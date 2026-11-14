@@ -58,7 +58,7 @@ public sealed class RevisionRestorer
                 ErrorCode.E405, $"バックアップの実体が見つからないため復元できません（{expectedDir} 配下）", path: revision.FolderPath);
         }
 
-        var warnings = await CheckHashesAsync(projectRoot, revision.Manifest.Entries, ct).ConfigureAwait(false);
+        var warnings = await CheckHashesAsync(projectRoot, revision.FolderPath, revision.Manifest.Entries, ct).ConfigureAwait(false);
         if (warnings.Count > 0 && !force)
         {
             return GraftResult<IReadOnlyList<string>>.Fail(warnings);
@@ -143,7 +143,7 @@ public sealed class RevisionRestorer
         // 外部からさらに変更されていないかを確認する。それより古い段階は、この一連の取り消し
         // 処理自身が作る中間状態であり、外部変更の検知としては意味を持たないため確認しない。
         var newest = revisionsToUndo[0];
-        var warnings = await CheckHashesAsync(projectRoot, newest.Manifest.Entries, ct).ConfigureAwait(false);
+        var warnings = await CheckHashesAsync(projectRoot, newest.FolderPath, newest.Manifest.Entries, ct).ConfigureAwait(false);
         if (warnings.Count > 0 && !force)
         {
             return GraftResult<RevisionManifest>.Fail(warnings);
@@ -393,21 +393,63 @@ public sealed class RevisionRestorer
         return read.IsSuccess ? FileTextIO.ComputeHash(read.Value.Text) : null;
     }
 
+    /// <summary>
+    /// 取り消しの前に、適用後に利用者が手を入れたファイルを探して E301（Warning）にする。
+    /// 取り消しはバックアップの内容でファイルを書き戻す／削除するので、適用後の変更は黙って失われる。
+    ///
+    /// 【RENAME・DELETE も見る理由】 以前は <c>HashAfter</c> を持つ entry（modify・create）しか見なかった。
+    /// そのため、RENAME だけのリビジョンの後に移動先を手で編集して取り消すと、警告なしで移動先が削除され、
+    /// DELETE のリビジョンの後に同じパスを別の内容で作り直して取り消すと、警告なしで古い内容に
+    /// 上書きされた。次を確かめる。
+    /// ・RENAME: 移動先が適用直後の内容のままか（適用時に記録した <c>HashAfter</c>。古い manifest には
+    ///   無いので、移動先を編集した modify の entry が無ければ、移動元のバックアップと中身を比べる）。
+    ///   移動元のパスに適用後ファイルが作られていないか（取り消しは移動元へ書き戻すため上書きになる）。
+    /// ・DELETE: 同じパスにファイルが作られていないか（取り消しで上書きになる）。削除前の内容と
+    ///   同じなら失われるものが無いので警告しない。
+    /// どちらも、退避した内容と比べる経路があるので、古い形式の manifest でも分かる範囲で警告できる。
+    /// 同じファイルについて複数の entry が同じ警告を出す（renameとmodifyの両方）ときは1件にまとめる。
+    /// </summary>
     private static async Task<List<GraftIssue>> CheckHashesAsync(
-        string projectRoot, IReadOnlyList<RevisionEntry> entries, CancellationToken ct)
+        string projectRoot, string revisionFolder, IReadOnlyList<RevisionEntry> entries, CancellationToken ct)
     {
         var issues = new List<GraftIssue>();
+        var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Warn(string path, string message)
+        {
+            if (reported.Add($"{path}\n{message}"))
+            {
+                issues.Add(GraftIssue.Of(ErrorCode.E301, message, path: path, severity: Severity.Warning));
+            }
+        }
+
         foreach (var entry in entries)
         {
-            if (string.IsNullOrEmpty(entry.HashAfter)) continue;
-
             var normalized = BackupPathUtil.NormalizeRelativePath(entry.Path);
             if (!normalized.IsSuccess) continue; // パス不正は復元処理側の書き込みで検出する
 
             var full = Path.GetFullPath(Path.Combine(projectRoot, normalized.Value));
-            if (!File.Exists(LongPath.Extended(full)))
+            var exists = File.Exists(LongPath.Extended(full));
+
+            if (entry.Operation == EntryOperation.Delete)
             {
-                issues.Add(GraftIssue.Of(ErrorCode.E301, "適用後にファイルが削除されています", path: entry.Path, severity: Severity.Warning));
+                if (exists && !await SameAsBackupAsync(revisionFolder, normalized.Value, full, ct).ConfigureAwait(false))
+                {
+                    Warn(entry.Path, "削除したあとに、同じパスへ別の内容のファイルが作られています");
+                }
+                continue;
+            }
+
+            if (entry.Operation == EntryOperation.Rename)
+            {
+                await CheckRenameEntryAsync(projectRoot, revisionFolder, entries, entry, full, exists, Warn, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(entry.HashAfter)) continue;
+
+            if (!exists)
+            {
+                Warn(entry.Path, "適用後にファイルが削除されています");
                 continue;
             }
 
@@ -417,10 +459,78 @@ public sealed class RevisionRestorer
             var currentHash = FileTextIO.ComputeHash(readResult.Value.Text);
             if (!string.Equals(currentHash, entry.HashAfter, StringComparison.OrdinalIgnoreCase))
             {
-                issues.Add(GraftIssue.Of(ErrorCode.E301, "適用後にさらに変更されています", path: entry.Path, severity: Severity.Warning));
+                Warn(entry.Path, "適用後にさらに変更されています");
             }
         }
         return issues;
+    }
+
+    private static async Task CheckRenameEntryAsync(
+        string projectRoot, string revisionFolder, IReadOnlyList<RevisionEntry> entries, RevisionEntry entry,
+        string destFull, bool destExists, Action<string, string> warn, CancellationToken ct)
+    {
+        // 移動元のパスに、適用後にファイルが作られていないか。取り消しはそこへバックアップを書き戻す。
+        // 大文字小文字だけが違う改名（a.txt -> A.txt）は同じファイルを指しうるので対象外にする。
+        if (!string.IsNullOrEmpty(entry.RenamedFrom)
+            && !string.Equals(entry.RenamedFrom, entry.Path, StringComparison.OrdinalIgnoreCase)
+            && BackupPathUtil.NormalizeRelativePath(entry.RenamedFrom) is { IsSuccess: true } fromNormalized)
+        {
+            var fromFull = Path.GetFullPath(Path.Combine(projectRoot, fromNormalized.Value));
+            if (File.Exists(LongPath.Extended(fromFull)))
+            {
+                warn(entry.RenamedFrom, "改名したあとに、改名前のパスへ別のファイルが作られています");
+            }
+        }
+
+        if (!destExists)
+        {
+            warn(entry.Path, "適用後にファイルが削除されています");
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(entry.HashAfter))
+        {
+            var readResult = await FileTextIO.ReadAsync(destFull, ct).ConfigureAwait(false);
+            if (readResult.IsSuccess
+                && !string.Equals(FileTextIO.ComputeHash(readResult.Value.Text), entry.HashAfter, StringComparison.OrdinalIgnoreCase))
+            {
+                warn(entry.Path, "適用後にさらに変更されています");
+            }
+            return;
+        }
+
+        // 古い形式のmanifest（renameにHashAfterが無い）。移動先を編集したmodifyがHashAfterを持っていれば
+        // そちらの照合に任せる。無ければ、改名しただけのはずなので、移動元のバックアップと中身を比べる。
+        var coveredByModify = entries.Any(e =>
+            !ReferenceEquals(e, entry) && e.Operation != EntryOperation.Rename && !string.IsNullOrEmpty(e.HashAfter)
+            && string.Equals(e.Path, entry.Path, StringComparison.OrdinalIgnoreCase));
+        if (coveredByModify || string.IsNullOrEmpty(entry.RenamedFrom)) return;
+
+        if (BackupPathUtil.NormalizeRelativePath(entry.RenamedFrom) is { IsSuccess: true } backupPath
+            && !await SameAsBackupAsync(revisionFolder, backupPath.Value, destFull, ct).ConfigureAwait(false))
+        {
+            warn(entry.Path, "適用後にさらに変更されています");
+        }
+    }
+
+    /// <summary>
+    /// 現在のファイルが、バックアップ（適用前に退避した内容）とバイト単位で同じか。バックアップを
+    /// 読めないときは、失われるものを確かめられないので「同じではない」（警告する）側に倒す。
+    /// </summary>
+    private static async Task<bool> SameAsBackupAsync(
+        string revisionFolder, string normalizedBackupRelative, string currentFull, CancellationToken ct)
+    {
+        var backup = await BackupPathUtil.ReadBackupFileAsync(revisionFolder, normalizedBackupRelative, ct).ConfigureAwait(false);
+        if (!backup.IsSuccess) return false;
+        try
+        {
+            var current = await File.ReadAllBytesAsync(LongPath.Extended(currentFull), ct).ConfigureAwait(false);
+            return current.AsSpan().SequenceEqual(backup.Value);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>6.6の適用順序（MKDIR→RENAME→FULL→SR等→DELETE）を逆順に辿る並びへ整列する。</summary>

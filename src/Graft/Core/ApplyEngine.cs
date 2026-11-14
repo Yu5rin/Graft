@@ -280,7 +280,29 @@ public sealed partial class ApplyEngine
         var deleteResult = ExecuteDeletes(eligible, ctx, entries);
         if (!deleteResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(deleteResult.Issues);
 
+        await FillRenameHashesAsync(entries, ctx, ct).ConfigureAwait(false);
+
         return GraftResult<List<RevisionEntry>>.Ok(entries, textResult.Issues);
+    }
+
+    /// <summary>
+    /// renameのentryに、適用が終わった時点の移動先の内容のハッシュ（HashAfter）を記録する。取り消しの前に
+    /// 「適用後に移動先を手で編集していないか」を確かめるため（RevisionRestorer.CheckHashesAsync参照）。
+    /// 以前はrenameにHashAfterが無く、改名しただけのリビジョンは適用後の変更を検出できなかった。
+    /// 移動先を同じパッチで編集したときも、最後に読み直すので、編集後の内容のハッシュになる
+    /// （modifyのentryのHashAfterと一致する）。読めない（バイナリ等）ときは記録せず、取り消し時は
+    /// 移動元のバックアップとの比較に任せる。
+    /// </summary>
+    private static async Task FillRenameHashesAsync(List<RevisionEntry> entries, ApplyContext ctx, CancellationToken ct)
+    {
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (entries[i].Operation != EntryOperation.Rename) continue;
+            var resolved = ctx.Guard.Resolve(entries[i].Path);
+            if (!resolved.IsSuccess) continue;
+            var read = await FileTextIO.ReadAsync(resolved.Value, ct).ConfigureAwait(false);
+            if (read.IsSuccess) entries[i] = entries[i] with { HashAfter = FileTextIO.ComputeHash(read.Value.Text) };
+        }
     }
 
     private static GraftResult<bool> ExecuteMkdirs(List<BlockPlan> eligible, ApplyContext ctx, List<RevisionEntry> entries)
