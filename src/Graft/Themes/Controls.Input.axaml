@@ -94,6 +94,7 @@
                     <Grid Width="22" Height="22" VerticalAlignment="Center">
                         <Border Name="PART_Box"
                                 Margin="3"
+                                CornerRadius="{DynamicResource RadiusSm}"
                                 BorderBrush="{DynamicResource BorderSubtle}"
                                 BorderThickness="1"
                                 Background="{DynamicResource BgSurface}" />
@@ -185,7 +186,9 @@
 
     <!-- ========== ListBoxItem（ListBox本体の既定書式はControls.Base.axaml側） ========== -->
     <ControlTheme x:Key="{x:Type ListBoxItem}" TargetType="ListBoxItem">
-        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Padding" Value="8,4" />
+        <!-- 一覧の行の高さを RowHeight(28) の下限で揃える（2行の項目は内容で自然に伸びる）。 -->
+        <Setter Property="MinHeight" Value="{DynamicResource RowHeight}" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="Template">
             <ControlTemplate>
@@ -238,7 +241,9 @@
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
         <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtle}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="MinHeight" Value="{DynamicResource ControlHeight}" />
+        <Setter Property="CornerRadius" Value="{DynamicResource RadiusSm}" />
         <Setter Property="FontFamily" Value="{DynamicResource UiFontFamily}" />
         <Setter Property="FontSize" Value="{DynamicResource BodyFontSize}" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -265,7 +270,8 @@
                     <Border Name="PART_Border"
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}">
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
                         <Grid ColumnDefinitions="*,Auto">
                             <!-- 右側は矢印の占有領域。本文が矢印の下へ潜り込まないよう常に空ける。 -->
                             <ContentPresenter Grid.Column="0"
@@ -291,6 +297,7 @@
                         <Border Background="{DynamicResource BgElevated}"
                                 BorderBrush="{DynamicResource BorderSubtle}"
                                 BorderThickness="1"
+                                CornerRadius="{DynamicResource RadiusSm}"
                                 MaxHeight="240"
                                 MinWidth="{Binding Bounds.Width, RelativeSource={RelativeSource TemplatedParent}}">
                             <ScrollViewer>
@@ -302,6 +309,7 @@
                     <Border Name="PART_FocusRing"
                             BorderBrush="{DynamicResource FocusRing}"
                             BorderThickness="{DynamicResource FocusRingBorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
                             IsHitTestVisible="False"
                             Opacity="0" />
                 </Grid>

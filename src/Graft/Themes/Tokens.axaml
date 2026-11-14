@@ -121,6 +121,46 @@
     <x:Double x:Key="MinWindowWidth">960</x:Double>
     <x:Double x:Key="MinWindowHeight">600</x:Double>
 
+    <!-- ========== 寸法トークン（見た目の整備で新設。画面ごとにばらばらだった高さ・角丸・余白を1か所へ） ========== -->
+    <!--
+        【なぜ作ったか】
+        監査（実機の画面写真）で、ペイン見出しの高さが59/62/64px、一覧の行の高さが26/28/36/53pxと
+        画面ごとにばらばらで、ボタンや入力欄にも角丸が無かった。値は各Viewの Margin / Padding から
+        偶然決まっており、揃える手がかりが無かったため、意味のある単位をここへ集める。
+        新しい画面・部品を作るときは、直値ではなく必ずこれらを DynamicResource で参照すること。
+        （Double は Height / MinHeight / Width へ、CornerRadius 型は CornerRadius へ、Thickness は
+         Margin / Padding へそのまま割り当てられる。型が違うと実行時エラーになるため3種を分けて持つ。）
+    -->
+    <!-- コントロール（ボタン・入力欄・ComboBox・タブの帯）の高さ。標準28px、密な並びの中は24px。 -->
+    <x:Double x:Key="ControlHeight">28</x:Double>
+    <x:Double x:Key="ControlHeightCompact">24</x:Double>
+    <!-- 一覧の行の高さ。1行の項目は28px、2行（名前＋補足）の項目は44px。
+         これ以外の高さ（26・36・53など）は作らない。2行の項目は「意味のある違い」なので別枠。 -->
+    <x:Double x:Key="RowHeight">28</x:Double>
+    <x:Double x:Key="RowHeightTwoLine">44</x:Double>
+    <!-- ペイン見出し（エクスプローラ・履歴・検索・プロジェクト・接ぎ木パネル）の帯の高さ。
+         以前は Margin の組み合わせで59/62/64pxに分かれていた。 -->
+    <x:Double x:Key="PaneHeaderHeight">36</x:Double>
+    <Thickness x:Key="PaneHeaderPadding">12,0,8,0</Thickness>
+
+    <!-- 角丸。わずかな丸みにとどめる（小3px＝ボタン・入力欄・チェックボックス、中6px＝ダイアログ・ポップアップ）。 -->
+    <CornerRadius x:Key="RadiusSm">3</CornerRadius>
+    <CornerRadius x:Key="RadiusMd">6</CornerRadius>
+
+    <!-- ダイアログの内側の余白と、要素どうしの標準の間隔（SpacingMd=12 と同値の別名ではなく、
+         「ダイアログ本体は16、その中の段落間は12」と役割で分けて持つ）。 -->
+    <Thickness x:Key="DialogPadding">16</Thickness>
+    <x:Double x:Key="DialogSpacing">12</x:Double>
+
+    <!--
+        セクション見出し（設定の各節・ダイアログの小見出し・空の状態の題など）の文字スタイル。
+        ペイン見出し（12px）は補助的な帯の題、ここは本文より一段目立たせる題。
+        アクセント色は「選択・主ボタン・フォーカス」に限り、見出しには使わない（TextPrimary）。
+        TextBlock には Classes="section-heading" で一括適用できる（Controls.Buttons.axaml 末尾のスタイル）。
+    -->
+    <x:Double x:Key="SectionHeadingFontSize">14</x:Double>
+    <FontWeight x:Key="SectionHeadingFontWeight">SemiBold</FontWeight>
+
     <!-- ========== diff左端バー ========== -->
     <x:Double x:Key="DiffBarWidth">3</x:Double>
 

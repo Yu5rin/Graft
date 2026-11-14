@@ -87,6 +87,21 @@
          UI部品の基準3:1を満たすため、独立したFocusRingColorは持たずAccentへそのまま乗せる。 -->
     <SolidColorBrush x:Key="FocusRing" Color="{StaticResource AccentColor}" />
 
+    <!-- ========== ボタンの種類（主・危険）用の色（デザインの土台） ========== -->
+    <!-- 主ボタンの塗り #88C0D0・文字 #101216 のコントラスト比は9.37:1（基準4.5:1）。
+         Accentそのままで基準を満たすので、塗りはAccentと同値。
+         hover/pressedは塗りを明るくして段階を付ける。危険ボタンは枠と文字をStateError系にし、
+         hoverで同系色の薄い塗り（BgSurfaceへStateErrorを16%／28%混ぜた色）を敷く。
+         DangerFg（#D18C93）はBgSurface比4.69:1。 -->
+    <Color x:Key="PrimaryBgColor">#88C0D0</Color>
+    <SolidColorBrush x:Key="PrimaryBg" Color="{StaticResource PrimaryBgColor}" />
+    <SolidColorBrush x:Key="PrimaryBgHover" Color="#96C8D6" />
+    <SolidColorBrush x:Key="PrimaryBgPressed" Color="#A2CEDA" />
+    <SolidColorBrush x:Key="PrimaryFg" Color="#101216" />
+    <SolidColorBrush x:Key="DangerFg" Color="#D18C93" />
+    <SolidColorBrush x:Key="DangerBgHover" Color="#47404B" />
+    <SolidColorBrush x:Key="DangerBgPressed" Color="#5A4853" />
+
     <!-- ========== 境界線（必要最小限） ========== -->
     <Color x:Key="BorderSubtleColor">#434C5E</Color>
     <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}" />
