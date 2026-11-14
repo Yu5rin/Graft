@@ -312,10 +312,10 @@ public sealed partial class ApplyEngine
         var entries = new List<RevisionEntry>();
         var eligible = plans.Where(p => p.IsSelected && p.CanApply).ToList();
 
-        var mkdirResult = ExecuteMkdirs(eligible, ctx, entries);
+        var mkdirResult = ExecuteMkdirs(eligible, ctx, session, entries);
         if (!mkdirResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(mkdirResult.Issues);
 
-        var renameResult = ExecuteRenames(eligible, ctx, entries);
+        var renameResult = ExecuteRenames(eligible, ctx, session, entries);
         if (!renameResult.IsSuccess) return GraftResult<List<RevisionEntry>>.Fail(renameResult.Issues);
 
         var textResult = await ExecuteTextFilesAsync(eligible, ctx, session, entries, ct).ConfigureAwait(false);
@@ -349,7 +349,8 @@ public sealed partial class ApplyEngine
         }
     }
 
-    private static GraftResult<bool> ExecuteMkdirs(List<BlockPlan> eligible, ApplyContext ctx, List<RevisionEntry> entries)
+    private static GraftResult<bool> ExecuteMkdirs(
+        List<BlockPlan> eligible, ApplyContext ctx, BackupSession session, List<RevisionEntry> entries)
     {
         foreach (var p in eligible.Where(p => p.Operation == EntryOperation.Mkdir))
         {
@@ -358,7 +359,9 @@ public sealed partial class ApplyEngine
 
             try
             {
-                Directory.CreateDirectory(LongPath.Extended(resolved.Value));
+                // この適用で新しく作ったフォルダだけを記録する。失敗してロールバックするとき、
+                // 空のまま残らないよう消すため（BackupSession.CreateDirectoryTracked参照）。
+                session.CreateDirectoryTracked(resolved.Value);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -370,7 +373,8 @@ public sealed partial class ApplyEngine
         return GraftResult<bool>.Ok(true);
     }
 
-    private static GraftResult<bool> ExecuteRenames(List<BlockPlan> eligible, ApplyContext ctx, List<RevisionEntry> entries)
+    private static GraftResult<bool> ExecuteRenames(
+        List<BlockPlan> eligible, ApplyContext ctx, BackupSession session, List<RevisionEntry> entries)
     {
         foreach (var p in eligible.Where(p => p.Operation == EntryOperation.Rename))
         {
@@ -389,10 +393,13 @@ public sealed partial class ApplyEngine
             try
             {
                 var toDir = Path.GetDirectoryName(toResolved.Value);
-                if (!string.IsNullOrEmpty(toDir)) Directory.CreateDirectory(LongPath.Extended(toDir));
+                if (!string.IsNullOrEmpty(toDir)) session.CreateDirectoryTracked(toDir);
                 // overwrite: true にしない。上の判定をすり抜けて移動先に実体があっても、
                 // 黙って上書きせず IOException（→E402）で止めてロールバックへ回す。
                 File.Move(LongPath.Extended(fromResolved.Value), LongPath.Extended(toResolved.Value));
+                // 移動に成功した直後に記録する。失敗した移動を記録すると、ロールバックが利用者の
+                // 既存のファイルを「改名で作られたもの」と取り違えて消しうる（BackupJournal参照）。
+                session.TrackRenamed(rename.FromPath, rename.ToPath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -519,7 +526,7 @@ public sealed partial class ApplyEngine
             {
                 try
                 {
-                    Directory.CreateDirectory(LongPath.Extended(parentDir));
+                    session.CreateDirectoryTracked(parentDir);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
                 {
