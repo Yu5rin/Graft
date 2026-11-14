@@ -308,11 +308,19 @@ public sealed partial class ApplyEngine
             if (!fromResolved.IsSuccess) return GraftResult<bool>.Fail(fromResolved.Issues);
             if (!toResolved.IsSuccess) return GraftResult<bool>.Fail(toResolved.Issues);
 
+            // ドライラン後に移動先へファイルができた場合にも、上書きで失わないよう止める。
+            if (RenameTarget.IsOccupied(fromResolved.Value, toResolved.Value))
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E218, $"移動先: {rename.ToPath}", path: rename.ToPath);
+            }
+
             try
             {
                 var toDir = Path.GetDirectoryName(toResolved.Value);
                 if (!string.IsNullOrEmpty(toDir)) Directory.CreateDirectory(LongPath.Extended(toDir));
-                File.Move(LongPath.Extended(fromResolved.Value), LongPath.Extended(toResolved.Value), overwrite: true);
+                // overwrite: true にしない。上の判定をすり抜けて移動先に実体があっても、
+                // 黙って上書きせず IOException（→E402）で止めてロールバックへ回す。
+                File.Move(LongPath.Extended(fromResolved.Value), LongPath.Extended(toResolved.Value));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
