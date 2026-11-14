@@ -67,6 +67,16 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>
+    /// 接ぎ木パネルの見出しにある「適用」ボタンの文言。解析結果があるときは「適用 (N件)」と、
+    /// いま押すと書き込まれる件数（チェックが付いていて適用できるブロックの数。
+    /// <see cref="StatusSummaryMainText"/>の「N件適用可」と同じ数え方）を添える。
+    /// 件数をボタンに出すのは、押す直前に「何件を書き換えるのか」を目で確かめられるようにするため
+    /// （ステータスバーを見に行かなくて済む）。解析結果が無いときは件数が無意味なので「適用」だけにする。
+    /// </summary>
+    public string ApplyButtonText
+        => _dryRun is null ? "適用" : $"適用 ({Blocks.Count(b => b.IsSelected && b.Plan.CanApply)}件)";
+
     /// <summary>失敗があるときだけ「N件失敗」。無ければ空文字（ステータスバー側は <see cref="HasFailedBlocks"/> で出し分ける）。</summary>
     public string StatusSummaryFailedText => _dryRun is { FailedCount: > 0 } d ? $"{d.FailedCount}件失敗" : string.Empty;
 

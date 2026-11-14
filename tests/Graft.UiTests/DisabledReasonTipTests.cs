@@ -29,7 +29,7 @@ public class DisabledReasonTipTests
         await ShellHarness.WaitUntilAsync(() =>
             Buttons(h, "適用を実行").All(b => TipText(b).StartsWith("プロジェクトを選ぶと使えます"))).ConfigureAwait(true);
 
-        foreach (var name in new[] { "適用を実行", "プロジェクトのファイル一覧とコンテキスト収集を開く", "プロンプトテンプレートを選んでコピー" })
+        foreach (var name in new[] { "適用を実行", "AIに渡すファイルを選ぶ", "既定の依頼文をコピー", "依頼文のテンプレートを選んでコピー" })
         {
             foreach (var b in Buttons(h, name))
             {
@@ -47,7 +47,7 @@ public class DisabledReasonTipTests
         await h.RegisterProjectAsync().ConfigureAwait(true);
         Dispatcher.UIThread.RunJobs();
 
-        foreach (var name in new[] { "適用を実行", "プレビューを再実行", "解析結果を破棄", "現在の解析結果をパッチキューへ追加" })
+        foreach (var name in new[] { "適用を実行", "適用できるかを再チェック", "解析結果を破棄", "現在の解析結果をパッチキューへ追加" })
         {
             var buttons = Buttons(h, name);
             buttons.Should().NotBeEmpty(name);
@@ -56,7 +56,7 @@ public class DisabledReasonTipTests
                 TipText(b).Should().StartWith("先に解析してください", name);
             }
         }
-        foreach (var b in Buttons(h, "失敗ブロックの修正依頼プロンプトをコピー"))
+        foreach (var b in Buttons(h, "失敗ブロックの修正依頼文をコピー"))
         {
             TipText(b).Should().StartWith("適用できなかったブロックがあるとき");
         }

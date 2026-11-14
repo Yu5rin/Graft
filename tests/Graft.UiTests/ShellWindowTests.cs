@@ -104,8 +104,7 @@ public class ShellWindowTests : IDisposable
         window.Arrange(new Avalonia.Rect(0, 0, 960, 600));
         Dispatcher.UIThread.RunJobs();
 
-        // 接ぎ木パネル側にも同名（「適用を実行」）のボタンがあるため、コマンドバーの
-        // Grid（x:Name="CommandBarGrid"）配下だけに絞って探す。
+        // コマンドバーのGrid（x:Name="CommandBarGrid"）配下だけに絞って探す。
         var commandBar = window.GetVisualDescendants().OfType<Grid>().Single(g => g.Name == "CommandBarGrid");
         // Control.Boundsは直接の親要素基準の座標であり、ワークフロー側（StackPanel＞
         // ScrollViewer＞Grid）と右端グループ（StackPanel＞Grid）とでは親の入れ子段数が
@@ -114,21 +113,20 @@ public class ShellWindowTests : IDisposable
         // commandBar基準の座標へ揃えてから比較する。
         var buttons = commandBar.GetVisualDescendants().OfType<Button>()
             .Where(b => AutomationProperties.GetName(b) is
-                "プロジェクトのファイル一覧とコンテキスト収集を開く" or "クリップボードのパッチを解析" or
-                "現在の解析結果をパッチキューへ追加" or "パッチキューを開く" or "適用を実行" or
-                "プロンプトテンプレートを選んでコピー" or "履歴ビューを開く" or "設定を開く" or
-                "ヘルプメニューを開く")
+                "AIに渡すファイルを選ぶ" or "既定の依頼文をコピー" or "依頼文のテンプレートを選んでコピー" or
+                "クリップボードの回答を解析" or "そのほかの解析方法を選ぶ" or "パッチキューを開く" or
+                "履歴ビューを開く" or "設定を開く" or "ヘルプメニューを開く")
             .Select(b => (
                 Name: AutomationProperties.GetName(b)!,
                 Bounds: new Rect(b.TranslatePoint(new Point(0, 0), commandBar) ?? default, b.Bounds.Size)))
             .OrderBy(x => x.Bounds.Left)
             .ToList();
 
-        buttons.Should().HaveCount(9, "コマンドバーの主要ボタン9個すべてが見つかる必要がある");
+        buttons.Should().HaveCount(9, "コマンドバーの主要ボタン9個（分割ボタンの▼2個を含む）すべてが見つかる必要がある");
 
         // 最小幅960pxでも、幅0（測定されていない＝レイアウトから外れた）ボタンが無いこと、
         // かつX方向の範囲が互いに重ならないことを確認する（欠け・重なりの実機確認の裏付け）。
-        // ワークフロー側の7個（ファイル〜履歴）はScrollViewer（ToolbarButtonsScroll）の
+        // ワークフロー側の6個（ファイルを選ぶ〜キュー）はScrollViewer（ToolbarButtonsScroll）の
         // 中身なので、収まりきらない分は横スクロールに回る＝Bounds自体はStackPanel内で
         // 自然な位置のまま保たれ、重ならずに並ぶことに変わりはない。「設定」「?」の2個は
         // 列3の右端固定グループの中身で、常にウィンドウ内に収まる。
@@ -169,7 +167,7 @@ public class ShellWindowTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         var scroll = window.GetControl<ScrollViewer>("ToolbarButtonsScroll");
-        var historyButton = window.GetControl<Button>("HistoryButton");
+        var historyButton = window.GetControl<Button>("QueueButton");
 
         // (1) ScrollViewer自身がウィンドウ幅を超えて配置されていないこと
         //     （不具合5そのもの: 以前はAuto幅の子がそのままウィンドウ外へあふれていた）。
@@ -216,7 +214,7 @@ public class ShellWindowTests : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         var scroll = window.GetControl<ScrollViewer>("ToolbarButtonsScroll");
-        var historyButton = window.GetControl<Button>("HistoryButton");
+        var historyButton = window.GetControl<Button>("QueueButton");
 
         // MaxWidthのバインド元（ComboBox・設定ボタン・ショートカットボタンの実測幅）は
         // 変えず、ScrollViewer自身に極端に狭いMaxWidthをローカルに設定して「収まりきらない
@@ -241,8 +239,7 @@ public class ShellWindowTests : IDisposable
     /// 右側にある）で設定ボタンをワークフロー順のボタン群（列1）から、ヘルプメニュー
     /// （「?」）と同じ右端固定グループ（列3）へ移した。将来また左のワークフロー側へ
     /// 戻ってしまったら気付けるように、Grid.Column値と親要素（右端グループ）の両方で
-    /// 判定する。「履歴」はこの対応で移していない（「戻す」操作の入口であるため、
-    /// 参照系の右端グループではなくワークフロー側に残す）ことも合わせて確認する。
+    /// 判定する。履歴もツールバー並べ直しで右端グループへ移したことを合わせて確認する。
     /// </summary>
     [AvaloniaFact(DisplayName = "設定ボタンは右端グループ（列3、ヘルプメニューと同じ）にあり、ワークフロー側のボタン列には含まれない")]
     public void 設定ボタンは右端グループにありワークフロー側のボタン列には含まれない()
@@ -269,9 +266,10 @@ public class ShellWindowTests : IDisposable
         toolbarScroll.GetVisualDescendants().Should().NotContain(settingsButton,
             "設定ボタンはワークフローの操作ボタン列（横スクロールする列1）には含めない");
 
-        // 「履歴」は移していない（依頼の要件）。ワークフロー側のScrollViewer配下に
-        // 残っていることを確認する。
-        toolbarScroll.GetVisualDescendants().Should().Contain(historyButton,
-            "履歴ボタンは「戻す」操作の入口でもあるため、ワークフロー側（列1）に残すはず");
+        // 「履歴」も作業の流れの外にある補助として、右端グループへ移した（ツールバー並べ直し）。
+        rightGroup.GetVisualChildren().Should().Contain(historyButton,
+            "履歴ボタンは右端グループの直接の子であるはず");
+        toolbarScroll.GetVisualDescendants().Should().NotContain(historyButton,
+            "履歴ボタンは横スクロールする作業の流れの列には含めない");
     }
 }

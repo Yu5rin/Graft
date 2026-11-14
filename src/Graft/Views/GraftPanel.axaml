@@ -16,12 +16,13 @@
         - 状態アイコンのDataTrigger（check / alert-triangle / x-circle）は、3つのPathを
           重ねてViewModel側の真偽値（IsOk/IsWarn/IsError）で出し分ける形にした。
     -->
-    <Grid Background="{DynamicResource BgSurface}" RowDefinitions="32,*">
+    <Grid Background="{DynamicResource BgSurface}" RowDefinitions="Auto,*">
 
-        <!-- ヘッダー: 開閉トグル・タイトル・状態サマリ・プレビュー/適用・修正を依頼 -->
+        <!-- ヘッダー: 開閉トグル・タイトル・対象の要約・修正を依頼/破棄/キューへ追加/再チェック/適用 -->
         <Border Grid.Row="0" DataContext="{Binding Graft}"
+                MinHeight="{DynamicResource PaneHeaderHeight}"
                 BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="0,1,0,0">
-            <Grid Margin="8,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
+            <Grid Margin="8,0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
 
                 <Button Grid.Column="0"
                         Command="{Binding DataContext.ToggleGraftPanelCommand, ElementName=Root}"
@@ -82,24 +83,31 @@
                            FontSize="{DynamicResource StatusBarFontSize}"
                            Foreground="{DynamicResource TextSecondary}" />
 
+                <!--
+                    見出しの操作ボタンは、左から「修正を依頼 → 破棄 → キューへ追加 → 再チェック → 適用」。
+                    解析結果に対する操作を、慎重な（取り返しやすい）ものから順に並べ、いちばん右の
+                    「適用」だけを主ボタン（primary）にしている。以前は「適用」と「キューへ追加」が
+                    上のツールバーにあり、「適用」だけは見出しにも重複してあった。利用者の選択
+                    （「作業の流れで並べ直す」）で、解析結果に対する操作はすべてこの見出しに集めた。
+                    押せないときのツールチップの理由（views:HelpTip.DisabledReason）は移した先でも保つ。
+                -->
                 <!-- 11章 失敗時の修正依頼: 失敗ブロックがある場合のみ有効になる。 -->
                 <Button Grid.Column="4" Content="修正を依頼" Margin="4,0"
                         Command="{Binding CopyRecoveryPromptCommand}"
                         views:HelpTip.DisabledReason="{Binding RecoveryDisabledReason}"
                         views:HelpTip.Standard="適用できなかったブロックについて、現在のファイルの内容を添えた修正依頼文をクリップボードへコピーします。AIへ再度質問するときに使います。失敗したブロックがあるときだけ有効になります。"
                         views:HelpTip.Detailed="一覧の中に赤い×印（適用できなかったブロック）があるときに使います。押すと、失敗した理由と対象ファイルの今の中身を含んだ修正依頼文がクリップボードへコピーされます。それをAIとの会話に貼り付けて再度質問すれば、状況を説明し直す手間なく修正案をもらえます。失敗したブロックが無いときはこのボタンは押せません。"
-                        AutomationProperties.Name="失敗ブロックの修正依頼プロンプトをコピー" />
+                        AutomationProperties.Name="失敗ブロックの修正依頼文をコピー" />
 
                 <!--
                     修正3: 「破棄」ボタン。DiscardCommand自体は既存実装済みだったが、Escキー以外の
                     露出が接ぎ木パネルのどこにも無く「実装はあるのに見えない」状態だった（13件目）。
-                    プレビュー・適用と並べ、解析結果が無いときは無効化する（DiscardCommandの
-                    CanExecute参照）。
+                    解析結果が無いときは無効化する（DiscardCommandのCanExecute参照）。
                 -->
                 <Button Classes="danger" Grid.Column="5" Margin="4,0" Command="{Binding DiscardCommand}"
                         views:HelpTip.DisabledReason="{Binding NeedAnalysisReason}"
-                        views:HelpTip.Standard="解析した内容を取り消します。ファイルは変更されません。"
-                        views:HelpTip.Detailed="接ぎ木パネルに表示されている解析結果（ブロック一覧・プレビュー）を取り消し、パネルを空の状態に戻します。ここまでの操作はまだファイルへは一切書き込んでいないため、ファイルの内容には何も影響しません。押し間違えても、破棄した直後の数秒は画面下の「元に戻す」で戻せます。解析結果が無いときはこのボタンは押せません。"
+                        views:HelpTip.Standard="解析した内容を捨てます。ファイルは変更されません。"
+                        views:HelpTip.Detailed="接ぎ木パネルに表示されている解析結果（ブロック一覧・差分）を捨てて、パネルを空の状態に戻します。ここまでの操作はまだファイルへは一切書き込んでいないため、ファイルの内容には何も影響しません。押し間違えても、捨てた直後の数秒は画面下の「元に戻す」で戻せます。解析結果が無いときはこのボタンは押せません。"
                         AutomationProperties.Name="解析結果を破棄">
                     <StackPanel Orientation="Horizontal">
                         <views:IconGlyph Data="{DynamicResource IconXGeometry}"
@@ -108,28 +116,40 @@
                     </StackPanel>
                 </Button>
 
-                <Button Grid.Column="6" Margin="4,0" Command="{Binding PreviewCommand}"
+                <!-- 4.10: 分割パッチの受け取り。解析した変更をすぐ適用せず、キューへ溜める。 -->
+                <Button Grid.Column="6" Content="キューへ追加" Margin="4,0"
+                        Command="{Binding AddCurrentPatchToQueueCommand}"
                         views:HelpTip.DisabledReason="{Binding NeedAnalysisReason}"
-                        views:HelpTip.Standard="解析した変更をもう一度ドライラン（試し適用）し、各ブロックの適用可否と差分を最新の状態に更新します。対象ファイルを編集した後に使います。"
-                        views:HelpTip.Detailed="解析済みの変更が、今のファイルの中身に対して問題なく適用できるかどうかを、実際には書き込まずに試します（ドライラン）。エディタで対象ファイルを直接編集したあとにこのボタンを押すと、各ブロックの状態（適用可能・要確認・失敗）と差分表示が最新の内容に更新されます。"
-                        AutomationProperties.Name="プレビューを再実行">
+                        views:HelpTip.Standard="解析した変更をすぐ適用せず、順番待ち（キュー）に溜めます。AIが変更を数回に分けて出してきたときに使います。"
+                        views:HelpTip.Detailed="AIの回答が長く、修正が何回かに分けて送られてくることがあります。そのたびに「貼り付けて解析」で読み取った内容を、このボタンで順番待ちの列（キュー）に追加できます。追加してもファイルはまだ変わりません。すべての回答を解析し終えたら、上のバーの「キュー」ボタンで一覧を開き、まとめて適用してください。"
+                        AutomationProperties.Name="現在の解析結果をパッチキューへ追加" />
+
+                <!-- 「再チェック」: 解析済みの変更が今のファイルに適用できるかを、書き込まずに調べ直す
+                     （以前の名前は「プレビュー」。適用前の確認画面・Markdownの表示も「プレビュー」と
+                     呼んでいて、3つの意味が混ざっていたため、これだけ改名した）。 -->
+                <Button Grid.Column="7" Margin="4,0" Command="{Binding PreviewCommand}"
+                        views:HelpTip.DisabledReason="{Binding NeedAnalysisReason}"
+                        views:HelpTip.Standard="解析した変更が今のファイルに適用できるかを、書き込まずにもう一度調べ、各ブロックの結果と差分を最新にします。対象ファイルを編集した後に使います。"
+                        views:HelpTip.Detailed="解析済みの変更が、今のファイルの中身に対して問題なく適用できるかどうかを、実際には書き込まずに調べ直します。エディタで対象ファイルを直接編集したあとにこのボタンを押すと、各ブロックの状態（適用可能・要確認・失敗）と差分表示が最新の内容に更新されます。"
+                        AutomationProperties.Name="適用できるかを再チェック">
                     <StackPanel Orientation="Horizontal">
                         <views:IconGlyph Data="{DynamicResource IconEyeGeometry}"
                                          Width="14" Height="14" Margin="0,0,4,0" />
-                        <TextBlock Text="プレビュー" VerticalAlignment="Center" />
+                        <TextBlock Text="再チェック" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
 
                 <!-- F6ペイン巡回の最後の停留先（GraftPanel.axaml.cs: DiffHost）。 -->
-                <Button Classes="primary" x:Name="ApplyButtonElement" Grid.Column="7" Command="{Binding ApplyCommand}"
+                <Button Classes="primary" x:Name="ApplyButtonElement" Grid.Column="8" Margin="4,0,0,0"
+                        Command="{Binding ApplyCommand}"
                         views:HelpTip.DisabledReason="{Binding ApplyDisabledReason}"
-                        views:HelpTip.Standard="解析した変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも元に戻せます（Ctrl+Enter）。"
-                        views:HelpTip.Detailed="一覧に並んでいる、チェックが入ったブロックを実際のファイルへ書き込みます。書き込む前には自動でバックアップが作られるため、結果が気に入らなければサイドバーの「履歴」からいつでも元に戻せます。ショートカットはCtrl+Enterです。"
+                        views:HelpTip.Standard="チェックの付いた変更を実際のファイルへ書き込みます。書き込む前に自動でバックアップを取るので、履歴からいつでも取り消せます（Ctrl+Enter）。"
+                        views:HelpTip.Detailed="一覧に並んでいる、チェックが入ったブロックを実際のファイルへ書き込みます。ボタンの括弧内の数字は、いま書き込まれる件数です。書き込む前には自動でバックアップが作られるため、結果が気に入らなければサイドバーの「履歴」からいつでも取り消せます。ショートカットはCtrl+Enterです。"
                         AutomationProperties.Name="適用を実行">
                     <StackPanel Orientation="Horizontal">
                         <views:IconGlyph Data="{DynamicResource IconPlayGeometry}"
                                          Width="14" Height="14" Margin="0,0,4,0" />
-                        <TextBlock Text="適用" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding ApplyButtonText}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
             </Grid>

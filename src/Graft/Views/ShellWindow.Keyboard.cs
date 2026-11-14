@@ -155,7 +155,7 @@ public partial class ShellWindow
 
     /// <summary>
     /// Escで「いちばん手前のもの」を1つだけ閉じる。手前にあるものの順は、
-    /// (1) 開いているポップアップ（「?」メニュー・プロンプトのコピー）、
+    /// (1) 開いているポップアップ（依頼文のテンプレート選択。「？」メニューは標準のMenuFlyoutで、自分でEscを処理する）、
     /// (2) 文字の入っている絞り込み・検索欄（<see cref="EscapeClearBehavior"/>の目印つき）。
     /// どれも無ければ何もしない（false。解析結果は破棄しない）。
     /// ComboBoxの一覧・右クリックメニュー等のAvalonia標準のポップアップは、別のウィンドウ
@@ -163,12 +163,6 @@ public partial class ShellWindow
     /// </summary>
     private bool CloseTopmostOnEscape()
     {
-        if (ViewModel.IsHelpMenuOpen)
-        {
-            ViewModel.IsHelpMenuOpen = false;
-            return true;
-        }
-
         if (ViewModel.Graft.PromptCopy is { IsOpen: true } promptCopy)
         {
             promptCopy.IsOpen = false;

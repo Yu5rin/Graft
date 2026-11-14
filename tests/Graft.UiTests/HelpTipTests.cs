@@ -188,7 +188,7 @@ public class HelpTipTests : IDisposable
         var shell = _windows.Track(new ShellWindow());
         shell.Show();
         var analyzeButton = shell.GetVisualDescendants().OfType<Button>()
-            .Single(b => Equals(AutomationProperties.GetName(b), "クリップボードのパッチを解析"));
+            .Single(b => Equals(AutomationProperties.GetName(b), "クリップボードの回答を解析"));
 
         ToolTip.GetTip(analyzeButton).Should().BeOfType<TextBlock>()
             .Which.Text.Should().Contain("ここが接ぎ木の入口です");

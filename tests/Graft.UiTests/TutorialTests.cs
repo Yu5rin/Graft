@@ -206,28 +206,13 @@ public class TutorialTests : IDisposable
         var (shell, window) = await OpenShellAsync().ConfigureAwait(true);
         window.IsTutorialActive.Should().BeFalse();
 
-        // ManualWindowTests.ヘルプメニューは両方の項目に到達できると同じ作法（Focus+Enter）で
-        // メニューを開く。ポップアップの内容はIsOpen確定後の再レイアウトを経て初めて可視ツリーへ
-        // 反映されるため、RaiseEvent(Click)より確実に確定させられるこちらに揃える。
-        var helpButton = window.GetVisualDescendants().OfType<Button>()
-            .Single(b => Equals(AutomationProperties.GetName(b), "ヘルプメニューを開く"));
-        helpButton.Focus();
-        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
-        await SettleAsync().ConfigureAwait(true);
-
-        // 不具合対応: このボタンはClickイベントハンドラではなくCommandバインディング
-        // （Command="{Binding StartTutorialCommand}"）のため、RaiseEvent(ClickEvent)では
-        // Avalonia標準のButton.OnClick（コマンド実行を担う）を経由せず、Commandが実行されない。
-        // 実際のキー操作（Focus+Enter）を経由させ、標準の入力パイプラインでコマンドを実行させる
-        // （toggleButtonの開閉と同じ作法。ExitButton等のClickハンドラ方式のボタンは
-        // RaiseEvent(ClickEvent)のままでよい）。
-        var startButton = window.GetVisualDescendants().OfType<Button>()
-            .Single(b => Equals(AutomationProperties.GetName(b), "使い方を学ぶ（画面上のチュートリアルを開始）"));
-        startButton.Focus();
-        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        // ヘルプメニューは標準のMenuFlyout。項目のコマンドを実行して、メニューからの再実行の配線を確かめる。
+        var startCommand = window.HelpMenuItems().ItemByHeader("使い方を学ぶ").Command!;
+        // 実際の操作と同じく、項目を選ぶとメニューは閉じてからコマンドが実行される。
+        window.GetControl<Button>("ShortcutsButton").Flyout!.Hide();
+        startCommand.Execute(null);
 
         await WaitUntilAsync(() => window.IsTutorialActive).ConfigureAwait(true);
-        shell.IsHelpMenuOpen.Should().BeFalse("メニューから選んだら、他の項目と同様にメニュー自体も閉じる必要がある");
 
         // 後始末: このテストではEscで中断してから終える。
         window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
