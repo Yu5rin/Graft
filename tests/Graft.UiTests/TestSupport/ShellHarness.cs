@@ -133,6 +133,9 @@ public sealed class ShellHarness : IDisposable
     public void Dispose()
     {
         _windows.Dispose();
+        // ファイル監視（inotifyのインスタンス）を解放する。解放しないと、このハーネスを使うテストが
+        // 積み重なって上限（既定128）に達し、無関係なテストの監視開始が失敗する。
+        Shell.Dispose();
         try
         {
             if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);

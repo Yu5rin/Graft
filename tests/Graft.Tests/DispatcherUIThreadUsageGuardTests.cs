@@ -47,6 +47,9 @@ public class DispatcherUIThreadUsageGuardTests
         // 安全（DocumentSessionのように「ConfigureAwait(false)で離脱した後」の箇所ではない）。
         ("Views/EditorPane.axaml.cs", "Dispatcher.UIThread.Post(() =>"),
         ("Views/TutorialOverlay.axaml.cs", "Dispatcher.UIThread.Post(() => PrimaryButton.Focus(), DispatcherPriority.Background);"),
+        // 「開く」操作でサイドビューを表示したあとのフォーカス移動（C6）。ShellViewModel.RequestFocusSideViewは
+        // UIスレッド上のキー操作・コマンド実行からしか発火しない（検索ビューの同種の行と同じ）。
+        ("Views/ShellWindow.axaml.cs", "Dispatcher.UIThread.Post(() => FocusSideView(kind), DispatcherPriority.Background);"),
         ("Views/ShellWindow.axaml.cs", "Dispatcher.UIThread.Post(() => SearchViewControl.QueryBoxElement.Focus(), DispatcherPriority.Background);"),
         ("Views/ShellWindow.axaml.cs", "Dispatcher.UIThread.Post(() => QuickOpenOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);"),
         ("Views/ShellWindow.axaml.cs", "Dispatcher.UIThread.Post(() => CommandPaletteOverlayControl.QueryBoxElement.Focus(), DispatcherPriority.Background);"),

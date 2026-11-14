@@ -241,17 +241,19 @@ public partial class ShellWindow : Window
     /// </summary>
     private void OnRequestFocusSideView(object? sender, SideViewKind kind)
     {
-        Dispatcher.UIThread.Post(() =>
+        Dispatcher.UIThread.Post(() => FocusSideView(kind), DispatcherPriority.Background);
+    }
+
+    private void FocusSideView(SideViewKind kind)
+    {
+        Control target = kind switch
         {
-            Control target = kind switch
-            {
-                SideViewKind.Search => SearchViewControl.QueryBoxElement,
-                SideViewKind.Explorer => ExplorerViewControl.TreeElement,
-                SideViewKind.History => HistoryPaneControl.ListBoxElement,
-                _ => ProjectPaneControl.ListBoxElement,
-            };
-            target.Focus();
-        }, DispatcherPriority.Background);
+            SideViewKind.Search => SearchViewControl.QueryBoxElement,
+            SideViewKind.Explorer => ExplorerViewControl.TreeElement,
+            SideViewKind.History => HistoryPaneControl.ListBoxElement,
+            _ => ProjectPaneControl.ListBoxElement,
+        };
+        target.Focus();
     }
 
     /// <summary>
