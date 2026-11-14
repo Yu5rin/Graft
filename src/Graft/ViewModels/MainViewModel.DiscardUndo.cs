@@ -88,6 +88,10 @@ public sealed partial class MainViewModel
         }
 
         OnPropertyChanged(nameof(StatusSummaryText));
+
+        OnPropertyChanged(nameof(StatusSummaryMainText));
+
+        OnPropertyChanged(nameof(StatusSummaryFailedText));
         OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
         CommandRequery.Invalidate();

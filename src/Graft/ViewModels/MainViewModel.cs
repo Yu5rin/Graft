@@ -162,6 +162,14 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<BlockItemViewModel> Blocks { get; } = new();
 
+    /// <summary>
+    /// 見た目の整備: 接ぎ木パネルの一覧に出す並び。失敗したブロックを先頭へ寄せ、残りは元の順を保つ。
+    /// 以前は失敗したブロックが一覧の下に埋もれ、スクロールしないと見つからなかった。
+    /// <see cref="Blocks"/>（パッチ本来の順序）は、適用の順序・復元・チェック状態の保存が添字で参照するため
+    /// 並べ替えず、表示専用のこちらだけを並べ替える（中身は同じ <see cref="BlockItemViewModel"/> の参照）。
+    /// </summary>
+    public ObservableCollection<BlockItemViewModel> BlocksDisplay { get; } = new();
+
     public CenterPaneState State
     {
         get => _state;
@@ -599,6 +607,8 @@ public sealed partial class MainViewModel : ObservableObject
         LogDryRunFileProbes(dryRun.Value, context); // 依頼4対応: MainViewModel.DryRunDiagnostics.cs参照
         ReplaceBlocks(dryRun.Value.Plans);
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(StatusSummaryMainText));
+        OnPropertyChanged(nameof(StatusSummaryFailedText));
         OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
     }
@@ -616,6 +626,8 @@ public sealed partial class MainViewModel : ObservableObject
         SetAlreadyAppliedRevision(null);
         ReplaceBlocks(Array.Empty<BlockPlan>());
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(StatusSummaryMainText));
+        OnPropertyChanged(nameof(StatusSummaryFailedText));
         OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
     }
@@ -636,6 +648,11 @@ public sealed partial class MainViewModel : ObservableObject
             item.PropertyChanged += OnAnyBlockPropertyChanged;
             Blocks.Add(item);
         }
+        BlocksDisplay.Clear();
+        foreach (var item in Blocks.Where(b => b.IsError).Concat(Blocks.Where(b => !b.IsError)))
+        {
+            BlocksDisplay.Add(item);
+        }
         State = Blocks.Count == 0 ? CenterPaneState.Empty : CenterPaneState.Content;
         SelectedBlock = Blocks.FirstOrDefault();
     }
@@ -650,5 +667,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (e.PropertyName != nameof(BlockItemViewModel.IsSelected)) return;
         OnPropertyChanged(nameof(StatusSummaryText));
+        OnPropertyChanged(nameof(StatusSummaryMainText));
+        OnPropertyChanged(nameof(StatusSummaryFailedText));
     }
 }

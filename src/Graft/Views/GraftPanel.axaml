@@ -174,7 +174,7 @@
                 <!-- ブロック一覧（1行目パス・2行目変更説明、状態アイコン、チェックボックス）。
                      選択すると差分がエディタ領域のタブへ開く（ShellViewModel側の配線）。 -->
                 <ListBox x:Name="BlockListBox"
-                         ItemsSource="{Binding Blocks}"
+                         ItemsSource="{Binding BlocksDisplay}"
                          SelectedItem="{Binding SelectedBlock, Mode=TwoWay}"
                          Background="Transparent"
                          AutomationProperties.Name="ブロック一覧">

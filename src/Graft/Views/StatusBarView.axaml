@@ -239,10 +239,23 @@
                 失敗が1件でもあれば既存のStateErrorトークンを参照して目立たせる
                 （下のstatusSummary.failedスタイル参照。トークンの定義値自体は変更しない）。
             -->
-            <TextBlock Grid.Column="1" Text="{Binding Graft.StatusSummaryText}"
-                       Classes.failed="{Binding Graft.HasFailedBlocks}"
-                       Classes="statusSummary"
-                       VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
+            <!--
+                見た目の整備: 失敗があるときは、全体を赤くせず「N件失敗」の部分だけをStateErrorにする
+                （適用可・要確認の件数まで警告に見えていたため）。ひとまとまりの文として読み上げられるよう、
+                StackPanel自体に全文（Graft.StatusSummaryText）をAutomationのNameとして付ける。
+            -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                        AutomationProperties.Name="{Binding Graft.StatusSummaryText}">
+                <TextBlock Text="{Binding Graft.StatusSummaryMainText}"
+                           VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}" />
+                <TextBlock Text=" / " VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.HasFailedBlocks}" />
+                <TextBlock Text="{Binding Graft.StatusSummaryFailedText}"
+                           Classes="statusSummary failed"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" FontSize="{DynamicResource StatusBarFontSize}"
+                           IsVisible="{Binding Graft.HasFailedBlocks}" />
+            </StackPanel>
         </Grid>
     </Border>
 
