@@ -120,7 +120,24 @@ public sealed class CodeLineControl : TextBlock
 
     private void OnUnloaded(object? sender, RoutedEventArgs e) => ThemeManager.ThemeChanged -= OnThemeChanged;
 
-    private void OnThemeChanged(object? sender, EventArgs e) => Rebuild();
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        Rebuild();
+
+        // 監査 H2: テーマを切り替えると、開いている差分タブの本文が消える（実機で確認）。
+        // 文字そのものは残っており、横へ少しスクロールする（＝再描画が起きる）と元に戻る。
+        // ThemeChanged は、アプリの色の辞書を差し替えた直後（まだ各コントロールが
+        // 新しい辞書での再評価を終える前）に同期で呼ばれ、ここでの Inlines の組み直しによる
+        // 再描画要求が、そのあとに続くリソース更新による再評価と順序が前後して取りこぼされる。
+        // 辞書の差し替えが終わった後（Render優先度）で、もう一度組み直したうえで、測り直しと
+        // 再描画を明示的に要求する。
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            Rebuild();
+            InvalidateMeasure();
+            InvalidateVisual();
+        }, Avalonia.Threading.DispatcherPriority.Render);
+    }
 
     private void Rebuild()
     {
