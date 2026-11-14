@@ -170,4 +170,37 @@ public class PatchQueueTests
         loaded.IsSuccess.Should().BeTrue();
         queue.Items.Should().BeEmpty();
     }
+
+    [Fact(DisplayName = "B2: 結合したパッチで、同じファイルの重なるSEARCHは後のものがE105で失敗し内容は壊れない")]
+    public void 結合後に重なるSEARCHはE105になる()
+    {
+        using var ws = new TempWorkspace();
+        var queue = new PatchQueue(new AppPaths(ws.CreateDirectory("app")));
+        queue.Add(Parse("""
+            <<<< FILE: a.py
+            <<<<<<< SEARCH
+            l2
+            l3
+            =======
+            A
+            >>>>>>> REPLACE
+            """));
+        queue.Add(Parse("""
+            <<<< FILE: a.py
+            <<<<<<< SEARCH
+            l3
+            l4
+            =======
+            B
+            >>>>>>> REPLACE
+            """));
+
+        var merged = queue.Merge().Value;
+        var resolution = BlockResolver.ResolveFile(
+            new[] { "l1", "l2", "l3", "l4", "l5" }, merged.Blocks, new MatchEngine());
+
+        resolution.Units.Should().ContainSingle(u => !u.CanApply)
+            .Which.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E105);
+        resolution.FinalLines.Select(l => l.Text).Should().Equal("l1", "A", "l4", "l5");
+    }
 }

@@ -82,4 +82,95 @@ public class BlockResolverTests
         resolution.FinalLines.Select(l => l.Text).Should().Equal(
             new[] { "keep" }, "元ファイルは一切変更されないはず");
     }
+
+    // ------------------------------------------------------------------
+    // B2: 範囲が重なる SEARCH・重複したペアを「成功」で書き込まない
+    // ------------------------------------------------------------------
+
+    private static readonly string[] SixLines = { "l1", "l2", "l3", "l4", "l5", "l6" };
+
+    [Fact(DisplayName = "B2: 範囲が重なるペアは、後のペアが失敗になり、内容は壊れない")]
+    public void 範囲が重なるペアは後のペアを失敗にする()
+    {
+        // 修正前は、ペア2の先頭行(Y4)が消えた内容が「成功」として返った（l4が両方の範囲に含まれる）。
+        var first = Pair("l2\nl3\nl4", "X2\nX3\nX4\nX4b", sourceLine: 1);
+        var second = Pair("l4\nl5", "Y4\nY5\nY5b\nY5c", sourceLine: 5);
+
+        var resolution = BlockResolver.ResolveFile(SixLines, new PatchBlock[] { Block(first, second) }, new MatchEngine());
+
+        var failed = resolution.Units.Single(u => !u.CanApply);
+        failed.SourcePair.Should().BeSameAs(second);
+        failed.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E105);
+        resolution.Units.Single(u => u.CanApply).SourcePair.Should().BeSameAs(first);
+        resolution.FinalLines.Select(l => l.Text).Should().Equal(
+            "l1", "X2", "X3", "X4", "X4b", "l5", "l6");
+    }
+
+    [Fact(DisplayName = "B2: 範囲が接しているだけ（重ならない）のペアは両方適用される")]
+    public void 隣接するペアは両方適用される()
+    {
+        var resolution = BlockResolver.ResolveFile(SixLines, new PatchBlock[]
+        {
+            Block(Pair("l2\nl3", "A", sourceLine: 1), Pair("l4\nl5", "B", sourceLine: 5)),
+        }, new MatchEngine());
+
+        resolution.Units.Should().OnlyContain(u => u.CanApply);
+        resolution.FinalLines.Select(l => l.Text).Should().Equal("l1", "A", "B", "l6");
+    }
+
+    [Fact(DisplayName = "B2: まったく同じペアが2つあると、後のものが失敗になり二重に入らない")]
+    public void 同じペアの重複は後のものを失敗にする()
+    {
+        var first = Pair("l3", "Z3", sourceLine: 1);
+        var second = Pair("l3", "Z3", sourceLine: 5);
+
+        var resolution = BlockResolver.ResolveFile(SixLines, new PatchBlock[] { Block(first, second) }, new MatchEngine());
+
+        resolution.Units.Single(u => !u.CanApply).Issues.Should().ContainSingle(i =>
+            i.Code == ErrorCode.E105 && i.Detail!.Contains("重複"));
+        resolution.FinalLines.Select(l => l.Text).Should().Equal("l1", "l2", "Z3", "l4", "l5", "l6");
+    }
+
+    [Fact(DisplayName = "B2: 別々のブロック（パッチキューで結合した場合）でも重なりを検出する")]
+    public void 別ブロック間でも重なりを検出する()
+    {
+        var a = Block(Pair("l2\nl3", "A", sourceLine: 1));
+        var b = Block(Pair("l3\nl4", "B", sourceLine: 1));
+
+        var resolution = BlockResolver.ResolveFile(SixLines, new PatchBlock[] { a, b }, new MatchEngine());
+
+        resolution.Units.Count(u => !u.CanApply).Should().Be(1);
+        resolution.FinalLines.Select(l => l.Text).Should().Equal("l1", "A", "l4", "l5", "l6");
+    }
+
+    [Fact(DisplayName = "B2: OCCURRENCE=ALL で1ペアが複数箇所に当たる場合は従来どおり全箇所を置き換える")]
+    public void OccurrenceAllは従来どおり()
+    {
+        var original = new[] { "x", "dup", "y", "dup", "z" };
+        var block = new SearchReplaceBlock
+        {
+            Path = "a.txt",
+            Occurrence = new OccurrenceSpec { All = true },
+            Pairs = new[] { Pair("dup", "DUP", sourceLine: 1) },
+        };
+
+        var resolution = BlockResolver.ResolveFile(original, new PatchBlock[] { block }, new MatchEngine());
+
+        resolution.Units.Should().OnlyContain(u => u.CanApply);
+        resolution.FinalLines.Select(l => l.Text).Should().Equal("x", "DUP", "y", "DUP", "z");
+    }
+
+    [Fact(DisplayName = "B2: APPEND/PREPEND は SEARCH の範囲と接していても影響しない")]
+    public void AppendPrependは影響しない()
+    {
+        var sr = Block(Pair("l1", "L1", sourceLine: 1), Pair("l6", "L6", sourceLine: 5));
+        var append = new AppendBlock { Path = "a.txt", Content = "tail" };
+        var prepend = new PrependBlock { Path = "a.txt", Content = "head" };
+
+        var resolution = BlockResolver.ResolveFile(SixLines, new PatchBlock[] { prepend, sr, append }, new MatchEngine());
+
+        resolution.Units.Should().OnlyContain(u => u.CanApply);
+        resolution.FinalLines.Select(l => l.Text).Should().Equal(
+            "head", "L1", "l2", "l3", "l4", "l5", "L6", "tail");
+    }
 }
