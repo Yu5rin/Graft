@@ -61,8 +61,9 @@ public class SettingsAutoSaveTests : IDisposable
     {
         var (vm, appPaths, window) = await BuildWindowAsync();
 
-        var maxRevisions = FindTextBox(window, "最大保持リビジョン数");
-        var hotkey = FindTextBox(window, "グローバルホットキー");
+        var maxRevisions = FindTextBox(window, "履歴の最大保持数", "適用と履歴設定タブ");
+        // 同じ「適用と履歴」タブの別のTextBoxへフォーカスを移す（旧構成ではグローバルホットキーが同じタブにあった）。
+        var hotkey = FindTextBox(window, "バックアップ合計上限");
 
         maxRevisions.Focus();
         // 「100」を「50」に打ち替える途中を模す。空文字・「5」を経由するが、
@@ -98,7 +99,7 @@ public class SettingsAutoSaveTests : IDisposable
     {
         var (vm, appPaths, window) = await BuildWindowAsync();
 
-        var maxRevisions = FindTextBox(window, "最大保持リビジョン数");
+        var maxRevisions = FindTextBox(window, "履歴の最大保持数", "適用と履歴設定タブ");
         maxRevisions.Focus();
         maxRevisions.Text = "50";
         vm.MaxRevisionsText.Should().Be("100", "Enterを押すまではまだ確定していないはず");
@@ -119,7 +120,7 @@ public class SettingsAutoSaveTests : IDisposable
     {
         var (vm, appPaths, window) = await BuildWindowAsync();
 
-        var maxRevisions = FindTextBox(window, "最大保持リビジョン数");
+        var maxRevisions = FindTextBox(window, "履歴の最大保持数", "適用と履歴設定タブ");
         maxRevisions.Focus();
         maxRevisions.Text = "-5"; // backup.maxRevisionsは0以上が条件
         window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
@@ -144,7 +145,7 @@ public class SettingsAutoSaveTests : IDisposable
     {
         var (vm, appPaths, window) = await BuildWindowAsync();
 
-        var maxRevisions = FindTextBox(window, "最大保持リビジョン数");
+        var maxRevisions = FindTextBox(window, "履歴の最大保持数", "適用と履歴設定タブ");
         maxRevisions.Focus();
         maxRevisions.Text = "-5";
         window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
@@ -275,9 +276,23 @@ public class SettingsAutoSaveTests : IDisposable
         return (vm, appPaths, window);
     }
 
-    private static TextBox FindTextBox(Window window, string automationName)
-        => window.GetVisualDescendants().OfType<TextBox>()
+    /// <summary>
+    /// 自動化名でTextBoxを探す。設定画面は左の一覧で選んだタブの中身しか視覚ツリーに載せないため、
+    /// 目的の項目があるタブの自動化名（例: 「適用と履歴設定タブ」）を渡すと、先にそのタブを選んでから探す。
+    /// </summary>
+    private static TextBox FindTextBox(Window window, string automationName, string? tabAutomationName = null)
+    {
+        if (tabAutomationName is not null)
+        {
+            var tab = window.GetVisualDescendants().OfType<TabItem>()
+                .Single(t => Equals(AutomationProperties.GetName(t), tabAutomationName));
+            tab.IsSelected = true;
+            window.UpdateLayout();
+        }
+
+        return window.GetVisualDescendants().OfType<TextBox>()
             .Single(t => Equals(AutomationProperties.GetName(t), automationName));
+    }
 
     /// <summary>ディスパッチャに積まれた非同期継続（Window.LoadedのInitializeAsync等）を消化させる。</summary>
     private static async Task SettleAsync()

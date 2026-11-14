@@ -277,7 +277,8 @@ public class HelpTipTests : IDisposable
         var vm = new SettingsViewModel(appPaths, new NullDialogService(), new AvaloniaUiServices());
         await vm.InitializeAsync();
 
-        var view = new EditorSettingsView { DataContext = vm };
+        // エディタの文字の大きさは「一般」タブ（表示）へ移した。
+        var view = new GeneralSettingsView { DataContext = vm };
         var window = _windows.Track(new Window { Content = view });
         window.Show();
 

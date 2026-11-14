@@ -264,7 +264,7 @@ public class PromptCopyAppendFilesTests : IDisposable
         }
     }
 
-    [AvaloniaFact(DisplayName = "設定画面の「プロンプトのコピーに、選んだファイルも付ける」を切り替えると、開いているドロップダウンのチェックにも反映される")]
+    [AvaloniaFact(DisplayName = "設定画面の「依頼文のコピーに、選んだファイルも付ける」を切り替えると、開いているドロップダウンのチェックにも反映される")]
     public async Task 設定画面の切り替えがドロップダウンに反映される()
     {
         var appPaths = new AppPaths(Path.Combine(_root, "settings-window", "app"));
