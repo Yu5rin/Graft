@@ -19,8 +19,20 @@ namespace Graft.UiTests;
 /// 操作して、View（EditorPane.axaml.cs）からViewModel（EditorPaneViewModel）への配線が
 /// 実際に効くことを確認する（EditorSelectionPromptTestsと同じ作法）。
 /// </summary>
-public class StatusBarCaretSelectionTests
+public class StatusBarCaretSelectionTests : IDisposable
 {
+    // 表示したウィンドウは必ずこのトラッカー経由で後始末する。AvaloniaEditのTextViewを載せた
+    // ウィンドウをShow()したままClose()せずに終えると、Avalonia.Headlessの最終処理で
+    // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」が別のテストの失敗として
+    // 不定期に出る（詳細はShownWindowTrackerのクラスコメント）。
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "カーソル移動で「行:列」形式のCaretTextが更新される")]
     public async Task カーソル移動でCaretTextが更新される()
     {
@@ -35,7 +47,7 @@ public class StatusBarCaretSelectionTests
             (await vm.OpenFileAsync(filePath)).IsSuccess.Should().BeTrue();
 
             var pane = new EditorPane { DataContext = vm };
-            var window = new Window { Width = 800, Height = 600, Content = pane };
+            var window = _windows.Track(new Window { Width = 800, Height = 600, Content = pane });
             window.Show();
             Dispatcher.UIThread.RunJobs();
 
@@ -68,7 +80,7 @@ public class StatusBarCaretSelectionTests
             (await vm.OpenFileAsync(filePath)).IsSuccess.Should().BeTrue();
 
             var pane = new EditorPane { DataContext = vm };
-            var window = new Window { Width = 800, Height = 600, Content = pane };
+            var window = _windows.Track(new Window { Width = 800, Height = 600, Content = pane });
             window.Show();
             Dispatcher.UIThread.RunJobs();
 

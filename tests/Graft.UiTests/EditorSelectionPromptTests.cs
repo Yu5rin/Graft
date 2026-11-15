@@ -22,8 +22,20 @@ namespace Graft.UiTests;
 /// 確認する。プロンプト本文そのものの組み立ては<c>PromptTemplateStoreSelectionTests</c>
 /// （tests/Graft.Tests）で純粋メソッドとして検証済みのため、ここではUI経路の配線のみを見る。
 /// </summary>
-public class EditorSelectionPromptTests
+public class EditorSelectionPromptTests : IDisposable
 {
+    // 表示したウィンドウは必ずこのトラッカー経由で後始末する。AvaloniaEditのTextViewを載せた
+    // ウィンドウをShow()したままClose()せずに終えると、Avalonia.Headlessの最終処理で
+    // 「Unable to locate 'Avalonia.Platform.IFontManagerImpl'」が別のテストの失敗として
+    // 不定期に出る（詳細はShownWindowTrackerのクラスコメント）。
+    private readonly ShownWindowTracker _windows = new();
+
+    public void Dispose()
+    {
+        _windows.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
     [AvaloniaFact(DisplayName = "エディタ本文の右クリックメニューが例外なく構築・描画できる")]
     public async Task 右クリックメニューが例外なく構築描画できる()
     {
@@ -40,7 +52,7 @@ public class EditorSelectionPromptTests
             opened.IsSuccess.Should().BeTrue();
 
             var pane = new EditorPane { DataContext = vm };
-            var window = new Window { Width = 800, Height = 600, Content = pane };
+            var window = _windows.Track(new Window { Width = 800, Height = 600, Content = pane });
             window.Show();
 
             var editor = window.GetVisualDescendants().OfType<TextEditor>().Single();
@@ -123,7 +135,7 @@ public class EditorSelectionPromptTests
         }
     }
 
-    private static async Task<(Window Window, TextEditor Editor, EditorPaneViewModel ViewModel)> OpenEditorWindowAsync(
+    private async Task<(Window Window, TextEditor Editor, EditorPaneViewModel ViewModel)> OpenEditorWindowAsync(
         string projectRoot, string filePath, FakeClipboard clipboard)
     {
         var vm = new EditorPaneViewModel(new Settings(), new NullDialogService(), new FakeUiServices(clipboard));
@@ -131,7 +143,7 @@ public class EditorSelectionPromptTests
         (await vm.OpenFileAsync(filePath)).IsSuccess.Should().BeTrue();
 
         var pane = new EditorPane { DataContext = vm };
-        var window = new Window { Width = 800, Height = 600, Content = pane };
+        var window = _windows.Track(new Window { Width = 800, Height = 600, Content = pane });
         window.Show();
 
         var editor = window.GetVisualDescendants().OfType<TextEditor>().Single();
