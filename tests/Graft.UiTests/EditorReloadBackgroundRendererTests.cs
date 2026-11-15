@@ -176,10 +176,9 @@ public class EditorReloadBackgroundRendererTests : IDisposable
 
         // 判定方法そのものの妥当性: 再読込の前に強調を出したとき、実際にアクセント色が検出できること。
         editor.CaretOffset = 1;
-        using (var before = window.CaptureRenderedFrame())
-        {
-            CountColorPixelsInFirstLine(before!, accentColor, editor).Should().BeGreaterThan(baselineBefore, "前提: 強調の枠が検出できる");
-        }
+        var beforeCount = await CaptureUntilAsync(
+            window, editor, accentColor, count => count > baselineBefore).ConfigureAwait(true);
+        beforeCount.Should().BeGreaterThan(baselineBefore, "前提: 強調の枠が検出できる");
 
         await File.WriteAllTextAsync(path, BracketLines(3, "new")).ConfigureAwait(true);
         await vm.NotifyExternalChangeAsync(path).ConfigureAwait(true);
@@ -194,17 +193,41 @@ public class EditorReloadBackgroundRendererTests : IDisposable
 
         // 差し替え後のキャレットの位置はどこでもよいので、括弧の隣へ明示的に置いて強調を出す。
         editor.CaretOffset = 1;
-        using (window.CaptureRenderedFrame()) { }
-        using var frame = window.CaptureRenderedFrame();
-        frame.Should().NotBeNull();
-        CountColorPixelsInFirstLine(frame!, accentColor, editor).Should().BeGreaterThan(baseline,
+        var shownCount = await CaptureUntilAsync(
+            window, editor, accentColor, count => count > baseline).ConfigureAwait(true);
+        shownCount.Should().BeGreaterThan(baseline,
             "再読込のあとの次の描画で、1行目の括弧に強調の枠（アクセント色）が描かれている");
 
         // 括弧から離れると枠は消える（上の判定が「何でも拾う」ものでないことの確認）。
         editor.CaretOffset = tab.Session.Document.TextLength;
-        using var frame2 = window.CaptureRenderedFrame();
-        var goneCount = CountColorPixelsInFirstLine(frame2!, accentColor, editor);
+        var goneCount = await CaptureUntilAsync(
+            window, editor, accentColor, count => count == baseline).ConfigureAwait(true);
         goneCount.Should().Be(baseline, goneCount == baseline ? string.Empty : DescribeFailure(window, editor, tab, accentColor));
+    }
+
+    /// <summary>
+    /// 描画結果が<paramref name="isExpected"/>を満たすまで、フレームを取り直して数える（最大5秒）。
+    ///
+    /// キャレットを動かした直後に1回だけ取得したフレームが、動かす前の描画のままになることがある
+    /// （全件実行で「枠が出るはずが基準と同じ16画素のまま」と落ちた）。固定回数の取り直しではなく、
+    /// 検証する条件そのものが成り立つまで待つ。時間切れのときは最後の画素数を返し、呼び出し側の
+    /// アサーションが落ちる（本当に枠が出ない／消えない不具合は従来どおり検出される）。
+    /// </summary>
+    private static async Task<int> CaptureUntilAsync(
+        Avalonia.Controls.Window window, TextEditor editor, Color target, Func<int, bool> isExpected)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (true)
+        {
+            int count;
+            using (var frame = window.CaptureRenderedFrame())
+            {
+                count = CountColorPixelsInFirstLine(frame!, target, editor);
+            }
+
+            if (isExpected(count) || DateTime.UtcNow >= deadline) return count;
+            await Task.Delay(10).ConfigureAwait(true);
+        }
     }
 
     /// <summary>
