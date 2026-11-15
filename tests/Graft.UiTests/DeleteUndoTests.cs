@@ -243,7 +243,13 @@ public class DeleteUndoTests : IDisposable
 
         var node = shell.Explorer.RootNodes.Single(n => n.Name == "sample.txt");
         shell.Explorer.DeleteCommand.Execute(node);
+        // 【待つ対象】ファイルが消えるのはDeleteNodeAsyncの最初の段階（_treeService.DeleteAsync）に
+        // 過ぎず、HasDeleteUndoNotice=trueはその後のReconcileDirectoryAsync（ツリー再構築）を
+        // 終えてから立つ。ファイルの消滅だけを待って直ちに検証すると、負荷をかけた全件実行で
+        // 「Expected shell.Explorer.HasDeleteUndoNotice to be true, but found False」と
+        // 落ちた（隣のテスト群と同じく、検証する対象そのものを待つ）。
         await WaitForAsync(() => !File.Exists(filePath)).ConfigureAwait(true);
+        await WaitForAsync(() => shell.Explorer.HasDeleteUndoNotice).ConfigureAwait(true);
         shell.Explorer.HasDeleteUndoNotice.Should().BeTrue();
 
         Directory.Exists(appPaths.TrashStagingDirectory).Should().BeTrue("削除直後は退避コピーが残っているはず");
