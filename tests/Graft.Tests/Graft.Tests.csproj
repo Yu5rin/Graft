@@ -62,6 +62,7 @@
       レジストリ・libX11のいずれにも依存しないため、OSを問わずそのまま検証できる。
     -->
     <Compile Include="..\..\src\Graft\Platform\Windows\WindowsAutoStartService.cs" LinkBase="Linked\Platform\Windows" />
+    <Compile Include="..\..\src\Graft\Platform\Windows\WindowsShortcutWriter.cs" LinkBase="Linked\Platform\Windows" />
     <Compile Include="..\..\src\Graft\Platform\Linux\LinuxAutoStartService.cs" LinkBase="Linked\Platform\Linux" />
     <!--
       多重起動防止のGlobal\スコープ不具合の修正（LinuxSingleInstanceGuard・X11WindowActivator）。
