@@ -179,7 +179,51 @@ public class EditorReloadBackgroundRendererTests : IDisposable
         // 括弧から離れると枠は消える（上の判定が「何でも拾う」ものでないことの確認）。
         editor.CaretOffset = tab.Session.Document.TextLength;
         using var frame2 = window.CaptureRenderedFrame();
-        CountColorPixelsInFirstLine(frame2!, accentColor, editor).Should().Be(0);
+        var goneCount = CountColorPixelsInFirstLine(frame2!, accentColor, editor);
+        goneCount.Should().Be(0, goneCount == 0 ? string.Empty : DescribeFailure(window, editor, tab, accentColor));
+    }
+
+    /// <summary>
+    /// 「括弧から離れたのに枠が消えていない」ときだけ呼ぶ、原因調査用の状態の書き出し。
+    ///
+    /// このアサーションは、UiTestsの全件実行で約10回に1回（負荷ありの回で多い）
+    /// 「Expected ... to be 0, but found 26（や27）」と落ちる。単独で25回・キャレットの往復300回の
+    /// 繰り返しでは再現せず、描画の確定を最大5秒待つ形に変えても落ちた（＝一時的に古いフレームを
+    /// 見ていたのではなく、少なくとも5秒は枠のような画素が残る）ため、原因は未確定。
+    /// 再発したときに、そのまま原因へ進めるよう、失敗メッセージに画素の位置と編集欄の状態を載せる。
+    /// 通ったときは何も計算しない。
+    /// </summary>
+    private static string DescribeFailure(
+        Avalonia.Controls.Window window, TextEditor editor, EditorTabViewModel tab, Color accent)
+    {
+        var textView = editor.TextArea.TextView;
+        var sb = new StringBuilder();
+        sb.Append($"[調査用] caret={editor.CaretOffset}(行{editor.TextArea.Caret.Line}) ");
+        sb.Append($"セッションの文書長={tab.Session.Document.TextLength} 編集欄の文書長={editor.Document.TextLength} ");
+        sb.Append($"同一の文書={ReferenceEquals(editor.Document, tab.Session.Document)} ");
+        sb.Append($"背景描画器の数={textView.BackgroundRenderers.Count}（{string.Join(",", textView.BackgroundRenderers.Select(r => r.GetType().Name))}） ");
+        sb.Append($"アクセント色={accent} 文字色={editor.Foreground} テーマ={Application.Current?.ActualThemeVariant} ");
+        sb.Append($"文書={editor.Document.Text.Replace("\n", "|")} 画素(x,y,色)=");
+
+        using var frame = window.CaptureRenderedFrame();
+        var top = (int)textView.GetVisualPosition(new TextViewPosition(1, 1), VisualYPosition.LineTop).Y;
+        var bottom = (int)textView.GetVisualPosition(new TextViewPosition(1, 1), VisualYPosition.LineBottom).Y;
+        var origin = textView.TranslatePoint(new Point(0, 0), (Visual)editor.GetVisualRoot()!) ?? default;
+        using var fb = frame!.Lock();
+        for (var y = Math.Max(0, (int)origin.Y + top); y < Math.Min(fb.Size.Height, (int)origin.Y + bottom); y++)
+        {
+            for (var x = Math.Max(0, (int)origin.X); x < Math.Min(fb.Size.Width, (int)origin.X + 60); x++)
+            {
+                var px = Marshal.ReadInt32(fb.Address, y * fb.RowBytes + x * 4);
+                var r = px & 0xFF; var g = (px >> 8) & 0xFF; var b = (px >> 16) & 0xFF;
+                if (Math.Abs(r - accent.R) < 48 && Math.Abs(g - accent.G) < 48 && Math.Abs(b - accent.B) < 48)
+                {
+                    sb.Append($"({x},{y},{r:X2}{g:X2}{b:X2}) ");
+                }
+            }
+        }
+
+        return sb.ToString();
     }
 
     [AvaloniaFact(DisplayName = "回帰: 検索結果の強調が出ている状態で再読込しても、差し替えの最中の描画で例外が出ない")]
