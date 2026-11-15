@@ -43,8 +43,18 @@ public class LiveSettingsPropagationTests : IDisposable
         Directory.CreateDirectory(_projectDirectory);
     }
 
+    /// <summary>
+    /// このクラスのテストが組み立てたShellViewModel／ExplorerViewModelの後始末用。これらは
+    /// ファイル監視（FileSystemWatcher＝inotifyのインスタンス）を持ち、Dispose()しないと
+    /// プロセスの終わりまで解放されない。UiTests全体では約120個が残って上限
+    /// （fs.inotify.max_user_instances、既定128）に迫り、後半のテストで監視開始が
+    /// E704で失敗していた。
+    /// </summary>
+    private readonly List<IDisposable> _viewModels = new();
+
     public void Dispose()
     {
+        foreach (var viewModel in _viewModels) viewModel.Dispose();
         // gitオブジェクトファイルの読み取り専用属性解除を含む共通の後片付け（不具合5）。
         TempDirectoryCleanup.TryDeleteRecursive(_root);
 
@@ -265,6 +275,8 @@ public class LiveSettingsPropagationTests : IDisposable
             new AutoConfirmDialogService(),
             new FakeUiServices(_clipboard),
             openSettings: () => { });
+
+        _viewModels.Add(shell);
 
         await shell.Graft.InitializeAsync().ConfigureAwait(true);
         return shell;

@@ -30,8 +30,18 @@ public class ExplorerImportTests : IDisposable
     private readonly string _root =
         Path.Combine(Path.GetTempPath(), "graft-explorer-import", Guid.NewGuid().ToString("N"));
 
+    /// <summary>
+    /// このクラスのテストが組み立てたShellViewModel／ExplorerViewModelの後始末用。これらは
+    /// ファイル監視（FileSystemWatcher＝inotifyのインスタンス）を持ち、Dispose()しないと
+    /// プロセスの終わりまで解放されない。UiTests全体では約120個が残って上限
+    /// （fs.inotify.max_user_instances、既定128）に迫り、後半のテストで監視開始が
+    /// E704で失敗していた。
+    /// </summary>
+    private readonly List<IDisposable> _viewModels = new();
+
     public void Dispose()
     {
+        foreach (var viewModel in _viewModels) viewModel.Dispose();
         try
         {
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
@@ -343,6 +353,7 @@ public class ExplorerImportTests : IDisposable
         var editor = new EditorPaneViewModel(new Settings(), dialogs, ui);
         var appPaths = new AppPaths(Path.Combine(_root, "_app"));
         var explorer = new ExplorerViewModel(appPaths, editor, dialogs, new Settings(), ui);
+        _viewModels.Add(explorer);
 
         var project = new Project { Id = "p_test", Name = "テスト用", Root = _root };
         await explorer.SetProjectAsync(project).ConfigureAwait(true);
