@@ -25,11 +25,16 @@ public class DisabledReasonTipTests
     public async Task プロジェクト未選択の理由()
     {
         using var h = await ShellHarness.CreateAsync(withWindow: true).ConfigureAwait(true);
-        // バインディングの反映は低い優先度で遅れるため、ツールチップが揃うまで待つ。
-        await ShellHarness.WaitUntilAsync(() =>
-            Buttons(h, "適用を実行").All(b => TipText(b).StartsWith("プロジェクトを選ぶと使えます"))).ConfigureAwait(true);
+        var names = new[] { "適用を実行", "AIに渡すファイルを選ぶ", "既定の依頼文をコピー", "依頼文のテンプレートを選んでコピー" };
 
-        foreach (var name in new[] { "適用を実行", "AIに渡すファイルを選ぶ", "既定の依頼文をコピー", "依頼文のテンプレートを選んでコピー" })
+        // バインディングの反映は低い優先度で遅れるため、ツールチップが揃うまで待つ。
+        // 以前は「適用を実行」だけを待っていたが、検証するのは4つのボタンすべてなので、
+        // 待つ対象も4つすべてにする（待った1つが揃った時点で残りが反映途中の窓を作らない）。
+        await ShellHarness.WaitUntilAsync(() => names.All(name =>
+            Buttons(h, name).Count > 0
+            && Buttons(h, name).All(b => TipText(b).StartsWith("プロジェクトを選ぶと使えます")))).ConfigureAwait(true);
+
+        foreach (var name in names)
         {
             foreach (var b in Buttons(h, name))
             {
