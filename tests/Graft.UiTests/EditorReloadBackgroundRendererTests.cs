@@ -168,41 +168,65 @@ public class EditorReloadBackgroundRendererTests : IDisposable
         // 「枠が消える＝基準に戻る」で判定する。基準は再読込の前後で別々に測る（200行の文書は
         // 縦スクロールバーが出て文字の位置が1画素ずれ、混色の画素数が1つ違った）。
         editor.CaretOffset = editor.Document.TextLength;
-        int baselineBefore;
-        using (var plain = window.CaptureRenderedFrame())
-        {
-            baselineBefore = CountColorPixelsInFirstLine(plain!, accentColor, editor);
-        }
+        var baselineBefore = await MeasurePlainBaselineAsync(window, editor, accentColor).ConfigureAwait(true);
 
         // 判定方法そのものの妥当性: 再読込の前に強調を出したとき、実際にアクセント色が検出できること。
         editor.CaretOffset = 1;
         var beforeCount = await CaptureUntilAsync(
-            window, editor, accentColor, count => count > baselineBefore).ConfigureAwait(true);
-        beforeCount.Should().BeGreaterThan(baselineBefore, "前提: 強調の枠が検出できる");
+            window, editor, accentColor, count => count >= baselineBefore + BoxMinPixels).ConfigureAwait(true);
+        beforeCount.Should().BeGreaterThanOrEqualTo(baselineBefore + BoxMinPixels, "前提: 強調の枠が検出できる");
 
         await File.WriteAllTextAsync(path, BracketLines(3, "new")).ConfigureAwait(true);
         await vm.NotifyExternalChangeAsync(path).ConfigureAwait(true);
 
         // 再読込後の基準（枠なし）。
         editor.CaretOffset = tab.Session.Document.TextLength;
-        int baseline;
-        using (var plainAfter = window.CaptureRenderedFrame())
-        {
-            baseline = CountColorPixelsInFirstLine(plainAfter!, accentColor, editor);
-        }
+        var baseline = await MeasurePlainBaselineAsync(window, editor, accentColor).ConfigureAwait(true);
 
         // 差し替え後のキャレットの位置はどこでもよいので、括弧の隣へ明示的に置いて強調を出す。
         editor.CaretOffset = 1;
         var shownCount = await CaptureUntilAsync(
-            window, editor, accentColor, count => count > baseline).ConfigureAwait(true);
-        shownCount.Should().BeGreaterThan(baseline,
-            "再読込のあとの次の描画で、1行目の括弧に強調の枠（アクセント色）が描かれている");
+            window, editor, accentColor, count => count >= baseline + BoxMinPixels).ConfigureAwait(true);
+        shownCount.Should().BeGreaterThanOrEqualTo(baseline + BoxMinPixels,
+            "再読込のあとの次の描画で、1行目の括弧に強調の枠（アクセント色）が描かれている"
+            + (shownCount >= baseline + BoxMinPixels ? string.Empty : " " + DescribeFailure(window, editor, tab, accentColor)
+                + $" 可視行数={editor.TextArea.TextView.VisualLines.Count} 有効に可視={editor.IsEffectivelyVisible} レイヤー数={editor.TextArea.TextView.Layers.Count}"));
 
         // 括弧から離れると枠は消える（上の判定が「何でも拾う」ものでないことの確認）。
         editor.CaretOffset = tab.Session.Document.TextLength;
         var goneCount = await CaptureUntilAsync(
-            window, editor, accentColor, count => count == baseline).ConfigureAwait(true);
-        goneCount.Should().Be(baseline, goneCount == baseline ? string.Empty : DescribeFailure(window, editor, tab, accentColor));
+            window, editor, accentColor, count => count < baseline + BoxMinPixels).ConfigureAwait(true);
+        goneCount.Should().BeLessThan(baseline + BoxMinPixels, goneCount < baseline + BoxMinPixels ? string.Empty : DescribeFailure(window, editor, tab, accentColor));
+    }
+
+    /// <summary>
+    /// 枠が描かれているとみなす、基準からの画素の増分の下限。枠（1.3pxの線で囲んだ括弧1つぶん）は
+    /// 13〜16画素ぶん増える（実測）。一方、枠なしの画素数は文字の縁の混色で±1ほど揺れる
+    /// （同じ状態で26と27を観測した）ため、「基準と完全に一致」ではなくこの増分で区切る。
+    /// </summary>
+    private const int BoxMinPixels = 6;
+
+    /// <summary>
+    /// 枠なしの基準画素数を測る。キャレットを動かした直後の1回の取得は、動かす前の枠が残った
+    /// フレームのことがある（全件実行で、基準そのものに枠が混ざり「枠が出るはずが基準と同じ」と
+    /// 落ちた。枠が残ったフレームは画素が増える方にだけ間違う）。そこで少し間を置いて3回取り、
+    /// 最小値を基準にする。
+    /// </summary>
+    private static async Task<int> MeasurePlainBaselineAsync(
+        Avalonia.Controls.Window window, TextEditor editor, Color target)
+    {
+        var min = int.MaxValue;
+        for (var i = 0; i < 3; i++)
+        {
+            using (var frame = window.CaptureRenderedFrame())
+            {
+                min = Math.Min(min, CountColorPixelsInFirstLine(frame!, target, editor));
+            }
+
+            await Task.Delay(30).ConfigureAwait(true);
+        }
+
+        return min;
     }
 
     /// <summary>
