@@ -158,39 +158,61 @@ public class EditorReloadBackgroundRendererTests : IDisposable
         Application.Current!.TryFindResource("AccentColor", null, out var accent).Should().BeTrue();
         var accentColor = (Color)accent!;
 
+        // 【基準値】枠が無い状態（キャレットが括弧の隣にない）で、1行目の左端にアクセント色に
+        // 「ほぼ一致」する画素がいくつあるか。判定の許容幅（±48）が広いため、テーマによっては
+        // 文字（「(a)」）のアンチエイリアス画素がアクセント色に近くなり、枠が無くても0にならない。
+        // 全件実行では、先に走ったテストが切り替えたテーマ（Nord: アクセント#88C0D0・文字#ECEFF4）が
+        // 残っていることがあり、そのとき「枠が消えたはずなのに26画素残っている」と落ちていた
+        // （失敗メッセージに画素の色と位置を出して判明。26画素は文字の縁の混色で、枠ではない）。
+        // そこで枠なしの画素数を先に測って基準にし、「枠が出る＝基準より増える」
+        // 「枠が消える＝基準に戻る」で判定する。基準は再読込の前後で別々に測る（200行の文書は
+        // 縦スクロールバーが出て文字の位置が1画素ずれ、混色の画素数が1つ違った）。
+        editor.CaretOffset = editor.Document.TextLength;
+        int baselineBefore;
+        using (var plain = window.CaptureRenderedFrame())
+        {
+            baselineBefore = CountColorPixelsInFirstLine(plain!, accentColor, editor);
+        }
+
         // 判定方法そのものの妥当性: 再読込の前に強調を出したとき、実際にアクセント色が検出できること。
         editor.CaretOffset = 1;
         using (var before = window.CaptureRenderedFrame())
         {
-            CountColorPixelsInFirstLine(before!, accentColor, editor).Should().BeGreaterThan(0, "前提: 強調の枠が検出できる");
+            CountColorPixelsInFirstLine(before!, accentColor, editor).Should().BeGreaterThan(baselineBefore, "前提: 強調の枠が検出できる");
         }
 
         await File.WriteAllTextAsync(path, BracketLines(3, "new")).ConfigureAwait(true);
         await vm.NotifyExternalChangeAsync(path).ConfigureAwait(true);
+
+        // 再読込後の基準（枠なし）。
+        editor.CaretOffset = tab.Session.Document.TextLength;
+        int baseline;
+        using (var plainAfter = window.CaptureRenderedFrame())
+        {
+            baseline = CountColorPixelsInFirstLine(plainAfter!, accentColor, editor);
+        }
 
         // 差し替え後のキャレットの位置はどこでもよいので、括弧の隣へ明示的に置いて強調を出す。
         editor.CaretOffset = 1;
         using (window.CaptureRenderedFrame()) { }
         using var frame = window.CaptureRenderedFrame();
         frame.Should().NotBeNull();
-        CountColorPixelsInFirstLine(frame!, accentColor, editor).Should().BeGreaterThan(0,
+        CountColorPixelsInFirstLine(frame!, accentColor, editor).Should().BeGreaterThan(baseline,
             "再読込のあとの次の描画で、1行目の括弧に強調の枠（アクセント色）が描かれている");
 
         // 括弧から離れると枠は消える（上の判定が「何でも拾う」ものでないことの確認）。
         editor.CaretOffset = tab.Session.Document.TextLength;
         using var frame2 = window.CaptureRenderedFrame();
         var goneCount = CountColorPixelsInFirstLine(frame2!, accentColor, editor);
-        goneCount.Should().Be(0, goneCount == 0 ? string.Empty : DescribeFailure(window, editor, tab, accentColor));
+        goneCount.Should().Be(baseline, goneCount == baseline ? string.Empty : DescribeFailure(window, editor, tab, accentColor));
     }
 
     /// <summary>
     /// 「括弧から離れたのに枠が消えていない」ときだけ呼ぶ、原因調査用の状態の書き出し。
     ///
-    /// このアサーションは、UiTestsの全件実行で約10回に1回（負荷ありの回で多い）
-    /// 「Expected ... to be 0, but found 26（や27）」と落ちる。単独で25回・キャレットの往復300回の
-    /// 繰り返しでは再現せず、描画の確定を最大5秒待つ形に変えても落ちた（＝一時的に古いフレームを
-    /// 見ていたのではなく、少なくとも5秒は枠のような画素が残る）ため、原因は未確定。
-    /// 再発したときに、そのまま原因へ進めるよう、失敗メッセージに画素の位置と編集欄の状態を載せる。
+    /// 以前このアサーションは全件実行で約10回に1回「Expected ... to be 0, but found 26」と落ちた。
+    /// この書き出しで原因（テーマの残りによる文字縁の混色。baselineの注記参照）が分かった。
+    /// 同種の再発に備え、失敗メッセージに画素の位置と編集欄の状態を載せたままにしてある。
     /// 通ったときは何も計算しない。
     /// </summary>
     private static string DescribeFailure(
