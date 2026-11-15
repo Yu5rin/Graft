@@ -158,28 +158,141 @@ public class EditorReloadBackgroundRendererTests : IDisposable
         Application.Current!.TryFindResource("AccentColor", null, out var accent).Should().BeTrue();
         var accentColor = (Color)accent!;
 
+        // 【基準値】枠が無い状態（キャレットが括弧の隣にない）で、1行目の左端にアクセント色に
+        // 「ほぼ一致」する画素がいくつあるか。判定の許容幅（±48）が広いため、テーマによっては
+        // 文字（「(a)」）のアンチエイリアス画素がアクセント色に近くなり、枠が無くても0にならない。
+        // 全件実行では、先に走ったテストが切り替えたテーマ（Nord: アクセント#88C0D0・文字#ECEFF4）が
+        // 残っていることがあり、そのとき「枠が消えたはずなのに26画素残っている」と落ちていた
+        // （失敗メッセージに画素の色と位置を出して判明。26画素は文字の縁の混色で、枠ではない）。
+        // そこで枠なしの画素数を先に測って基準にし、「枠が出る＝基準より増える」
+        // 「枠が消える＝基準に戻る」で判定する。基準は再読込の前後で別々に測る（200行の文書は
+        // 縦スクロールバーが出て文字の位置が1画素ずれ、混色の画素数が1つ違った）。
+        editor.CaretOffset = editor.Document.TextLength;
+        var baselineBefore = await MeasurePlainBaselineAsync(window, editor, accentColor).ConfigureAwait(true);
+
         // 判定方法そのものの妥当性: 再読込の前に強調を出したとき、実際にアクセント色が検出できること。
         editor.CaretOffset = 1;
-        using (var before = window.CaptureRenderedFrame())
-        {
-            CountColorPixelsInFirstLine(before!, accentColor, editor).Should().BeGreaterThan(0, "前提: 強調の枠が検出できる");
-        }
+        var beforeCount = await CaptureUntilAsync(
+            window, editor, accentColor, count => count >= baselineBefore + BoxMinPixels).ConfigureAwait(true);
+        beforeCount.Should().BeGreaterThanOrEqualTo(baselineBefore + BoxMinPixels, "前提: 強調の枠が検出できる");
 
         await File.WriteAllTextAsync(path, BracketLines(3, "new")).ConfigureAwait(true);
         await vm.NotifyExternalChangeAsync(path).ConfigureAwait(true);
 
+        // 再読込後の基準（枠なし）。
+        editor.CaretOffset = tab.Session.Document.TextLength;
+        var baseline = await MeasurePlainBaselineAsync(window, editor, accentColor).ConfigureAwait(true);
+
         // 差し替え後のキャレットの位置はどこでもよいので、括弧の隣へ明示的に置いて強調を出す。
         editor.CaretOffset = 1;
-        using (window.CaptureRenderedFrame()) { }
-        using var frame = window.CaptureRenderedFrame();
-        frame.Should().NotBeNull();
-        CountColorPixelsInFirstLine(frame!, accentColor, editor).Should().BeGreaterThan(0,
-            "再読込のあとの次の描画で、1行目の括弧に強調の枠（アクセント色）が描かれている");
+        var shownCount = await CaptureUntilAsync(
+            window, editor, accentColor, count => count >= baseline + BoxMinPixels).ConfigureAwait(true);
+        shownCount.Should().BeGreaterThanOrEqualTo(baseline + BoxMinPixels,
+            "再読込のあとの次の描画で、1行目の括弧に強調の枠（アクセント色）が描かれている"
+            + (shownCount >= baseline + BoxMinPixels ? string.Empty : " " + DescribeFailure(window, editor, tab, accentColor)
+                + $" 可視行数={editor.TextArea.TextView.VisualLines.Count} 有効に可視={editor.IsEffectivelyVisible} レイヤー数={editor.TextArea.TextView.Layers.Count}"));
 
         // 括弧から離れると枠は消える（上の判定が「何でも拾う」ものでないことの確認）。
         editor.CaretOffset = tab.Session.Document.TextLength;
-        using var frame2 = window.CaptureRenderedFrame();
-        CountColorPixelsInFirstLine(frame2!, accentColor, editor).Should().Be(0);
+        var goneCount = await CaptureUntilAsync(
+            window, editor, accentColor, count => count < baseline + BoxMinPixels).ConfigureAwait(true);
+        goneCount.Should().BeLessThan(baseline + BoxMinPixels, goneCount < baseline + BoxMinPixels ? string.Empty : DescribeFailure(window, editor, tab, accentColor));
+    }
+
+    /// <summary>
+    /// 枠が描かれているとみなす、基準からの画素の増分の下限。枠（1.3pxの線で囲んだ括弧1つぶん）は
+    /// 13〜16画素ぶん増える（実測）。一方、枠なしの画素数は文字の縁の混色で±1ほど揺れる
+    /// （同じ状態で26と27を観測した）ため、「基準と完全に一致」ではなくこの増分で区切る。
+    /// </summary>
+    private const int BoxMinPixels = 6;
+
+    /// <summary>
+    /// 枠なしの基準画素数を測る。キャレットを動かした直後の1回の取得は、動かす前の枠が残った
+    /// フレームのことがある（全件実行で、基準そのものに枠が混ざり「枠が出るはずが基準と同じ」と
+    /// 落ちた。枠が残ったフレームは画素が増える方にだけ間違う）。そこで少し間を置いて3回取り、
+    /// 最小値を基準にする。
+    /// </summary>
+    private static async Task<int> MeasurePlainBaselineAsync(
+        Avalonia.Controls.Window window, TextEditor editor, Color target)
+    {
+        var min = int.MaxValue;
+        for (var i = 0; i < 3; i++)
+        {
+            using (var frame = window.CaptureRenderedFrame())
+            {
+                min = Math.Min(min, CountColorPixelsInFirstLine(frame!, target, editor));
+            }
+
+            await Task.Delay(30).ConfigureAwait(true);
+        }
+
+        return min;
+    }
+
+    /// <summary>
+    /// 描画結果が<paramref name="isExpected"/>を満たすまで、フレームを取り直して数える（最大5秒）。
+    ///
+    /// キャレットを動かした直後に1回だけ取得したフレームが、動かす前の描画のままになることがある
+    /// （全件実行で「枠が出るはずが基準と同じ16画素のまま」と落ちた）。固定回数の取り直しではなく、
+    /// 検証する条件そのものが成り立つまで待つ。時間切れのときは最後の画素数を返し、呼び出し側の
+    /// アサーションが落ちる（本当に枠が出ない／消えない不具合は従来どおり検出される）。
+    /// </summary>
+    private static async Task<int> CaptureUntilAsync(
+        Avalonia.Controls.Window window, TextEditor editor, Color target, Func<int, bool> isExpected)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (true)
+        {
+            int count;
+            using (var frame = window.CaptureRenderedFrame())
+            {
+                count = CountColorPixelsInFirstLine(frame!, target, editor);
+            }
+
+            if (isExpected(count) || DateTime.UtcNow >= deadline) return count;
+            await Task.Delay(10).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// 「括弧から離れたのに枠が消えていない」ときだけ呼ぶ、原因調査用の状態の書き出し。
+    ///
+    /// 以前このアサーションは全件実行で約10回に1回「Expected ... to be 0, but found 26」と落ちた。
+    /// この書き出しで原因（テーマの残りによる文字縁の混色。baselineの注記参照）が分かった。
+    /// 同種の再発に備え、失敗メッセージに画素の位置と編集欄の状態を載せたままにしてある。
+    /// 通ったときは何も計算しない。
+    /// </summary>
+    private static string DescribeFailure(
+        Avalonia.Controls.Window window, TextEditor editor, EditorTabViewModel tab, Color accent)
+    {
+        var textView = editor.TextArea.TextView;
+        var sb = new StringBuilder();
+        sb.Append($"[調査用] caret={editor.CaretOffset}(行{editor.TextArea.Caret.Line}) ");
+        sb.Append($"セッションの文書長={tab.Session.Document.TextLength} 編集欄の文書長={editor.Document.TextLength} ");
+        sb.Append($"同一の文書={ReferenceEquals(editor.Document, tab.Session.Document)} ");
+        sb.Append($"背景描画器の数={textView.BackgroundRenderers.Count}（{string.Join(",", textView.BackgroundRenderers.Select(r => r.GetType().Name))}） ");
+        sb.Append($"アクセント色={accent} 文字色={editor.Foreground} テーマ={Application.Current?.ActualThemeVariant} ");
+        sb.Append($"文書={editor.Document.Text.Replace("\n", "|")} 画素(x,y,色)=");
+
+        using var frame = window.CaptureRenderedFrame();
+        var top = (int)textView.GetVisualPosition(new TextViewPosition(1, 1), VisualYPosition.LineTop).Y;
+        var bottom = (int)textView.GetVisualPosition(new TextViewPosition(1, 1), VisualYPosition.LineBottom).Y;
+        var origin = textView.TranslatePoint(new Point(0, 0), (Visual)editor.GetVisualRoot()!) ?? default;
+        using var fb = frame!.Lock();
+        for (var y = Math.Max(0, (int)origin.Y + top); y < Math.Min(fb.Size.Height, (int)origin.Y + bottom); y++)
+        {
+            for (var x = Math.Max(0, (int)origin.X); x < Math.Min(fb.Size.Width, (int)origin.X + 60); x++)
+            {
+                var px = Marshal.ReadInt32(fb.Address, y * fb.RowBytes + x * 4);
+                var r = px & 0xFF; var g = (px >> 8) & 0xFF; var b = (px >> 16) & 0xFF;
+                if (Math.Abs(r - accent.R) < 48 && Math.Abs(g - accent.G) < 48 && Math.Abs(b - accent.B) < 48)
+                {
+                    sb.Append($"({x},{y},{r:X2}{g:X2}{b:X2}) ");
+                }
+            }
+        }
+
+        return sb.ToString();
     }
 
     [AvaloniaFact(DisplayName = "回帰: 検索結果の強調が出ている状態で再読込しても、差し替えの最中の描画で例外が出ない")]

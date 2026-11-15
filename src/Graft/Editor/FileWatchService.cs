@@ -31,6 +31,7 @@ public sealed class FileWatchService : IDisposable
     private readonly Dictionary<string, DateTimeOffset> _suppressedDirs = new(PathComparer);
     private FileSystemWatcher? _watcher;
     private string? _projectRoot;
+    private bool _disposed;
 
     public FileWatchService()
     {
@@ -48,6 +49,13 @@ public sealed class FileWatchService : IDisposable
     public GraftResult<bool> Start(string projectRoot)
     {
         Stop();
+        // 破棄済みなら何も始めない。ExplorerViewModel.SetProjectAsyncは「ツリーの列挙を待ってから
+        // Start」の順で進むため、その待ちの最中にShellViewModel.Dispose()が走ると、Disposeの後で
+        // Startが呼ばれる。ここで弾かないと、誰もStop()しない監視（inotifyのインスタンスと
+        // スレッド1本）が生き残る。UiTestsの全件実行（約1,080件）では、これが5回起きていた
+        // （Startに印を付けて数えた実測）。アプリ終了のときは実害が出る前にプロセスが終わるが、
+        // 解放の約束（Dispose後は何も持ち越さない）は型の側で守るほうが確実。
+        if (_disposed) return GraftResult<bool>.Ok(true);
         _projectRoot = projectRoot;
         try
         {
@@ -124,7 +132,11 @@ public sealed class FileWatchService : IDisposable
         lock (_suppressed) _suppressedDirs[fullDirPath] = DateTimeOffset.UtcNow.Add(SuppressDuration);
     }
 
-    public void Dispose() => Stop();
+    public void Dispose()
+    {
+        _disposed = true;
+        Stop();
+    }
 
     private void OnRenamed(object sender, RenamedEventArgs e)
     {

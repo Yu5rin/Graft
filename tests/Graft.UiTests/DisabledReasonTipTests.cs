@@ -25,11 +25,16 @@ public class DisabledReasonTipTests
     public async Task プロジェクト未選択の理由()
     {
         using var h = await ShellHarness.CreateAsync(withWindow: true).ConfigureAwait(true);
-        // バインディングの反映は低い優先度で遅れるため、ツールチップが揃うまで待つ。
-        await ShellHarness.WaitUntilAsync(() =>
-            Buttons(h, "適用を実行").All(b => TipText(b).StartsWith("プロジェクトを選ぶと使えます"))).ConfigureAwait(true);
+        var names = new[] { "適用を実行", "AIに渡すファイルを選ぶ", "既定の依頼文をコピー", "依頼文のテンプレートを選んでコピー" };
 
-        foreach (var name in new[] { "適用を実行", "AIに渡すファイルを選ぶ", "既定の依頼文をコピー", "依頼文のテンプレートを選んでコピー" })
+        // バインディングの反映は低い優先度で遅れるため、ツールチップが揃うまで待つ。
+        // 以前は「適用を実行」だけを待っていたが、検証するのは4つのボタンすべてなので、
+        // 待つ対象も4つすべてにする（待った1つが揃った時点で残りが反映途中の窓を作らない）。
+        await ShellHarness.WaitUntilAsync(() => names.All(name =>
+            Buttons(h, name).Count > 0
+            && Buttons(h, name).All(b => TipText(b).StartsWith("プロジェクトを選ぶと使えます")))).ConfigureAwait(true);
+
+        foreach (var name in names)
         {
             foreach (var b in Buttons(h, name))
             {
@@ -46,6 +51,9 @@ public class DisabledReasonTipTests
         using var h = await ShellHarness.CreateAsync(withWindow: true).ConfigureAwait(true);
         await h.RegisterProjectAsync().ConfigureAwait(true);
         Dispatcher.UIThread.RunJobs();
+        // 上のテストと同じ理由で、4つのボタンの文言が「先に解析してください」で揃うまで待つ。
+        await ShellHarness.WaitUntilAsync(() => new[] { "適用を実行", "適用できるかを再チェック", "解析結果を破棄", "現在の解析結果をパッチキューへ追加" }
+            .All(n => Buttons(h, n).Count > 0 && Buttons(h, n).All(b => TipText(b).StartsWith("先に解析してください")))).ConfigureAwait(true);
 
         foreach (var name in new[] { "適用を実行", "適用できるかを再チェック", "解析結果を破棄", "現在の解析結果をパッチキューへ追加" })
         {
@@ -70,6 +78,12 @@ public class DisabledReasonTipTests
         await h.RegisterProjectAsync().ConfigureAwait(true);
         await h.ParseAsync("a.txt", "2行目", "2行目（変更後）").ConfigureAwait(true);
         Dispatcher.UIThread.RunJobs();
+        // ツールチップの文言はバインディング経由で低い優先度で反映されるため、RunJobs()1回では
+        // 空のまま検証に進むことがある（全件実行で「Did not expect TipText(b) to be empty」と
+        // 落ちた）。検証する状態（文言が入り、理由が消えている）になるまで待つ。
+        await ShellHarness.WaitUntilAsync(() => Buttons(h, "適用を実行").Count > 0
+            && Buttons(h, "適用を実行").All(b => TipText(b).Length > 0
+                && !TipText(b).Contains("先に解析してください") && !TipText(b).Contains("プロジェクトを選ぶと"))).ConfigureAwait(true);
 
         foreach (var b in Buttons(h, "適用を実行"))
         {

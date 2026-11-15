@@ -356,6 +356,16 @@ public class PerformanceTests : IDisposable
             + "折り返し時の仮想化が効いていない（可視範囲を超えて整形している）可能性がある");
     }
 
+    /// <summary>起動のテストで「2回目以降」を測る回数（中央値をとる。理由は同テスト内の注記）。</summary>
+    private const int WarmRuns = 9;
+
+    /// <summary>このプロセスがここまでに使ったCPU時間（ユーザー＋カーネル）。待たされた時間は含まない。</summary>
+    private static TimeSpan ProcessCpuTime()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.TotalProcessorTime;
+    }
+
     [AvaloniaFact(DisplayName = "起動からシェルの初回描画までが1秒以内に収まる")]
     public void 起動が一秒以内に収まる()
     {
@@ -368,6 +378,7 @@ public class PerformanceTests : IDisposable
 
             // 18章「起動から操作可能まで1秒以内」。ここで測るのは、依存の構築から
             // シェルの初回描画までの時間（プロセス起動やランタイムの初期化は含まない）。
+            var cpuStart = ProcessCpuTime();
             var stopwatch = Stopwatch.StartNew();
 
             var shell = Graft.Views.StartupCoordinator.BuildShellViewModel(
@@ -391,6 +402,7 @@ public class PerformanceTests : IDisposable
             window.CaptureRenderedFrame().Should().NotBeNull();
             stopwatch.Stop();
             var coldMs = stopwatch.Elapsed.TotalMilliseconds;
+            var coldCpuMs = (ProcessCpuTime() - cpuStart).TotalMilliseconds;
 
             _output.WriteLine($"内訳: ViewModel構築={built:F3} ms, ウィンドウ構築={constructed - built:F3} ms, "
                 + $"表示と初回描画={coldMs - constructed:F3} ms");
@@ -408,21 +420,41 @@ public class PerformanceTests : IDisposable
             // そのままでは適用できない（交互に計測できるのは3回の「ウォーム」側だけ）。
             // ここでは既存の「ウォーム3回の中央値を基準にする」設計を維持しつつ、
             // Elapsed.TotalMillisecondsの小数精度を使う点だけ他の性能テストへ揃える。
+            //
+            // 【揺れの原因と直し方（CIで20.74倍になった件）】
+            // 判定の「1回目 ÷ 2回目以降」は、割る側・割られる側の両方が壁時計時間だったため、
+            // 他プロセスにCPUを取られる量が計測のたびに違うと倍率が跳ねた。負荷（4コア全部を回す
+            // ループ）をかけて実測すると、壁時計では 1回目=927〜1300ms、2回目以降の中央値=91〜305ms で
+            // 倍率が 3.0〜16.7倍に散らばった（負荷なしでも 6.5〜8.4倍）。そこで次の2点を改めた。
+            //  1. 時間を「プロセスのCPU時間」で測る。待たされた時間（CPUを取られていた時間）を
+            //     含まないため、1回目は負荷の有無にかかわらず 850〜1030ms に収まった。
+            //  2. 2回目以降を3回から9回に増やして中央値をとる。CPU時間で測っても2回目以降の1回は
+            //     120〜340msと2〜3倍揺れる（GCや背景のTiered JITが乗る）ため、3回の中央値では
+            //     1つの外れ値に引きずられる。9回の中央値なら少数の外れ値は結果に響かない。
+            // 倍率の上限（15倍）は据え置き。実測の倍率はCPU時間・9回中央値で概ね4〜8倍に収まる。
             var warmSamples = new List<double>();
-            for (var i = 0; i < 3; i++)
+            var warmCpuSamples = new List<double>();
+            for (var i = 0; i < WarmRuns; i++)
             {
+                var warmCpuStart = ProcessCpuTime();
                 var warm = Stopwatch.StartNew();
                 var w = _windows.Track(new Graft.Views.ShellWindow(shell) { Width = 1280, Height = 800 });
                 w.Show();
                 w.CaptureRenderedFrame().Should().NotBeNull();
                 warm.Stop();
                 warmSamples.Add(warm.Elapsed.TotalMilliseconds);
+                warmCpuSamples.Add((ProcessCpuTime() - warmCpuStart).TotalMilliseconds);
             }
             warmSamples.Sort();
+            warmCpuSamples.Sort();
             var warmMedian = warmSamples[warmSamples.Count / 2];
+            var warmCpuMedian = warmCpuSamples[warmCpuSamples.Count / 2];
             _output.WriteLine(
-                $"2回目以降（初回費用を除く、3回の中央値）: {warmMedian:F3} ms（実測: "
+                $"2回目以降（初回費用を除く、{WarmRuns}回の中央値）: {warmMedian:F3} ms（実測: "
                 + $"{string.Join(", ", warmSamples.Select(s => s.ToString("F3")))} ms）");
+            _output.WriteLine(
+                $"2回目以降のCPU時間（{WarmRuns}回の中央値）: {warmCpuMedian:F1} ms（実測: "
+                + $"{string.Join(", ", warmCpuSamples.Select(s => s.ToString("F1")))} ms）、1回目のCPU時間: {coldCpuMs:F1} ms");
 
             // 定常状態の構築・描画には、このテスト内に比較できる更に軽い基準操作がないため
             // 絶対値で判定せざるを得ない（相対比較が馴染まないケース）。18章の要件は1秒だが、
@@ -436,10 +468,12 @@ public class PerformanceTests : IDisposable
             // ハードウェアの速さは分子・分母の両方に等しく乗るため、CI環境の遅さそのものには
             // 左右されない。JIT等の一度きりの費用を差し引いてもなお構築経路自体が遅い場合
             // （本来のJIT費用に比べて桁で大きい場合）だけを検出する。
-            var ratio = coldMs / Math.Max(0.01, warmMedian);
-            _output.WriteLine($"1回目 / 定常状態中央値 = {ratio:F2}倍");
+            // 判定にはCPU時間を使う（上の注記）。壁時計の倍率は参考として出力だけする。
+            var wallRatio = coldMs / Math.Max(0.01, warmMedian);
+            var ratio = coldCpuMs / Math.Max(1, warmCpuMedian);
+            _output.WriteLine($"1回目 / 定常状態中央値 = {ratio:F2}倍（CPU時間）、{wallRatio:F2}倍（壁時計・参考）");
             ratio.Should().BeLessThan(15,
-                $"定常状態（{warmMedian:F3}ms）に対し初回（{coldMs:F3}ms）が{ratio:F2}倍かかっている。"
+                $"定常状態（CPU {warmCpuMedian:F1}ms）に対し初回（CPU {coldCpuMs:F1}ms）が{ratio:F2}倍かかっている。"
                 + "JIT等の一度きりの費用を差し引いても構築経路自体が遅くなっている可能性がある");
         }
         finally

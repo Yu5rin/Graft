@@ -326,11 +326,25 @@ public class MarkdownPreviewTests : IDisposable
 
         var point = target.TranslatePoint(new Point(4, 4), window)!.Value;
         window.MouseMove(point);
-        window.MouseDown(point, MouseButton.Left);
-        window.MouseUp(point, MouseButton.Left);
-        window.MouseDown(point, MouseButton.Left);
-        window.MouseUp(point, MouseButton.Left);
-        window.CaptureRenderedFrame();
+
+        // 【なぜ押下を繰り返すのか】ダブルクリックかどうかは、2回目の押下が1回目から
+        // 既定の判定時間（500ms）以内かで決まる。headlessのMouseDownは押した時刻の実時間を
+        // そのまま使うため、全件実行（ヒープが大きくGCも重い）にCPU負荷をかけると、2回の押下の
+        // 間にGCの停止などで500msを超える間が空き、2回の単発クリックとして扱われて
+        // 「Expected tab.ShowMarkdownPreview to be false ... but found True」で落ちた
+        // （間に600msの待ちを入れると、同じ文言で必ず落ちることを確認した）。
+        // 間が空いたときは編集モードへ切り替わらないだけなので、判定時間が切れるのを待って
+        // （クリックの連なりを断ってから）押下をやり直す。回数に上限を設け、切り替わらないままなら
+        // 従来どおり下のアサーションで落ちる。
+        for (var attempt = 0; attempt < 5 && tab.ShowMarkdownPreview; attempt++)
+        {
+            if (attempt > 0) await Task.Delay(600).ConfigureAwait(true);
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            window.CaptureRenderedFrame();
+        }
 
         tab.ShowMarkdownPreview.Should().BeFalse("ダブルクリックで編集モードへ切り替わるはず");
         pane.Editor.IsVisible.Should().BeTrue();

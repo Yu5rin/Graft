@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -49,18 +50,19 @@ public class HttpUpdateDownloaderStallTests
     {
         using var ws = new TempWorkspace();
         var destination = ws.Combine("update.zip");
-        var chunkDelay = TimeSpan.FromMilliseconds(80);
-        var stallTimeout = TimeSpan.FromMilliseconds(200); // チャンク間隔(80ms) < 停滞タイムアウト(200ms)
-        // 5チャンク×80ms ≒ 400ms は停滞タイムアウト(200ms)を優に超えるが、
-        // 個々の間隔は停滞タイムアウト未満なので、都度タイマーが延長されれば成功するはず。
-        var chunks = new[]
-        {
-            new byte[] { 1, 2, 3 },
-            new byte[] { 4, 5, 6 },
-            new byte[] { 7, 8, 9 },
-            new byte[] { 10, 11, 12 },
-            new byte[] { 13, 14, 15 },
-        };
+        // 間隔と判定の比は1:10にしてある（以前は80ms:200ms＝1:2.5）。読み取り1回の待ちはタイマーの
+        // 精度やスレッドプールの混み具合で延びる。全件実行にCPU負荷（4コアに8本の空回しループ）を
+        // かけると、80msの待ちが200msを超えて「停滞」と判定され、Failedになることを再現した
+        // （CIの共有ランナーでも同じ形で落ちた）。比を広げれば、待ちが間隔の数倍に延びても
+        // 判定を超えない。一方で、タイマーが読み取りごとに延長されることの証拠となる条件
+        // 「合計時間 ＞ 停滞タイムアウト」は、チャンクを増やして保っている（16回の読み取り×40ms
+        // ＝640ms ＞ 400ms）。タイマーが延長されず最初の1回だけで数えられていれば、400msで必ず落ちる。
+        var chunkDelay = TimeSpan.FromMilliseconds(40);
+        var stallTimeout = TimeSpan.FromMilliseconds(400); // チャンク間隔(40ms) << 停滞タイムアウト(400ms)
+        var expected = Enumerable.Range(1, 45).Select(i => (byte)i).ToArray();
+        var chunks = Enumerable.Range(0, 15)
+            .Select(i => new[] { (byte)(i * 3 + 1), (byte)(i * 3 + 2), (byte)(i * 3 + 3) })
+            .ToArray();
         using var handler = new StubHandler((_, _) => Task.FromResult(MakeOkResponse(new StallingStream(chunks, chunkDelay))));
         using var http = new HttpClient(handler);
         var downloader = new HttpUpdateDownloader(http, stallTimeout);
@@ -69,7 +71,7 @@ public class HttpUpdateDownloaderStallTests
 
         outcome.Status.Should().Be(UpdateDownloadStatus.Success, "読み取りのたびに停滞タイマーが延長されるため、合計時間が長くても成功するべき");
         var written = await File.ReadAllBytesAsync(destination);
-        written.Should().Equal(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+        written.Should().Equal(expected);
     }
 
     [Fact(DisplayName = "既存の「中断」ボタンの経路（呼び出し元のCancellationToken）は停滞検出の追加後も壊れておらず、Cancelledとして報告される")]
