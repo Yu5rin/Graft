@@ -252,7 +252,12 @@ public class EditorFontSizeZoomTests : IDisposable
 
     private static async Task WaitUntilAsync(Func<Task<bool>> condition)
     {
-        for (var i = 0; i < 200; i++)
+        // 上限はループ回数ではなく実時間（10秒）で決める。以前の「200回×10ms」は、待つ側の
+        // 1回が負荷で長引くとそれだけで2秒を超え、設定の保存と反映（ファイルへの書き込み→
+        // 再読込→ビューモデルへの伝播）を待ちきれずに検証へ進んでしまう余地があった。
+        // 条件が成り立てばすぐ抜けるので、通常の所要時間は変わらない。
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
         {
             if (await condition().ConfigureAwait(true)) return;
             await Task.Delay(10).ConfigureAwait(true);
