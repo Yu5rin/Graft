@@ -7,8 +7,9 @@ namespace Graft.Core.Vba;
 /// モジュールごとに4つのハッシュを比べる。<c>M</c>=ミラーの現在の本文、<c>E</c>=Excel の現在の本文、
 /// <c>Bm</c>=<see cref="VbaModuleState.MirrorHash"/>、<c>Be</c>=<see cref="VbaModuleState.ExcelHash"/>。
 /// <c>mirrorChanged = (M ≠ Bm)</c>、<c>excelChanged = (E ≠ Be)</c>。ただし <c>excelChanged</c> が真でも、
-/// ゆるいハッシュ（空白・大文字小文字を無視）が基準の <see cref="VbaModuleState.ExcelLooseHash"/> と
-/// 一致するなら、VBE の整形が変えただけとみなして <c>excelChanged = false</c> とする。
+/// ゆるいハッシュ（文字列リテラルとコメントの外だけで空白・大文字小文字を無視。行頭の字下げは残す）が
+/// 基準の <see cref="VbaModuleState.ExcelLooseHash"/> と一致するなら、VBE の整形が変えただけとみなして
+/// <c>excelChanged = false</c> とする。
 /// VBE は識別子の大文字小文字をプロジェクト全体で揃える見込みなので、別のモジュールへの Push で
 /// 無関係なモジュールの本文が大文字小文字だけ変わりうる。これを「Excel 側の変更」として取り込むと、
 /// ミラーが履歴に無い変更を受けて取り消しが E301 になり、ミラーも変わっていれば偽の衝突になる。
@@ -200,7 +201,15 @@ public static class VbaSyncPlanner
 
         var excelChanged = !string.Equals(e.Hash, r.ExcelHash, StringComparison.Ordinal);
         var excelFormattingOnly = false;
-        if (excelChanged && r.ExcelLooseHash.Length > 0
+
+        // 【ゆるいハッシュの算法を変えたときの移行】 版が古い記録（既存の同期状態はすべてこれ）の excelLooseHash は、
+        // 文字列・コメントの中の差も消す旧算法の値で、いまの算法の e.LooseHash とは比べられない。比べると、旧算法で
+        // 消えていた差が一斉に不一致になる（逆に旧算法で一致させると、不具合 2 の「文字列だけの編集を見逃す」が
+        // 移行の 1 回だけ残る）。そこで版が古い記録は、最初の 1 回だけ厳密なハッシュで判定する。厳密に一致していれば
+        // 「何もしない」の枝で基準をいまの算法に更新し、以後はゆるい比較が使える。厳密に違えば Pull（または衝突）に
+        // なるが、その場合も取り込んだ内容は無損失で、最悪でも VBE の整形差を 1 回取り込むだけで済む。
+        var looseUsable = r.LooseFormVersion == VbaTextNormalizer.LooseFormVersion && r.ExcelLooseHash.Length > 0;
+        if (excelChanged && looseUsable
             && string.Equals(e.LooseHash, r.ExcelLooseHash, StringComparison.Ordinal))
         {
             excelChanged = false;
@@ -217,6 +226,12 @@ public static class VbaSyncPlanner
                 Caption = e.Caption ?? r.Caption,
                 ExcelHash = excelFormattingOnly ? e.Hash : r.ExcelHash,
             };
+            if (r.LooseFormVersion != VbaTextNormalizer.LooseFormVersion)
+            {
+                // Excel 側は基準と厳密に同じなので、いまの算法のゆるいハッシュに差し替えてよい（上の移行の説明を参照）。
+                refreshed = refreshed with { ExcelLooseHash = e.LooseHash, LooseFormVersion = VbaTextNormalizer.LooseFormVersion };
+            }
+
             return Make(VbaSyncAction.None, refreshed == r ? null : refreshed);
         }
 

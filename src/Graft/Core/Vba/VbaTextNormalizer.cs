@@ -59,22 +59,110 @@ public static class VbaTextNormalizer
     public static string Canonicalize(string text) => TrimTrailingLineBreaks(ToCrLf(text));
 
     /// <summary>
-    /// 「ゆるい形」。<see cref="Canonicalize"/> に加えて、スペースとタブをすべて除き、大文字に揃える。
-    /// VBE が書き込み時に直す空白（<c>x=1</c> → <c>x = 1</c>）とキーワードの大文字小文字は、
-    /// 利用者の変更ではないので、これらの差を無視して「実質同じか」を見るために使う（6.5・5.5）。
-    /// 改行は残すので、行数が違えばゆるい形でも別物になる。
+    /// ゆるい形の算法の版。<see cref="ToLooseForm"/> の規則を変えたときに上げる。同期状態の
+    /// <see cref="VbaModuleState.LooseFormVersion"/> に記録し、古い算法で作った <c>excelLooseHash</c> を
+    /// 新しい算法の値と取り違えないために使う（移行の考え方は <see cref="VbaSyncPlanner"/> の PlanOne を参照）。
+    /// 1 = 文字列・コメントの中も含めて空白を除き大文字化していた旧算法（版の記録がない古い同期状態もこれ）、
+    /// 2 = 文字列リテラルとコメントの外だけを緩め、行頭の字下げを残す現在の算法。
+    /// </summary>
+    public const int LooseFormVersion = 2;
+
+    /// <summary>
+    /// 「ゆるい形」。<see cref="Canonicalize"/> に加えて、<b>文字列リテラルとコメントの外側だけ</b>で、
+    /// スペースとタブを除き、大文字に揃える。VBE が書き込み時に直す空白（<c>x=1</c> → <c>x = 1</c>）と
+    /// キーワード・識別子の大文字小文字は、利用者の変更ではないので、これらの差を無視して「実質同じか」を
+    /// 見るために使う（6.5・5.5）。
+    /// <para>
+    /// 【文字列・コメントの中は緩めない理由】 以前は本文全体の空白を除いて大文字化していたので、
+    /// <c>MsgBox "hi"</c> を <c>MsgBox "H I"</c> に直したり、コメントの文言を直したりした Excel 側の編集が
+    /// 「整形差だけ」と見なされ、取り込まれず、次の Push で黙って消えていた。VBE が自動で直すのはコードの部分だけで、
+    /// 文字列とコメントの中身は触らないので、そこは厳密に比べてよい（不具合 2）。
+    /// </para>
+    /// <para>
+    /// 【行頭の字下げは残す】 字下げの整理も利用者の編集である。VBE は書き込み時に既存行の字下げを直さない
+    /// ので、字下げを無視する必要がない。行末の空白（コメントの後ろを含む）だけは、VBE が詰めても利用者の
+    /// 編集とは言えないので無視する。
+    /// </para>
+    /// <para>
+    /// 文字列は <c>"</c> の開閉で追う（<c>""</c> は閉じてすぐ開く扱いで足りる）。コメントは <c>'</c>、
+    /// または文の先頭の <c>Rem</c>（後ろが空白）から行末まで。VBA の文字列とコメントは行をまたがないので、
+    /// 行ごとに状態を持てばよい。改行は残すので、行数が違えばゆるい形でも別物になる。
+    /// </para>
     /// </summary>
     public static string ToLooseForm(string text)
     {
-        var crlf = ToCrLf(text);
+        var crlf = TrimTrailingLineBreaks(ToCrLf(text));
         var builder = new StringBuilder(crlf.Length);
-        foreach (var c in crlf)
+        var lines = crlf.Split("\r\n");
+        for (var i = 0; i < lines.Length; i++)
         {
+            if (i > 0) builder.Append("\r\n");
+            AppendLooseLine(builder, lines[i]);
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendLooseLine(StringBuilder builder, string line)
+    {
+        // 行頭の字下げはそのまま残す（空白だけの行は、行末の空白として下で除かれて空になる）。
+        var indentEnd = 0;
+        while (indentEnd < line.Length && line[indentEnd] is ' ' or '\t') indentEnd++;
+        var lineStart = builder.Length;
+        builder.Append(line, 0, indentEnd);
+
+        var inString = false;
+        var atStatementStart = true;
+        for (var i = indentEnd; i < line.Length; i++)
+        {
+            var c = line[i];
+            if (inString)
+            {
+                builder.Append(c);
+                if (c == '"') inString = false;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = true;
+                atStatementStart = false;
+                builder.Append(c);
+                continue;
+            }
+
+            if (c == '\'' || (atStatementStart && IsRemKeyword(line, i)))
+            {
+                // コメント。Rem の綴り（大文字小文字）は VBE が直すことがあるので大文字にそろえ、本文は厳密に残す。
+                if (c != '\'')
+                {
+                    builder.Append("REM");
+                    i += 3;
+                }
+
+                builder.Append(line, i, line.Length - i);
+                break;
+            }
+
             if (c is ' ' or '\t') continue;
+
+            // ':' の後ろは新しい文の先頭（'Else: Rem …' のような形）。
+            atStatementStart = c == ':';
             builder.Append(char.ToUpperInvariant(c));
         }
 
-        return TrimTrailingLineBreaks(builder.ToString());
+        // 行末の空白（コメントの後ろを含む）は VBE が詰めることがあるので無視する。
+        var end = builder.Length;
+        while (end > lineStart && builder[end - 1] is ' ' or '\t') end--;
+        builder.Length = end;
+    }
+
+    /// <summary>位置 <paramref name="index"/> から <c>Rem</c>（大文字小文字不問）で始まり、後ろが空白か。</summary>
+    private static bool IsRemKeyword(string line, int index)
+    {
+        if (index + 4 > line.Length) return false;
+        return string.Compare(line, index, "Rem", 0, 3, StringComparison.OrdinalIgnoreCase) == 0
+               && line[index + 3] is ' ' or '\t';
     }
 
     /// <summary>正規形（<see cref="Canonicalize"/>）の SHA-256 を小文字 16 進で返す。</summary>

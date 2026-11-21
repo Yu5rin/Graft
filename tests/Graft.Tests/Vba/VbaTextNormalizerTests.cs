@@ -79,11 +79,11 @@ public class VbaTextNormalizerTests
         VbaTextNormalizer.ToCrLf("\r\r\n\n").Should().Be("\r\n\r\n\r\n");
     }
 
-    [Fact(DisplayName = "ゆるいハッシュ: スペースとタブの違いを無視する")]
+    [Fact(DisplayName = "ゆるいハッシュ: 行の途中のスペースとタブの違いを無視する（行頭の字下げは残す。詳しくは VbaLooseFormFixTests）")]
     public void ゆるいハッシュは空白を無視する()
     {
         VbaTextNormalizer.LooseHash("x=1").Should().Be(VbaTextNormalizer.LooseHash("x = 1"));
-        VbaTextNormalizer.LooseHash("\tIf a Then").Should().Be(VbaTextNormalizer.LooseHash("    If a Then"));
+        VbaTextNormalizer.LooseHash("\tIf  a\tThen").Should().Be(VbaTextNormalizer.LooseHash("\tIf a Then"));
         VbaTextNormalizer.LooseHash("a\t=\t1").Should().Be(VbaTextNormalizer.LooseHash("a=1"));
     }
 

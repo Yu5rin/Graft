@@ -478,6 +478,30 @@ public sealed class VbaSyncService
                 Logger?.Info("vba-push", $"衝突を「Graft 側で上書き」で解決しました（Excel 側の控え: {kept}）: {module.RelativePath}",
                     targetPath: Path.Combine(project.Root, module.RelativePath));
             }
+            else if (module.Action == VbaSyncAction.Push
+                     && work.Excel.TryGetValue(module.RelativePath, out var live)
+                     && work.State.Modules.TryGetValue(module.RelativePath, out var baseline)
+                     && !string.Equals(VbaTextNormalizer.Hash(live.Code), baseline.ExcelHash, StringComparison.Ordinal))
+            {
+                // 厳密なハッシュは基準と違うのに、計画は「Excel 側は変わっていない（整形差だけ）」と見て Push にした。
+                // 整形差の判定は空白・大文字小文字だけを無視する（文字列・コメントの外）ので、多くは VBE の自動整形だが、
+                // その判定の取りこぼしが万一あっても Excel 側の本文が控えなしに消えないよう、上書きの前に必ず控える
+                // （不具合 2 の「最低限」の保険。控えを残せなければ、衝突の上書きと同じく書かない）。
+                var kept = await KeepRescueCopyAsync(project, module.Component, live.Code).ConfigureAwait(true);
+                if (kept.StartsWith('!'))
+                {
+                    issues.Add(GraftIssue.Of(
+                        ErrorCode.E809,
+                        $"{module.RelativePath}: Excel 側の本文が前回の同期から（整形の差だけだと判断できる範囲で）変わっていましたが、" +
+                        $"控えを保存できなかったため、上書きしませんでした。{kept[1..]}",
+                        path: module.RelativePath));
+                    failed.Add(module.RelativePath);
+                    continue;
+                }
+
+                Logger?.Info("vba-push", $"Excel 側の本文が前回の同期から変わっているため、上書きの前に控えを残しました（{kept}）: {module.RelativePath}",
+                    targetPath: Path.Combine(project.Root, module.RelativePath));
+            }
 
             writes.Add(new VbaComponentWrite(
                 module.Component, module.Kind,

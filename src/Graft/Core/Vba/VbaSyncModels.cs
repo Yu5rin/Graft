@@ -42,6 +42,15 @@ public sealed record VbaModuleState
     public string ExcelLooseHash { get; init; } = string.Empty;
 
     /// <summary>
+    /// <see cref="ExcelLooseHash"/> を作った「ゆるい形」の算法の版（<see cref="VbaTextNormalizer.LooseFormVersion"/>）。
+    /// 版の記録がない古い同期状態は 0（旧算法）として読まれる。旧算法のハッシュは文字列・コメントの中の差も
+    /// 消していたので、新しい算法の値とは比べられない。比べると、旧算法で消えていた差が全モジュールで一斉に
+    /// 「Excel 側の変更」に見えてしまうため、版が古い記録では <see cref="ExcelLooseHash"/> を使わず、
+    /// 厳密なハッシュだけで判定する（<see cref="VbaSyncPlanner"/> 参照）。
+    /// </summary>
+    public int LooseFormVersion { get; init; }
+
+    /// <summary>
     /// 削除保留。ミラーのファイルが無くなったが Excel 側にはモジュールが残っている状態。
     /// 自動 Pull で復活させないための印で、「Excel から復元」で解除する。
     /// </summary>
@@ -62,6 +71,7 @@ public sealed record VbaModuleState
             MirrorHash = mirrorHash,
             ExcelHash = excelHash,
             ExcelLooseHash = excelLooseHash,
+            LooseFormVersion = VbaTextNormalizer.LooseFormVersion,
             DeletePending = false,
             SyncedAt = syncedAt,
         };

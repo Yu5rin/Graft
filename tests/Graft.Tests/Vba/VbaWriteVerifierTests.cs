@@ -31,10 +31,11 @@ public class VbaWriteVerifierTests
         VbaWriteVerifier.Verify("x=1\r\ny=2", "x = 1\r\ny = 2").Should().Be(VbaWriteVerdict.FormattingDifference);
     }
 
-    [Fact(DisplayName = "整形差: タブとスペースの違いだけ")]
+    [Fact(DisplayName = "整形差: 行の途中のタブとスペースの違いだけ（行頭の字下げは整形差に含めない）")]
     public void タブの違いは整形差()
     {
-        VbaWriteVerifier.Verify("\tIf a Then", "    If a Then").Should().Be(VbaWriteVerdict.FormattingDifference);
+        VbaWriteVerifier.Verify("If\ta\tThen", "If  a  Then").Should().Be(VbaWriteVerdict.FormattingDifference);
+        VbaWriteVerifier.Verify("\tIf a Then", "    If a Then").Should().Be(VbaWriteVerdict.DifferentContent);
     }
 
     [Fact(DisplayName = "整形差: 大文字小文字の違いだけ（dim → Dim）")]
