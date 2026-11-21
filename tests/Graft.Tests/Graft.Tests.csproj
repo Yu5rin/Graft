@@ -30,6 +30,11 @@
     <Compile Include="..\..\src\Graft\Platform\IDialogService.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\ITextEditorAccess.cs" LinkBase="Linked\Platform" />
     <!--
+      Excel VBA 連携（docs/仕様書_VBA連携.md 5.1）。IVbaBridge とその関連レコードは Core/Vba と
+      GraftResult のみに依存する。IPlatformServices.cs と Platform/Null（NullVbaBridge）が参照するので取り込む。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\IVbaBridge.cs" LinkBase="Linked\Platform" />
+    <!--
       依頼2（E706）・依頼3（E709）: 「機能が利用できない/OSのハイコントラストを検出した」を
       ログへ残すだけのロジック（PlatformDiagnosticsLogging）は、IPlatformService・GraftIssue・
       Loggerのみに依存しUIフレームワークに触れないため、UI非依存の単体テストで検証できる
@@ -80,6 +85,21 @@
       （ForegroundActivationDecisionTests.cs参照）。
     -->
     <Compile Include="..\..\src\Graft\Platform\Windows\ForegroundActivationDecision.cs" LinkBase="Linked\Platform\Windows" />
+    <!--
+      Excel VBA 連携（仕様書_VBA連携 5.3）。COM の再試行（ComRetry）・専用スレッドと時間切れ（StaWorker）・
+      失敗の問題への写し（ComFailures）は、COM の型を一切使わず BCL の例外とスレッドだけで構成されるので、
+      OS を問わず検証できる。COM に触れる WindowsVbaBridge・ComRunningObjectTable・ComScope は含めない。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\Windows\ComRetry.cs" LinkBase="Linked\Platform\Windows" />
+    <Compile Include="..\..\src\Graft\Platform\Windows\StaWorker.cs" LinkBase="Linked\Platform\Windows" />
+    <Compile Include="..\..\src\Graft\Platform\Windows\ComFailures.cs" LinkBase="Linked\Platform\Windows" />
+    <!-- 1 モジュールの全文置き換え（控え→消す→書く→読み直す→書き戻し）。ICodeModuleAccess の裏の COM には触れない。 -->
+    <Compile Include="..\..\src\Graft\Platform\Windows\CodeModuleRewriter.cs" LinkBase="Linked\Platform\Windows" />
+    <!--
+      FakeVbaBridge（メモリ上のブックとモジュール）は UI テストと共有する。VbaSyncService（Pull／Push のつなぎ）は
+      画面を使わないので、Avalonia なしのこのプロジェクトで全経路を速く確かめる。
+    -->
+    <Compile Include="..\Graft.UiTests\Vba\FakeVbaBridge.cs" LinkBase="Linked\UiTests" />
     <!--
       利用者からの要望: タイトルバー色のテーマ連動。COLORREF変換・Windows 11以降判定・
       「非Windowsでは適用しない」判定（WindowsTitleBarThemeSupport.ShouldApply）は

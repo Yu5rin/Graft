@@ -49,6 +49,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     private Project? _project;
     private GitignoreFilter _filter = GitignoreFilter.Empty;
     private PathGuardOptions _guardOptions = PathGuardOptions.Default;
+    private Graft.Infra.Settings? _settings;
     private bool _showExcludedFiles;
     private bool _isLoading;
     private FileNodeViewModel? _selectedNode;
@@ -89,6 +90,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         // 眠らせておく（Restartで毎回数え直す、SearchOverlayViewModel等と同じ使い方）。
         _deleteNoticeTimer = ui.CreateTimer(DeleteNoticeDuration, OnDeleteNoticeTimeout);
         _filterDebounceTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(FilterDebounceMs), OnFilterDebounceTick);
+        _settings = settings;
         _guardOptions = FileTreeService.BuildGuardOptions(settings);
         _fileWatch.DirectoriesChanged += OnDirectoriesChanged;
         _fileWatch.FileContentChanged += OnFileContentChanged;
@@ -333,6 +335,9 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
     {
         _fileWatch.Stop();
         _project = project;
+        // VBA プロジェクトでは .bas/.cls/.frm を実効の許可に加える（仕様書_VBA連携 4.1）。
+        // プロジェクトごとに許可が変わるので、切り替えのたびに組み立て直す。
+        if (_settings is not null) _guardOptions = FileTreeService.BuildGuardOptions(_settings, project);
         SelectedNode = null;
         RootNodes.Clear();
         OnPropertyChanged(nameof(Project));

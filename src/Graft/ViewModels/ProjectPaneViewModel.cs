@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Graft.Core;
+using Graft.Core.Vba;
 using Graft.Features;
 using Graft.Platform;
 
@@ -19,8 +20,10 @@ public enum ProjectPaneState
 /// プロジェクト一覧の1行。ピン留め・未接続表示・数字キーショートカット（仕様書3.2）に
 /// 必要な表示用プロパティを持つ。
 /// </summary>
-public sealed class ProjectListItemViewModel
+public sealed class ProjectListItemViewModel : ObservableObject
 {
+    private VbaBadgeState _vbaBadge = VbaBadgeState.Hidden;
+
     public ProjectListItemViewModel(Project project, int? shortcutNumber)
     {
         Project = project ?? throw new ArgumentNullException(nameof(project));
@@ -48,6 +51,44 @@ public sealed class ProjectListItemViewModel
 
     public string ShortcutText => ShortcutNumber is int n ? n.ToString() : string.Empty;
 
+    /// <summary>
+    /// 「VBA」バッジの内容（仕様書_VBA連携 7.6）。VBA プロジェクトでない行、またはこの環境で機能が使えないときは
+    /// <see cref="VbaBadgeState.Hidden"/>。ブックの開閉と件数は非同期に調べて後から入るので、変更通知を持つ。
+    /// </summary>
+    public VbaBadgeState VbaBadge
+    {
+        get => _vbaBadge;
+        set
+        {
+            if (!SetProperty(ref _vbaBadge, value ?? VbaBadgeState.Hidden)) return;
+            OnPropertyChanged(nameof(IsVbaBadgeVisible));
+            OnPropertyChanged(nameof(VbaBadgeText));
+            OnPropertyChanged(nameof(IsVbaBadgeGray));
+            OnPropertyChanged(nameof(VbaStatusText));
+            OnPropertyChanged(nameof(HasVbaStatus));
+            OnPropertyChanged(nameof(VbaTooltip));
+            OnPropertyChanged(nameof(AutomationName));
+        }
+    }
+
+    /// <summary>バッジを出すか。</summary>
+    public bool IsVbaBadgeVisible => _vbaBadge.IsVisible;
+
+    /// <summary>バッジの文言（「VBA」「VBA 連携オフ」）。</summary>
+    public string VbaBadgeText => _vbaBadge.Text;
+
+    /// <summary>グレー表示か（ブックが開いていない、または機能がオフ）。</summary>
+    public bool IsVbaBadgeGray => _vbaBadge.IsGray;
+
+    /// <summary>名前の下に出す補足（「未反映 N・削除保留 N」）。</summary>
+    public string VbaStatusText => _vbaBadge.StatusText;
+
+    /// <summary>補足を出すか。</summary>
+    public bool HasVbaStatus => _vbaBadge.StatusText.Length > 0;
+
+    /// <summary>バッジのツールチップ。</summary>
+    public string VbaTooltip => _vbaBadge.Tooltip;
+
     /// <summary>色のみに依存しないための読み上げ用テキスト（8.14）。</summary>
     public string AutomationName
     {
@@ -56,6 +97,12 @@ public sealed class ProjectListItemViewModel
             var parts = new List<string> { DisplayName };
             if (IsPinned) parts.Add("ピン留め");
             if (IsDisconnected) parts.Add("未接続");
+            if (_vbaBadge.IsVisible)
+            {
+                parts.Add(_vbaBadge.Text);
+                if (_vbaBadge.IsGray && _vbaBadge.Text == "VBA") parts.Add(VbaBadgeLogic.WorkbookClosedTip);
+                if (_vbaBadge.StatusText.Length > 0) parts.Add(_vbaBadge.StatusText);
+            }
             if (ShortcutNumber is int n) parts.Add($"ショートカット{n}");
             return string.Join("、", parts);
         }
@@ -67,7 +114,7 @@ public sealed class ProjectListItemViewModel
 /// ピン留め優先→最終使用日時降順（<see cref="ProjectStore.Sort"/>）で並べ、
 /// 上位9件に数字キーショートカットを割り当てる。空・読み込み中・エラーの3状態を持つ（8.8）。
 /// </summary>
-public sealed class ProjectPaneViewModel : ObservableObject
+public sealed partial class ProjectPaneViewModel : ObservableObject
 {
     private readonly ProjectStore _store;
     private readonly IDialogService _dialogs;
@@ -85,11 +132,12 @@ public sealed class ProjectPaneViewModel : ObservableObject
         // すべて「右クリックメニューの1項目としても、ボタンとしても呼べる」ようにするため、
         // HistoryPaneのMenuItem群と同じ設計（CommandParameterを使わずSelectedItemを直接見る）に
         // 揃える。右クリックで選択行を切り替える処理はView側（ProjectPane.axaml.cs）が担う。
-        DeleteProjectCommand = new AsyncRelayCommand(DeleteSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの削除");
+        DeleteProjectCommand = new AsyncRelayCommand(DeleteSelectedProjectAsync, () => SelectedItem is not null && !IsSelectedVbaProjectBusy(), context: "プロジェクトの削除");
         TogglePinCommand = new AsyncRelayCommand(ToggleSelectedPinAsync, () => SelectedItem is not null, context: "ピン留めの切り替え");
         RenameProjectCommand = new AsyncRelayCommand(RenameSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクト名の変更");
         EditTagsCommand = new AsyncRelayCommand(EditSelectedTagsAsync, () => SelectedItem is not null, context: "タグの編集");
-        RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの場所の変更");
+        RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null && !IsSelectedVbaProjectBusy(), context: "プロジェクトの場所の変更");
+        InitializeVbaCommands(); // Excel VBA 連携（ProjectPaneViewModel.Vba.cs）。
 
         // 右クリックメニューの「パスをコピー」「エクスプローラーで表示」。クリップボードと通知の窓口は
         // 履歴ペイン（HistoryPaneViewModel.ClipboardWriter／Notify）と同じ作りで MainViewModel が渡す。
@@ -162,7 +210,17 @@ public sealed class ProjectPaneViewModel : ObservableObject
         set
         {
             var previous = _selectedItem;
-            if (!SetProperty(ref _selectedItem, value) || value is null) return;
+            // Excel へ Push している最中は別のプロジェクトへ切り替えない（仕様書_VBA連携 7.3-4-2）。一覧の選択は
+            // 双方向に束縛されているので、変更通知を投げ直して、見かけの選択も元へ戻す。
+            if (IsSwitchBlocked?.Invoke() == true && previous is not null && value is not null && !ReferenceEquals(previous, value))
+            {
+                OnPropertyChanged(nameof(SelectedItem));
+                return;
+            }
+
+            if (!SetProperty(ref _selectedItem, value)) return;
+            RaiseVbaSelectionChanged(); // 右クリックメニューの VBA 項目の表示とチェック状態（ProjectPaneViewModel.Vba.cs）。
+            if (value is null) return;
 
             // 切り替えの前に確認が要る（開いているタブの未保存の確認）場合は、確認が済んでから
             // ProjectSelectedを発火する。以前は選択が変わった時点でイベントを発火し、購読側
@@ -179,6 +237,12 @@ public sealed class ProjectPaneViewModel : ObservableObject
     }
 
     private Task _pendingSwitch = Task.CompletedTask;
+
+    /// <summary>
+    /// true の間はプロジェクトの切り替えを受け付けない（Excel VBA 連携の Push 中。<c>MainViewModel</c> が配線する）。
+    /// 未設定なら常に切り替えられる。
+    /// </summary>
+    public Func<bool>? IsSwitchBlocked { get; set; }
 
     /// <summary>
     /// 切り替えの確認。別のプロジェクトへ切り替える直前に呼ばれ、falseを返すと切り替えを中止して
@@ -210,6 +274,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
             {
                 _selectedItem = previous;
                 OnPropertyChanged(nameof(SelectedItem));
+                RaiseVbaSelectionChanged();
             }
             return;
         }
@@ -314,7 +379,9 @@ public sealed class ProjectPaneViewModel : ObservableObject
         var shortcut = 1;
         foreach (var project in sorted)
         {
-            Items.Add(new ProjectListItemViewModel(project, shortcut <= 9 ? shortcut : null));
+            // バッジは、前回調べた結果（ブックの開閉・件数）があればそれで先に描く。作り直しのたびに消えて
+            // ちらつかないようにするため。件数の調べ直しは下の RequestVbaBadgeRefresh が非同期で行う。
+            Items.Add(new ProjectListItemViewModel(project, shortcut <= 9 ? shortcut : null) { VbaBadge = BadgeFor(project) });
             shortcut++;
         }
 
@@ -325,6 +392,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
         {
             _selectedItem = restored;
             OnPropertyChanged(nameof(SelectedItem));
+            RaiseVbaSelectionChanged();
         }
         else if (Items.Count > 0)
         {
@@ -339,8 +407,12 @@ public sealed class ProjectPaneViewModel : ObservableObject
             // 既存の起動直後の空一覧の挙動は変えない）。
             _selectedItem = null;
             OnPropertyChanged(nameof(SelectedItem));
+            RaiseVbaSelectionChanged();
             SelectionCleared?.Invoke(this, EventArgs.Empty);
         }
+
+        // VBA プロジェクトの未反映・削除保留の件数を、Excel に接続せずに数え直す（開閉は調べない）。
+        RequestVbaBadgeRefresh(checkWorkbookOpen: false);
     }
 
     // ------------------------------------------------------------------
@@ -359,6 +431,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
         var item = SelectedItem;
         if (item is null) return;
         var project = item.Project;
+        if (RejectWhileVbaBusy()) return;
 
         // 不具合2点検（実機報告の横断チェック）: 以前は「履歴も削除する」（不可逆）をyesLabelに
         // 渡しており、AvaloniaDialogService.ConfirmThreeWayAsyncの既定ボタン（IsDefault、Enterで
@@ -375,7 +448,31 @@ public sealed class ProjectPaneViewModel : ObservableObject
         if (choice is null) return; // キャンセル
 
         var deleteHistory = !choice.Value; // 「履歴は残す」(choice==true)ならdeleteHistory=false。
-        var result = await _store.RemoveAsync(project.Id, deleteHistory: deleteHistory).ConfigureAwait(true);
+
+        // Excel VBA 連携（仕様書_VBA連携 4.4）: VBA プロジェクトでは、履歴に加えてミラーと同期状態の扱いも確認する。
+        // 既定のボタン（Enter）は非破壊的な「登録だけ外す」。Excel 側のモジュールには何もしない。
+        var vbaOptions = VbaRemoveOptions.KeepAll;
+        if (project.Vba is not null)
+        {
+            var inDataDirectory = _store.IsUnderMirrorsDirectory(project.Root);
+            var vbaChoice = await _dialogs.ConfirmThreeWayAsync(
+                "ミラーと同期状態の扱い",
+                inDataDirectory
+                    ? $"このプロジェクトのミラーフォルダ（{project.Root}）と同期状態は、Graft のデータ保存先にあります。\n\n" +
+                      "・「登録だけ外す」を選ぶと、ミラーと同期状態は残ります。同じブックを後で追加し直すと、同じフォルダで三方比較のまま続けられます。\n" +
+                      "・「ミラーと同期状態も削除する」を選ぶと、ミラーフォルダはごみ箱へ送られ、同期状態は削除されます。Graft にだけ残っている未反映の編集も、ごみ箱から戻さない限り失われます。\n" +
+                      "Excel のブックの中身には、どちらも何もしません。"
+                    : $"このプロジェクトのミラーフォルダ（{project.Root}）はあなたが選んだ場所にあるため、フォルダ自体は削除しません。\n\n" +
+                      "・「同期状態は残す」を選ぶと、同期状態（Excel との差分を見分ける記録）が残ります。同じブックを追加し直すと続けられます。\n" +
+                      "・「同期状態も削除する」を選ぶと、その記録が削除されます。\n" +
+                      "Excel のブックの中身には、どちらも何もしません。",
+                inDataDirectory ? "登録だけ外す" : "同期状態は残す",
+                inDataDirectory ? "ミラーと同期状態も削除する" : "同期状態も削除する").ConfigureAwait(true);
+            if (vbaChoice is null) return; // キャンセル。何も削除しない。
+            if (vbaChoice == false) vbaOptions = new VbaRemoveOptions(DeleteSyncState: true, DeleteMirror: inDataDirectory);
+        }
+
+        var result = await _store.RemoveAsync(project.Id, deleteHistory, vbaOptions, PlatformServices.Current.Trash).ConfigureAwait(true);
         if (!result.IsSuccess)
         {
             await ShowFailureAsync("プロジェクトを削除できませんでした", result.Issues).ConfigureAwait(true);
@@ -476,6 +573,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
         var item = SelectedItem;
         if (item is null) return;
         var project = item.Project;
+        if (RejectWhileVbaBusy()) return;
 
         var folder = await _dialogs.PickFolderAsync("プロジェクトの新しい場所を選択").ConfigureAwait(true);
         if (string.IsNullOrEmpty(folder)) return;

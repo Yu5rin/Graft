@@ -22,7 +22,18 @@ public sealed partial class MainViewModel
     /// すべてに影響が及ぶため、この程度の付随的なログ出力のためだけにそこまでの変更は見送った
     /// （未設定＝nullでも動作は変わらず、単にログへ残らないだけ）。
     /// </summary>
-    public Logger? Logger { get; set; }
+    public Logger? Logger
+    {
+        get => _logger;
+        set
+        {
+            _logger = value;
+            // Excel VBA 連携の Pull／Push も同じ記録先へ書く（Pull は履歴に残さない代わりにログへ残す。仕様 13章）。
+            if (_vbaSync is not null) _vbaSync.Logger = value;
+        }
+    }
+
+    private Logger? _logger;
 
     /// <summary>
     /// ApplyAsync成功直後から呼ぶ。<see cref="Graft.Infra.GitSettings.AutoCommit"/>が有効なときだけ

@@ -1,0 +1,90 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.SettingsPanels.VbaSettingsView"
+             AutomationProperties.Name="VBA連携設定">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
+    <!--
+        「VBA 連携」タブ（仕様書_VBA連携 8章）。Excel の VBA コードを Graft で直接編集する機能の設定。
+        プロジェクトごとの「適用後に Excel へ自動反映する」「反映後にブックを保存する」は、ここではなく
+        プロジェクト一覧の右クリックメニューにある（プロジェクトごとの値のため。ProjectOverrides の編集画面は無い）。
+
+        Windows 以外では、パネル全体を「この環境では使えない機能です」（E706 の実際の文言）に置き換え、
+        入力欄は一切出さない（VbaSettingsContent を非表示にする）。タブそのものを隠さないのは、
+        「無いのか、使えないのか」を利用者が迷わないようにするため。
+        書式は他のタブと同じ（SettingsPanelStyles.axaml）。ScrollViewer 自身に Padding を持たせず、
+        内側の StackPanel の Margin に置くのも他のタブと同じ理由（末尾の見切れの回避）。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="16,8,16,16">
+            <!-- 使えない環境: 案内だけ。 -->
+            <StackPanel x:Name="VbaUnsupportedPanel" IsVisible="{Binding IsVbaUnsupported}" Spacing="6">
+                <TextBlock Text="VBA 連携" Classes="sectionHeading first" />
+                <TextBlock x:Name="VbaUnsupportedMessage" Text="{Binding VbaUnsupportedText}" TextWrapping="Wrap"
+                           AutomationProperties.Name="VBA連携はこの環境では使えない機能です" />
+                <TextBlock Text="Excel VBA の直接編集は、Windows 版の Graft でのみ使えます。" Classes="settingHint" />
+            </StackPanel>
+
+            <!-- 使える環境: 設定項目。 -->
+            <StackPanel x:Name="VbaSettingsContent" IsVisible="{Binding IsVbaSupported}">
+                <TextBlock Text="VBA 連携" Classes="sectionHeading first" />
+                <CheckBox Classes="settingRow hinted" Content="Excel VBA 連携を有効にする"
+                          IsChecked="{Binding VbaEnabled}"
+                          AutomationProperties.Name="Excel VBA 連携を有効にする"
+                          views:HelpTip.Standard="Excel VBA の直接編集の機能全体のオン・オフです。既定はオンです。オフにすると、Excel には一切接続しません。"
+                          views:HelpTip.Detailed="オフにすると、Excel VBA 連携のボタン・メニュー・自動の取り込み・自動の反映をすべて止め、Excel(COM)を一切呼びません。すでに追加してある VBA プロジェクトは、ミラーのフォルダを普通のファイルプロジェクトとして編集・適用できますが、Excel とは同期されません（プロジェクト一覧には「VBA 連携オフ」と出ます）。オンに戻すと、溜まった未反映の変更を「Excel へ反映」で送れます。" />
+                <TextBlock Text="オフにすると、VBA プロジェクトも普通のファイルとして扱い、Excel とは同期しません。" Classes="settingHint indented" />
+
+                <TextBlock Text="Excel からの取り込み" Classes="sectionHeading" />
+                <CheckBox Classes="settingRow hinted" Content="AI に渡すファイルを集める前に、Excel の最新を取り込む"
+                          IsChecked="{Binding VbaPullOnContextOpen}"
+                          IsEnabled="{Binding VbaEnabled}"
+                          AutomationProperties.Name="コンテキスト収集の前に Excel の最新を取り込む"
+                          views:HelpTip.Standard="「ファイルを選ぶ」画面を開くとき・依頼文をコピーするときに、先に Excel 側の変更をミラーへ取り込みます。既定はオンです。"
+                          views:HelpTip.Detailed="Excel で直接編集したコードが、古いまま AI に渡されるのを防ぎます。オンにすると、コンテキスト収集の走査の前に、Excel 側だけが変わったモジュールを取り込みます（「選んだファイルも付ける」の依頼文コピーやホットキーでも同じです）。Excel に接続できないときや、Excel 側とファイル側の両方が変わっていて取り込みを中止したときは、集めること自体は止めず、ミラーの現在の内容で続けて警告を出します。" />
+                <TextBlock Text="Excel で直接編集した内容が、古いまま AI に渡らないようにします。" Classes="settingHint indented" />
+                <CheckBox Classes="settingRow hinted" Content="解析の前に、対象モジュールの Excel の最新を自動で取り込む"
+                          IsChecked="{Binding VbaPullBeforeDryRun}"
+                          IsEnabled="{Binding VbaEnabled}"
+                          AutomationProperties.Name="解析の前に対象モジュールを自動で取り込む"
+                          views:HelpTip.Standard="AI の回答を解析する直前に、対象のモジュールの Excel 側の変更を取り込みます。既定はオンです。オフのときは、取り込むかどうかを確認します。"
+                          views:HelpTip.Detailed="オンにすると、貼り付けた回答の対象になっているモジュールに限って、Excel 側だけが変わっていれば自動で取り込んでから解析します（AI が最新でない本文を前提にしている可能性があるため）。オフにすると、同じ内容を「取り込む／取り込まずに続ける／中止」の確認で行います。Excel 側とファイル側の両方が変わっている衝突は、どちらの設定でも衝突ダイアログで選びます。" />
+                <TextBlock Text="オフにすると、取り込むかどうかをその都度確認します。" Classes="settingHint indented" />
+
+                <TextBlock Text="Excel の応答待ち" Classes="sectionHeading" />
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="再試行の上限（ミリ秒、1000〜30000）" Classes="settingLabel" />
+                        <TextBlock Text="Excel がセル編集中やダイアログ表示中で断ってきたときに、再試行を続ける時間です。超えると「Excel が応答しません」になります。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaComTimeoutMsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="Excel の再試行の上限（ミリ秒）"
+                             views:HelpTip.Minimal="{Binding VbaComTimeoutMsText, StringFormat='再試行の上限（ミリ秒）: {0}'}"
+                             views:HelpTip.Standard="Excel が呼び出しを断ったときに再試行する時間の上限です。既定は5000ミリ秒（5秒）です。"
+                             views:HelpTip.Detailed="セルを編集している最中やダイアログが開いている間、Excel は外からの呼び出しを断ります。Graft は200ミリ秒おきに再試行し、この時間を過ぎても通らなければ、Excel が応答しないものとして中止します。既定は5000ミリ秒です。範囲は1000〜30000です。" />
+                </Grid>
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="呼び出し全体の時間切れ（ミリ秒、5000〜120000）" Classes="settingLabel" />
+                        <TextBlock Text="マクロの実行中などで Excel が戻ってこないときに、待つのをやめる時間です。再試行の上限以上にしてください。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaCallTimeoutMsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="Excel の呼び出し全体の時間切れ（ミリ秒）"
+                             views:HelpTip.Minimal="{Binding VbaCallTimeoutMsText, StringFormat='呼び出し全体の時間切れ（ミリ秒）: {0}'}"
+                             views:HelpTip.Standard="Excel への1回の呼び出しが戻らないときに、待つのをやめる時間です。既定は30000ミリ秒（30秒）です。"
+                             views:HelpTip.Detailed="マクロの実行中・中断中・VBE のダイアログ表示中などは、Excel が断りもせず戻ってこないことがあります。この時間を過ぎたら待つのをやめて「Excel が応答しません」とし、Graft 自身は固まらずに操作を続けられるようにします。既定は30000ミリ秒です。範囲は5000〜120000で、再試行の上限以上にする必要があります（下回ると既定値に戻ります）。" />
+                </Grid>
+
+                <TextBlock Text="プロジェクトごとの設定" Classes="sectionHeading" />
+                <TextBlock Text="「適用後に Excel へ自動反映する」と「反映後にブックを保存する」は、プロジェクト一覧で VBA プロジェクトを右クリックして切り替えます。"
+                           Classes="settingHint" TextWrapping="Wrap" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

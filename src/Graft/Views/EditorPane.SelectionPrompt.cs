@@ -26,6 +26,7 @@ public partial class EditorPane
         // 選択が無いのに切り取り・コピーを押しても何も起きないため、隠さず無効にして理由が伝わるようにする。
         CutMenuItem.IsEnabled = Editor.SelectionLength > 0;
         CopyMenuItem.IsEnabled = Editor.SelectionLength > 0;
+        UpdateShowInVbeMenu(); // Excel VBA プロジェクトのときだけ「VBE でこの行を開く」を出す（EditorPane.Vba.cs）。
     }
 
     private void OnCutClicked(object? sender, RoutedEventArgs e) => Editor.Cut();

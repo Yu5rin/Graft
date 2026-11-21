@@ -420,6 +420,15 @@
                                       Header="選択範囲の修正依頼文をコピー"
                                       Click="OnCopyFixRequestPromptClicked"
                                       AutomationProperties.Name="選択範囲の修正依頼文をコピー" />
+                            <!-- 仕様書_VBA連携 7.6: Excel VBA プロジェクトのミラー内のファイルのときだけ出す
+                                 （表示は OnEditorContextMenuOpening が決める。それ以外では項目も区切り線も隠れる）。 -->
+                            <Separator x:Name="ShowInVbeSeparator" IsVisible="False" />
+                            <MenuItem x:Name="ShowInVbeMenuItem"
+                                      Header="VBE でこの行を開く"
+                                      IsVisible="False"
+                                      Click="OnShowInVbeClicked"
+                                      local:HelpTip.Standard="右クリックした行を、Excel の VBE（Visual Basic Editor）のコードウィンドウで開いて前面に出します。Excel でそのブックが開いているときだけ使えます。"
+                                      AutomationProperties.Name="VBE でこの行を開く" />
                         </ContextMenu>
                     </ae:TextEditor.ContextMenu>
                 </ae:TextEditor>

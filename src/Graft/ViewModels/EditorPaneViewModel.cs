@@ -48,6 +48,15 @@ public sealed partial class EditorPaneViewModel : ObservableObject
     private bool _wordWrap;
     private bool _showWhitespace;
 
+    /// <summary>
+    /// 「VBE でこの行を開く」を出してよいファイルか（引数はプロジェクトルートからの相対パス）。Excel VBA 連携で
+    /// <c>MainViewModel</c> のプロジェクトペインが配線する。未設定なら常に出さない（仕様書_VBA連携 7.6）。
+    /// </summary>
+    public Func<string, bool>? CanShowInVbe { get; set; }
+
+    /// <summary>VBE でモジュールを開いて指定行へ移動する（相対パス、1 始まりの行）。<see cref="CanShowInVbe"/> と対。</summary>
+    public Func<string, int, Task>? ShowInVbeAsync { get; set; }
+
     public EditorPaneViewModel(Settings settings, IDialogService dialogs, Graft.Platform.IUiServices ui)
     {
         Ui = ui ?? throw new ArgumentNullException(nameof(ui));

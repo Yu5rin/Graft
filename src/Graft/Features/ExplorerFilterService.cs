@@ -14,7 +14,7 @@ public sealed record ExplorerFilterResult(IReadOnlyList<string> MatchedRelativeP
 /// ため別クラスにしている。
 /// <list type="bullet">
 /// <item>クイックオープンは「開く」ための一覧で許可拡張子（<see cref="Infra.SafetySettings.AllowedExtensions"/>）
-/// による絞り込みも行うが、こちらは「ツリーで眺める」ための絞り込みであり全ファイル種別が対象。</item>
+/// による絞り込みも行う（VBA プロジェクトでは <see cref="Core.Vba.VbaExtensionPolicy"/> で .bas/.cls/.frm が加わった実効の一覧）が、こちらは「ツリーで眺める」ための絞り込みであり全ファイル種別が対象。</item>
 /// <item>クイックオープンはあいまい一致で全件をスコア付けするが、こちらはツリー上に実際に表示する
 /// 項目を決めるための単純な部分一致（ファイル名に含まれるか、大文字小文字を無視）。</item>
 /// </list>

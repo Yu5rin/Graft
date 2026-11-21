@@ -1,4 +1,5 @@
 using System.Text;
+using Graft.Platform.Null;
 
 namespace Graft.Platform.Linux;
 
@@ -24,6 +25,9 @@ public sealed class LinuxPlatformServices : IPlatformServices
         Theme = new LinuxSystemThemeWatcher();
         SingleInstance = new LinuxSingleInstanceGuard();
         AutoStart = new LinuxAutoStartService();
+
+        // Excel の COM は Windows にしかないので、Linux は常に何もしない実装（IsSupported=false）を返す。
+        Vba = new NullVbaBridge();
     }
 
     public ITrayIcon Tray { get; }
@@ -44,6 +48,8 @@ public sealed class LinuxPlatformServices : IPlatformServices
 
     public IAutoStartService AutoStart { get; }
 
+    public IVbaBridge Vba { get; }
+
     /// <summary>16章: OS種別・バージョン・各サービスの利用可否を1行の日本語で記録する。</summary>
     public string DescribeEnvironment()
     {
@@ -63,7 +69,8 @@ public sealed class LinuxPlatformServices : IPlatformServices
         builder.Append(", 外部リンクを開く: ").Append(Describe(ExternalLinks));
         builder.Append(", テーマ自動追従: ").Append(Describe(Theme));
         builder.Append(", 多重起動防止: ").Append(Describe(SingleInstance));
-        builder.Append(", 自動起動: ").Append(Describe(AutoStart)).Append('）');
+        builder.Append(", 自動起動: ").Append(Describe(AutoStart));
+        builder.Append(", Excel VBA連携: ").Append(Describe(Vba)).Append('）');
         return builder.ToString();
     }
 

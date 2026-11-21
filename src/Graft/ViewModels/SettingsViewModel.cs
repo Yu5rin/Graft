@@ -53,6 +53,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IFontCatalog _fontCatalog;
     private Settings _settings = new();
 
+    // Excel VBA 連携の設定（仕様書_VBA連携 8章）の編集用フィールドは SettingsViewModel.Vba.cs にある。
+    // BuildSettingsFromFields は new Settings で全項目を組み立て直すので、そこへ Vba を入れ忘れると、
+    // 設定画面で別の項目を保存するたびに vba が既定値へ戻ってしまう（VbaSettingsPreservationTests が固定している）。
+
     // デバウンス中の保存予約。ウィンドウを閉じる直前にFlushPendingSaveAsyncで
     // 待たずに確定させるため、予約の有無と取り消し用のCancellationTokenSourceを保持する。
     private CancellationTokenSource? _saveDebounceCts;
@@ -1032,6 +1036,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(IsUpdateAutoInstallAvailable));
         SetProperty(ref _updateAutoInstall, s.Update.AutoInstall, nameof(UpdateAutoInstall));
         SetProperty(ref _updateCheckUrl, s.Update.CheckUrl, nameof(UpdateCheckUrl));
+        PopulateVbaFields(s);
         PopulateEditorFields(s.Editor);
     }
 
@@ -1065,6 +1070,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         LaunchAtStartup = _launchAtStartup,
         MinimizeToTray = _minimizeToTray,
         Update = new UpdateSettings { CheckOnStartup = _updateCheckOnStartup, AutoInstall = _updateAutoInstall, CheckUrl = _updateCheckUrl },
+        Vba = BuildVbaSettings(),
         ClipboardWatch = new ClipboardWatchSettings
         {
             Enabled = _clipboardWatchEnabled, Action = _selectedClipboardAction, AutoParse = _clipboardAutoParse,

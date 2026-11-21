@@ -83,6 +83,8 @@ public sealed partial class MainViewModel : ObservableObject
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         ProjectPane.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         ProjectPane.Notify = text => Notice.Show(text); // 「パスをコピー」を数秒で消える通知で伝える。
+        _vbaPaths = projectStore.Paths; // _projectStore はこの時点では未設定（MainViewModel.Prompt.cs で後から入る）ため、引数から取る。
+        RebuildVbaSync(); // Excel VBA 連携の窓口（MainViewModel.Vba.cs）。ブリッジが差し替わるたびに作り直す。
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
         History.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         History.Notify = text => Notice.Show(text); // 取り消しが終わったことを数秒で消える通知で伝える。
@@ -91,6 +93,8 @@ public sealed partial class MainViewModel : ObservableObject
         // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
         Diff = new DiffViewModel(new Settings(), _ui);
         Diff.PropertyChanged += OnDiffPropertyChanged;
+        Diff.CanShowInVbe = ProjectPane.CanShowInVbe; // 差分ビューの右クリック「VBE でこの行を開く」（仕様書_VBA連携 7.6）。
+        Diff.ShowInVbeAsync = ProjectPane.ShowInVbeAsync;
         Diff.InlineEditAdopter = AdoptInlineEditAsync; // 8.7: 書き換えたSEARCH部を適用に含める（MainViewModel.InlineEditAdopt.cs）。
         // 修正1: 履歴差分タブ専用の表示状態。接ぎ木パネル（Diff/Blocks/State）とは完全に独立させ、
         // 履歴を閲覧しても接ぎ木パネルには一切触れないようにする（OnRevisionSelected参照）。
@@ -118,8 +122,13 @@ public sealed partial class MainViewModel : ObservableObject
         };
         History.RevisionSelected += OnRevisionSelected;
         History.RevisionRestored += OnRevisionRestored;
+        // Excel VBA 連携（MainViewModel.VbaApply.cs）: 取り消し・復元の後の Push と、Push 中に受け付けない操作。
+        History.AfterRestoreAsync = PushVbaAfterRestoreAsync;
+        History.IsOperationBlocked = () => IsVbaPushing;
+        ProjectPane.IsSwitchBlocked = () => IsVbaPushing;
 
-        PasteAndParseCommand = new AsyncRelayCommand(PasteAndParseAsync, context: "貼り付けと解析");
+        // Excel へ Push している最中は、新しいパッチの貼り付けを受け付けない（MainViewModel.VbaApply.cs）。
+        PasteAndParseCommand = new AsyncRelayCommand(PasteAndParseAsync, () => !IsVbaPushing, context: "貼り付けと解析");
         PreviewCommand = new AsyncRelayCommand(RunDryRunAsync, () => _currentPatch is not null, context: "適用前プレビュー");
         // 適用済みのパッチ（E302）は、適用できるブロックがあっても押せない。押しても要約入力と
         // 確認の窓を通った後にApplyEngineの再判定で必ず止まる（しかも止まった時点で
@@ -274,6 +283,7 @@ public sealed partial class MainViewModel : ObservableObject
         // DiffViewModel.UpdateSettings参照）。
         Diff.UpdateSettings(_settings);
         HistoryDiff.UpdateSettings(_settings);
+        ApplyVbaSettings(_settings);
 
         Layout = await LoadLayoutSafeAsync(ct).ConfigureAwait(true);
         await ProjectPane.LoadAsync(ct).ConfigureAwait(true);
@@ -309,7 +319,9 @@ public sealed partial class MainViewModel : ObservableObject
         Diff.UpdateSettings(settings);
         HistoryDiff.UpdateSettings(settings);
 
-        if (_isApplyInProgress)
+        // 適用の最中に加えて、Excel へ書いている最中も保留する（不具合 9。取り消し・復元の後の反映や手動の反映は
+        // 適用ではない）。終わったところで FlushPendingSettingsIfIdle が反映する。
+        if (_isApplyInProgress || IsVbaWriting)
         {
             _pendingSettings = settings;
             return;
@@ -326,6 +338,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void ApplySettingsNow(Settings settings)
     {
         _settings = settings;
+        ApplyVbaSettings(settings); // Vba.ComTimeoutMs／CallTimeoutMs／Enabled を次の呼び出しから効かせる。
         // プロンプトコピーも設定の最新値（トークン概算比率・「選んだファイルも付ける」）を取り込む。
         // 設定画面でオン・オフを切り替えたとき、開いているドロップダウンのチェックにも反映するため。
         PromptCopy?.ApplySettings(settings);
@@ -455,6 +468,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task PasteAndParseAsync()
     {
+        if (IsVbaPushing) return; // キー操作の経路は CanExecute を見ないことがあるので、ここでも塞ぐ。
         // IClipboardAccess.GetTextAsyncは取得できない場合にnullを返す契約のため、
         // 個別の例外保護は不要（クリップボードが他プロセスに占有されている場合もnullになる）。
         var text = await _ui.Clipboard.GetTextAsync().ConfigureAwait(true);
@@ -482,6 +496,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private async Task ParseTextAndLoadAsync(string text)
     {
+        if (IsVbaPushing) return; // ファイルの取り込み・ドロップの経路も、Push 中は受け付けない。
         // 点検指摘A-6: 解析そのものの間が無表示だった。従来 State=Loading が立つのは
         // RunDryRunAsync のドライラン直前で、その手前にある _parser.Parse（全文の字句解析。
         // 大きなパッチほど時間がかかり、しかも完全に同期処理）の間は何も出ていなかった。
@@ -516,6 +531,8 @@ public sealed partial class MainViewModel : ObservableObject
 
         _currentPatch = parsed.Value;
         _dryRunFromQueue = false;
+        // 新しいパッチ。前のパッチで選んだ「ファイルだけ適用する」・上書きの承認は引き継がない（Excel VBA 連携）。
+        ResetVbaApplyChoices();
         await RunDryRunCoreAsync(generation).ConfigureAwait(true);
     }
 
@@ -554,6 +571,16 @@ public sealed partial class MainViewModel : ObservableObject
         // 4.8/7章: 未保存編集があれば保存を促してから続行する（破棄不可。MainViewModel.Apply.cs）。
         if (!await ConfirmTargetsSavedAsync(project.Root).ConfigureAwait(true)) return;
 
+        // Excel VBA 連携: 「ファイルだけ適用する」の選択は、その解析（と続く適用）だけのもの。再解析・キューの結合など、
+        // 新しい解析を始めるたびに下ろす（不具合 8）。取り込みの前に下ろすのは、取り込めずに「ファイルだけ」を選び直した
+        // 場合に、その選択がこの解析に効くようにするため。上書きの承認（_vbaApprovedOverwrites）は、適用の直前の再検査の
+        // 再解析をまたいで保つ必要があるので、ここでは消さない。
+        _vbaFileOnly = false;
+
+        // Excel VBA 連携: 対象のモジュールに限って、Excel 側の変更を解析の前に取り込む（MainViewModel.VbaApply.cs）。
+        // 衝突で「中止」・接続できず「中止」なら解析しない。VBA プロジェクトでなければ何もせず true。
+        if (!await PullVbaBeforeDryRunAsync(project, patch).ConfigureAwait(true)) return;
+
         // 保存確認の待ち中に、破棄・別の解析・プロジェクトの切り替えがあれば、この要求は古い（C15）。
         if (generation != _analysisGeneration || !ReferenceEquals(_currentPatch, patch)
             || ProjectPane.SelectedItem?.Project.Id != project.Id)
@@ -572,7 +599,9 @@ public sealed partial class MainViewModel : ObservableObject
             .ConfigureAwait(true);
         var guard = new PathGuard(project.Root, new PathGuardOptions
         {
-            AllowedExtensions = _settings.Safety.AllowedExtensions,
+            // VBA プロジェクトのミラーは .bas/.cls/.frm なので、実効の許可に加える（仕様書_VBA連携 4.1）。
+            // 加えないと、適用が E202（許可されていない拡張子）で止まる。全体の設定は変えない。
+            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(_settings.Safety.AllowedExtensions, project),
             MaxFileSizeMB = _settings.Safety.MaxFileSizeMB,
             MaxFilesPerRevision = _settings.Safety.MaxFilesPerRevision,
         });
@@ -616,6 +645,9 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusSummaryFailedText));
         OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
+
+        // Excel VBA 連携: 適用できない変更（DELETE／RENAME の E814、CP932 で表せない文字の E811）を、適用を押す前に案内する。
+        await NotifyVbaGuardAfterAnalysisAsync(project).ConfigureAwait(true);
     }
 
     // ApplyAsync/UndoLastAsync（適用の本体・Ctrl+Z）はMainViewModel.Apply.csへ分割している
@@ -624,6 +656,10 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void DiscardCurrentPatch()
     {
+        // 解析結果を捨てたら、そのパッチ向けの VBA の選択（ファイルだけ適用する・上書きの承認）も捨てる（不具合 8）。
+        // ただし適用の最中は、適用が済んだ直後にここへ来て、そのあとの Excel への自動反映がこの選択を読むので、
+        // 適用の終わり（ApplyAsync の finally）まで残す。
+        if (!_isApplyInProgress) ResetVbaApplyChoices();
         _currentPatch = null;
         _dryRun = null;
         _lastContext = null;

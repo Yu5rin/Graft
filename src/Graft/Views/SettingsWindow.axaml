@@ -131,6 +131,12 @@
                 </ScrollViewer>
             </TabItem>
 
+            <TabItem x:Name="VbaTabItem" Header="VBA 連携" AutomationProperties.Name="VBA連携設定タブ"
+                     local:HelpTip.Standard="Excel の VBA コードを Graft で直接編集する機能の設定です。Windows 版でのみ使えます。"
+                     local:HelpTip.Detailed="起動中の Excel ブックの VBA コードを、AI の回答の適用でそのまま書き換える機能（Excel VBA 連携）のオン・オフと、Excel から最新を取り込むタイミング、Excel の応答を待つ時間を設定します。Windows 以外では使えません。">
+                <settings:VbaSettingsView />
+            </TabItem>
+
             <TabItem Header="統計" AutomationProperties.Name="統計タブ"
                      local:HelpTip.Standard="これまでAIとのやり取りで使ったおおよそのトークン数（AIが文章を数える単位）を、期間ごとに確認できます。"
                      local:HelpTip.Detailed="AIに渡した内容やパッチ適用でやり取りした内容から見積もった、AIのトークン消費量の推移を確認できます。実際にAIへ送って数えた値ではなく、文字数からの概算です（見積もり方法は「AIに渡す内容」タブの「トークン数の概算比率」）。AIの利用量を把握したいときの目安として使ってください。">
