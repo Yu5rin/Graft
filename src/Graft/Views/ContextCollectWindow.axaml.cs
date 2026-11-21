@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Graft.Platform;
 using Graft.ViewModels;
 
 namespace Graft.Views;
@@ -39,7 +40,13 @@ public partial class ContextCollectWindow : Window
         // 窓が閉じたら外す（窓を開かない経路——依頼文コピー——では、メインウィンドウが親の既定に戻る）。
         viewModel.ShowVbaConflictAsync = async request =>
             await new VbaConflictWindow(viewModel.CreateVbaConflictViewModel(request)).ShowAndResolveAsync(this).ConfigureAwait(true);
-        Closed += (_, _) => viewModel.ShowVbaConflictAsync = null;
+        // 取り込み前の未保存の確認など、ほかのダイアログも同じ理由で、この窓が開いている間はこの窓を親にする。
+        Opened += (_, _) => AvaloniaDialogService.PreferredOwner = this;
+        Closed += (_, _) =>
+        {
+            viewModel.ShowVbaConflictAsync = null;
+            if (ReferenceEquals(AvaloniaDialogService.PreferredOwner, this)) AvaloniaDialogService.PreferredOwner = null;
+        };
         Loaded += async (_, _) =>
         {
             await SafeHandler.RunAsync("コンテキスト収集の初期化", () => viewModel.InitializeAsync())

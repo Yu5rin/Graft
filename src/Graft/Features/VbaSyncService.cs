@@ -332,59 +332,84 @@ public sealed class VbaSyncService
         IReadOnlyCollection<string>? adoptConflicts = null, CancellationToken ct = default)
     {
         var link = RequireLink(project);
-        await _gate.WaitAsync(ct).ConfigureAwait(true);
-        try
+        var adopt = Scope(adoptConflicts);
+
+        // 【ゲートを持ったまま利用者のダイアログを待たない（疑わしい点の修正）】 以前は、ゲートを持ったまま未保存の確認
+        // （BeforePullAsync）を待っていた。利用者が確認を放置している間、ほかの取込・反映・検査が全部待たされる。
+        // そこで「ゲートの中で計画を作り、確認の要るファイルが見つかったらゲートを手放して確認し、もう一度ゲートの中で
+        // 計画を作り直して実行する」を繰り返す。確認を待つ間に Excel やミラーが変わっても、実行するのは常に
+        // ゲートの中で作った最新の計画。確認を済ませたファイルは覚えておき、同じファイルを二度聞かない。
+        var confirmed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var declined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var round = 0; ; round++)
         {
-            return await PullCoreAsync(project, link, only, restoreDeletePending, Scope(adoptConflicts), ct).ConfigureAwait(true);
-        }
-        finally
-        {
-            _gate.Release();
+            IReadOnlyList<string> toConfirm;
+            await _gate.WaitAsync(ct).ConfigureAwait(true);
+            try
+            {
+                // 何度確認しても新しい未確認のファイルが現れ続けるときは、打ち切って、未確認のものは取り込まない。
+                var step = await PullCoreAsync(
+                    project, link, only, restoreDeletePending, adopt, confirmed, declined, giveUpConfirming: round >= MaxPullConfirmRounds, ct)
+                    .ConfigureAwait(true);
+                if (step.Result is not null) return step.Result;
+                toConfirm = step.NeedsConfirmation!;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
+            // ゲートの外で確認する（保存するとミラーが変わるので、戻ったら計画を作り直す）。
+            var outcome = await BeforePullAsync!(toConfirm).ConfigureAwait(true);
+            foreach (var path in toConfirm) confirmed.Add(path);
+            foreach (var path in outcome.Declined) declined.Add(path);
         }
     }
 
-    private async Task<GraftResult<VbaPullResult>> PullCoreAsync(
+    private const int MaxPullConfirmRounds = 5;
+
+    /// <summary>Pull の 1 回分の結果。未保存の確認が要るなら <see cref="NeedsConfirmation"/>、そうでなければ <see cref="Result"/>。</summary>
+    private sealed record PullStep(GraftResult<VbaPullResult>? Result, IReadOnlyList<string>? NeedsConfirmation);
+
+    private async Task<PullStep> PullCoreAsync(
         Project project, VbaLink link, IReadOnlyCollection<string>? only, bool restoreDeletePending,
-        HashSet<string>? adopt, CancellationToken ct)
+        HashSet<string>? adopt, HashSet<string> confirmed, HashSet<string> declined, bool giveUpConfirming, CancellationToken ct)
     {
         var scope = Scope(only);
         var snapshot = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
-        if (!snapshot.IsSuccess) return GraftResult<VbaPullResult>.Fail(snapshot.Issues);
+        if (!snapshot.IsSuccess) return new PullStep(GraftResult<VbaPullResult>.Fail(snapshot.Issues), null);
         var work = snapshot.Value;
         var issues = new List<GraftIssue>(snapshot.Issues);
 
         var skipped = new List<string>();
         var pullPaths = PullTargets(work.Plan, restoreDeletePending, adopt);
 
-        // 取り込み先に未保存の編集があれば、先に保存してもらう。保存するとミラーが変わるので、計画を作り直す。
+        // 取り込み先に未保存の編集があれば、先に保存してもらう（ゲートの外で。PullAsync 参照）。
         if (BeforePullAsync is not null)
         {
             var existing = pullPaths
                 .Select(p => Path.Combine(project.Root, p.Replace('/', Path.DirectorySeparatorChar)))
                 .Where(File.Exists)
                 .ToList();
-            if (existing.Count > 0)
+            var unconfirmed = existing.Where(f => !confirmed.Contains(f)).ToList();
+            if (unconfirmed.Count > 0)
             {
-                var outcome = await BeforePullAsync(existing).ConfigureAwait(true);
-                if (outcome.SavedAny)
-                {
-                    var again = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
-                    if (!again.IsSuccess) return GraftResult<VbaPullResult>.Fail(again.Issues);
-                    work = again.Value;
-                    pullPaths = PullTargets(work.Plan, restoreDeletePending, adopt);
-                }
+                if (!giveUpConfirming) return new PullStep(null, unconfirmed);
 
-                foreach (var declined in outcome.Declined)
-                {
-                    var relative = RelativeOf(project.Root, declined);
-                    var index = pullPaths.FindIndex(p => string.Equals(p, relative, StringComparison.OrdinalIgnoreCase));
-                    if (index < 0) continue;
-                    pullPaths.RemoveAt(index);
-                    skipped.Add(relative);
-                    issues.Add(GraftIssue.Of(
-                        ErrorCode.E702, $"{relative}: 未保存の編集があるため、Excel からの取り込みをスキップしました。",
-                        path: relative, severity: Severity.Warning));
-                }
+                // 確認が収まらない。安全側に、確認できていないファイルは取り込まない。
+                foreach (var file in unconfirmed) declined.Add(file);
+            }
+
+            foreach (var declinedFile in declined)
+            {
+                var relative = RelativeOf(project.Root, declinedFile);
+                var index = pullPaths.FindIndex(p => string.Equals(p, relative, StringComparison.OrdinalIgnoreCase));
+                if (index < 0) continue;
+                pullPaths.RemoveAt(index);
+                skipped.Add(relative);
+                issues.Add(GraftIssue.Of(
+                    ErrorCode.E702, $"{relative}: 未保存の編集があるため、Excel からの取り込みをスキップしました。",
+                    path: relative, severity: Severity.Warning));
             }
         }
 
@@ -429,8 +454,10 @@ public sealed class VbaSyncService
         }
 
         await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(true);
-        return GraftResult<VbaPullResult>.Ok(
-            new VbaPullResult(pulled, conflicts, skipped) { ConflictItems = ConflictItemsOf(work, conflicts) }, issues);
+        return new PullStep(
+            GraftResult<VbaPullResult>.Ok(
+                new VbaPullResult(pulled, conflicts, skipped) { ConflictItems = ConflictItemsOf(work, conflicts) }, issues),
+            null);
     }
 
     /// <summary>衝突したモジュールの、両側の本文つきの一覧（衝突ダイアログの表示用）。</summary>

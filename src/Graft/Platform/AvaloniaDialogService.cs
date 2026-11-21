@@ -469,6 +469,36 @@ public sealed class AvaloniaDialogService : IDialogService
     }
 
     /// <summary>
+    /// ダイアログの親にしたい窓。モーダルで開いている窓（コンテキスト収集の窓）が、開いている間だけ自分を入れる。
+    /// <para>
+    /// 【なぜ要るか】 モーダルの窓が開いている間に、その窓の操作から出る確認（Excel 取り込み前の未保存の確認など）の
+    /// 親を、メインウィンドウにしてしまうと、確認がモーダルの裏に回って操作できなくなる（衝突ダイアログだけは窓を
+    /// 親にしていたが、確認は「アクティブな窓」の推測に任せていた）。窓が開いている間は、その窓を親にする。
+    /// </para>
+    /// </summary>
+    internal static Window? PreferredOwner { get; set; }
+
+    /// <summary>
+    /// ダイアログの親を選ぶ。<paramref name="preferred"/> が表示中ならそれ、なければ表示中でアクティブな窓、
+    /// なければ表示中のメインウィンドウ。どれも無ければ null。窓の取得（<see cref="FindOwnerWindow"/>）から
+    /// 分けてあるのは、選び方をテストで確かめるため。
+    /// </summary>
+    internal static Window? ChooseOwner(Window? preferred, IEnumerable<Window> windows, Window? main)
+    {
+        if (preferred is { IsVisible: true }) return preferred;
+
+        foreach (var candidate in windows)
+        {
+            if (candidate.IsActive && candidate.IsVisible)
+            {
+                return candidate;
+            }
+        }
+
+        return main is { IsVisible: true } ? main : null;
+    }
+
+    /// <summary>
     /// 表示中で使用可能なウィンドウを親として探す。デスクトップのライフタイムが取得できない、
     /// または表示中のウィンドウが無い場合はnullを返し、呼び出し側は画面中央起点や
     /// 非モーダル表示へフォールバックする。
@@ -480,14 +510,6 @@ public sealed class AvaloniaDialogService : IDialogService
             return null;
         }
 
-        foreach (var candidate in desktop.Windows)
-        {
-            if (candidate.IsActive && candidate.IsVisible)
-            {
-                return candidate;
-            }
-        }
-
-        return desktop.MainWindow is { IsVisible: true } ? desktop.MainWindow : null;
+        return ChooseOwner(PreferredOwner, desktop.Windows, desktop.MainWindow);
     }
 }
