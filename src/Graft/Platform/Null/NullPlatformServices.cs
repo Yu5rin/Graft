@@ -25,8 +25,10 @@ public sealed class NullPlatformServices : IPlatformServices
 
     public IAutoStartService AutoStart { get; } = new NullAutoStartService();
 
+    public IVbaBridge Vba { get; } = new NullVbaBridge();
+
     public string DescribeEnvironment()
         => $"OS: {Environment.OSVersion.VersionString}"
            + "（未対応プラットフォーム。トレイ/ホットキー/クリップボード監視/ごみ箱/"
-           + "ファイルマネージャ連携/テーマ自動追従/多重起動防止はいずれも無効）";
+           + "ファイルマネージャ連携/テーマ自動追従/多重起動防止/Excel VBA連携はいずれも無効）";
 }

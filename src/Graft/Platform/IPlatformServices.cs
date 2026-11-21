@@ -334,6 +334,12 @@ public interface IPlatformServices
     ISingleInstanceGuard SingleInstance { get; }
 
     /// <summary>
+    /// Excel VBA 連携の COM 層（docs/仕様書_VBA連携.md 3.1・5.1）。Excel の COM を使えない環境では
+    /// <see cref="IPlatformService.IsSupported"/> が false の何もしない実装が返る。
+    /// </summary>
+    IVbaBridge Vba { get; }
+
+    /// <summary>
     /// 16章: 起動時にログへ記録するプラットフォーム情報（OS種別・バージョン・利用可能な
     /// サービス）を1行の日本語で返す。
     /// </summary>

@@ -35,6 +35,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
 
     public IAutoStartService AutoStart { get; } = new WindowsAutoStartService();
 
+    // Excel VBA 連携。段階 P1 では COM 層を未実装のスタブ（IsSupported=false）にしておく。
+    // 実装（ROT・専用スレッド・読み書き）は P2 で WindowsVbaBridge に入れる。
+    public IVbaBridge Vba { get; } = new WindowsVbaBridge();
+
     /// <summary>16章: OS種別・バージョン・各サービスの利用可否を1行の日本語で記録する。</summary>
     public string DescribeEnvironment()
     {
@@ -42,7 +46,8 @@ public sealed class WindowsPlatformServices : IPlatformServices
         builder.Append("OS: Windows ").Append(Environment.OSVersion.Version);
         builder.Append("（トレイ: 対応, ホットキー: 対応, クリップボード監視: 対応, ");
         builder.Append("ごみ箱: 対応, ファイルマネージャ連携: 対応, 外部リンクを開く: 対応, ");
-        builder.Append("テーマ自動追従: 対応, 多重起動防止: 対応, 自動起動: 対応）");
+        builder.Append("テーマ自動追従: 対応, 多重起動防止: 対応, 自動起動: 対応, ");
+        builder.Append("Excel VBA連携: ").Append(Vba.IsSupported ? "対応" : "非対応").Append('）');
         return builder.ToString();
     }
 }

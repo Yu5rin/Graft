@@ -30,6 +30,11 @@
     <Compile Include="..\..\src\Graft\Platform\IDialogService.cs" LinkBase="Linked\Platform" />
     <Compile Include="..\..\src\Graft\Platform\ITextEditorAccess.cs" LinkBase="Linked\Platform" />
     <!--
+      Excel VBA 連携（docs/仕様書_VBA連携.md 5.1）。IVbaBridge とその関連レコードは Core/Vba と
+      GraftResult のみに依存する。IPlatformServices.cs と Platform/Null（NullVbaBridge）が参照するので取り込む。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\IVbaBridge.cs" LinkBase="Linked\Platform" />
+    <!--
       依頼2（E706）・依頼3（E709）: 「機能が利用できない/OSのハイコントラストを検出した」を
       ログへ残すだけのロジック（PlatformDiagnosticsLogging）は、IPlatformService・GraftIssue・
       Loggerのみに依存しUIフレームワークに触れないため、UI非依存の単体テストで検証できる
