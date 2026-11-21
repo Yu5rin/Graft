@@ -230,9 +230,18 @@ public sealed partial class MainViewModel
                 var pushed = await VbaSync.PushAsync(project, overwrite, overwrite).ConfigureAwait(true);
                 if (!pushed.IsSuccess || pushed.Value.Failed.Count > 0)
                 {
-                    var issues = pushed.Issues.Where(i => i.Severity == Severity.Error).Select(FormatVbaIssue);
-                    await _dialogs.ShowMessageAsync("Excel を上書きできませんでした", string.Join(Environment.NewLine + Environment.NewLine, issues))
+                    var failures = pushed.Issues.Where(i => i.Severity == Severity.Error).ToList();
+                    await _dialogs.ShowMessageAsync(
+                            "Excel を上書きできませんでした", string.Join(Environment.NewLine + Environment.NewLine, failures.Select(FormatVbaIssue)))
                         .ConfigureAwait(true);
+
+                    // 「中止」のときと同じく、解析しなかった理由を中央ペインに残す（ダイアログを閉じたあとに何も残らないと、
+                    // なぜ解析が始まらなかったのかが分からない。不具合 15）。
+                    CenterError = failures.FirstOrDefault() ?? GraftIssue.Of(
+                        ErrorCode.E812,
+                        $"「Graft 側で上書き」を選んだモジュールを Excel へ反映できなかったため、解析を中止しました: {string.Join("、", overwrite)}。" +
+                        "もう一度解析するか、Excel 側とファイル側のどちらを残すか決めてください。");
+                    State = CenterPaneState.Error;
                     return false;
                 }
             }

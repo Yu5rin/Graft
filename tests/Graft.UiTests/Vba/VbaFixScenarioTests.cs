@@ -1,5 +1,6 @@
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
+using Graft.Core;
 using Graft.Core.Vba;
 using Graft.Infra;
 using Graft.UiTests.TestSupport;
@@ -239,5 +240,79 @@ public class VbaFixScenarioTests
         await pushing.ConfigureAwait(true);
         rig.Graft.IsVbaWriting.Should().BeFalse();
         rig.Excel("Module1").Code.Should().Contain("Debug.Print 1");
+    }
+
+    // ------------------------------------------------------------------
+    // 不具合 14・15
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "不具合14: 衝突ダイアログで「反映しない」を選んだだけなら、題名は「反映しなかったモジュールがあります」（失敗の題名で聞き直さない）")]
+    public async Task 反映しないを選んだだけなら題名が違う()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        await rig.PasteAsync(VbaP3Rig.Edit(Module1, "  MsgBox \"hi\"", "  MsgBox \"hello\"")).ConfigureAwait(true);
+        rig.Excel("Module1").Code = VbaP3Rig.Module1Original + "\r\n' vbe edit";
+        rig.ChoiceAnswer = request => request.Title == "Excel 側が変更されています" ? "continue" : null;
+        rig.ConflictAnswer = request => VbaConflictDecision.All(request, VbaConflictChoice.Skip);
+
+        await rig.ApplyAsync().ConfigureAwait(true);
+
+        var choice = rig.Choices.Should().ContainSingle(c => c.Title != "Excel 側が変更されています").Subject;
+        choice.Title.Should().Be(MainViewModel.VbaSkippedChoiceTitle).And.Be("反映しなかったモジュールがあります");
+        choice.Message.Should().NotContain("反映できなかったものがあります");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合14: 「反映しない」に加えて実際の失敗もあるときは、従来どおり「Excel へ反映できませんでした」")]
+    public async Task 失敗もあれば従来の題名のまま()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        await rig.PasteAsync(
+            VbaP3Rig.Edit(Module1, "  MsgBox \"hi\"", "  MsgBox \"hello\""),
+            VbaP3Rig.Edit("Classes/Cls1.cls", "Public Value As Long", "Public Value As Double")).ConfigureAwait(true);
+        rig.Excel("Module1").Code = VbaP3Rig.Module1Original + "\r\n' vbe edit";
+        rig.Bridge.CorruptOnWrite.Add("Cls1");
+        rig.ChoiceAnswer = request => request.Title == "Excel 側が変更されています" ? "continue" : null;
+        rig.ConflictAnswer = request => VbaConflictDecision.All(request, VbaConflictChoice.Skip);
+
+        await rig.ApplyAsync().ConfigureAwait(true);
+
+        var choice = rig.Choices.Should().ContainSingle(c => c.Title != "Excel 側が変更されています").Subject;
+        choice.Title.Should().Be("Excel へ反映できませんでした");
+        choice.Message.Should().Contain("衝突のため反映しなかったモジュール").And.Contain("反映できなかったモジュール");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合15 再現: 解析前の衝突で「Graft 側で上書き」に失敗したとき、ダイアログのあと中央ペインに理由（エラー）が残り、解析されない")]
+    public async Task 上書きの失敗は中央ペインに残る()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        File.WriteAllText(rig.MirrorPath(Module1), "Sub A()\r\n  ' graft side\r\nEnd Sub\r\n");
+        rig.Excel("Module1").Code = "Sub A()\r\n  ' excel side\r\nEnd Sub";
+        rig.Bridge.CorruptOnWrite.Add("Module1");
+        rig.Bridge.RollbackFails.Add("Module1");
+        rig.ConflictAnswer = request => VbaConflictDecision.All(request, VbaConflictChoice.OverwriteExcel);
+
+        await rig.PasteAsync(VbaP3Rig.Edit(Module1, "  ' graft side", "  ' edited")).ConfigureAwait(true);
+
+        rig.H.Dialogs.Messages.Should().ContainSingle(m => m.Title == "Excel を上書きできませんでした");
+        rig.Graft.Blocks.Should().BeEmpty("解析しない");
+        rig.Graft.State.Should().Be(CenterPaneState.Error);
+        rig.Graft.CenterError.Should().NotBeNull("ダイアログを閉じたあとに何も残らないと、なぜ解析が始まらなかったのか分からない");
+        rig.Graft.CenterError!.Code.Should().Be(ErrorCode.E809);
+    }
+
+    [AvaloniaFact(DisplayName = "不具合15: 失敗の理由が問題として返らないときも、E812 で「上書きできなかったため解析を中止した」と中央ペインに残す")]
+    public async Task 理由が無い失敗もE812で残る()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        File.WriteAllText(rig.MirrorPath(Module1), "Sub A()\r\n  ' graft side\r\nEnd Sub\r\n");
+        rig.Excel("Module1").Code = "Sub A()\r\n  ' excel side\r\nEnd Sub";
+        // 書き込みそのものが戻らない（時間切れ）。問題は E805 で返る。
+        rig.Bridge.FailNext("Write", GraftIssue.Of(ErrorCode.E805));
+        rig.ConflictAnswer = request => VbaConflictDecision.All(request, VbaConflictChoice.OverwriteExcel);
+
+        await rig.PasteAsync(VbaP3Rig.Edit(Module1, "  ' graft side", "  ' edited")).ConfigureAwait(true);
+
+        rig.Graft.State.Should().Be(CenterPaneState.Error);
+        rig.Graft.CenterError!.Code.Should().Be(ErrorCode.E805);
     }
 }

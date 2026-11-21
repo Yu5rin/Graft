@@ -113,7 +113,7 @@ public class VbaP3RestoreTests
         r.Mirror(Module1).Should().Contain("MsgBox \"hi\"");
         r.Excel("Module1").Code.Should().Contain("vbe edit").And.Contain("hello");
         (await r.StatusAsync().ConfigureAwait(true)).UnpushedCount.Should().Be(1);
-        r.Choices.Should().ContainSingle(c => c.Title == "Excel へ反映できませんでした")
+        r.Choices.Should().ContainSingle(c => c.Title == "反映しなかったモジュールがあります")
             .Which.Options.Select(o => o.Id).Should().Equal(new[] { "keep", "retry" }, "復元の後は「この適用を取り消す」を出さない");
     }
 

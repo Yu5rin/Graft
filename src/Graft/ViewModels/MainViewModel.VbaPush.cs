@@ -168,15 +168,25 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>衝突ダイアログで「反映しない」を選んだだけのときの選択の題名（不具合 14）。</summary>
+    public const string VbaSkippedChoiceTitle = "反映しなかったモジュールがあります";
+
     /// <summary>Push が一部でも失敗したときの選択（仕様 7.3-4-6）。既定は「ファイルの変更は残す」。</summary>
     private async Task<string> ChooseAfterVbaPushFailureAsync(
         Project project, int? undoRevision, IReadOnlyList<GraftIssue> errors, IReadOnlyList<string> failedPaths, IReadOnlyCollection<string> skipped)
     {
+        // 利用者が衝突ダイアログで「反映しない」を選んだだけ（失敗は 1 件も無い）のときは、失敗の題名で聞き直さない
+        // （自分で選んだ結果を「反映できませんでした」と言われるのは不正確）。失敗が 1 件でもあれば従来の題名のまま。
+        var onlySkipped = skipped.Count > 0 && failedPaths.Count == 0 && errors.Count == 0;
         var lines = new List<string>
         {
-            undoRevision is int r
-                ? $"r{r} の変更は Graft のファイルに適用済みですが、Excel へ反映できなかったものがあります。"
-                : "ファイルは戻りましたが、Excel へ反映できなかったものがあります。",
+            onlySkipped
+                ? (undoRevision is int skippedRevision
+                    ? $"r{skippedRevision} の変更は Graft のファイルに適用済みですが、衝突のため Excel へ反映しなかったモジュールがあります。"
+                    : "ファイルは戻りましたが、衝突のため Excel へ反映しなかったモジュールがあります。")
+                : undoRevision is int r
+                    ? $"r{r} の変更は Graft のファイルに適用済みですが、Excel へ反映できなかったものがあります。"
+                    : "ファイルは戻りましたが、Excel へ反映できなかったものがあります。",
         };
         if (failedPaths.Count > 0) lines.Add($"反映できなかったモジュール: {string.Join("、", failedPaths)}");
         if (skipped.Count > 0) lines.Add($"衝突のため反映しなかったモジュール: {string.Join("、", skipped)}");
@@ -195,7 +205,9 @@ public sealed partial class MainViewModel
         if (retryable) options.Add(new VbaChoiceOption("retry", "もう一度反映する"));
         if (undoRevision is int revision) options.Add(new VbaChoiceOption("undo", $"この適用（r{revision}）を取り消す"));
 
-        return await ChooseVbaOptionAsync(new VbaChoiceRequest("Excel へ反映できませんでした", string.Join(Environment.NewLine, lines), options, OpenWorkbookPathFor(project, errors)))
+        return await ChooseVbaOptionAsync(new VbaChoiceRequest(
+                onlySkipped ? VbaSkippedChoiceTitle : "Excel へ反映できませんでした",
+                string.Join(Environment.NewLine, lines), options, OpenWorkbookPathFor(project, errors)))
             .ConfigureAwait(true);
     }
 

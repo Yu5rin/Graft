@@ -247,7 +247,7 @@ public class VbaP3PushTests
         r.Graft.ApplyUndoNoticeText.Should().Contain("Excel へ反映済み");
     }
 
-    [AvaloniaFact(DisplayName = "Push 直前の衝突: 「反映しない」なら Excel は触らず、失敗の選択に進み（既定は残す）、未反映の印が付く")]
+    [AvaloniaFact(DisplayName = "Push 直前の衝突: 「反映しない」なら Excel は触らず、「反映しなかったモジュールがあります」の選択に進み（既定は残す）、未反映の印が付く")]
     public async Task Push直前の衝突で反映しない()
     {
         using var r = await ConflictAtPushAsync().ConfigureAwait(true);
@@ -257,8 +257,10 @@ public class VbaP3PushTests
 
         r.Excel("Module1").Code.Should().Contain("vbe edit").And.NotContain("hello");
         r.Mirror(Module1).Should().Contain("hello");
-        var failure = r.Choices.Should().ContainSingle(c => c.Title == "Excel へ反映できませんでした").Subject;
+        // 利用者が自分で選んだ結果なので、失敗の題名（「Excel へ反映できませんでした」）では聞かない（不具合 14）。
+        var failure = r.Choices.Should().ContainSingle(c => c.Title == "反映しなかったモジュールがあります").Subject;
         failure.Message.Should().Contain("衝突のため反映しなかったモジュール").And.Contain(Module1);
+        failure.Message.Should().NotContain("反映できなかったものがあります");
         failure.Default.Id.Should().Be("keep");
         (await r.StatusAsync().ConfigureAwait(true)).UnpushedCount.Should().Be(1);
         r.Graft.ApplyUndoNoticeText.Should().Contain("Excel には未反映");
