@@ -64,7 +64,7 @@ public sealed partial class MainViewModel
         finally
         {
             _isApplyInProgress = false;
-            _vbaFileOnly = false; // 「ファイルだけ適用する」はこの適用だけの選択（MainViewModel.VbaApply.cs）。
+            ResetVbaApplyChoices(); // 「ファイルだけ適用する」・上書きの承認はこの適用だけの選択（MainViewModel.VbaApply.cs）。
             if (_pendingSettings is { } pending)
             {
                 _pendingSettings = null;

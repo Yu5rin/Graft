@@ -530,8 +530,7 @@ public sealed partial class MainViewModel : ObservableObject
         _currentPatch = parsed.Value;
         _dryRunFromQueue = false;
         // 新しいパッチ。前のパッチで選んだ「ファイルだけ適用する」・上書きの承認は引き継がない（Excel VBA 連携）。
-        _vbaFileOnly = false;
-        _vbaApprovedOverwrites.Clear();
+        ResetVbaApplyChoices();
         await RunDryRunCoreAsync(generation).ConfigureAwait(true);
     }
 
@@ -569,6 +568,12 @@ public sealed partial class MainViewModel : ObservableObject
 
         // 4.8/7章: 未保存編集があれば保存を促してから続行する（破棄不可。MainViewModel.Apply.cs）。
         if (!await ConfirmTargetsSavedAsync(project.Root).ConfigureAwait(true)) return;
+
+        // Excel VBA 連携: 「ファイルだけ適用する」の選択は、その解析（と続く適用）だけのもの。再解析・キューの結合など、
+        // 新しい解析を始めるたびに下ろす（不具合 8）。取り込みの前に下ろすのは、取り込めずに「ファイルだけ」を選び直した
+        // 場合に、その選択がこの解析に効くようにするため。上書きの承認（_vbaApprovedOverwrites）は、適用の直前の再検査の
+        // 再解析をまたいで保つ必要があるので、ここでは消さない。
+        _vbaFileOnly = false;
 
         // Excel VBA 連携: 対象のモジュールに限って、Excel 側の変更を解析の前に取り込む（MainViewModel.VbaApply.cs）。
         // 衝突で「中止」・接続できず「中止」なら解析しない。VBA プロジェクトでなければ何もせず true。
@@ -649,6 +654,10 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void DiscardCurrentPatch()
     {
+        // 解析結果を捨てたら、そのパッチ向けの VBA の選択（ファイルだけ適用する・上書きの承認）も捨てる（不具合 8）。
+        // ただし適用の最中は、適用が済んだ直後にここへ来て、そのあとの Excel への自動反映がこの選択を読むので、
+        // 適用の終わり（ApplyAsync の finally）まで残す。
+        if (!_isApplyInProgress) ResetVbaApplyChoices();
         _currentPatch = null;
         _dryRun = null;
         _lastContext = null;

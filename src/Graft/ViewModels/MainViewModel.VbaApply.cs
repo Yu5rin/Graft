@@ -67,6 +67,17 @@ public sealed partial class MainViewModel
     private bool IsVbaActive(Project? project)
         => project?.Vba is not null && _settings.Vba.Enabled && _vbaBridge.IsSupported;
 
+    /// <summary>
+    /// 「ファイルだけ適用する」と、「Graft 側で上書き」の承認を下ろす。どちらも<b>そのパッチの解析と適用だけ</b>の選択で、
+    /// 新しいパッチ・キューの結合・解析結果の破棄・プロジェクトの切り替えをまたいで持ち越すと、Excel が開いているのに
+    /// 反映されなかったり（適用直前の再検査も飛ばされる）、別のプロジェクトへ効いたりする（不具合 8）。
+    /// </summary>
+    private void ResetVbaApplyChoices()
+    {
+        _vbaFileOnly = false;
+        _vbaApprovedOverwrites.Clear();
+    }
+
     /// <summary>Push の最中か（貼り付け・取り消し・プロジェクトの切り替えの入口が見る）。</summary>
     private bool IsVbaPushing => _isVbaPushing;
 

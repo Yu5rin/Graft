@@ -132,6 +132,7 @@ public sealed partial class MainViewModel
 
         _currentPatch = merged.Value;
         _dryRunFromQueue = true;
+        ResetVbaApplyChoices(); // 結合したパッチは新しいパッチ。前の選択（ファイルだけ適用する等）を持ち越さない。
         await RunDryRunAsync().ConfigureAwait(true);
     }
 
