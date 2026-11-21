@@ -441,16 +441,14 @@ public sealed partial class ProjectPaneViewModel
         if (_vbaSync is null || SelectedItem is not { } item) return;
         var project = item.Project;
 
-        var status = await _vbaSync.GetLocalStatusAsync(project).ConfigureAwait(true);
-        if (status.DeletePendingCount == 0)
+        // 対象は「記録があるのにミラーのファイルが無いもの」（バッジの削除保留と同じ基準）。同期状態の DeletePending の
+        // 印で拾うと、ファイルを消した直後は印がまだ保存されておらず、バッジは 1 件なのに復元が 0 件になる（不具合 5）。
+        var pending = await _vbaSync.GetRestorablePathsAsync(project).ConfigureAwait(true);
+        if (pending.Count == 0)
         {
             Notify?.Invoke("Excel から復元するモジュールはありません。");
             return;
         }
-
-        // 削除保留のモジュールだけを対象にする（名前の一覧は同期状態から求める。通常の Pull は触らない）。
-        var loaded = await new VbaSyncStateStore(_store.Paths).LoadAsync(project.Id, project.Vba!.WorkbookFullName).ConfigureAwait(true);
-        var pending = loaded.Value.Modules.Where(kv => kv.Value.DeletePending).Select(kv => kv.Key).ToList();
 
         var result = await _vbaSync.PullAsync(project, pending, restoreDeletePending: true).ConfigureAwait(true);
         if (!result.IsSuccess)
@@ -460,7 +458,9 @@ public sealed partial class ProjectPaneViewModel
         }
 
         await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
-        Notify?.Invoke($"Excel から {result.Value.Pulled.Count} 件復元しました。");
+        Notify?.Invoke(result.Value.Pulled.Count == 0
+            ? "Excel 側にも該当のモジュールが無いため、復元できるものはありませんでした。"
+            : $"Excel から {result.Value.Pulled.Count} 件復元しました。");
     }
 
     // ------------------------------------------------------------------

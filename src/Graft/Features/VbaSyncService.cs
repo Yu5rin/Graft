@@ -777,19 +777,42 @@ public sealed class VbaSyncService
     /// </summary>
     public async Task<VbaLocalStatus> GetLocalStatusAsync(Project project, CancellationToken ct = default)
     {
+        var (status, _) = await ComputeLocalStatusAsync(project, ct).ConfigureAwait(true);
+        return status;
+    }
+
+    /// <summary>
+    /// 「Excel から復元」の対象になりうるモジュール（記録があるのに、ミラーのファイルが無いもの）の相対パス。
+    /// <see cref="GetLocalStatusAsync"/> の削除保留の件数と同じ基準で拾う。
+    /// <para>
+    /// 【同期状態の <see cref="VbaModuleState.DeletePending"/> を見ない理由】 この印は、ファイルを消したあとに全体の
+    /// 取込か反映が走るまで保存されない。エクスプローラーで誤って消した直後や、自動反映オフで新規モジュール入りの
+    /// 適用を取り消した直後は、バッジが「削除保留 1」なのに印がまだ無く、印で拾うと復元が 0 件になっていた
+    /// （不具合 5）。バッジと同じ「記録があってファイルが無い」で拾えば、両者は必ず一致する。
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetRestorablePathsAsync(Project project, CancellationToken ct = default)
+    {
+        var (_, paths) = await ComputeLocalStatusAsync(project, ct).ConfigureAwait(true);
+        return paths;
+    }
+
+    private async Task<(VbaLocalStatus Status, IReadOnlyList<string> PendingPaths)> ComputeLocalStatusAsync(
+        Project project, CancellationToken ct)
+    {
         var link = RequireLink(project);
         var mirror = await ReadMirrorAsync(project.Root, ct).ConfigureAwait(true);
         var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(true);
         var records = loaded.Value.Modules;
 
         var unpushed = 0;
-        var pending = 0;
+        var pendingPaths = new List<string>();
         foreach (var (key, record) in records)
         {
             if (!mirror.Modules.TryGetValue(key, out var module))
             {
                 // ミラーのファイルが無いのに記録がある＝削除保留。
-                pending++;
+                pendingPaths.Add(key);
                 continue;
             }
 
@@ -798,7 +821,7 @@ public sealed class VbaSyncService
 
         // 記録がなく、ミラーにだけあるモジュール（新規作成の Push 待ち）も未反映。
         unpushed += mirror.Modules.Values.Count(m => !records.ContainsKey(m.RelativePath) && VbaModuleKinds.CanCreateOnExcel(m.Kind));
-        return new VbaLocalStatus(unpushed, pending);
+        return (new VbaLocalStatus(unpushed, pendingPaths.Count), pendingPaths);
     }
 
     /// <summary>
