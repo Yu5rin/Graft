@@ -67,7 +67,7 @@ public sealed class ProjectListItemViewModel
 /// ピン留め優先→最終使用日時降順（<see cref="ProjectStore.Sort"/>）で並べ、
 /// 上位9件に数字キーショートカットを割り当てる。空・読み込み中・エラーの3状態を持つ（8.8）。
 /// </summary>
-public sealed class ProjectPaneViewModel : ObservableObject
+public sealed partial class ProjectPaneViewModel : ObservableObject
 {
     private readonly ProjectStore _store;
     private readonly IDialogService _dialogs;
@@ -90,6 +90,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
         RenameProjectCommand = new AsyncRelayCommand(RenameSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクト名の変更");
         EditTagsCommand = new AsyncRelayCommand(EditSelectedTagsAsync, () => SelectedItem is not null, context: "タグの編集");
         RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの場所の変更");
+        InitializeVbaCommands(); // Excel VBA 連携（ProjectPaneViewModel.Vba.cs）。
 
         // 右クリックメニューの「パスをコピー」「エクスプローラーで表示」。クリップボードと通知の窓口は
         // 履歴ペイン（HistoryPaneViewModel.ClipboardWriter／Notify）と同じ作りで MainViewModel が渡す。
@@ -162,7 +163,9 @@ public sealed class ProjectPaneViewModel : ObservableObject
         set
         {
             var previous = _selectedItem;
-            if (!SetProperty(ref _selectedItem, value) || value is null) return;
+            if (!SetProperty(ref _selectedItem, value)) return;
+            OnPropertyChanged(nameof(IsSelectedVbaProject)); // 右クリックメニューの VBA 項目の表示（ProjectPaneViewModel.Vba.cs）。
+            if (value is null) return;
 
             // 切り替えの前に確認が要る（開いているタブの未保存の確認）場合は、確認が済んでから
             // ProjectSelectedを発火する。以前は選択が変わった時点でイベントを発火し、購読側
@@ -210,6 +213,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
             {
                 _selectedItem = previous;
                 OnPropertyChanged(nameof(SelectedItem));
+                OnPropertyChanged(nameof(IsSelectedVbaProject));
             }
             return;
         }
@@ -325,6 +329,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
         {
             _selectedItem = restored;
             OnPropertyChanged(nameof(SelectedItem));
+            OnPropertyChanged(nameof(IsSelectedVbaProject));
         }
         else if (Items.Count > 0)
         {
@@ -339,6 +344,7 @@ public sealed class ProjectPaneViewModel : ObservableObject
             // 既存の起動直後の空一覧の挙動は変えない）。
             _selectedItem = null;
             OnPropertyChanged(nameof(SelectedItem));
+            OnPropertyChanged(nameof(IsSelectedVbaProject));
             SelectionCleared?.Invoke(this, EventArgs.Empty);
         }
     }

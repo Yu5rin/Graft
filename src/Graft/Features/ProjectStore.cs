@@ -57,6 +57,12 @@ public sealed class ProjectStore
 
     private readonly SemaphoreSlim _gate;
 
+    /// <summary>
+    /// このストアが使うデータ保存先。VBA 連携の同期状態（<see cref="VbaSyncStateStore"/>）やミラーの既定の場所を、
+    /// プロジェクトのストアと同じ保存先に揃えるために公開する（<c>MainViewModel</c> が <c>VbaSyncService</c> を作るときに使う）。
+    /// </summary>
+    public AppPaths Paths => _paths;
+
     public ProjectStore(AppPaths paths)
     {
         ArgumentNullException.ThrowIfNull(paths);

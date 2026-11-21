@@ -107,6 +107,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Editor.AddToContextRequested += OnAddToContextRequested;
         Search.AddToContextRequested += OnAddToContextRequested;
         Graft.BeforeApplyAsync = EnsureTargetsSavedAsync; // 4.8: ドライラン開始前の未保存確認。
+        Graft.BeforeVbaPullAsync = EnsureVbaPullTargetsSavedAsync; // VBA 連携: Excel からの取込前の未保存確認（ShellViewModel.Vba.cs）。
         Graft.AfterApplyAsync = files => Editor.ReloadIfOpenAsync(files); // 4.8: 適用後の自動再読込。
         WireStatusBarWarningSources(); // ShellViewModel.StatusBarWarning.cs参照。
 

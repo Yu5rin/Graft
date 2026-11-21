@@ -83,6 +83,8 @@ public sealed partial class MainViewModel : ObservableObject
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         ProjectPane.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         ProjectPane.Notify = text => Notice.Show(text); // 「パスをコピー」を数秒で消える通知で伝える。
+        _vbaPaths = projectStore.Paths; // _projectStore はこの時点では未設定（MainViewModel.Prompt.cs で後から入る）ため、引数から取る。
+        RebuildVbaSync(); // Excel VBA 連携の窓口（MainViewModel.Vba.cs）。ブリッジが差し替わるたびに作り直す。
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
         History.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         History.Notify = text => Notice.Show(text); // 取り消しが終わったことを数秒で消える通知で伝える。
@@ -274,6 +276,7 @@ public sealed partial class MainViewModel : ObservableObject
         // DiffViewModel.UpdateSettings参照）。
         Diff.UpdateSettings(_settings);
         HistoryDiff.UpdateSettings(_settings);
+        ApplyVbaSettings(_settings);
 
         Layout = await LoadLayoutSafeAsync(ct).ConfigureAwait(true);
         await ProjectPane.LoadAsync(ct).ConfigureAwait(true);
@@ -326,6 +329,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void ApplySettingsNow(Settings settings)
     {
         _settings = settings;
+        ApplyVbaSettings(settings); // Vba.ComTimeoutMs／CallTimeoutMs／Enabled を次の呼び出しから効かせる。
         // プロンプトコピーも設定の最新値（トークン概算比率・「選んだファイルも付ける」）を取り込む。
         // 設定画面でオン・オフを切り替えたとき、開いているドロップダウンのチェックにも反映するため。
         PromptCopy?.ApplySettings(settings);

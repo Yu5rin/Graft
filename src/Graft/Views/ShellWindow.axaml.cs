@@ -129,6 +129,9 @@ public partial class ShellWindow : Window
         viewModel.PropertyChanged += OnShellViewModelPropertyChanged;
         viewModel.Graft.RequestOpenQueue += OnRequestOpenQueue;
         viewModel.Graft.ApplyPreviewRequested += OnApplyPreviewRequested;
+        // Excel VBA 連携（仕様書_VBA連携 7.1）: 「Excel ブックから追加」の選択画面。ViewModel は Window の型を知らないので、
+        // 開く処理をここから渡す。
+        viewModel.Graft.ProjectPane.ShowWorkbookPickerAsync = picker => new VbaWorkbookPickerWindow(picker).ShowAndConfirmAsync(this);
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;

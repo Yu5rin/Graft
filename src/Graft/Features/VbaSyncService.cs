@@ -120,6 +120,14 @@ public sealed class VbaSyncService
     // ブックの一覧・プロジェクト作成（7.1）
     // ------------------------------------------------------------------
 
+    /// <summary>ブックの Excel ウィンドウを前面化する（右クリックの「ブックを前面化」）。</summary>
+    public Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default)
+        => _bridge.ActivateWorkbookAsync(workbookFullName, ct);
+
+    /// <summary>VBE で指定モジュールのコードウィンドウを開き、指定行へ移動して前面化する。</summary>
+    public Task<GraftResult<bool>> ShowInVbeAsync(string workbookFullName, string componentName, int line, CancellationToken ct = default)
+        => _bridge.ShowInVbeAsync(workbookFullName, componentName, line, ct);
+
     /// <summary>起動中の保存済みブックを列挙する。</summary>
     public Task<GraftResult<IReadOnlyList<VbaWorkbookInfo>>> ListWorkbooksAsync(CancellationToken ct = default)
         => _bridge.ListOpenWorkbooksAsync(ct);

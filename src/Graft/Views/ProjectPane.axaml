@@ -33,7 +33,7 @@
     <Grid RowDefinitions="Auto,*">
 
         <!-- 見出し（12px SemiBold）とプロジェクト追加・削除ボタン -->
-        <Grid Grid.Row="0" Margin="12,0,8,0" MinHeight="{DynamicResource PaneHeaderHeight}" ColumnDefinitions="*,Auto,Auto">
+        <Grid Grid.Row="0" Margin="12,0,8,0" MinHeight="{DynamicResource PaneHeaderHeight}" ColumnDefinitions="*,Auto,Auto,Auto">
             <TextBlock Grid.Column="0"
                        Text="プロジェクト"
                        VerticalAlignment="Center"
@@ -63,6 +63,21 @@
                     local:HelpTip.Detailed="フォルダ選択ダイアログを開き、Graftで管理したいプロジェクトのフォルダを選んで一覧に登録します。デスクトップやエクスプローラからフォルダをこの一覧へドラッグ＆ドロップしても、同じように追加できます。"
                     AutomationProperties.Name="プロジェクトを追加（フォルダ選択）">
                 <local:IconGlyph Data="{DynamicResource IconFolderGeometry}" />
+            </Button>
+            <!-- Excel VBA 連携（仕様書_VBA連携 7.1）: 起動中の Excel ブックからプロジェクトを作る。追加ボタンの隣に
+                 足す（既存のボタンはメニューにしない）。この環境で使えないとき（Linux・Excel 無し・設定で無効）は
+                 ボタンごと出さない。 -->
+            <Button Grid.Column="3"
+                    Command="{Binding AddFromWorkbookCommand}"
+                    IsVisible="{Binding IsVbaFeatureAvailable}"
+                    Padding="4"
+                    Margin="2,0,0,0"
+                    Classes="subtle"
+                    BorderThickness="0"
+                    local:HelpTip.Standard="Excel ブックから追加"
+                    local:HelpTip.Detailed="いま Excel で開いているブックを選び、その VBA コード（標準モジュール・クラス・シート・フォーム）をプロジェクトとして追加します。ミラーとなるフォルダにテキストとして書き出され、AI の回答を適用すると Excel へ反映できます。Windows 版で Excel がインストールされているときだけ使えます。"
+                    AutomationProperties.Name="Excel ブックから追加">
+                <local:IconGlyph Data="{DynamicResource IconFileCodeGeometry}" />
             </Button>
         </Grid>
 
@@ -109,6 +124,28 @@
                                   Command="{Binding RelocateProjectCommand}"
                                   local:HelpTip.Standard="フォルダを移動・リネームして未接続になったプロジェクトを、新しい場所へ結び付け直します。"
                                   AutomationProperties.Name="プロジェクトの場所を変更" />
+                        <!-- Excel VBA 連携（仕様書_VBA連携 7.6）: VBA プロジェクトのときだけ出す。 -->
+                        <Separator IsVisible="{Binding IsSelectedVbaProject}" />
+                        <MenuItem Header="Excel から取込"
+                                  Command="{Binding PullFromExcelCommand}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  local:HelpTip.Standard="Excel 側だけが変わったモジュールを、プロジェクトのファイルへ取り込みます。"
+                                  AutomationProperties.Name="Excel から取込" />
+                        <MenuItem Header="Excel へ反映"
+                                  Command="{Binding PushToExcelCommand}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  local:HelpTip.Standard="Graft 側のファイルだけが変わった（まだ Excel に届いていない）モジュールを、Excel へ反映します。"
+                                  AutomationProperties.Name="Excel へ反映" />
+                        <MenuItem Header="Excel から復元"
+                                  Command="{Binding RestoreFromExcelCommand}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  local:HelpTip.Standard="ファイルを消したために同期を保留しているモジュールを、Excel 側の内容で作り直します。"
+                                  AutomationProperties.Name="Excel から復元" />
+                        <MenuItem Header="ブックを前面化"
+                                  Command="{Binding ActivateWorkbookCommand}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  local:HelpTip.Standard="このプロジェクトに結び付けた Excel のブックを前面に出します。"
+                                  AutomationProperties.Name="ブックを前面化" />
                         <Separator />
                         <MenuItem Header="削除…"
                                   Command="{Binding DeleteProjectCommand}"
