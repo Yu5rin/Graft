@@ -332,7 +332,7 @@ public class VbaSyncPlannerTests
     // 種別の取り違え・名前の扱い
     // ------------------------------------------------------------------
 
-    [Fact(DisplayName = "同名でも種別が違えば別のモジュール（Classes/Foo.cls と Documents/Foo.cls）")]
+    [Fact(DisplayName = "同名でも種別が違えば別のファイル（Classes/Foo.cls と Documents/Foo.cls）。ただし Excel 側に同名があるので、クラスの新規作成は NotCreatable で止める（不具合 1）")]
     public void 同名でも種別が違えば別物()
     {
         var plans = VbaSyncPlanner.Plan(
@@ -342,7 +342,8 @@ public class VbaSyncPlannerTests
 
         plans.Modules.Select(m => (m.RelativePath, m.Action)).Should().BeEquivalentTo(new[]
         {
-            ("Classes/Foo.cls", VbaSyncAction.PushCreate),
+            // 以前は PushCreate だった。Excel の Document の Foo を、ブリッジが名前だけで引いて上書きしてしまうため、止める。
+            ("Classes/Foo.cls", VbaSyncAction.NotCreatable),
             ("Documents/Foo.cls", VbaSyncAction.Pull),
         });
     }

@@ -53,6 +53,16 @@ public static class VbaModuleKinds
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "未知のモジュール種別です。"),
     };
 
+    /// <summary>利用者に見せる種別の呼び名（メッセージ用）。</summary>
+    public static string Label(VbaModuleKind kind) => kind switch
+    {
+        VbaModuleKind.Standard => "標準モジュール",
+        VbaModuleKind.Class => "クラスモジュール",
+        VbaModuleKind.Form => "ユーザーフォーム",
+        VbaModuleKind.Document => "ドキュメントモジュール（シート・ThisWorkbook）",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "未知のモジュール種別です。"),
+    };
+
     /// <summary>ミラー直下のフォルダ名（仕様 4.2）。</summary>
     public static string FolderName(VbaModuleKind kind) => kind switch
     {

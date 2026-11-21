@@ -87,7 +87,7 @@ public sealed partial class WindowsVbaBridge
             return GraftResult<IReadOnlyList<VbaWriteOutcome>>.Fail(ErrorCode.E801, "VBComponents を取得できませんでした。");
         }
 
-        var index = IndexComponents(session, compsObj);
+        var known = IndexComponents(session, compsObj);
         progress.MarkStarted();
 
         var aborted = false;
@@ -105,7 +105,7 @@ public sealed partial class WindowsVbaBridge
             VbaWriteOutcome outcome;
             try
             {
-                outcome = WriteOne(session, compsObj, index, write);
+                outcome = WriteOne(session, compsObj, known, write);
             }
             catch (ComBusyException)
             {
@@ -131,11 +131,19 @@ public sealed partial class WindowsVbaBridge
         return GraftResult<IReadOnlyList<VbaWriteOutcome>>.Ok(result);
     }
 
-    /// <summary>名前（大文字小文字を区別しない）→ <c>VBComponents.Item</c> の添字。</summary>
-    private static Dictionary<string, int> IndexComponents(Session s, object compsObject)
+    /// <summary>
+    /// 既存のコンポーネントの名前の集合（大文字小文字を区別しない）。書き込みで「既存か、新規作成か」を決めるのに使う。
+    /// <para>
+    /// 【添字を持たない理由】 以前は名前→<c>VBComponents.Item</c> の添字の表を作っていたが、表を作ってから
+    /// 書き込むまでの間に <c>Add／Remove</c> や利用者の VBE 操作で並びが変わると、添字が別のモジュールを指して
+    /// 別のモジュールを上書きしうる。書き込みは名前で引き（<c>Item(名前)</c>）、引いたあとで名前と種別を
+    /// <see cref="VbaWriteTargetGuard"/> で照合する。
+    /// </para>
+    /// </summary>
+    private static HashSet<string> IndexComponents(Session s, object compsObject)
     {
         dynamic comps = compsObject;
-        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var count = s.Call(() => (int)comps.Count);
         for (var i = 1; i <= count; i++)
         {
@@ -143,15 +151,15 @@ public sealed partial class WindowsVbaBridge
             var comp = item.Own(s.Call(() => (object)comps.Item(i)));
             if (comp is null) continue;
             dynamic component = comp;
-            map[s.Call(() => (string)component.Name)] = i;
+            names.Add(s.Call(() => (string)component.Name));
         }
 
-        return map;
+        return names;
     }
 
     /// <summary>1モジュールの書き込み（仕様 5.5 の手順 1〜5）。</summary>
     private static VbaWriteOutcome WriteOne(
-        Session s, object compsObject, Dictionary<string, int> index, VbaComponentWrite write)
+        Session s, object compsObject, HashSet<string> known, VbaComponentWrite write)
     {
         dynamic comps = compsObject;
         using var one = new ComScope();
@@ -159,9 +167,10 @@ public sealed partial class WindowsVbaBridge
         var created = false;
 
         // 1. 取得する。無ければ、作成を許されていて標準／クラスのときだけ作る。それ以外は E808。
-        if (index.TryGetValue(write.Name, out var position))
+        if (known.Contains(write.Name))
         {
-            componentObj = one.Own(s.Call(() => (object)comps.Item(position)));
+            // 名前で引く（添字は並びが変わると別のモジュールを指す）。
+            componentObj = one.Own(s.Call(() => (object)comps.Item(write.Name)));
         }
         else
         {
@@ -169,13 +178,23 @@ public sealed partial class WindowsVbaBridge
             if (creation.Issue is not null) return new VbaWriteOutcome(write.Name, VbaWriteStatus.Failed, null, creation.Issue);
             componentObj = creation.Component;
             created = true;
-            index[write.Name] = int.MaxValue; // 同じ名前を2回渡されても作り直さない（添字は使わない）。
+            known.Add(write.Name); // 同じ名前を2回渡されても作り直さない。
         }
 
         if (componentObj is null)
         {
             return new VbaWriteOutcome(write.Name, VbaWriteStatus.Failed, null,
                 GraftIssue.Of(ErrorCode.E808, $"{write.Name}: コンポーネントを取得できませんでした。"));
+        }
+
+        if (!created)
+        {
+            // 引いたものが書こうとしているものか（名前と種別）を確かめる。違えば 1 文字も書かない（不具合 1）。
+            dynamic existing = componentObj;
+            var actualName = s.Call(() => (string)existing.Name);
+            var actualType = s.Call(() => (int)existing.Type);
+            var mismatch = VbaWriteTargetGuard.Check(write.Name, write.Kind, actualName, VbaModuleKinds.FromComType(actualType));
+            if (mismatch is not null) return new VbaWriteOutcome(write.Name, VbaWriteStatus.Failed, null, mismatch);
         }
 
         dynamic component = componentObj;

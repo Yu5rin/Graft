@@ -35,9 +35,10 @@ public static class VbaSyncPlanner
         var mirrorByPath = new Dictionary<string, VbaMirrorModule>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in mirror) mirrorByPath[m.RelativePath] = m;
 
+        var excelList = excel.ToList();
         var plans = new List<VbaModulePlan>();
         var excelByPath = new Dictionary<string, VbaExcelModule>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in excel)
+        foreach (var e in excelList)
         {
             if (!VbaNameRules.CanMirror(e.Component))
             {
@@ -75,7 +76,66 @@ public static class VbaSyncPlanner
             plans.Add(PlanOne(key, m, e, r, now));
         }
 
-        return new VbaSyncPlan(plans);
+        return new VbaSyncPlan(StopNameCollisions(plans, excelList));
+    }
+
+    /// <summary>
+    /// 新規作成（<see cref="VbaSyncAction.PushCreate"/>）になったもののうち、<b>同じ名前で種別違い</b>のものを E808 で止める。
+    /// <para>
+    /// 【なぜ要るか】 計画のキーは「フォルダ/名前.拡張子」なので、Excel に Document の <c>ThisWorkbook</c>
+    /// （<c>Documents/ThisWorkbook.cls</c>）があっても、AI が <c>Classes/ThisWorkbook.cls</c> を新しく作ると、記録も
+    /// Excel 側も無い別のキーとして <c>PushCreate</c> になる。ところが VBA のコンポーネント名は種別をまたいで一意で、
+    /// 書き込み側（ブリッジ）は名前だけで既存のモジュールを引くため、ドキュメントモジュールの本文が確認も控えも
+    /// なしに上書きされていた（不具合 1）。ミラーに <c>Modules/Foo.bas</c> と <c>Classes/Foo.cls</c> が両方
+    /// 新規で現れたときも、Excel には同じ名前を 1 つしか作れず、書き込みの結果の対応がずれる。
+    /// どちらも「書かずに止めて、書くべきファイルを案内する」側へ倒す。
+    /// </para>
+    /// </summary>
+    private static List<VbaModulePlan> StopNameCollisions(List<VbaModulePlan> plans, IReadOnlyList<VbaExcelModule> excel)
+    {
+        if (!plans.Any(p => p.Action == VbaSyncAction.PushCreate)) return plans;
+
+        var excelKinds = new Dictionary<string, VbaModuleKind>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in excel) excelKinds[e.Component] = e.Kind;
+
+        var creatingCounts = plans
+            .Where(p => p.Action == VbaSyncAction.PushCreate)
+            .GroupBy(p => p.Component, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+        var result = new List<VbaModulePlan>(plans.Count);
+        foreach (var plan in plans)
+        {
+            if (plan.Action != VbaSyncAction.PushCreate)
+            {
+                result.Add(plan);
+                continue;
+            }
+
+            string? detail = null;
+            if (excelKinds.TryGetValue(plan.Component, out var existingKind) && existingKind != plan.Kind)
+            {
+                var correct = VbaMirrorLayout.ToRelativePath(existingKind, plan.Component);
+                detail = $"{plan.RelativePath}: Excel 側には同じ名前「{plan.Component}」の{VbaModuleKinds.Label(existingKind)}があります。" +
+                         $"別の種別としては作成できません（既存の本文を上書きしてしまうため、書きませんでした）。{correct} に書いてください。";
+            }
+            else if (creatingCounts.TryGetValue(plan.Component, out var count) && count > 1)
+            {
+                detail = $"{plan.RelativePath}: 同じ名前「{plan.Component}」のファイルが複数の種別のフォルダに新しく作られています。" +
+                         "Excel 側には同じ名前のモジュールを 1 つしか作れないため、どれも書きませんでした。名前を変えるか、片方を削除してください。";
+            }
+
+            result.Add(detail is null
+                ? plan
+                : plan with
+                {
+                    Action = VbaSyncAction.NotCreatable,
+                    Notice = VbaSyncNotice.None,
+                    Issue = GraftIssue.Of(ErrorCode.E808, detail: detail, path: plan.RelativePath, severity: Severity.Warning),
+                });
+        }
+
+        return result;
     }
 
     private static VbaModulePlan PlanOne(

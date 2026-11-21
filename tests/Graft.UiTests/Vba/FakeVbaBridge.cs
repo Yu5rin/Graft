@@ -280,6 +280,13 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     {
         var module = workbook.Find(write.Name);
         var created = false;
+        if (module is not null)
+        {
+            // 本物のブリッジと同じ最後の砦: 引いたコンポーネントの名前と種別が、書こうとしているものと違えば書かない。
+            var mismatch = VbaWriteTargetGuard.Check(write.Name, write.Kind, module.Name, module.Kind);
+            if (mismatch is not null) return new VbaWriteOutcome(write.Name, VbaWriteStatus.Failed, null, mismatch);
+        }
+
         if (module is null)
         {
             if (!write.CreateIfMissing || !VbaModuleKinds.CanCreateOnExcel(write.Kind))

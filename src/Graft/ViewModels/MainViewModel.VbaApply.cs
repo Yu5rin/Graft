@@ -248,7 +248,16 @@ public sealed partial class MainViewModel
     {
         if (!IsVbaActive(project)) return false;
 
-        var findings = VbaApplyGuard.Check(plans);
+        var findings = VbaApplyGuard.Check(plans).ToList();
+
+        // 新しく作るファイルが、既存のコンポーネントと同名で種別違いにならないか（不具合 1）。Excel を読む検査なので、
+        // 新規ファイルがあるときだけ行う。
+        if (plans.Any(VbaApplyGuard.CreatesMirrorFile))
+        {
+            var known = await VbaSync.ListKnownComponentsAsync(project!).ConfigureAwait(true);
+            findings.AddRange(VbaApplyGuard.CheckNameCollisions(plans, known));
+        }
+
         if (findings.Count == 0) return false;
 
         var text = string.Join(Environment.NewLine + Environment.NewLine, findings.Select(f => FormatVbaIssue(f.Issue)));

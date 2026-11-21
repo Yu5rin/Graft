@@ -687,6 +687,34 @@ public sealed class VbaSyncService
         return new VbaLocalStatus(unpushed, pending);
     }
 
+    /// <summary>
+    /// 既に存在するコンポーネントの名前と種別を返す（ミラーのファイルと、読めれば Excel のコンポーネント）。
+    /// 新しく作るファイルが「同名で種別違い」にならないかを、適用の前に確かめる（<see cref="VbaApplyGuard.CheckNameCollisions"/>）
+    /// のに使う。ファイルの中身は読まず、名前だけを見る。Excel を読めなければ（閉じている・応答しない）ミラーだけで答える。
+    /// 反映の段階の検査（<see cref="VbaSyncPlanner"/>）が最後の砦として残っているので、ここは取りこぼしてよい。
+    /// </summary>
+    public async Task<IReadOnlyList<VbaComponentRef>> ListKnownComponentsAsync(Project project, CancellationToken ct = default)
+    {
+        var link = RequireLink(project);
+        var known = new List<VbaComponentRef>();
+        if (Directory.Exists(project.Root))
+        {
+            foreach (var file in Directory.EnumerateFiles(project.Root, "*", SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(project.Root, file).Replace('\\', '/');
+                if (relative.Split('/').Any(segment => segment.StartsWith('.'))) continue;
+                if (VbaMirrorLayout.TryParse(relative, out var parsed, out _) && parsed is not null)
+                {
+                    known.Add(new VbaComponentRef(parsed.ComponentName, parsed.Kind));
+                }
+            }
+        }
+
+        var excel = await _bridge.ReadComponentsAsync(link.WorkbookFullName, null, ct).ConfigureAwait(true);
+        if (excel.IsSuccess) known.AddRange(excel.Value.Select(c => new VbaComponentRef(c.Name, c.Kind)));
+        return known;
+    }
+
     // ------------------------------------------------------------------
     // 計画の組み立て
     // ------------------------------------------------------------------
