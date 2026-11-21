@@ -595,6 +595,7 @@ public sealed class VbaSyncService
         var state = work.State;
         var pushed = new List<string>();
         var created = new List<string>();
+        var mayBeBroken = new List<string>();
         var saved = false;
 
         if (writes.Count > 0)
@@ -632,6 +633,15 @@ public sealed class VbaSyncService
                 }
 
                 failed.Add(relative);
+
+                // 書き戻しに失敗した（E809）、または時間切れ・中断で状態が分からない（E805）モジュールは、Excel 側の本文が
+                // 空のまま・途中のまま残っているかもしれない。書き戻せた（RolledBack）ものや、書く前に止めたもの
+                // （E808・E811）は元のままなので、保存してよい。
+                if (outcome.Status == VbaWriteStatus.Failed && outcome.Issue?.Code is ErrorCode.E809 or ErrorCode.E805)
+                {
+                    mayBeBroken.Add(relative);
+                }
+
                 if (outcome.Issue is not null)
                 {
                     issues.Add(await AttachRescueAsync(project, outcome).ConfigureAwait(true));
@@ -640,9 +650,22 @@ public sealed class VbaSyncService
 
             if (link.SaveWorkbookAfterPush && pushed.Count + created.Count > 0)
             {
-                var save = await _bridge.SaveWorkbookAsync(link.WorkbookFullName, ct).ConfigureAwait(true);
-                saved = save.IsSuccess;
-                if (!save.IsSuccess) issues.AddRange(save.Issues);
+                if (mayBeBroken.Count > 0)
+                {
+                    // 不具合 4: 壊れたまま・状態不明のモジュールがあるのにブックを保存すると、「保存せずに閉じれば元に戻る」
+                    // という最後の逃げ道が無くなる。保存せず、その旨を警告に添える（控えは .rescue/ にある）。
+                    issues.Add(GraftIssue.Of(
+                        ErrorCode.E809,
+                        $"書き戻しに失敗した、または状態が分からないモジュールがあるため、ブックを保存しませんでした（{string.Join("、", mayBeBroken)}）。" +
+                        "VBE で内容を確かめてください。保存せずにブックを閉じれば、Excel 側は反映前の状態に戻ります。",
+                        severity: Severity.Warning));
+                }
+                else
+                {
+                    var save = await _bridge.SaveWorkbookAsync(link.WorkbookFullName, ct).ConfigureAwait(true);
+                    saved = save.IsSuccess;
+                    if (!save.IsSuccess) issues.AddRange(save.Issues);
+                }
             }
         }
 
