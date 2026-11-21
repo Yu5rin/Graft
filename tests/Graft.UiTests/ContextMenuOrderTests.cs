@@ -69,6 +69,8 @@ public class ContextMenuOrderTests
         layout.Skip(1).Should().Equal(
             "---", MenuText.CopyPath, MenuText.RevealInFileManager,
             "---", "タグを編集…", "表示名を変更…", "場所を変更…",
+            // Excel VBA 連携の項目（VBA プロジェクトのときだけ表示。ProjectPane.axaml）。削除より前の独立した区画。
+            "---", "Excel から取込", "Excel へ反映", "Excel から復元", "ブックを前面化",
             "---", "削除…");
         layout.Last().Should().Be("削除…");
         layout[^2].Should().Be("---");

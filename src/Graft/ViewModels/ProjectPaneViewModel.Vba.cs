@@ -263,7 +263,7 @@ public sealed partial class ProjectPaneViewModel
     /// </summary>
     private async Task ShowVbaFailureAsync(string title, Project project, IReadOnlyList<GraftIssue> issues)
     {
-        var text = string.Join(Environment.NewLine + Environment.NewLine, issues.Select(i => i.ToDisplayText()));
+        var text = string.Join(Environment.NewLine + Environment.NewLine, issues.Select(FormatIssue));
         if (issues.Any(i => i.Code == ErrorCode.E804) && project.Vba is { } link)
         {
             var open = await _dialogs.ShowActionMessageAsync(title, text, "Excel で開く").ConfigureAwait(true);
@@ -274,12 +274,15 @@ public sealed partial class ProjectPaneViewModel
         await _dialogs.ShowMessageAsync(title, text).ConfigureAwait(true);
     }
 
+    /// <summary>理由に、対処（トラストセンターの手順など）を添えた表示文。</summary>
+    private static string FormatIssue(GraftIssue issue) => $"{issue.ToDisplayText()}{Environment.NewLine}対処: {issue.Remedy}";
+
     private Task ShowWarningsAsync(string title, IEnumerable<GraftIssue> issues)
     {
         var list = issues.ToList();
         return list.Count == 0
             ? Task.CompletedTask
-            : _dialogs.ShowMessageAsync(title, string.Join(Environment.NewLine + Environment.NewLine, list.Select(i => i.ToDisplayText())));
+            : _dialogs.ShowMessageAsync(title, string.Join(Environment.NewLine + Environment.NewLine, list.Select(FormatIssue)));
     }
 
     /// <summary>
@@ -296,6 +299,6 @@ public sealed partial class ProjectPaneViewModel
             "衝突を解決する画面は、今後の版で追加されます。それまでは、どちらを残すかを決めて、" +
             "残さない側の変更を手で取り消してから、もう一度実行してください。",
             severity: Severity.Warning);
-        return _dialogs.ShowMessageAsync("Excel 側とファイル側の衝突", issue.ToDisplayText());
+        return _dialogs.ShowMessageAsync("Excel 側とファイル側の衝突", FormatIssue(issue));
     }
 }

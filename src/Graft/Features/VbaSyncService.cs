@@ -160,10 +160,10 @@ public sealed class VbaSyncService
         var root = Path.GetFullPath(mirrorRoot);
         var projectId = ProjectStore.CreateId(root);
 
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            var read = await _bridge.ReadComponentsAsync(workbookFullName, null, ct).ConfigureAwait(false);
+            var read = await _bridge.ReadComponentsAsync(workbookFullName, null, ct).ConfigureAwait(true);
             if (!read.IsSuccess) return GraftResult<VbaMirrorCreation>.Fail(read.Issues);
 
             if (rebuild)
@@ -195,7 +195,7 @@ public sealed class VbaSyncService
                     continue;
                 }
 
-                var written = await WriteNewMirrorFileAsync(root, relative, snapshot.Code, ct).ConfigureAwait(false);
+                var written = await WriteNewMirrorFileAsync(root, relative, snapshot.Code, ct).ConfigureAwait(true);
                 if (!written.IsSuccess) return GraftResult<VbaMirrorCreation>.Fail(written.Issues);
 
                 state = state.WithModule(relative, VbaModuleState.Create(
@@ -206,7 +206,7 @@ public sealed class VbaSyncService
             }
 
             Directory.CreateDirectory(root);
-            await _states.SaveAsync(projectId, state, ct).ConfigureAwait(false);
+            await _states.SaveAsync(projectId, state, ct).ConfigureAwait(true);
             Logger?.Info("vba-create", $"Excel ブックからミラーを作成しました（{count}件）: {workbookFullName}", targetPath: root);
             return GraftResult<VbaMirrorCreation>.Ok(new VbaMirrorCreation(root, count), issues);
         }
@@ -233,10 +233,10 @@ public sealed class VbaSyncService
         Project project, IReadOnlyCollection<string>? only = null, bool restoreDeletePending = false, CancellationToken ct = default)
     {
         var link = RequireLink(project);
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            return await PullCoreAsync(project, link, only, restoreDeletePending, ct).ConfigureAwait(false);
+            return await PullCoreAsync(project, link, only, restoreDeletePending, ct).ConfigureAwait(true);
         }
         finally
         {
@@ -248,7 +248,7 @@ public sealed class VbaSyncService
         Project project, VbaLink link, IReadOnlyCollection<string>? only, bool restoreDeletePending, CancellationToken ct)
     {
         var scope = Scope(only);
-        var snapshot = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(false);
+        var snapshot = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
         if (!snapshot.IsSuccess) return GraftResult<VbaPullResult>.Fail(snapshot.Issues);
         var work = snapshot.Value;
         var issues = new List<GraftIssue>(snapshot.Issues);
@@ -265,10 +265,10 @@ public sealed class VbaSyncService
                 .ToList();
             if (existing.Count > 0)
             {
-                var outcome = await BeforePullAsync(existing).ConfigureAwait(false);
+                var outcome = await BeforePullAsync(existing).ConfigureAwait(true);
                 if (outcome.SavedAny)
                 {
-                    var again = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(false);
+                    var again = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
                     if (!again.IsSuccess) return GraftResult<VbaPullResult>.Fail(again.Issues);
                     work = again.Value;
                     pullPaths = PullTargets(work.Plan, restoreDeletePending);
@@ -296,7 +296,7 @@ public sealed class VbaSyncService
             var module = work.Plan.Modules.First(m => string.Equals(m.RelativePath, path, StringComparison.OrdinalIgnoreCase));
             if (!work.Excel.TryGetValue(path, out var excel)) continue;
 
-            var written = await WriteMirrorFileAsync(project.Root, path, excel.Code, ct).ConfigureAwait(false);
+            var written = await WriteMirrorFileAsync(project.Root, path, excel.Code, ct).ConfigureAwait(true);
             if (!written.IsSuccess)
             {
                 issues.AddRange(written.Issues);
@@ -324,7 +324,7 @@ public sealed class VbaSyncService
                 path: conflict, severity: Severity.Warning));
         }
 
-        await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(false);
+        await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(true);
         return GraftResult<VbaPullResult>.Ok(new VbaPullResult(pulled, conflicts, skipped), issues);
     }
 
@@ -353,10 +353,10 @@ public sealed class VbaSyncService
         Project project, IReadOnlyCollection<string>? only = null, CancellationToken ct = default)
     {
         var link = RequireLink(project);
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            return await PushCoreAsync(project, link, only, ct).ConfigureAwait(false);
+            return await PushCoreAsync(project, link, only, ct).ConfigureAwait(true);
         }
         finally
         {
@@ -367,7 +367,7 @@ public sealed class VbaSyncService
     private async Task<GraftResult<VbaPushResult>> PushCoreAsync(
         Project project, VbaLink link, IReadOnlyCollection<string>? only, CancellationToken ct)
     {
-        var snapshot = await BuildPlanAsync(project, link, Scope(only), ct).ConfigureAwait(false);
+        var snapshot = await BuildPlanAsync(project, link, Scope(only), ct).ConfigureAwait(true);
         if (!snapshot.IsSuccess) return GraftResult<VbaPushResult>.Fail(snapshot.Issues);
         var work = snapshot.Value;
         var issues = new List<GraftIssue>(snapshot.Issues);
@@ -417,14 +417,14 @@ public sealed class VbaSyncService
 
         if (writes.Count > 0)
         {
-            var written = await _bridge.WriteComponentsAsync(link.WorkbookFullName, writes, ct).ConfigureAwait(false);
+            var written = await _bridge.WriteComponentsAsync(link.WorkbookFullName, writes, ct).ConfigureAwait(true);
             if (!written.IsSuccess)
             {
                 // 1件も書かずに全体が失敗（接続できない・ロック・デザインモードでない・時間切れ）。
                 issues.AddRange(written.Issues);
                 failed.AddRange(writes.Select(w => writeSources[w.Name].Plan.RelativePath));
                 await SaveStateIfChangedAsync(project.Id, work.State, ApplyLocalChanges(work.Plan, state, Array.Empty<string>()), ct)
-                    .ConfigureAwait(false);
+                    .ConfigureAwait(true);
                 return GraftResult<VbaPushResult>.Fail(issues);
             }
 
@@ -452,20 +452,20 @@ public sealed class VbaSyncService
                 failed.Add(relative);
                 if (outcome.Issue is not null)
                 {
-                    issues.Add(await AttachRescueAsync(project, outcome).ConfigureAwait(false));
+                    issues.Add(await AttachRescueAsync(project, outcome).ConfigureAwait(true));
                 }
             }
 
             if (link.SaveWorkbookAfterPush && pushed.Count + created.Count > 0)
             {
-                var save = await _bridge.SaveWorkbookAsync(link.WorkbookFullName, ct).ConfigureAwait(false);
+                var save = await _bridge.SaveWorkbookAsync(link.WorkbookFullName, ct).ConfigureAwait(true);
                 saved = save.IsSuccess;
                 if (!save.IsSuccess) issues.AddRange(save.Issues);
             }
         }
 
         state = ApplyLocalChanges(work.Plan, state, pushed.Concat(created).ToList());
-        await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(false);
+        await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(true);
         return GraftResult<VbaPushResult>.Ok(new VbaPushResult(pushed, created, failed, conflicts, saved), issues);
     }
 
@@ -491,7 +491,7 @@ public sealed class VbaSyncService
                 path = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(fileName)}_{n}.txt");
             }
 
-            await File.WriteAllTextAsync(path, outcome.BackupCode, Utf8NoBom).ConfigureAwait(false);
+            await File.WriteAllTextAsync(path, outcome.BackupCode, Utf8NoBom).ConfigureAwait(true);
             return issue with { Detail = $"{issue.Detail} 控えの保存先: {path}" };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -510,8 +510,8 @@ public sealed class VbaSyncService
     public async Task<VbaLocalStatus> GetLocalStatusAsync(Project project, CancellationToken ct = default)
     {
         var link = RequireLink(project);
-        var mirror = await ReadMirrorAsync(project.Root, ct).ConfigureAwait(false);
-        var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(false);
+        var mirror = await ReadMirrorAsync(project.Root, ct).ConfigureAwait(true);
+        var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(true);
         var records = loaded.Value.Modules;
 
         var unpushed = 0;
@@ -554,11 +554,11 @@ public sealed class VbaSyncService
     private async Task<GraftResult<Work>> BuildPlanAsync(
         Project project, VbaLink link, HashSet<string>? scope, CancellationToken ct)
     {
-        var excel = await _bridge.ReadComponentsAsync(link.WorkbookFullName, null, ct).ConfigureAwait(false);
+        var excel = await _bridge.ReadComponentsAsync(link.WorkbookFullName, null, ct).ConfigureAwait(true);
         if (!excel.IsSuccess) return GraftResult<Work>.Fail(excel.Issues);
 
-        var mirror = await ReadMirrorAsync(project.Root, ct).ConfigureAwait(false);
-        var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(false);
+        var mirror = await ReadMirrorAsync(project.Root, ct).ConfigureAwait(true);
+        var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(true);
 
         var excelByPath = new Dictionary<string, VbaComponentSnapshot>(StringComparer.OrdinalIgnoreCase);
         foreach (var component in excel.Value)
@@ -607,7 +607,7 @@ public sealed class VbaSyncService
             if (!VbaMirrorLayout.TryParse(relative, out var parsed, out _) || parsed is null) continue;
 
             var read = await FileTextIO.ReadAsync(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)), ct)
-                .ConfigureAwait(false);
+                .ConfigureAwait(true);
             if (!read.IsSuccess)
             {
                 contents.Issues.AddRange(read.Issues.Select(i => i with { Severity = Severity.Warning }));
@@ -648,7 +648,7 @@ public sealed class VbaSyncService
 
     private async Task SaveStateIfChangedAsync(string projectId, VbaSyncState before, VbaSyncState after, CancellationToken ct)
     {
-        if (!StatesEqual(before, after)) await _states.SaveAsync(projectId, after, ct).ConfigureAwait(false);
+        if (!StatesEqual(before, after)) await _states.SaveAsync(projectId, after, ct).ConfigureAwait(true);
     }
 
     private static bool StatesEqual(VbaSyncState a, VbaSyncState b)
@@ -674,7 +674,7 @@ public sealed class VbaSyncService
         string root, string relative, string code, CancellationToken ct)
     {
         var shape = new TextShape { Encoding = Utf8NoBom, HasBom = false, NewLine = "\r\n", EndsWithNewLine = true };
-        return await WriteShapedAsync(root, relative, code, shape, ct).ConfigureAwait(false);
+        return await WriteShapedAsync(root, relative, code, shape, ct).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -688,14 +688,14 @@ public sealed class VbaSyncService
         var full = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
         if (File.Exists(full))
         {
-            var existing = await FileTextIO.ReadAsync(full, ct).ConfigureAwait(false);
+            var existing = await FileTextIO.ReadAsync(full, ct).ConfigureAwait(true);
             if (existing.IsSuccess)
             {
-                return await WriteShapedAsync(root, relative, code, existing.Value.Shape, ct).ConfigureAwait(false);
+                return await WriteShapedAsync(root, relative, code, existing.Value.Shape, ct).ConfigureAwait(true);
             }
         }
 
-        return await WriteNewMirrorFileAsync(root, relative, code, ct).ConfigureAwait(false);
+        return await WriteNewMirrorFileAsync(root, relative, code, ct).ConfigureAwait(true);
     }
 
     private static async Task<GraftResult<bool>> WriteShapedAsync(
@@ -717,7 +717,7 @@ public sealed class VbaSyncService
         // Excel の本文は末尾に改行を持たない。ファイルの末尾改行の有無は既存のものを保つ（空のモジュールは空のまま）。
         if (body.Length > 0 && shape.EndsWithNewLine) text += shape.NewLine;
 
-        return await FileTextIO.WriteAsync(full, text, shape, ct).ConfigureAwait(false);
+        return await FileTextIO.WriteAsync(full, text, shape, ct).ConfigureAwait(true);
     }
 
     // ------------------------------------------------------------------

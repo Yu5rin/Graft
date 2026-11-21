@@ -181,7 +181,7 @@ public sealed class VbaWorkbookPickerViewModel : ObservableObject
     }
 
     /// <summary>失敗の表示文（見出し・詳細・対処）。</summary>
-    public string ErrorText => _error?.ToDisplayText() ?? string.Empty;
+    public string ErrorText => _error is null ? string.Empty : $"{_error.ToDisplayText()}\n対処: {_error.Remedy}";
 
     /// <summary>失敗があるか。</summary>
     public bool HasError => _error is not null;

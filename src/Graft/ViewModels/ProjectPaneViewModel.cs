@@ -381,7 +381,31 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         if (choice is null) return; // キャンセル
 
         var deleteHistory = !choice.Value; // 「履歴は残す」(choice==true)ならdeleteHistory=false。
-        var result = await _store.RemoveAsync(project.Id, deleteHistory: deleteHistory).ConfigureAwait(true);
+
+        // Excel VBA 連携（仕様書_VBA連携 4.4）: VBA プロジェクトでは、履歴に加えてミラーと同期状態の扱いも確認する。
+        // 既定のボタン（Enter）は非破壊的な「登録だけ外す」。Excel 側のモジュールには何もしない。
+        var vbaOptions = VbaRemoveOptions.KeepAll;
+        if (project.Vba is not null)
+        {
+            var inDataDirectory = _store.IsUnderMirrorsDirectory(project.Root);
+            var vbaChoice = await _dialogs.ConfirmThreeWayAsync(
+                "ミラーと同期状態の扱い",
+                inDataDirectory
+                    ? $"このプロジェクトのミラーフォルダ（{project.Root}）と同期状態は、Graft のデータ保存先にあります。\n\n" +
+                      "・「登録だけ外す」を選ぶと、ミラーと同期状態は残ります。同じブックを後で追加し直すと、同じフォルダで三方比較のまま続けられます。\n" +
+                      "・「ミラーと同期状態も削除する」を選ぶと、ミラーフォルダはごみ箱へ送られ、同期状態は削除されます。Graft にだけ残っている未反映の編集も、ごみ箱から戻さない限り失われます。\n" +
+                      "Excel のブックの中身には、どちらも何もしません。"
+                    : $"このプロジェクトのミラーフォルダ（{project.Root}）はあなたが選んだ場所にあるため、フォルダ自体は削除しません。\n\n" +
+                      "・「同期状態は残す」を選ぶと、同期状態（Excel との差分を見分ける記録）が残ります。同じブックを追加し直すと続けられます。\n" +
+                      "・「同期状態も削除する」を選ぶと、その記録が削除されます。\n" +
+                      "Excel のブックの中身には、どちらも何もしません。",
+                inDataDirectory ? "登録だけ外す" : "同期状態は残す",
+                inDataDirectory ? "ミラーと同期状態も削除する" : "同期状態も削除する").ConfigureAwait(true);
+            if (vbaChoice is null) return; // キャンセル。何も削除しない。
+            if (vbaChoice == false) vbaOptions = new VbaRemoveOptions(DeleteSyncState: true, DeleteMirror: inDataDirectory);
+        }
+
+        var result = await _store.RemoveAsync(project.Id, deleteHistory, vbaOptions, PlatformServices.Current.Trash).ConfigureAwait(true);
         if (!result.IsSuccess)
         {
             await ShowFailureAsync("プロジェクトを削除できませんでした", result.Issues).ConfigureAwait(true);

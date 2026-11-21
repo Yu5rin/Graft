@@ -69,6 +69,7 @@ public class NullVbaBridgeTests
         {
             VbaWorkbookAvailability.Available, VbaWorkbookAvailability.NoMacroFormat, VbaWorkbookAvailability.Locked,
             VbaWorkbookAvailability.AccessNotTrusted, VbaWorkbookAvailability.UrlLocation, VbaWorkbookAvailability.ProtectedView,
+            VbaWorkbookAvailability.Unresponsive, // P2 で追加（一覧の取得中に Excel が応答しないブック）。
         });
     }
 }
