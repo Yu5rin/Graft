@@ -113,6 +113,13 @@ public class SettingsRoundTripTests : IDisposable
         LaunchAtStartup = true,
         MinimizeToTray = true,
         Update = new UpdateSettings { CheckOnStartup = false, AutoInstall = true },
+        // Excel VBA 連携（docs/仕様書_VBA連携.md 8章）。設定画面にはまだ編集欄が無いが、
+        // 別の項目の保存で値が既定へ戻らないこと（BuildSettingsFromFields の持ち回り）を、
+        // 全項目の往復の中でも固定する。CallTimeoutMs は ComTimeoutMs 以上でなければ読み込みで戻される。
+        Vba = new VbaSettings
+        {
+            Enabled = false, PullOnContextOpen = false, PullBeforeDryRun = false, ComTimeoutMs = 7000, CallTimeoutMs = 40000,
+        },
     };
 
     /// <summary>
