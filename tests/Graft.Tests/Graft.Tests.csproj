@@ -86,6 +86,14 @@
     -->
     <Compile Include="..\..\src\Graft\Platform\Windows\ForegroundActivationDecision.cs" LinkBase="Linked\Platform\Windows" />
     <!--
+      Excel VBA 連携（仕様書_VBA連携 5.3）。COM の再試行（ComRetry）・専用スレッドと時間切れ（StaWorker）・
+      失敗の問題への写し（ComFailures）は、COM の型を一切使わず BCL の例外とスレッドだけで構成されるので、
+      OS を問わず検証できる。COM に触れる WindowsVbaBridge・ComRunningObjectTable・ComScope は含めない。
+    -->
+    <Compile Include="..\..\src\Graft\Platform\Windows\ComRetry.cs" LinkBase="Linked\Platform\Windows" />
+    <Compile Include="..\..\src\Graft\Platform\Windows\StaWorker.cs" LinkBase="Linked\Platform\Windows" />
+    <Compile Include="..\..\src\Graft\Platform\Windows\ComFailures.cs" LinkBase="Linked\Platform\Windows" />
+    <!--
       利用者からの要望: タイトルバー色のテーマ連動。COLORREF変換・Windows 11以降判定・
       「非Windowsでは適用しない」判定（WindowsTitleBarThemeSupport.ShouldApply）は
       いずれもWin32 P/Invokeを一切呼ばない純粋関数のみで構成されるため、上と同じ理由で

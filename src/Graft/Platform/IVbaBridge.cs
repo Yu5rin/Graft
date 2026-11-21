@@ -75,6 +75,12 @@ public enum VbaWorkbookAvailability
 
     /// <summary>保護ビューで開いている。VBProject に触れない。</summary>
     ProtectedView,
+
+    /// <summary>
+    /// Excel が応答しない（セル編集中・ダイアログ表示中など）。P2 で追加した値で、一覧の取得中に
+    /// 再試行が尽きたブックを「アクセス未許可」と取り違えて案内しないために分けている（E805）。
+    /// </summary>
+    Unresponsive,
 }
 
 /// <summary>Excel から読んだコンポーネント1件。</summary>
@@ -99,7 +105,13 @@ public sealed record VbaComponentWrite(string Name, VbaModuleKind Kind, string C
 /// <param name="Status">書き込みの結果。</param>
 /// <param name="ReadBackCode">書き込み後に読み直した本文。読み直せなかったときは null。</param>
 /// <param name="Issue">失敗または警告の理由。なければ null。</param>
-public sealed record VbaWriteOutcome(string Name, VbaWriteStatus Status, string? ReadBackCode, GraftIssue? Issue);
+/// <param name="BackupCode">
+/// 書き込み前に取った控え（Excel 側の元の本文）。控えを書き戻せなかったとき（E809）だけ入れる。
+/// ブリッジはプロジェクトの Id もデータ保存先も知らないため、<c>.rescue/</c> への書き出しは呼び出し側
+/// （<c>VbaSyncService</c>）が、この値を使って行う。
+/// </param>
+public sealed record VbaWriteOutcome(
+    string Name, VbaWriteStatus Status, string? ReadBackCode, GraftIssue? Issue, string? BackupCode = null);
 
 /// <summary>書き込みの結果。</summary>
 public enum VbaWriteStatus
@@ -115,4 +127,15 @@ public enum VbaWriteStatus
 
     /// <summary>失敗。戻せなかったときは <see cref="VbaWriteOutcome.Issue"/> が E809。</summary>
     Failed,
+}
+
+/// <summary>
+/// COM の時間切れの設定を受け取れるブリッジ（<c>Vba.ComTimeoutMs</c>／<c>Vba.CallTimeoutMs</c>。仕様書_VBA連携 8章）。
+/// <see cref="IVbaBridge"/> 自体に足さないのは、Null 実装など時間切れの概念が無い実装に空のメソッドを
+/// 強いないため。設定の変更は即時に反映する（次の呼び出しから）。
+/// </summary>
+public interface IVbaBridgeTimeouts
+{
+    /// <summary>設定を反映する。範囲の検証は <c>SettingsStore</c> が済ませている前提。</summary>
+    void Configure(int comTimeoutMs, int callTimeoutMs);
 }
