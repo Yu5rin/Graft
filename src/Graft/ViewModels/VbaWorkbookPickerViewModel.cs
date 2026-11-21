@@ -79,6 +79,7 @@ public sealed class VbaWorkbookPickerViewModel : ObservableObject
     private string _mirrorFolder = string.Empty;
     private bool _isCustomFolder;
     private bool _existingMirrorFound;
+    private bool _canRebuildMirror;
     private bool _rebuildMirror;
     private bool _isBusy;
     private bool _hasLoaded;
@@ -131,7 +132,18 @@ public sealed class VbaWorkbookPickerViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 「作り直す」を選んでいるか（既存のミラーをごみ箱へ送って、Excel から作り直す）。false は
+    /// 「作り直す」を選ばせてよいか。既存のミラーがあり、かつミラーのものではないファイルが混じっていないとき
+    /// だけ true（不具合 3: 「ドキュメント」や既存のリポジトリを選んで作り直すと、関係のないファイルまでごみ箱へ行っていた）。
+    /// false のときは「既存のミラーを使う」しか選べない。
+    /// </summary>
+    public bool CanRebuildMirror
+    {
+        get => _canRebuildMirror;
+        private set => SetProperty(ref _canRebuildMirror, value);
+    }
+
+    /// <summary>
+    /// 「作り直す」を選んでいるか（既存のミラーの同期対象のファイルをごみ箱へ送って、Excel から作り直す）。false は
     /// 「既存のミラーを使う（三方比較で続ける）」。既存のミラーが無いときは意味を持たない。
     /// </summary>
     public bool RebuildMirror
@@ -139,6 +151,8 @@ public sealed class VbaWorkbookPickerViewModel : ObservableObject
         get => _rebuildMirror;
         set
         {
+            // 作り直しを選ばせてはいけない場所では、立てられない（プログラムから設定されても守る）。
+            if (value && !CanRebuildMirror) value = false;
             if (SetProperty(ref _rebuildMirror, value)) OnPropertyChanged(nameof(ReuseExistingMirror));
         }
     }
@@ -289,20 +303,22 @@ public sealed class VbaWorkbookPickerViewModel : ObservableObject
         }
 
         // 場所が変わるたびに、既存のミラーの有無を調べ直す（ファイルの一覧を見るだけで軽い）。
-        ExistingMirrorFound = !string.IsNullOrWhiteSpace(value) && SafeMirrorExists(value);
-        if (!ExistingMirrorFound) RebuildMirror = false;
+        var info = string.IsNullOrWhiteSpace(value) ? new VbaSyncService.MirrorFolderInfo(false, false) : SafeInspect(value);
+        ExistingMirrorFound = info.Exists;
+        CanRebuildMirror = info.CanRebuild;
+        if (!CanRebuildMirror) RebuildMirror = false;
     }
 
-    private bool SafeMirrorExists(string value)
+    private VbaSyncService.MirrorFolderInfo SafeInspect(string value)
     {
         try
         {
-            return _service.MirrorExists(value.Trim());
+            return _service.InspectMirrorFolder(value.Trim());
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException
                                        or UnauthorizedAccessException)
         {
-            return false;
+            return new VbaSyncService.MirrorFolderInfo(false, false);
         }
     }
 }

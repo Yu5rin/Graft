@@ -142,13 +142,21 @@
                          views:HelpTip.Standard="いまのミラーとその同期の記録をそのまま使います。"
                          views:HelpTip.Detailed="フォルダにあるミラーと、Graft に残っている同期の記録をそのまま使います。以前に外したプロジェクトを同じブックで追加し直すときの選択です。Excel 側と違いがあれば、取込や反映のときに三方比較で扱います。"
                          AutomationProperties.Name="既存のミラーを使う" />
+            <!-- ミラーのものではないファイルが混じっている場所では、作り直しを出さない（ごみ箱へ送る範囲を守る）。 -->
             <RadioButton GroupName="ExistingMirror"
-                         Content="作り直す（既存のフォルダはごみ箱へ送り、Excel から取り込み直す）"
+                         Content="作り直す（既存のモジュールのファイルはごみ箱へ送り、Excel から取り込み直す）"
                          IsChecked="{Binding RebuildMirror, Mode=TwoWay}"
+                         IsVisible="{Binding CanRebuildMirror}"
                          Margin="0,2,0,0"
-                         views:HelpTip.Standard="既存のミラーをごみ箱へ送り、Excel の内容から作り直します。"
-                         views:HelpTip.Detailed="既存のミラーのフォルダをごみ箱へ送り、Excel の現在の内容から作り直します。ミラーだけにあった未反映の編集は、ごみ箱から戻さない限り失われます。"
+                         views:HelpTip.Standard="既存のモジュールのファイルをごみ箱へ送り、Excel の内容から作り直します。"
+                         views:HelpTip.Detailed="既存のミラーのうち、同期の対象のファイル（Modules・Classes・Forms・Documents の中のモジュール）だけをごみ箱へ送り、Excel の現在の内容から作り直します。ミラーだけにあった未反映の編集は、ごみ箱から戻さない限り失われます。"
                          AutomationProperties.Name="ミラーを作り直す" />
+            <TextBlock Text="このフォルダにはミラーのものではないファイルがあるため、作り直しは選べません。"
+                       IsVisible="{Binding !CanRebuildMirror}"
+                       Margin="0,2,0,0"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
         </StackPanel>
 
         <StackPanel Grid.Row="6"

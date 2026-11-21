@@ -156,7 +156,8 @@ public class VbaSyncServiceTests : IDisposable
         var rebuilt = await _service.CreateMirrorAsync(Book, MirrorRoot, rebuild: true);
 
         rebuilt.IsSuccess.Should().BeTrue();
-        _trash.Sent.Should().ContainSingle().Which.Should().Be(Path.GetFullPath(MirrorRoot));
+        // フォルダごとではなく、同期対象のファイルだけを送る（不具合 3）。
+        _trash.Sent.Should().ContainSingle().Which.Should().Be(Path.GetFullPath(MirrorFile("Modules/Module1.bas")));
         File.ReadAllText(MirrorFile("Modules/Module1.bas")).Should().Be("new\r\n");
     }
 

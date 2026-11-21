@@ -163,20 +163,77 @@ public sealed class VbaSyncService
         => Path.Combine(_paths.VbaMirrorsDirectory, VbaMirrorFolderName.Build(workbookFullName));
 
     /// <summary>
-    /// 指定のミラーフォルダに、既に使えるミラー（ファイルがある、または同じ Id の同期状態がある）があるか。
-    /// 作成ダイアログで「既存のミラーを使う」「作り直す」を選ばせるかどうかの判断に使う。
+    /// 指定のフォルダの、ミラーとしての状態。作成ダイアログで「既存のミラーを使う」「作り直す」を選ばせるかどうかと、
+    /// 「作り直す」を出してよいかの判断に使う。
     /// </summary>
-    public bool MirrorExists(string mirrorRoot)
+    /// <param name="Exists">使えるミラーがある（同じ Id の同期状態がある、または同期対象のモジュールのファイルがある）。</param>
+    /// <param name="HasForeignFiles">
+    /// ミラーのものではないファイル・フォルダ（<c>Modules/</c>・<c>Classes/</c>・<c>Forms/</c>・<c>Documents/</c> と、
+    /// 先頭が「.」のもの以外）がある。あれば「作り直す」は出さない。
+    /// </param>
+    public sealed record MirrorFolderInfo(bool Exists, bool HasForeignFiles)
     {
-        if (string.IsNullOrWhiteSpace(mirrorRoot)) return false;
+        /// <summary>「作り直す」を選ばせてよいか。</summary>
+        public bool CanRebuild => Exists && !HasForeignFiles;
+    }
+
+    /// <summary>
+    /// フォルダのミラーとしての状態を調べる。
+    /// <para>
+    /// 【判定を絞った理由】 以前は「フォルダに何か 1 つでもある」だけで既存のミラーと見なし、「作り直す」でフォルダ
+    /// ごとごみ箱へ送っていた。ミラーの場所に「ドキュメント」や既存のリポジトリを選んで「作り直す」を選ぶと、
+    /// 関係のないファイルまで全部ごみ箱へ行く（不具合 3）。同期対象のファイル（<c>Modules/*.bas</c> など）か同じ Id の
+    /// 同期状態がある場合だけを「既存のミラー」とし、ミラーのもの以外が混じっているフォルダでは作り直しを出さない。
+    /// 先頭が「.」の項目（バージョン管理の隠しフォルダなど）は、同期の対象外として数えない
+    /// （<see cref="ReadMirrorAsync"/> と同じ扱い）。
+    /// </para>
+    /// </summary>
+    public MirrorFolderInfo InspectMirrorFolder(string mirrorRoot)
+    {
+        if (string.IsNullOrWhiteSpace(mirrorRoot)) return new MirrorFolderInfo(false, false);
         var full = Path.GetFullPath(mirrorRoot);
-        var hasFiles = Directory.Exists(full) && Directory.EnumerateFileSystemEntries(full).Any();
-        return hasFiles || File.Exists(_paths.GetVbaSyncFilePath(ProjectStore.CreateId(full)));
+        var hasState = File.Exists(_paths.GetVbaSyncFilePath(ProjectStore.CreateId(full)));
+        if (!Directory.Exists(full)) return new MirrorFolderInfo(hasState, false);
+
+        var mirrorFolderNames = Enum.GetValues<VbaModuleKind>()
+            .Select(VbaModuleKinds.FolderName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var foreign = false;
+        foreach (var entry in Directory.EnumerateFileSystemEntries(full))
+        {
+            var name = Path.GetFileName(entry);
+            if (name.StartsWith('.')) continue;
+            if (!(Directory.Exists(entry) && mirrorFolderNames.Contains(name))) foreign = true;
+        }
+
+        return new MirrorFolderInfo(hasState || SyncTargetFiles(full).Count > 0, foreign);
+    }
+
+    /// <summary>指定のミラーフォルダに、既に使えるミラーがあるか（<see cref="InspectMirrorFolder"/>）。</summary>
+    public bool MirrorExists(string mirrorRoot) => InspectMirrorFolder(mirrorRoot).Exists;
+
+    /// <summary>ミラーのフォルダの、4 つのフォルダの直下にある同期対象のファイル（フルパス）。</summary>
+    private static List<string> SyncTargetFiles(string root)
+    {
+        var files = new List<string>();
+        foreach (var kind in Enum.GetValues<VbaModuleKind>())
+        {
+            var folder = Path.Combine(root, VbaModuleKinds.FolderName(kind));
+            if (!Directory.Exists(folder)) continue;
+            foreach (var file in Directory.EnumerateFiles(folder))
+            {
+                var relative = Path.GetRelativePath(root, file).Replace('\\', '/');
+                if (VbaMirrorLayout.TryParse(relative, out _, out _)) files.Add(file);
+            }
+        }
+
+        return files;
     }
 
     /// <summary>
     /// 全コンポーネントを Excel から読み、ミラーへ書いて、同期基準を作る（7.1 の 4）。
-    /// <paramref name="rebuild"/> が true なら、既存のミラーをごみ箱へ送ってから作り直す。
+    /// <paramref name="rebuild"/> が true なら、既存のミラーの<b>同期対象のファイルだけ</b>をごみ箱へ送ってから作り直す
+    /// （フォルダごとは送らない。ミラーのものではないファイルが混じるフォルダでは作り直さない。不具合 3）。
     /// </summary>
     public async Task<GraftResult<VbaMirrorCreation>> CreateMirrorAsync(
         string workbookFullName, string mirrorRoot, bool rebuild, CancellationToken ct = default)
@@ -194,12 +251,22 @@ public sealed class VbaSyncService
 
             if (rebuild)
             {
-                if (Directory.Exists(root))
+                if (InspectMirrorFolder(root).HasForeignFiles)
                 {
-                    if (_trash is null || !_trash.Send(root))
+                    return GraftResult<VbaMirrorCreation>.Fail(
+                        ErrorCode.E402,
+                        $"フォルダ（{root}）にミラーのものではないファイルがあるため、作り直せません。空のフォルダか、ミラーだけのフォルダを選んでください。",
+                        path: root);
+                }
+
+                // フォルダごとではなく、同期対象のファイルを 1 つずつ送る。ごみ箱から戻せる単位を小さく保ち、
+                // 万一ミラーのように見えて中身が違うフォルダを選んでいても、関係のないファイルは巻き込まない。
+                foreach (var file in SyncTargetFiles(root))
+                {
+                    if (_trash is null || !_trash.Send(file))
                     {
                         return GraftResult<VbaMirrorCreation>.Fail(
-                            ErrorCode.E402, $"既存のミラーフォルダ（{root}）をごみ箱へ送れなかったため、作り直せません。", path: root);
+                            ErrorCode.E402, $"既存のミラーのファイル（{file}）をごみ箱へ送れなかったため、作り直せません。", path: file);
                     }
                 }
 
