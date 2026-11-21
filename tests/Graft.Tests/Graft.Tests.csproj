@@ -93,6 +93,8 @@
     <Compile Include="..\..\src\Graft\Platform\Windows\ComRetry.cs" LinkBase="Linked\Platform\Windows" />
     <Compile Include="..\..\src\Graft\Platform\Windows\StaWorker.cs" LinkBase="Linked\Platform\Windows" />
     <Compile Include="..\..\src\Graft\Platform\Windows\ComFailures.cs" LinkBase="Linked\Platform\Windows" />
+    <!-- 1 モジュールの全文置き換え（控え→消す→書く→読み直す→書き戻し）。ICodeModuleAccess の裏の COM には触れない。 -->
+    <Compile Include="..\..\src\Graft\Platform\Windows\CodeModuleRewriter.cs" LinkBase="Linked\Platform\Windows" />
     <!--
       FakeVbaBridge（メモリ上のブックとモジュール）は UI テストと共有する。VbaSyncService（Pull／Push のつなぎ）は
       画面を使わないので、Avalonia なしのこのプロジェクトで全経路を速く確かめる。

@@ -105,7 +105,15 @@ public sealed partial class WindowsVbaBridge
             VbaWriteOutcome outcome;
             try
             {
-                outcome = WriteOne(session, compsObj, known, write);
+                outcome = WriteOne(session, compsObj, known, write, out var shouldAbort);
+                if (shouldAbort) aborted = true;
+            }
+            catch (OperationCanceledException)
+            {
+                // 着手の直前に見捨てられた（モジュールには何も触れていない）。残りには進まない。
+                outcome = new VbaWriteOutcome(write.Name, VbaWriteStatus.Failed, null, GraftIssue.Of(
+                    ErrorCode.E805, "Excel が応答しなかったため、書き込みを中断しました。"));
+                aborted = true;
             }
             catch (ComBusyException)
             {
@@ -157,10 +165,20 @@ public sealed partial class WindowsVbaBridge
         return names;
     }
 
-    /// <summary>1モジュールの書き込み（仕様 5.5 の手順 1〜5）。</summary>
+    /// <summary>
+    /// 1モジュールの書き込み（仕様 5.5 の手順 1〜5）。
+    /// <para>
+    /// 見捨てられた（時間切れ）かどうかは、<b>着手の前に 1 回だけ</b>見る。着手したあと（取得・新規作成・控え・消す・書く・
+    /// 読み直す・書き戻し・作ったモジュールの取り除き）の COM の呼び出しは、すべて取り消し不可の入れ物
+    /// （<see cref="Session.Committed"/>）で行う。途中で止めると、モジュールが空のまま、または作りかけのまま残る（不具合 6）。
+    /// </para>
+    /// </summary>
     private static VbaWriteOutcome WriteOne(
-        Session s, object compsObject, HashSet<string> known, VbaComponentWrite write)
+        Session session, object compsObject, HashSet<string> known, VbaComponentWrite write, out bool shouldAbort)
     {
+        shouldAbort = false;
+        session.Abandoned.ThrowIfCancellationRequested(); // モジュールの境目。
+        using var s = session.Committed();
         dynamic comps = compsObject;
         using var one = new ComScope();
         object? componentObj;
@@ -205,40 +223,39 @@ public sealed partial class WindowsVbaBridge
                 GraftIssue.Of(ErrorCode.E808, $"{write.Name}: CodeModule を取得できませんでした。"));
         }
 
-        dynamic cm = cmObj;
+        // 2〜4. 控え → 全文置き換え → 読み直して判定、失敗なら書き戻し。モジュールに着手したら最後まで
+        // （書き戻しまで）取り消し不可で進める。見捨てられたかは着手の前に 1 回だけ見る（不具合 6。CodeModuleRewriter 参照）。
+        var result = CodeModuleRewriter.Rewrite(
+            new DynamicCodeModule(cmObj), write.Name, write.Code, created, s.ComTimeoutMs,
+            created ? CancellationToken.None : session.Abandoned);
 
-        // 2. 控えを取る。DeleteLines の前に、現在の本文を読んで持つ。新規に作ったばかりのモジュールの控えは空。
-        var backupLines = s.Call(() => (int)cm.CountOfLines);
-        var backup = backupLines > 0 ? s.Call(() => (string)cm.Lines(1, backupLines)) : string.Empty;
-
-        try
+        var issue = result.Issue;
+        if (result.NeedsRemoval)
         {
-            // 3. 全文置き換え（DeleteLines → AddFromString）。
-            if (backupLines > 0) s.Call(() => { cm.DeleteLines(1, backupLines); return 0; });
-            if (write.Code.Length > 0) s.Call(() => { cm.AddFromString(write.Code); return 0; });
-
-            // 4. 読み直して、期待値と比べる（判定は Core の VbaWriteVerifier）。
-            var readBack = ReadAll(s, cmObj);
-            var verdict = VbaWriteVerifier.Verify(write.Code, readBack);
-            if (verdict != VbaWriteVerdict.DifferentContent)
-            {
-                // 一致、または整形差（VBE が空白・大文字小文字を直した）。整形差は成功で、警告を添える。
-                // ミラーは書き換えない（呼び出し側の同期基準が、書いたミラーと読み直した Excel 側を別々に持つ）。
-                return new VbaWriteOutcome(
-                    write.Name, created ? VbaWriteStatus.Created : VbaWriteStatus.Written, readBack,
-                    VbaWriteVerifier.ToIssue(verdict, write.Name));
-            }
-
-            var different = VbaWriteVerifier.ToIssue(verdict, write.Name)!;
-            return Rollback(s, compsObject, componentObj, cmObj, write, backup, created, different, readBack);
+            // 新規に作ったばかりのモジュールだけを消す（既存のモジュールを消すことは決してしない）。
+            var note = TryRemoveCreated(s, compsObject, componentObj);
+            if (issue is not null) issue = issue with { Detail = $"{issue.Detail} {note}".Trim() };
         }
-        catch (Exception ex) when (ex is ComBusyException or COMException or InvalidCastException
-                                       or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-        {
-            // ここで例外になったら（E805 を含む）、控えを書き戻す。
-            var cause = ex is ComBusyException ? ComFailures.Busy() : ComFailures.FromException(ex);
-            return Rollback(s, compsObject, componentObj, cmObj, write, backup, created, cause, null);
-        }
+
+        var status = result.Status == VbaWriteStatus.Written && created ? VbaWriteStatus.Created : result.Status;
+        shouldAbort = result.ShouldAbort;
+        return new VbaWriteOutcome(write.Name, status, result.ReadBack, issue, result.BackupCode);
+    }
+
+    /// <summary>遅延バインディングの <c>CodeModule</c> を <see cref="ICodeModuleAccess"/> に見せる。</summary>
+    private sealed class DynamicCodeModule : ICodeModuleAccess
+    {
+        private readonly dynamic _cm;
+
+        public DynamicCodeModule(object codeModule) => _cm = codeModule;
+
+        public int CountOfLines() => (int)_cm.CountOfLines;
+
+        public string Lines(int startLine, int count) => (string)_cm.Lines(startLine, count);
+
+        public void DeleteLines(int startLine, int count) => _cm.DeleteLines(startLine, count);
+
+        public void AddFromString(string code) => _cm.AddFromString(code);
     }
 
     /// <summary>モジュールを新規作成する。標準／クラス以外・不正な名前・VBE の拒否は E808。</summary>
@@ -278,55 +295,6 @@ public sealed partial class WindowsVbaBridge
         }
     }
 
-    /// <summary>
-    /// 失敗（例外または別内容）したので元に戻す。新規に作ったモジュールは、作ったばかりのそれだけを
-    /// <c>VBComponents.Remove</c> で消す（既存のモジュールを消すことは決してしない）。既存のモジュールは控えを
-    /// 書き戻す。戻せたら <see cref="VbaWriteStatus.RolledBack"/>、戻せなければ E809 の <see cref="VbaWriteStatus.Failed"/>
-    /// （モジュールが空のまま残っている可能性。控えは呼び出し側が .rescue/ へ書く）。
-    /// </summary>
-    private static VbaWriteOutcome Rollback(
-        Session s, object compsObject, object componentObject, object cmObject, VbaComponentWrite write,
-        string backup, bool created, GraftIssue cause, string? readBack)
-    {
-        dynamic cm = cmObject;
-        if (created)
-        {
-            var note = TryRemoveCreated(s, compsObject, componentObject);
-            return new VbaWriteOutcome(write.Name, VbaWriteStatus.RolledBack, readBack,
-                cause with { Detail = $"{cause.Detail} {note}".Trim() });
-        }
-
-        try
-        {
-            var lines = s.Call(() => (int)cm.CountOfLines);
-            if (lines > 0) s.Call(() => { cm.DeleteLines(1, lines); return 0; });
-            if (backup.Length > 0) s.Call(() => { cm.AddFromString(backup); return 0; });
-
-            // 書き戻した結果も確かめる。控えと違えば「戻せた」とは言えない。
-            var restored = ReadAll(s, cmObject);
-            if (VbaWriteVerifier.Verify(backup, restored) == VbaWriteVerdict.DifferentContent)
-            {
-                return RollbackFailed(write, backup, cause, "書き戻した内容が控えと一致しませんでした。");
-            }
-
-            return new VbaWriteOutcome(write.Name, VbaWriteStatus.RolledBack, readBack, cause);
-        }
-        catch (Exception ex) when (ex is ComBusyException or COMException or InvalidCastException
-                                       or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-        {
-            return RollbackFailed(write, backup, cause, ex.Message);
-        }
-    }
-
-    private static VbaWriteOutcome RollbackFailed(VbaComponentWrite write, string backup, GraftIssue cause, string reason)
-        => new(write.Name, VbaWriteStatus.Failed, null,
-            GraftIssue.Of(
-                ErrorCode.E809,
-                $"{write.Name}: 書き込みに失敗し、元の内容の書き戻しにも失敗しました（{reason}）。" +
-                "Excel 側のモジュールが空のまま、または途中の状態で残っている可能性があります。" +
-                $"元の本文は控えとして保存します。最初の失敗の理由: {cause.Summary}。{cause.Detail}"),
-            BackupCode: backup);
-
     private static string TryRemoveCreated(Session s, object compsObject, object? created)
     {
         if (created is null) return string.Empty;
@@ -341,13 +309,6 @@ public sealed partial class WindowsVbaBridge
         {
             return "作成したモジュールを取り除けませんでした。VBE で確かめてください。";
         }
-    }
-
-    private static string ReadAll(Session s, object cmObject)
-    {
-        dynamic cm = cmObject;
-        var lines = s.Call(() => (int)cm.CountOfLines);
-        return lines > 0 ? s.Call(() => (string)cm.Lines(1, lines)) : string.Empty;
     }
 
     // ------------------------------------------------------------------

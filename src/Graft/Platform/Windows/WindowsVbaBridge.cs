@@ -171,6 +171,16 @@ public sealed partial class WindowsVbaBridge : IVbaBridge, IVbaBridgeTimeouts, I
 
         public CancellationToken Abandoned => _abandoned;
 
+        /// <summary>
+        /// 見捨てられても中断しない入れ物（拒否の再試行の上限だけは同じ）。1 モジュールの「控え→消す→書く→読み直す」
+        /// のように、途中で止めると Excel 側が壊れたまま残る処理で使う。取得した COM オブジェクトはこの入れ物が
+        /// 別に持つので、使い終えたら Dispose する。
+        /// </summary>
+        public Session Committed() => new(_comTimeoutMs, CancellationToken.None);
+
+        /// <summary>拒否されたときの再試行の上限（<c>Vba.ComTimeoutMs</c>）。</summary>
+        public int ComTimeoutMs => _comTimeoutMs;
+
         /// <summary>COM の呼び出しを、拒否されたら再試行しながら実行する。</summary>
         public T Call<T>(Func<T> action) => ComRetry.Run(action, _comTimeoutMs, _abandoned);
 
