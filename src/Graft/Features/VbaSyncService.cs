@@ -867,6 +867,8 @@ public sealed class VbaSyncService
         var pendingPaths = new List<string>();
         foreach (var (key, record) in records)
         {
+            if (mirror.Unreadable.Contains(key)) continue; // 読めないだけで、無いわけではない。
+
             if (!mirror.Modules.TryGetValue(key, out var module))
             {
                 // ミラーのファイルが無いのに記録がある＝削除保留。
@@ -925,6 +927,12 @@ public sealed class VbaSyncService
 
         public Dictionary<string, string> Texts { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// 読めなかったファイルの相対パス（ロック中・権限なしなど）。<see cref="Modules"/> には入らないが、「無い」わけではない。
+        /// 計画（<see cref="VbaSyncPlanner"/>）に渡すと「ミラーのファイルが無い」と取り違えるので、計画から外す。
+        /// </summary>
+        public HashSet<string> Unreadable { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public List<GraftIssue> Issues { get; } = new();
     }
 
@@ -944,7 +952,8 @@ public sealed class VbaSyncService
             excelByPath[VbaMirrorLayout.ToRelativePath(component.Kind, component.Name)] = component;
         }
 
-        bool InScope(string key) => scope is null || scope.Contains(key);
+        // 読めなかったミラーのファイルは、ミラー・Excel・記録のどれからも外す（「無い」と扱わない）。
+        bool InScope(string key) => (scope is null || scope.Contains(key)) && !mirror.Unreadable.Contains(key);
 
         var excelModules = excel.Value
             .Where(c => !VbaNameRules.CanMirror(c.Name) || InScope(VbaMirrorLayout.ToRelativePath(c.Kind, c.Name)))
@@ -954,9 +963,12 @@ public sealed class VbaSyncService
         var mirrorModules = mirror.Modules.Values.Where(m => InScope(m.RelativePath)).ToList();
 
         var state = loaded.Value;
-        var scopedState = scope is null
+        var scopedState = scope is null && mirror.Unreadable.Count == 0
             ? state
-            : state with { Modules = state.Modules.Where(kv => scope.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value) };
+            : state with
+            {
+                Modules = state.Modules.Where(kv => InScope(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase),
+            };
 
         var plan = VbaSyncPlanner.Plan(mirrorModules, excelModules, scopedState, _clock());
 
@@ -987,7 +999,15 @@ public sealed class VbaSyncService
                 .ConfigureAwait(true);
             if (!read.IsSuccess)
             {
-                contents.Issues.AddRange(read.Issues.Select(i => i with { Severity = Severity.Warning }));
+                // 読めなかったファイルを「無い」ものとして計画に渡すと、記録があれば削除保留の印が付き、記録が無く
+                // Excel にあるモジュールは取り込み（既存のファイルを新規の形で上書き）になってしまう。
+                // 読めるようになるまでこのモジュールは計画から外し、その旨を警告に添える。
+                contents.Unreadable.Add(parsed.RelativePath);
+                contents.Issues.AddRange(read.Issues.Select(i => i with
+                {
+                    Severity = Severity.Warning,
+                    Detail = $"{i.Detail} 読めるようになるまで、このモジュール（{parsed.RelativePath}）は同期の対象から外します。",
+                }));
                 continue;
             }
 

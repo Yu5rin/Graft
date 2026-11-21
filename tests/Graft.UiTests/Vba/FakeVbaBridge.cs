@@ -269,6 +269,9 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         workbook = null;
         if (VbaRotNames.IsNoMacroFormat(fullName)) return GraftIssue.Of(ErrorCode.E806, fullName);
         if (!_workbooks.TryGetValue(fullName, out var found)) return GraftIssue.Of(ErrorCode.E804, $"次のブックが開いていません: {fullName}");
+        // 本物のブリッジの前提検査と同じ: URL・保護ビューのブックは、選択画面と同じ理由で弾く。
+        var unavailable = VbaWorkbookAvailabilityIssues.ToIssue(found.Availability, fullName);
+        if (unavailable is not null) return unavailable;
         if (found.Availability == VbaWorkbookAvailability.AccessNotTrusted) return GraftIssue.Of(ErrorCode.E802);
         if (found.Locked) return GraftIssue.Of(ErrorCode.E803);
         if (requireDesign && !found.DesignMode) return GraftIssue.Of(ErrorCode.E813);

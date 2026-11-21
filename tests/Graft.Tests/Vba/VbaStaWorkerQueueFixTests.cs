@@ -32,17 +32,18 @@ public class VbaStaWorkerQueueFixTests
     {
         using var worker = new StaWorker(ApartmentState.Unknown);
         using var release = new ManualResetEventSlim(false);
-        var timeout = TimeSpan.FromMilliseconds(300);
+        var timeout = TimeSpan.FromMilliseconds(600);
 
-        var first = worker.RunAsync(_ => { Thread.Sleep(250); return 1; }, timeout);
+        // 前の仕事（約 400ms）は時間切れ内に終わる。後ろの仕事は、その終わりから 600ms 戻らない。
+        var first = worker.RunAsync(_ => { Thread.Sleep(400); return 1; }, timeout);
         var watch = Stopwatch.StartNew();
         var hangs = worker.RunAsync(_ => { release.Wait(); return 2; }, timeout);
 
         (await first).Should().Be(1);
         var act = () => hangs;
         await act.Should().ThrowAsync<TimeoutException>();
-        watch.Elapsed.Should().BeGreaterThan(TimeSpan.FromMilliseconds(500),
-            "前の仕事の待ち（約 250ms）を数えずに、始まりから 300ms 経ってから諦める");
+        watch.Elapsed.Should().BeGreaterThan(TimeSpan.FromMilliseconds(850),
+            "前の仕事の待ち（約 400ms）を数えずに、始まりから 600ms 経ってから諦める。待ちを数えていた以前は約 600ms で諦めた");
         worker.AbandonedCount.Should().Be(1);
 
         release.Set();
@@ -74,7 +75,7 @@ public class VbaStaWorkerQueueFixTests
         var timeout = TimeSpan.FromMilliseconds(300);
 
         var stuck = worker.RunAsync(_ => { release.Wait(); return 0; }, timeout);
-        var queued = worker.RunAsync(_ => { Thread.Sleep(200); return "done"; }, timeout);
+        var queued = worker.RunAsync(_ => { Thread.Sleep(100); return "done"; }, timeout);
 
         await ((Func<Task>)(() => stuck)).Should().ThrowAsync<TimeoutException>();
         (await queued).Should().Be("done", "固まった仕事の時間切れを待っていた分は、後ろの仕事の時間切れに数えない");

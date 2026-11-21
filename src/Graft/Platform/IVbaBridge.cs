@@ -83,6 +83,35 @@ public enum VbaWorkbookAvailability
     Unresponsive,
 }
 
+/// <summary>
+/// 「このブックは使えない」理由の文言と、使えないブックを前提検査（<c>OpenProject</c>）で弾くための問題の作り方。
+/// 選択画面（一覧の取得）と、読み書きの前提検査が<b>同じ判定・同じ文言</b>になるよう、ここに 1 つだけ置く。
+/// <para>
+/// 【なぜ前提検査でも弾くか】 以前は選択画面だけが OneDrive／SharePoint 上のブックと保護ビューのブックを弾き、
+/// 追加した後にそうなったブックは、前提検査が <c>VBProject</c> の取得で失敗するまで進んで、トラストセンターの設定（E802）と
+/// 誤った案内になっていた。実際の原因（保護ビュー・URL）を、選択画面と同じ言葉で伝える。
+/// </para>
+/// </summary>
+public static class VbaWorkbookAvailabilityIssues
+{
+    /// <summary>OneDrive／SharePoint 上のブック（<c>FullName</c> が URL）を使えない理由。</summary>
+    public const string UrlLocationReason = "OneDrive／SharePoint 上のブックは使えません。ローカルのフォルダへ保存してから開き直してください。";
+
+    /// <summary>保護ビューで開いているブックを使えない理由。</summary>
+    public const string ProtectedViewReason = "保護ビューで開いています。「編集を有効にする」を押してから、もう一度開いてください。";
+
+    /// <summary>
+    /// <paramref name="availability"/> が「前提検査で弾くべきもの」（URL・保護ビュー）なら、その問題（E801）を返す。
+    /// それ以外は null（ほかの状態は、それぞれの前提検査が別の問題で扱う）。
+    /// </summary>
+    public static GraftIssue? ToIssue(VbaWorkbookAvailability availability, string fullName) => availability switch
+    {
+        VbaWorkbookAvailability.UrlLocation => GraftIssue.Of(ErrorCode.E801, $"{fullName}: {UrlLocationReason}", path: fullName),
+        VbaWorkbookAvailability.ProtectedView => GraftIssue.Of(ErrorCode.E801, $"{fullName}: {ProtectedViewReason}", path: fullName),
+        _ => null,
+    };
+}
+
 /// <summary>Excel から読んだコンポーネント1件。</summary>
 /// <param name="Name">コンポーネント名。</param>
 /// <param name="Kind">種別。</param>

@@ -77,7 +77,7 @@ public sealed partial class WindowsVbaBridge
         if (VbaRotNames.IsUrlLocation(fullName))
         {
             return new VbaWorkbookInfo(fullName, name, VbaWorkbookAvailability.UrlLocation,
-                "OneDrive／SharePoint 上のブックは使えません。ローカルのフォルダへ保存してから開き直してください。", readOnly);
+                VbaWorkbookAvailabilityIssues.UrlLocationReason, readOnly);
         }
 
         if (VbaRotNames.IsNoMacroFormat(fullName))
@@ -89,7 +89,7 @@ public sealed partial class WindowsVbaBridge
         if (IsInProtectedView(s, obj, fullName))
         {
             return new VbaWorkbookInfo(fullName, name, VbaWorkbookAvailability.ProtectedView,
-                "保護ビューで開いています。「編集を有効にする」を押してから、もう一度開いてください。", readOnly);
+                VbaWorkbookAvailabilityIssues.ProtectedViewReason, readOnly);
         }
 
         return ProbeVbProject(s, obj, fullName, name, readOnly);
@@ -217,10 +217,22 @@ public sealed partial class WindowsVbaBridge
             return Failed(GraftIssue.Of(ErrorCode.E806, $"{fullName}: マクロを保存できない形式です。", path: fullName));
         }
 
+        // 選択画面と同じ判定で、OneDrive／SharePoint 上のブックと保護ビューのブックを弾く。弾かないと、追加した後に
+        // そうなったブックは VBProject の取得で失敗して、トラストセンターの案内（E802）と誤診される。
+        if (VbaRotNames.IsUrlLocation(fullName))
+        {
+            return Failed(VbaWorkbookAvailabilityIssues.ToIssue(VbaWorkbookAvailability.UrlLocation, fullName)!);
+        }
+
         var workbook = FindWorkbook(s, fullName);
         if (workbook is null)
         {
             return Failed(GraftIssue.Of(ErrorCode.E804, $"次のブックが開いていません: {fullName}", path: fullName));
+        }
+
+        if (IsInProtectedView(s, workbook, fullName))
+        {
+            return Failed(VbaWorkbookAvailabilityIssues.ToIssue(VbaWorkbookAvailability.ProtectedView, fullName)!);
         }
 
         dynamic wb = workbook;
