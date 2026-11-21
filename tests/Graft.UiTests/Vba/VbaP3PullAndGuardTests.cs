@@ -57,7 +57,9 @@ public class VbaP3PullAndGuardTests
         request.Items.Should().ContainSingle().Which.Should().Match<VbaConflictItem>(
             i => i.RelativePath == Module1 && i.ExcelText.Contains("excel side") && i.MirrorText.Contains("graft side"));
         r.Graft.Blocks.Should().BeEmpty("中止したので解析しない");
-        r.Graft.State.Should().NotBe(CenterPaneState.Content);
+        r.Graft.State.Should().Be(CenterPaneState.Error);
+        r.Graft.CenterError!.Code.Should().Be(ErrorCode.E812, "衝突が解決されずに止まったので E812 を残す");
+        r.Graft.CenterError.Detail.Should().Contain(Module1);
         r.Mirror(Module1).Should().Contain("graft side");
         r.Excel("Module1").Code.Should().Contain("excel side");
     }
@@ -209,6 +211,37 @@ public class VbaP3PullAndGuardTests
         r.Graft.ApplyUndoNoticeText.Should().Contain("Excel へ反映済み");
     }
 
+    [AvaloniaFact(DisplayName = "再検査: 取り込んだ内容にパッチが当たらなくなったら、解析し直した結果を残したまま適用を始めず、理由を案内する")]
+    public async Task 取り込むとパッチが当たらなくなるときは適用しない()
+    {
+        using var r = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        await r.PasteAsync(TwoModulePatch()).ConfigureAwait(true);
+        r.Excel("Module1").Code = "Sub A()\r\n  MsgBox \"changed in excel\"\r\nEnd Sub"; // パッチの SEARCH が消えた
+        r.ChoiceAnswer = _ => "reanalyze";
+
+        await r.ApplyAsync().ConfigureAwait(true);
+
+        r.H.Dialogs.Messages.Should().Contain(m => m.Title == "適用できない変更があります");
+        r.Mirror(Module1).Should().Contain("changed in excel").And.NotContain("hello");
+        (await r.RevisionsAsync().ConfigureAwait(true)).Should().BeEmpty();
+        r.Graft.Blocks.Should().NotBeEmpty("解析し直した結果は画面に残す");
+        r.Graft.IsApplyInProgress.Should().BeFalse();
+    }
+
+    [AvaloniaFact(DisplayName = "再検査: 「このまま続ける」なら取り込まずに適用し、Push のとき衝突として扱う")]
+    public async Task このまま続けるとPushで衝突になる()
+    {
+        using var r = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        await r.PasteAsync(TwoModulePatch()).ConfigureAwait(true);
+        r.Excel("Module1").Code = VbaP3Rig.Module1Original + "\r\nSub B()\r\nEnd Sub";
+        r.ChoiceAnswer = _ => "continue";
+
+        await r.ApplyAsync().ConfigureAwait(true);
+
+        r.Mirror(Module1).Should().Contain("hello").And.NotContain("Sub B()", "取り込んでいない");
+        r.Conflicts.Should().ContainSingle().Which.Scene.Should().Be(VbaConflictScene.AfterApply, "Push の直前に衝突として確認される");
+    }
+
     [AvaloniaFact(DisplayName = "再検査: 「中止」なら適用を始めない（ファイルも履歴も変わらない）")]
     public async Task 再検査で中止すると適用しない()
     {
@@ -258,6 +291,7 @@ public class VbaP3PullAndGuardTests
         r.Conflicts.Should().ContainSingle();
         (await r.RevisionsAsync().ConfigureAwait(true)).Should().BeEmpty();
         r.Mirror(Module1).Should().Contain("graft tail");
+        r.Graft.Notice.Text.Should().Contain("適用を中止しました");
     }
 
     // ------------------------------------------------------------------
