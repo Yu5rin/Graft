@@ -267,6 +267,13 @@ public static class DataDirectoryMigrator
     {
         yield return paths.BackupRootDirectory;
         yield return paths.LogsDirectory;
+
+        // Excel VBA 連携（仕様書_VBA連携 4.4）: ミラーと同期状態もデータ保存先の一部。ここに挙げないと、
+        // 保存先の移行で取り残されてミラーが消えたように見え、旧保存先の掃除でも片付かない。
+        // 元と先で同じ順に並べる必要がある（BuildDirectoryPairs が Zip で対応づけるため）ので、
+        // 1つの列挙に書いて両側で使い回す。
+        yield return paths.VbaMirrorsDirectory;
+        yield return paths.VbaSyncDirectory;
     }
 
     private static IEnumerable<(string Src, string Dst)> BuildFilePairs(AppPaths source, AppPaths target)
