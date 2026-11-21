@@ -120,8 +120,13 @@ public sealed partial class MainViewModel : ObservableObject
         };
         History.RevisionSelected += OnRevisionSelected;
         History.RevisionRestored += OnRevisionRestored;
+        // Excel VBA 連携（MainViewModel.VbaApply.cs）: 取り消し・復元の後の Push と、Push 中に受け付けない操作。
+        History.AfterRestoreAsync = PushVbaAfterRestoreAsync;
+        History.IsOperationBlocked = () => IsVbaPushing;
+        ProjectPane.IsSwitchBlocked = () => IsVbaPushing;
 
-        PasteAndParseCommand = new AsyncRelayCommand(PasteAndParseAsync, context: "貼り付けと解析");
+        // Excel へ Push している最中は、新しいパッチの貼り付けを受け付けない（MainViewModel.VbaApply.cs）。
+        PasteAndParseCommand = new AsyncRelayCommand(PasteAndParseAsync, () => !IsVbaPushing, context: "貼り付けと解析");
         PreviewCommand = new AsyncRelayCommand(RunDryRunAsync, () => _currentPatch is not null, context: "適用前プレビュー");
         // 適用済みのパッチ（E302）は、適用できるブロックがあっても押せない。押しても要約入力と
         // 確認の窓を通った後にApplyEngineの再判定で必ず止まる（しかも止まった時点で
@@ -459,6 +464,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task PasteAndParseAsync()
     {
+        if (IsVbaPushing) return; // キー操作の経路は CanExecute を見ないことがあるので、ここでも塞ぐ。
         // IClipboardAccess.GetTextAsyncは取得できない場合にnullを返す契約のため、
         // 個別の例外保護は不要（クリップボードが他プロセスに占有されている場合もnullになる）。
         var text = await _ui.Clipboard.GetTextAsync().ConfigureAwait(true);
@@ -486,6 +492,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// </summary>
     private async Task ParseTextAndLoadAsync(string text)
     {
+        if (IsVbaPushing) return; // ファイルの取り込み・ドロップの経路も、Push 中は受け付けない。
         // 点検指摘A-6: 解析そのものの間が無表示だった。従来 State=Loading が立つのは
         // RunDryRunAsync のドライラン直前で、その手前にある _parser.Parse（全文の字句解析。
         // 大きなパッチほど時間がかかり、しかも完全に同期処理）の間は何も出ていなかった。
@@ -520,6 +527,9 @@ public sealed partial class MainViewModel : ObservableObject
 
         _currentPatch = parsed.Value;
         _dryRunFromQueue = false;
+        // 新しいパッチ。前のパッチで選んだ「ファイルだけ適用する」・上書きの承認は引き継がない（Excel VBA 連携）。
+        _vbaFileOnly = false;
+        _vbaApprovedOverwrites.Clear();
         await RunDryRunCoreAsync(generation).ConfigureAwait(true);
     }
 
@@ -557,6 +567,10 @@ public sealed partial class MainViewModel : ObservableObject
 
         // 4.8/7章: 未保存編集があれば保存を促してから続行する（破棄不可。MainViewModel.Apply.cs）。
         if (!await ConfirmTargetsSavedAsync(project.Root).ConfigureAwait(true)) return;
+
+        // Excel VBA 連携: 対象のモジュールに限って、Excel 側の変更を解析の前に取り込む（MainViewModel.VbaApply.cs）。
+        // 衝突で「中止」・接続できず「中止」なら解析しない。VBA プロジェクトでなければ何もせず true。
+        if (!await PullVbaBeforeDryRunAsync(project, patch).ConfigureAwait(true)) return;
 
         // 保存確認の待ち中に、破棄・別の解析・プロジェクトの切り替えがあれば、この要求は古い（C15）。
         if (generation != _analysisGeneration || !ReferenceEquals(_currentPatch, patch)
@@ -622,6 +636,9 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusSummaryFailedText));
         OnPropertyChanged(nameof(HasFailedBlocks));
         OnPropertyChanged(nameof(TargetSummaryText));
+
+        // Excel VBA 連携: 適用できない変更（DELETE／RENAME の E814、CP932 で表せない文字の E811）を、適用を押す前に案内する。
+        await NotifyVbaGuardAfterAnalysisAsync(project).ConfigureAwait(true);
     }
 
     // ApplyAsync/UndoLastAsync（適用の本体・Ctrl+Z）はMainViewModel.Apply.csへ分割している

@@ -1,0 +1,156 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Graft.Views"
+        x:Class="Graft.Views.VbaConflictWindow"
+        x:Name="Root"
+        Title="Excel 側とファイル側の衝突"
+        Width="1120" Height="720"
+        MinWidth="720" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource TextPrimary}"
+        AutomationProperties.Name="Excel 側とファイル側の衝突">
+    <!--
+        仕様書_VBA連携 7.5: 衝突したモジュールごとに、Excel 側とミラー（Graft 側）の差分を、適用前プレビュー
+        （ApplyPreviewWindow）と同じ DiffView／DiffViewModel で見せ、選ばせる。窓の骨組み（左に一覧、右に差分、
+        下にボタン列。primary ボタン・Enter 既定・Esc で閉じる）は ApplyPreviewWindow に揃えた。
+        出す項目は場面で変わる（VbaConflictRequest）: 適用の後と復元の後は「Excel 側を採用」を出さず、
+        代わりに「反映しない」を出す（ミラーを Excel の内容に差し替えると、AI のパッチや復元の意図を打ち消すため）。
+    -->
+    <Grid Margin="16" RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12" Spacing="4">
+            <TextBlock Text="{Binding HeadingText}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                       Foreground="{DynamicResource TextPrimary}" />
+            <TextBlock Text="{Binding GuideText}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+        </StackPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="140" MaxWidth="420" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" MinWidth="360" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 左: 衝突したモジュールの一覧。選ぶと右側に差分が出る。 -->
+            <ListBox Grid.Column="0"
+                     x:Name="ItemsListBox"
+                     ItemsSource="{Binding Items}"
+                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                     Background="{DynamicResource BgSurface}"
+                     AutomationProperties.Name="衝突したモジュールの一覧"
+                     views:HelpTip.Standard="Excel 側とファイル側の両方が変更されているモジュールの一覧です。選ぶと右側に差分が表示されます。"
+                     views:HelpTip.Detailed="Excel 側（VBE で編集した内容）と Graft 側（ミラーのファイル）の両方が、最後に同期したときから変わっているモジュールの一覧です。1件選ぶと、右側に Excel 側とファイル側の差分が表示されます。モジュールごとに、下のボタンで扱いを選びます。">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,4" ToolTip.Tip="{Binding Item.RelativePath}">
+                            <TextBlock Text="{Binding FileName}"
+                                       FontSize="{DynamicResource BodyFontSize}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Directory}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding ChoiceText}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <GridSplitter Grid.Column="1"
+                          Width="6"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          AutomationProperties.Name="一覧と差分の境界" />
+
+            <!-- 右: 選択中モジュールの差分（既存の DiffView／DiffViewModel をそのまま流用）。 -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0"
+                           Text="{Binding DiffCaptionText}"
+                           Margin="0,0,0,4"
+                           FontSize="{DynamicResource CaptionFontSize}"
+                           Foreground="{DynamicResource TextSecondary}" />
+                <views:DiffView Grid.Row="1"
+                                DataContext="{Binding Diff}"
+                                AutomationProperties.Name="Excel 側とファイル側の差分" />
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <TextBlock Text="{Binding ProgressText}"
+                           VerticalAlignment="Center"
+                           FontSize="{DynamicResource CaptionFontSize}"
+                           Foreground="{DynamicResource TextSecondary}"
+                           IsVisible="{Binding HasMultiple}" />
+                <CheckBox Content="すべてに適用"
+                          IsChecked="{Binding ApplyToAll, Mode=TwoWay}"
+                          IsVisible="{Binding HasMultiple}"
+                          views:HelpTip.Standard="チェックすると、次に押す選択ボタンが、一覧のすべてのモジュールに効きます。"
+                          AutomationProperties.Name="すべてのモジュールに同じ選択を適用する" />
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <!--
+                    並びは Windows の作法（肯定的な選択肢が左。AvaloniaDialogService のクラスコメント参照）に合わせる。
+                    既定（Enter）は、Excel の側を壊さない選択にする。適用・復元の後は「反映しない」（ファイルの変更を
+                    残して未反映の印を付けるだけ）、それ以外は「Excel 側を採用」（Excel は触らず、ミラーを合わせる）。
+                    「Graft 側で上書き」は Excel 側の本文を控えに残すが、Excel を置き換える操作なので既定にはしない。
+                    中止は Esc に割り当てている。
+                -->
+                <Button x:Name="AdoptButton"
+                        Classes="primary"
+                        Content="Excel 側を採用"
+                        Command="{Binding AdoptCommand}"
+                        IsVisible="{Binding CanAdoptExcel}"
+                        IsDefault="{Binding CanAdoptExcel}"
+                        views:HelpTip.Standard="Graft 側のファイルを、Excel の内容で置き換えます。"
+                        views:HelpTip.Detailed="選んでいるモジュールのファイルを、Excel 側の内容で置き換えます。Graft 側で変更した内容は失われます。解析や適用の前なら、そのモジュールへのブロックが一致しなくなることがあるので、必要に応じて解析をやり直します。"
+                        AutomationProperties.Name="Excel 側を採用" />
+                <Button x:Name="SkipButton"
+                        Classes="primary"
+                        Content="反映しない"
+                        Command="{Binding SkipCommand}"
+                        IsVisible="{Binding CanSkip}"
+                        IsDefault="{Binding CanSkip}"
+                        views:HelpTip.Standard="Excel には反映せず、ファイルの変更だけ残します。未反映の印が付きます。"
+                        views:HelpTip.Detailed="Excel 側は触らず、Graft のファイルの変更を残します。そのモジュールには未反映の印が付き、あとからプロジェクトの右クリック「Excel へ反映」で送れます。"
+                        AutomationProperties.Name="反映しない" />
+                <Button x:Name="OverwriteButton"
+                        Content="Graft 側で上書き"
+                        Command="{Binding OverwriteCommand}"
+                        views:HelpTip.Standard="Excel 側を、Graft の内容で置き換えます。Excel 側の本文は控えに残します。"
+                        views:HelpTip.Detailed="選んでいるモジュールの Excel 側を、Graft のファイルの内容で置き換えます。置き換える前の Excel 側の本文は、Graft のデータ保存先の vba-sync フォルダにある「.rescue」フォルダへ控えとして保存します。"
+                        AutomationProperties.Name="Graft 側で上書き" />
+                <Button x:Name="UndoApplyButton"
+                        Content="この適用を取り消す"
+                        Command="{Binding UndoApplyCommand}"
+                        IsVisible="{Binding CanUndoApply}"
+                        views:HelpTip.Standard="この適用をまるごと取り消します。Excel に反映済みの分は、取り消した後の内容に戻します。"
+                        AutomationProperties.Name="この適用を取り消す" />
+                <Button x:Name="AbortButton"
+                        Content="中止"
+                        Command="{Binding AbortCommand}"
+                        IsVisible="{Binding CanAbort}"
+                        IsCancel="{Binding CanAbort}"
+                        views:HelpTip.Standard="何もせずに閉じます（Esc）。"
+                        AutomationProperties.Name="中止" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

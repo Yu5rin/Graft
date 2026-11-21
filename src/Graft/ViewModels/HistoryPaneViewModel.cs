@@ -572,6 +572,26 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// <summary>復元が完了したことの通知（呼び出し側でブロック一覧・プロジェクト状態の更新に使う）。</summary>
     public event EventHandler? RevisionRestored;
 
+    /// <summary>
+    /// 取り消し・復元でファイルを書き戻した<b>あと</b>、<see cref="RevisionRestored"/> を発火する<b>前</b>に待つフック
+    /// （仕様書_VBA連携 7.4。<c>MainViewModel.AfterApplyAsync</c> と同じ作法）。引数は戻したファイルのプロジェクト相対パス。
+    /// <para>
+    /// 【イベントではなくフックにする理由】 <see cref="RevisionRestored"/> は <see cref="EventArgs.Empty"/> で、変更した
+    /// ファイルの一覧を持たない。購読側は <c>async void</c> で、ここで Excel へ Push して衝突ダイアログを出すと、
+    /// 復元側の一覧の読み込みや通知と並行に走ってしまう。待てるフックなら、Push が終わってから後続の処理が進む。
+    /// </para>
+    /// 呼ぶ経路は、単発の取り消し・復元（Ctrl+Z・ステータスバーの「元に戻す」を含む）と「ここまで戻す」の2つ。
+    /// 変更のなかった「ここまで戻す」では呼ばない。適用後フック失敗の巻き戻しは <c>RevisionRestorer</c> を直接呼ぶので
+    /// ここを通らない（<c>MainViewModel.Hooks.cs</c> が同じ処理を自分で呼ぶ）。
+    /// </summary>
+    public Func<IReadOnlyList<string>, Task>? AfterRestoreAsync { get; set; }
+
+    /// <summary>
+    /// true の間は取り消し・復元を始めない。Excel への Push の最中（COM の応答待ち）に別の取り消しを受け付けると、
+    /// 書き込み中のミラーを戻してしまうため（仕様 7.3-4-2）。未設定なら常に受け付ける。
+    /// </summary>
+    public Func<bool>? IsOperationBlocked { get; set; }
+
     public ICommand RestoreCommand { get; }
 
     /// <summary>
@@ -676,7 +696,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// </param>
     private async ValueTask<bool> RestoreAsync(RevisionRowViewModel target, CancellationToken ct, bool skipConfirm = false)
     {
-        if (_projectId is null || _projectRoot is null)
+        if (_projectId is null || _projectRoot is null || IsOperationBlocked?.Invoke() == true)
         {
             return false;
         }
@@ -733,6 +753,8 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // 「最後に適用した日時」の更新対象に含める（判断理由はProjectModels.cs
         // Project.LastAppliedAtのコメント参照）。
         await MarkProjectAppliedAsync(ct).ConfigureAwait(true);
+        // 取り消しでミラーが変わった（Excel VBA 連携のプロジェクトでは Excel へ Push する）。イベントの前に待つ。
+        if (AfterRestoreAsync is not null) await AfterRestoreAsync(result.Value).ConfigureAwait(true);
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
         Notify?.Invoke($"{target.RevisionLabel} を取り消しました");
@@ -764,7 +786,7 @@ public sealed class HistoryPaneViewModel : ObservableObject
     /// </summary>
     private async ValueTask<bool> RestoreThroughAsync(RevisionRowViewModel target, CancellationToken ct)
     {
-        if (_projectId is null || _projectRoot is null)
+        if (_projectId is null || _projectRoot is null || IsOperationBlocked?.Invoke() == true)
         {
             return false;
         }
@@ -915,6 +937,13 @@ public sealed class HistoryPaneViewModel : ObservableObject
         // 不具合3対応: 「ここまで戻す」が成功し新規リビジョンとして記録された時点で
         // 「最後に適用した日時」を更新する（詳細はMarkProjectAppliedAsyncのコメント参照）。
         await MarkProjectAppliedAsync(ct).ConfigureAwait(true);
+        // 変更のなかった場合は上で戻っているので、ここまで来たのは実際にファイルが変わったときだけ（仕様 7.4 の経路2）。
+        if (AfterRestoreAsync is not null)
+        {
+            await AfterRestoreAsync(result.Value.Entries.Select(e => e.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
+                .ConfigureAwait(true);
+        }
+
         RevisionRestored?.Invoke(this, EventArgs.Empty);
         await LoadAsync(_projectId, _projectRoot, ct).ConfigureAwait(true);
 

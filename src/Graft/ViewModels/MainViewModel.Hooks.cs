@@ -97,6 +97,11 @@ public sealed partial class MainViewModel
         }
 
         await History.LoadAsync(project.Id, project.Root).ConfigureAwait(true);
+
+        // Excel VBA 連携（仕様書_VBA連携 7.4 の経路3）: ここは RevisionRestorer を直接呼ぶので、履歴ペインの
+        // AfterRestoreAsync も RevisionRestored も通らない。Excel は新内容、ミラーだけ旧内容になるのを避けるため、
+        // 巻き戻しに成功したときは同じ Push をここで呼ぶ。VBA プロジェクトでなければ何もしない。
+        if (restored.IsSuccess) await PushVbaAfterRestoreAsync(restored.Value).ConfigureAwait(true);
         return true;
     }
 

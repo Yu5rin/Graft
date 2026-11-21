@@ -55,6 +55,10 @@ public sealed partial class MainViewModel
     {
         _vbaSync = CreateVbaSync();
         ProjectPane.VbaSync = _vbaSync;
+        // 手動の取込・反映の衝突も、適用の流れと同じ衝突ダイアログで解決する（仕様書_VBA連携 7.5）。
+        ProjectPane.ShowConflictAsync = request => ShowVbaConflictAsync is null
+            ? Task.FromResult<Graft.Core.Vba.VbaConflictDecision?>(null)
+            : ShowVbaConflictAsync(request);
         ProjectPane.IsVbaEnabledSetting = () => _settings.Vba.Enabled;
         ApplyVbaSettings(_settings);
     }

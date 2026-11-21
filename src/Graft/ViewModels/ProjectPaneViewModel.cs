@@ -163,6 +163,14 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         set
         {
             var previous = _selectedItem;
+            // Excel へ Push している最中は別のプロジェクトへ切り替えない（仕様書_VBA連携 7.3-4-2）。一覧の選択は
+            // 双方向に束縛されているので、変更通知を投げ直して、見かけの選択も元へ戻す。
+            if (IsSwitchBlocked?.Invoke() == true && previous is not null && value is not null && !ReferenceEquals(previous, value))
+            {
+                OnPropertyChanged(nameof(SelectedItem));
+                return;
+            }
+
             if (!SetProperty(ref _selectedItem, value)) return;
             OnPropertyChanged(nameof(IsSelectedVbaProject)); // 右クリックメニューの VBA 項目の表示（ProjectPaneViewModel.Vba.cs）。
             if (value is null) return;
@@ -182,6 +190,12 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
     }
 
     private Task _pendingSwitch = Task.CompletedTask;
+
+    /// <summary>
+    /// true の間はプロジェクトの切り替えを受け付けない（Excel VBA 連携の Push 中。<c>MainViewModel</c> が配線する）。
+    /// 未設定なら常に切り替えられる。
+    /// </summary>
+    public Func<bool>? IsSwitchBlocked { get; set; }
 
     /// <summary>
     /// 切り替えの確認。別のプロジェクトへ切り替える直前に呼ばれ、falseを返すと切り替えを中止して

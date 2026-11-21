@@ -54,6 +54,12 @@ public sealed partial class ProjectPaneViewModel
     public Func<VbaWorkbookPickerViewModel, Task<bool>>? ShowWorkbookPickerAsync { get; set; }
 
     /// <summary>
+    /// 衝突ダイアログ（<c>VbaConflictWindow</c>）を出して、利用者の選択を返す（仕様書_VBA連携 7.5）。<c>MainViewModel</c> が
+    /// 自分の同名のデリゲートへつなぐ（ShellWindow が配線する）。未設定、または選ばずに閉じたときは中止として扱う。
+    /// </summary>
+    public Func<VbaConflictRequest, Task<VbaConflictDecision?>>? ShowConflictAsync { get; set; }
+
+    /// <summary>
     /// ブックを Excel で開く（E804 の「Excel で開く」ボタン）。既定は OS の関連付けで開く。テストで差し替える。
     /// </summary>
     public Action<string> OpenWorkbookInExcel { get; set; } = static path =>
@@ -169,12 +175,13 @@ public sealed partial class ProjectPaneViewModel
         }
 
         var pulled = result.Value;
-        await ShowConflictNoticeAsync(pulled.Conflicts, "取り込みませんでした").ConfigureAwait(true);
+        var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPull, pulled.ConflictItems).ConfigureAwait(true);
         await ShowWarningsAsync("Excel からの取込の注意", result.Issues.Where(i => i.Code != ErrorCode.E812)).ConfigureAwait(true);
 
-        if (pulled.Pulled.Count > 0)
+        var imported = pulled.Pulled.Count + resolved.Adopted;
+        if (imported > 0)
         {
-            Notify?.Invoke($"Excel から {pulled.Pulled.Count} 件取り込みました。");
+            Notify?.Invoke($"Excel から {imported} 件取り込みました。");
         }
         else if (pulled.IsEmpty)
         {
@@ -196,18 +203,19 @@ public sealed partial class ProjectPaneViewModel
         }
 
         var pushed = result.Value;
-        await ShowConflictNoticeAsync(pushed.Conflicts, "反映しませんでした").ConfigureAwait(true);
+        var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPush, pushed.ConflictItems).ConfigureAwait(true);
         var problems = result.Issues.Where(i => i.Code != ErrorCode.E812).ToList();
         if (pushed.Failed.Count > 0 || problems.Count > 0)
         {
             await ShowWarningsAsync("Excel への反映の注意", problems).ConfigureAwait(true);
         }
 
-        if (pushed.WrittenCount > 0)
+        var written = pushed.WrittenCount + resolved.Overwritten;
+        if (written > 0)
         {
             Notify?.Invoke(pushed.Created.Count > 0
-                ? $"Excel へ {pushed.WrittenCount} 件反映しました（新規作成 {pushed.Created.Count} 件）。"
-                : $"Excel へ {pushed.WrittenCount} 件反映しました。");
+                ? $"Excel へ {written} 件反映しました（新規作成 {pushed.Created.Count} 件）。"
+                : $"Excel へ {written} 件反映しました。");
         }
         else if (pushed.Failed.Count == 0 && pushed.Conflicts.Count == 0)
         {
@@ -286,19 +294,54 @@ public sealed partial class ProjectPaneViewModel
     }
 
     /// <summary>
-    /// 衝突の通知。衝突を解決する画面（衝突ダイアログ）は P3 で入るので、P2 では取り込まず（反映せず）、
-    /// 通知だけにとどめる。どちらを残すか決めて、残さない側の変更を手で戻してから、もう一度実行してもらう。
+    /// 手動の取込・反映で衝突したモジュールを、衝突ダイアログ（仕様書_VBA連携 7.5）で利用者に選んでもらい、結果を実行する。
+    /// 「Graft 側で上書き」は Excel 側の本文を <c>.rescue/</c> に控えてから Push、「Excel 側を採用」は Pull、「中止」は何もしない。
     /// </summary>
-    private Task ShowConflictNoticeAsync(IReadOnlyList<string> conflicts, string outcome)
+    private async Task<(int Adopted, int Overwritten)> ResolveConflictsAsync(
+        Project project, VbaConflictScene scene, IReadOnlyList<VbaConflictItem> items)
     {
-        if (conflicts.Count == 0) return Task.CompletedTask;
+        if (items.Count == 0 || _vbaSync is null) return (0, 0);
 
-        var issue = GraftIssue.Of(
-            ErrorCode.E812,
-            $"次のモジュールは、Excel 側とファイル側の両方が変更されているため、{outcome}: {string.Join("、", conflicts)}。" +
-            "衝突を解決する画面は、今後の版で追加されます。それまでは、どちらを残すかを決めて、" +
-            "残さない側の変更を手で取り消してから、もう一度実行してください。",
-            severity: Severity.Warning);
-        return _dialogs.ShowMessageAsync("Excel 側とファイル側の衝突", FormatIssue(issue));
+        var request = new VbaConflictRequest(scene, items);
+        var decision = (ShowConflictAsync is null ? null : await ShowConflictAsync(request).ConfigureAwait(true)) ?? request.DefaultDecision;
+        if (decision.Aborted)
+        {
+            // 衝突が解決されずに止まる（E812。仕様 7.5）。何もせずに戻るので、理由だけ伝える。
+            var issue = GraftIssue.Of(
+                ErrorCode.E812,
+                $"次のモジュールは、Excel 側とファイル側の両方が変更されているため、{(scene == VbaConflictScene.ManualPull ? "取り込みません" : "反映しません")}でした: " +
+                string.Join("、", items.Select(i => i.RelativePath)) + "。",
+                severity: Severity.Warning);
+            await _dialogs.ShowMessageAsync("Excel 側とファイル側の衝突", FormatIssue(issue)).ConfigureAwait(true);
+            return (0, 0);
+        }
+
+        var adopted = 0;
+        var overwritten = 0;
+        var adopt = decision.PathsWith(VbaConflictChoice.AdoptExcel);
+        if (adopt.Count > 0)
+        {
+            var pulled = await _vbaSync.PullAsync(project, adopt, adoptConflicts: adopt).ConfigureAwait(true);
+            if (pulled.IsSuccess) adopted = pulled.Value.Pulled.Count;
+            else await ShowVbaFailureAsync("Excel から取り込めませんでした", project, pulled.Issues).ConfigureAwait(true);
+        }
+
+        var overwrite = decision.PathsWith(VbaConflictChoice.OverwriteExcel);
+        if (overwrite.Count > 0)
+        {
+            var pushed = await _vbaSync.PushAsync(project, overwrite, overwrite).ConfigureAwait(true);
+            if (pushed.IsSuccess)
+            {
+                overwritten = pushed.Value.WrittenCount;
+                await ShowWarningsAsync("Excel への反映の注意", pushed.Issues.Where(i => i.Code != ErrorCode.E812 && i.Severity == Severity.Error))
+                    .ConfigureAwait(true);
+            }
+            else
+            {
+                await ShowVbaFailureAsync("Excel へ反映できませんでした", project, pushed.Issues).ConfigureAwait(true);
+            }
+        }
+
+        return (adopted, overwritten);
     }
 }

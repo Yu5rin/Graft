@@ -268,6 +268,11 @@ public class VbaP2ScenarioTests : IDisposable
         var bridge = NewBridge();
         h.Shell.Graft.VbaBridge = bridge;
         var project = await AddWorkbookAsync(h).ConfigureAwait(true);
+        // この試験は「適用だけでは Excel に届かず、手動の反映で届く」ことを見る。P3 以降、適用後の自動反映は既定で
+        // 有効なので、プロジェクトごとの設定（VbaLink.AutoPushAfterApply）で切っておく。
+        await new ProjectStore(h.AppPaths).UpdateAsync(project.Id, p => p with { Vba = p.Vba! with { AutoPushAfterApply = false } }).ConfigureAwait(true);
+        await h.Shell.Graft.ProjectPane.LoadAsync().ConfigureAwait(true);
+        await h.Shell.Graft.ProjectPane.SelectAsync(h.Shell.Graft.ProjectPane.Items.First(i => i.Project.Id == project.Id)).ConfigureAwait(true);
 
         File.WriteAllText(Mirror(project, "Modules/Module1.bas"), "Sub A()\r\n  ' edited\r\nEnd Sub\r\n");
         await ShellHarness.ExecuteAsync(h.Shell.Graft.ProjectPane.PushToExcelCommand).ConfigureAwait(true);
@@ -275,18 +280,18 @@ public class VbaP2ScenarioTests : IDisposable
         bridge.Get(Book)!.Find("Module1")!.Code.Should().Be("Sub A()\r\n  ' edited\r\nEnd Sub");
         h.Shell.Graft.Notice.Text.Should().Be("Excel へ 1 件反映しました。");
 
-        // 適用（P2 では適用後の自動 Push はまだ無い）→ 手動の Push で届く。
+        // 適用（自動反映を切ってあるので Excel には届かない）→ 手動の Push で届く。
         await h.ParseAsync("Modules/Module1.bas", "  ' edited", "  ' edited by ai").ConfigureAwait(true);
         await ShellHarness.ExecuteAsync(h.Shell.Graft.ApplyCommand).ConfigureAwait(true);
         File.ReadAllText(Mirror(project, "Modules/Module1.bas")).Should().Contain("edited by ai");
-        bridge.Get(Book)!.Find("Module1")!.Code.Should().NotContain("by ai", "P3 まで、適用後の自動反映は無い");
+        bridge.Get(Book)!.Find("Module1")!.Code.Should().NotContain("by ai", "自動反映を切ってあるので、適用だけでは届かない");
 
         await ShellHarness.ExecuteAsync(h.Shell.Graft.ProjectPane.PushToExcelCommand).ConfigureAwait(true);
         bridge.Get(Book)!.Find("Module1")!.Code.Should().Contain("edited by ai");
     }
 
-    [AvaloniaFact(DisplayName = "衝突: 取込も反映も行わず、衝突のモジュール名と「今後の版で対応」を通知する（P3 で衝突ダイアログへ差し替える）")]
-    public async Task 衝突は通知だけ()
+    [AvaloniaFact(DisplayName = "衝突: 衝突ダイアログが未配線（既定の「中止」）なら、取込も反映も行わず、衝突のモジュール名と E812 を通知する。選択を伴う場合は VbaP3ScenarioTests")]
+    public async Task 衝突は既定で中止して通知する()
     {
         using var h = await ShellHarness.CreateAsync().ConfigureAwait(true);
         var bridge = NewBridge();

@@ -100,6 +100,18 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     /// </summary>
     public bool Hang { get; set; }
 
+    /// <summary>
+    /// 指定した操作（<c>List</c>／<c>Read</c>／<c>Write</c>／<c>Save</c>）だけ戻ってこないことにする。
+    /// 解析と読み取りは通り、反映（Write）だけが固まる、という「適用の途中で Excel が固まる」状況を作るのに使う。
+    /// </summary>
+    public HashSet<string> HangOperations { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Write が呼ばれたとき、書き込みの前に待つ処理（呼び出しの記録の後）。Push の最中に別の操作をしたときの挙動
+    /// （貼り付け・取り消し・プロジェクト切り替えを受け付けないこと）を確かめるために、テストが Push を止めておく。
+    /// </summary>
+    public Func<Task>? BeforeWrite { get; set; }
+
     /// <summary><see cref="Configure"/> で受け取った呼び出し全体の時間切れ（既定 30 秒）。</summary>
     public int CallTimeoutMs { get; private set; } = 30000;
 
@@ -180,6 +192,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     {
         Calls.Add($"Write:{workbookFullName}:{string.Join(",", writes.Select(w => w.Name))}");
         WriteRequests.Add(writes.ToList());
+        if (BeforeWrite is not null) await BeforeWrite().ConfigureAwait(false);
         var gate = await EnterAsync<IReadOnlyList<VbaWriteOutcome>>("Write", ct).ConfigureAwait(false);
         if (gate is not null) return gate;
 
@@ -238,7 +251,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     /// <summary>遅延・時間切れ・注入した失敗を処理する。失敗または時間切れなら結果を返し、続けてよければ null。</summary>
     private async Task<GraftResult<T>?> EnterAsync<T>(string operation, CancellationToken ct)
     {
-        if (Hang)
+        if (Hang || HangOperations.Contains(operation))
         {
             // 戻ってこない呼び出し。本物のブリッジの代わりに、ここで呼び出し全体の時間切れを再現する。
             await Task.Delay(TimeSpan.FromMilliseconds(CallTimeoutMs), ct).ConfigureAwait(false);

@@ -64,6 +64,7 @@ public sealed partial class MainViewModel
         finally
         {
             _isApplyInProgress = false;
+            _vbaFileOnly = false; // 「ファイルだけ適用する」はこの適用だけの選択（MainViewModel.VbaApply.cs）。
             if (_pendingSettings is { } pending)
             {
                 _pendingSettings = null;
@@ -91,6 +92,12 @@ public sealed partial class MainViewModel
                 .ConfigureAwait(true);
             return;
         }
+
+        // Excel VBA 連携（仕様書_VBA連携 7.3-2）: VBA プロジェクトでは、DELETE／RENAME（E814）と CP932 で表せない文字（E811）を
+        // 含むブロックにチェックが付いている間は適用を始めない。外せば、ほかのブロックは適用できる。コア（ApplyEngine）は
+        // 変えず、確認・プレビューの前に画面側で止める。VBA プロジェクトでなければ何もしない。
+        var vbaProject = ProjectPane.SelectedItem?.Project;
+        if (await VbaGuardBlocksApplyAsync(vbaProject, updatedPlans).ConfigureAwait(true)) return;
 
         // チェックの組み合わせが成り立たない場合（RENAMEを外して移動先への変更だけ残した、FULLを外して
         // それを前提にした変更だけ残した、等）は、要約入力や確認ダイアログを通した後で中止になるより前に、
@@ -120,13 +127,31 @@ public sealed partial class MainViewModel
         // ここで保存した状態が書き込みまで保たれる。
         var saved = await SaveTargetsAndReanalyzeAsync(dryRun, context, updatedPlans).ConfigureAwait(true);
         if (saved is null) return;
+        var reanalyzed = false;
         if (!ReferenceEquals(saved.Value.DryRun, dryRun))
         {
+            reanalyzed = true;
             dryRun = saved.Value.DryRun;
             context = saved.Value.Context;
             updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
             updatedDryRun = dryRun with { Plans = updatedPlans };
         }
+
+        // Excel VBA 連携（7.3-3）: 解析から「適用」までの間に Excel 側が変わっていないかを、書き込みの前にもう一度確かめる。
+        // 取り込んで解析し直すときは、保存後の再解析と同じ仕組み（チェック状態の引き継ぎ込み）を使う。
+        var rechecked = await RecheckVbaBeforeApplyAsync(dryRun, context, updatedPlans).ConfigureAwait(true);
+        if (rechecked is null) return;
+        if (!ReferenceEquals(rechecked.Value.DryRun, dryRun))
+        {
+            reanalyzed = true;
+            dryRun = rechecked.Value.DryRun;
+            context = rechecked.Value.Context;
+            updatedPlans = Blocks.Select(b => b.Plan with { IsSelected = b.IsSelected }).ToList();
+            updatedDryRun = dryRun with { Plans = updatedPlans };
+        }
+
+        // 再解析で結果が差し替わっていたら、適用できない変更が新しく現れていないかを確かめ直す。
+        if (reanalyzed && await VbaGuardBlocksApplyAsync(vbaProject, updatedPlans).ConfigureAwait(true)) return;
 
         if (_settings.RequireSummary && string.IsNullOrWhiteSpace(updatedDryRun.Patch.Meta.Summary))
         {
@@ -203,8 +228,20 @@ public sealed partial class MainViewModel
         // 6.5: 適用後フック。実行とonFailure（ignore/warn/offerRollback/autoRollback）の分岐は
         // MainViewModel.Hooks.cs（同ファイルグループ）へ委譲する。戻り値はロールバックを
         // 実際に試みたかどうか（下のGit自動コミットの可否判断に使う。MainViewModel.Git.cs参照）。
+        //
+        // Excel VBA 連携（仕様書_VBA連携 7.3-4）: Excel への自動 Push は、ここ（履歴の読み込みの後・フックの前）で行う。
+        // NotifyFilesRewrittenAsync の直後では履歴の一覧がまだ古い。Push の失敗で適用を取り消した場合は、
+        // rolledBack と同じ扱いにして、フックも Git 自動コミットも行わない。
         var rolledBack = false;
-        if (project is not null && project.PostApplyHooks.Count > 0)
+        var vbaUndone = false;
+        string? vbaNoticeDetail = null;
+        if (project is not null && IsVbaActive(project) && project.Vba!.AutoPushAfterApply)
+        {
+            (vbaUndone, vbaNoticeDetail) = await PushVbaAfterApplyAsync(project, result.Value).ConfigureAwait(true);
+            rolledBack = vbaUndone;
+        }
+
+        if (!rolledBack && project is not null && project.PostApplyHooks.Count > 0)
         {
             rolledBack = await RunPostApplyHooksAsync(project, result.Value.Revision).ConfigureAwait(true);
         }
@@ -228,7 +265,7 @@ public sealed partial class MainViewModel
         // 追加対応（実機点検）: 「（1件は適用できませんでした）」だけでは理由がどこにも書いて
         // おらず、利用者は次に何を見ればよいか分からなかった。失敗したブロックの理由（赤字）は
         // 接ぎ木パネルにそのまま残っているので、そこへ誘導する一言を必ず添える。
-        if (updatedDryRun.FailedCount > 0)
+        if (updatedDryRun.FailedCount > 0 && !vbaUndone)
         {
             var completionMessage =
                 $"r{result.Value.Revision} として適用しました。（{updatedDryRun.FailedCount}件は適用できませんでした）" +
@@ -244,7 +281,8 @@ public sealed partial class MainViewModel
         // 間に数秒の表示時間を消費してしまうため）。「適用が失敗した場合や、リビジョンが記録され
         // なかった場合には出さない」仕様のため、ここまで到達している時点で成功は確定しているが、
         // 念のためentriesが1件も無い（実質的に何も変更されなかった）ケースは対象外にする。
-        if (result.Value.Entries.Count > 0) ShowApplyUndoNotice(result.Value.Revision);
+        // Push の失敗で取り消した適用には、「元に戻す」を出さない（すでに取り消してある）。
+        if (result.Value.Entries.Count > 0 && !vbaUndone) ShowApplyUndoNotice(result.Value.Revision, vbaNoticeDetail);
     }
 
     /// <summary>
@@ -333,6 +371,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private async Task UndoLastAsync()
     {
+        if (IsVbaPushing) return; // Excel へ Push している最中は取り消さない（MainViewModel.VbaApply.cs）。
         DismissApplyUndoNotice();
         var undone = await History.UndoLatestAsync().ConfigureAwait(true);
         if (!undone) await _dialogs.ShowMessageAsync("取り消せません", "取り消せる直前の適用がありません。").ConfigureAwait(true);

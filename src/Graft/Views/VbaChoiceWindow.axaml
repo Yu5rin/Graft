@@ -1,0 +1,37 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Graft.Views.VbaChoiceWindow"
+        x:Name="Root"
+        SizeToContent="WidthAndHeight"
+        MinWidth="420" MaxWidth="900"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource TextPrimary}">
+    <!--
+        Excel VBA 連携（仕様書_VBA連携 7.3）で、ボタンの文言を指定したい確認に使う汎用の窓
+        （Push 失敗の「ファイルの変更は残す／もう一度反映する／この適用を取り消す」、解析の前後の取り込みの確認、
+        Excel に接続できないときの「ファイルだけ適用する／中止」）。IDialogService の確認は「OK／キャンセル」か
+        「はい／いいえ／キャンセル」の組しか持たず、文言の違う3択を並べられないため、専用の窓にした。
+        見た目と作法（primary ボタン、肯定的な選択肢を左、Enter は既定のボタン、Esc は既定のボタンと同じ結果）は
+        AvaloniaDialogService の確認ダイアログに揃えている。
+    -->
+    <Grid Margin="20" RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0" MaxHeight="420" VerticalScrollBarVisibility="Auto">
+            <!-- 文面は 640 までで折り返し、窓の幅はボタンの並び（文言が長い選択肢を含む）に合わせて広がる。 -->
+            <TextBlock x:Name="MessageText"
+                       MaxWidth="640"
+                       HorizontalAlignment="Left"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextPrimary}" />
+        </ScrollViewer>
+        <StackPanel Grid.Row="1"
+                    x:Name="ButtonRow"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="8"
+                    Margin="0,16,0,0" />
+    </Grid>
+</Window>
