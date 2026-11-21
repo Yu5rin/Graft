@@ -211,6 +211,7 @@
                               Header="VBE でこの行を開く"
                               IsVisible="False"
                               Click="OnShowInVbeClicked"
+                              views:HelpTip.Standard="右クリックした行のあたりを、Excel の VBE（Visual Basic Editor）のコードウィンドウで開いて前面に出します。Excel でそのブックが開いているときだけ使えます。"
                               AutomationProperties.Name="VBE でこの行を開く" />
                 </ContextMenu>
             </ListBox.ContextMenu>
