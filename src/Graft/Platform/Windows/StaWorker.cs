@@ -12,6 +12,10 @@ namespace Graft.Platform.Windows;
 /// <see cref="CancellationToken"/> では進行中の COM 呼び出しを止められない。そこで待つ側が時間で諦める。
 /// </para>
 /// <para>
+/// 【時間切れの数え方】 時間切れ（<c>timeout</c>）は<b>仕事の実行が始まってから</b>数える。待ち行列で前の仕事を待っている
+/// 時間は数えない（不具合 10。数えると、応答している Excel に対する仕事が、待っていただけで捨てられる）。
+/// </para>
+/// <para>
 /// 【諦めたスレッドの扱い】 戻ってこないスレッドは捨てる（<c>IsBackground = true</c> にして、アプリの終了を妨げない）。
 /// 以後の呼び出しは新しいスレッドで行う。まだ始まっていなかった待ち行列の仕事は、新しいスレッドへ移す。
 /// 捨てたスレッドの仕事が後から戻ってきても結果は使わない。仕事の中の長い繰り返し（複数モジュールの書き込みなど）
@@ -59,6 +63,22 @@ public sealed class StaWorker : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             worker = _current ??= StartWorker();
             worker.Queue.Add(item);
+        }
+
+        // 【時間切れは実行の開始から数える（不具合 10）】 以前はキューに入れた時点から計っていたので、前の仕事が長引くと、
+        // 待っていただけの仕事が、始まった直後（あるいは始まってすぐ）に時間切れになり、動いているスレッドが
+        // 捨てられていた。捨てたスレッドと新しいスレッドが同時に COM を呼ぶと「直列に呼ぶ」前提が崩れ、書き込みなら
+        // 途中で見捨てられてモジュールが空で残りうる。待ち行列の待ちは数えない: 前の仕事は、それ自身の時間切れで
+        // 必ず終わるか捨てられる（捨てれば待っている仕事は新しいスレッドへ移る）ので、待ちは有限になる。
+        // 待っている間は、呼び出し側のキャンセルだけが中断できる。
+        try
+        {
+            await item.Started.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            item.Abandon(); // まだ始まっていなければ、始まらずに捨てられる。
+            throw;
         }
 
         using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -164,10 +184,14 @@ public sealed class StaWorker : IDisposable
         private readonly Func<CancellationToken, T> _work;
         private readonly TaskCompletionSource<T> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly CancellationTokenSource _abandoned = new();
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Item(Func<CancellationToken, T> work) => _work = work;
 
         public Task<T> Task => _completion.Task;
+
+        /// <summary>仕事の実行が始まったとき（待ち行列の順番が来て、スレッドが仕事を取ったとき）に完了する。</summary>
+        public Task Started => _started.Task;
 
         /// <summary>時間切れ・キャンセルで見捨てる。結果は使われず、仕事の中の繰り返しは続きを進めない。</summary>
         public void Abandon()
@@ -180,6 +204,7 @@ public sealed class StaWorker : IDisposable
         {
             // 待ち行列にいるうちに見捨てられた仕事は、実行しない。
             if (_completion.Task.IsCompleted) return;
+            _started.TrySetResult();
             try
             {
                 var result = _work(_abandoned.Token);
