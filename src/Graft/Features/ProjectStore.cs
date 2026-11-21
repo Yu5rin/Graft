@@ -3,7 +3,9 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using Graft.Core;
+using Graft.Core.Vba;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.Features;
 
@@ -300,8 +302,24 @@ public sealed class ProjectStore
     /// 決定的に決まるため同じIdになり、履歴が自動的に復活する。<see cref="CreateId"/>参照）。
     /// </param>
     public Task<GraftResult<bool>> RemoveAsync(string projectId, bool deleteHistory, CancellationToken ct = default)
+        => RemoveAsync(projectId, deleteHistory, VbaRemoveOptions.KeepAll, trash: null, ct);
+
+    /// <summary>
+    /// VBA プロジェクトの削除を含む版（仕様書_VBA連携 4.4）。<paramref name="vba"/> で、ミラーフォルダと
+    /// 同期状態をどうするかを選ぶ。Excel 側のモジュールには何もしない。
+    /// <para>
+    /// 【ミラーは「ごみ箱へ」で、しかも保存先の配下だけ】 ミラーは Excel から Pull し直せば作れるが、
+    /// Graft 側だけに残っている未反映の編集を含みうる。完全には消さずごみ箱へ送る。また、利用者が自分で
+    /// 選んだ場所（バージョン管理したいフォルダなど）のミラーは、Graft が勝手に消してよい物ではないので、
+    /// <c>VbaMirrorsDirectory</c> の配下のときだけ対象にする。
+    /// </para>
+    /// </summary>
+    /// <param name="trash">ミラーを送るごみ箱。null か送れなかったときは、ミラーは残して警告にする。</param>
+    public Task<GraftResult<bool>> RemoveAsync(
+        string projectId, bool deleteHistory, VbaRemoveOptions vba, ITrashService? trash, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+        ArgumentNullException.ThrowIfNull(vba);
 
         return WithGateAsync(async () =>
         {
@@ -313,10 +331,12 @@ public sealed class ProjectStore
                 return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
             }
 
+            var removed = projects[index];
             projects.RemoveAt(index);
             await SaveCoreAsync(projects, ct).ConfigureAwait(false);
 
             var issues = new List<GraftIssue>(loaded.Issues);
+            if (removed.Vba is not null) RemoveVbaArtifacts(removed, vba, trash, issues);
             if (deleteHistory)
             {
                 // 履歴フォルダの削除もゲートの中で行う。back/<projectId>/ は
@@ -330,6 +350,50 @@ public sealed class ProjectStore
             return GraftResult<bool>.Ok(true, issues);
         }, ct);
     }
+
+    /// <summary>
+    /// VBA プロジェクトの削除時の後始末（同期状態・控えのフォルダ・ミラー）。失敗しても例外は投げず、
+    /// 警告として積む（登録の削除自体は済んでいるため。仕様書16章の方針）。
+    /// </summary>
+    private void RemoveVbaArtifacts(Project removed, VbaRemoveOptions vba, ITrashService? trash, List<GraftIssue> issues)
+    {
+        if (vba.DeleteSyncState)
+        {
+            try
+            {
+                // 控え（.rescue）は残す。Excel 側から失われた本文を含みうるので、同期基準を消しても
+                // 利用者が救出できるようにしておく（VbaSyncStateStore.Delete と同じ判断）。
+                new VbaSyncStateStore(_paths).Delete(removed.Id);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                issues.Add(GraftIssue.Of(
+                    ErrorCode.E402,
+                    $"同期状態ファイルの削除に失敗しました。プロジェクトの登録は削除済みです。{ExceptionMessages.Describe(ex)}",
+                    path: _paths.GetVbaSyncFilePath(removed.Id),
+                    severity: Severity.Warning));
+            }
+        }
+
+        if (!vba.DeleteMirror) return;
+
+        // 保存先の vba-mirrors 配下だけ。利用者が選んだ場所のミラーは消さない。
+        if (!IsUnderMirrorsDirectory(removed.Root)) return;
+
+        if (!Directory.Exists(removed.Root)) return;
+        if (trash is null || !trash.Send(removed.Root))
+        {
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E402,
+                $"ミラーフォルダ（{removed.Root}）をごみ箱へ送れませんでした。フォルダは残してあります。",
+                path: removed.Root,
+                severity: Severity.Warning));
+        }
+    }
+
+    /// <summary>ルートがデータ保存先の <c>vba-mirrors</c> の配下か。</summary>
+    public bool IsUnderMirrorsDirectory(string root)
+        => VbaMirrorFolderName.RelocateRoot(root, _paths.VbaMirrorsDirectory, _paths.VbaMirrorsDirectory) is not null;
 
     /// <summary>
     /// プロジェクトペイン改善（利用者からの明示的な要望）: フォルダの移動・リネームで
@@ -407,6 +471,7 @@ public sealed class ProjectStore
             if (newId != projectId)
             {
                 MoveBackupDirectory(projectId, newId, issues);
+                MoveVbaSyncState(projectId, newId, issues);
             }
 
             var updated = projects[index] with
@@ -456,6 +521,29 @@ public sealed class ProjectStore
                 ErrorCode.E402,
                 $"変更履歴フォルダの移動に失敗しました。履歴は元の場所（{oldDir}）に残っています。{ExceptionMessages.Describe(ex)}",
                 path: oldDir,
+                severity: Severity.Warning));
+        }
+    }
+
+    /// <summary>
+    /// <c>vba-sync/&lt;旧Id&gt;.json</c>（と控えのフォルダ）を新しい Id へ付け替える（仕様書_VBA連携 4.4）。
+    /// Id は Root から導くので Root の変更で変わり、付け替えないと同期基準が旧 Id に取り残されて、
+    /// 次の同期が「基準なし」からのやり直し（初回の食い違い＝衝突）になる。履歴フォルダの移動
+    /// （<see cref="MoveBackupDirectory"/>）と同じ扱いで、失敗しても例外にはせず警告にとどめる。
+    /// VBA でないプロジェクトには該当のファイルが無いので何も起きない。
+    /// </summary>
+    private void MoveVbaSyncState(string fromId, string toId, List<GraftIssue> issues)
+    {
+        try
+        {
+            new VbaSyncStateStore(_paths).Move(fromId, toId);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E402,
+                $"同期状態ファイルの移動に失敗しました。{ExceptionMessages.Describe(ex)}",
+                path: _paths.GetVbaSyncFilePath(fromId),
                 severity: Severity.Warning));
         }
     }
@@ -821,4 +909,17 @@ public sealed class ProjectStore
             return false;
         }
     }
+}
+
+/// <summary>
+/// VBA プロジェクトを一覧から外すときの、ミラーと同期状態の扱い（仕様書_VBA連携 4.4）。
+/// 「登録だけ外す」（<see cref="KeepAll"/>）なら、同じブックを後で再追加すると同じフォルダ・同じ Id になり、
+/// 三方比較で続けられる。
+/// </summary>
+/// <param name="DeleteSyncState">同期状態ファイルを削除するか（控えのフォルダは残す）。</param>
+/// <param name="DeleteMirror">ミラーフォルダをごみ箱へ送るか。保存先の vba-mirrors 配下のときだけ効く。</param>
+public sealed record VbaRemoveOptions(bool DeleteSyncState, bool DeleteMirror)
+{
+    /// <summary>登録だけ外す（ミラーも同期状態も残す）。</summary>
+    public static readonly VbaRemoveOptions KeepAll = new(false, false);
 }

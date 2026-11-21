@@ -372,6 +372,20 @@ public static class DataDirectoryMigrator
             return migrated;
         }
 
+        // Excel VBA 連携（仕様書_VBA連携 4.4）: コピー先の projects.json には旧保存先の絶対パスの Root が
+        // 入っている。ポインタファイルを書き換える「前」に、コピー先に対してだけ Root と Id を付け替える。
+        // 失敗したら移行全体の失敗として扱い、コピー先は他の失敗時と同じ流れで片付ける（旧保存先は無傷）。
+        // ポインタを切り替えた後で失敗すると、新しい保存先が「未接続のプロジェクト」だらけになるため。
+        if (!PathsEqual(sourceDirectory, targetDirectory))
+        {
+            var relinked = VbaDataRelinker.Relink(new AppPaths(sourceDirectory), new AppPaths(targetDirectory), replaceExisting: false);
+            if (!relinked.IsSuccess)
+            {
+                TryCleanupIncompleteTarget(targetDirectory, sourceDirectory);
+                return GraftResult<string>.Fail(ErrorCode.E407, string.Join(" / ", relinked.Errors.Select(i => i.ToDisplayText())));
+            }
+        }
+
         var pointerOk = switchToPortable
             ? DataDirectoryPointer.TryClear(exeDirectory)
             : DataDirectoryPointer.TryWrite(exeDirectory, targetDirectory, explicitChoice: true);
@@ -483,6 +497,17 @@ public static class DataDirectoryMigrator
         {
             return new PendingCleanupOutcome(PendingCleanupResult.MigrateFailed, oldDirectory,
                 "コピーしたファイルの大きさが元と一致しませんでした。");
+        }
+
+        // 取り込み直しで、旧保存先の（新しいほうの）projects.json などが現在の保存先へ上書きコピーされ、
+        // 付け替え済みだった VBA ミラーの Root と Id が旧保存先のものに戻る。旧保存先は直後に削除されるので、
+        // 削除の前にもう一度付け替える（旧保存先の内容が最新なので、付け替え先に在る古いコピーは置き換える）。
+        // 失敗したら削除せずマーカーも残し、次回起動でやり直す。
+        var relinked = VbaDataRelinker.Relink(new AppPaths(oldDirectory), new AppPaths(currentBaseDirectory), replaceExisting: true);
+        if (!relinked.IsSuccess)
+        {
+            return new PendingCleanupOutcome(PendingCleanupResult.MigrateFailed, oldDirectory,
+                string.Join(" / ", relinked.Errors.Select(i => i.ToDisplayText())));
         }
 
         var deleteFailures = DeleteKnownContents(oldDirectory);
