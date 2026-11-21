@@ -24,7 +24,11 @@ public sealed class QuickOpenFileEnumerator
         if (!Directory.Exists(project.Root)) return Array.Empty<string>();
 
         var filter = await BuildFilterAsync(project, settings, ct).ConfigureAwait(false);
-        var allowedExtensions = new HashSet<string>(settings.Safety.AllowedExtensions, StringComparer.OrdinalIgnoreCase);
+        var allowedExtensions = new HashSet<string>(
+            // VBA プロジェクトでは .bas/.cls/.frm を実効の許可に加える（仕様書_VBA連携 4.1）。
+            // 加えないと、ミラーのモジュールがクイックオープンの候補に出ない。
+            Core.Vba.VbaExtensionPolicy.Effective(settings.Safety.AllowedExtensions, project),
+            StringComparer.OrdinalIgnoreCase);
 
         return await Task.Run(() =>
         {

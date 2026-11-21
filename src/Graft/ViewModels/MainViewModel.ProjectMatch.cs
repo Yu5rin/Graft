@@ -54,7 +54,7 @@ public sealed partial class MainViewModel
             return true;
         }
 
-        var outcome = await _projectMatcher.MatchAsync(_currentPatch, connected).ConfigureAwait(true);
+        var outcome = await _projectMatcher.MatchAsync(_currentPatch, connected, project.Id).ConfigureAwait(true);
         if (!outcome.IsSuccess || outcome.Value.Best is null)
         {
             // パッチの全ブロックがFULL形式・MKDIRなど新規作成前提で、一致率の算出自体ができない

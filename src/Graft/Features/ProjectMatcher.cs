@@ -60,6 +60,21 @@ public sealed class ProjectMatcher
     /// </summary>
     public Task<GraftResult<ProjectMatchOutcome>> MatchAsync(
         Patch patch, IReadOnlyList<Project> projects, CancellationToken ct = default)
+        => MatchAsync(patch, projects, currentProjectId: null, ct);
+
+    /// <summary>
+    /// 現在のプロジェクト（<paramref name="currentProjectId"/>）を渡す版。一致率が同率のとき、
+    /// 一覧の並び順ではなく現在のプロジェクトを優先する（仕様書_VBA連携 7.3-0）。
+    /// <para>
+    /// 【なぜ要るか】 VBA のミラーはどのブックでも <c>Documents/ThisWorkbook.cls</c>・
+    /// <c>Documents/Sheet1.cls</c>・<c>Modules/Module1.bas</c> と同じ名前になるため、VBA プロジェクトが
+    /// 2つ以上あると一致率が毎回同率（100%）になる。従来の「安定ソートで一覧の先頭が勝つ」では、
+    /// 現在のプロジェクトが先頭でない限り毎回「別のプロジェクトの可能性があります」が出て、
+    /// 誤って切り替えると別のブックへ適用されてしまう。
+    /// </para>
+    /// </summary>
+    public Task<GraftResult<ProjectMatchOutcome>> MatchAsync(
+        Patch patch, IReadOnlyList<Project> projects, string? currentProjectId, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(patch);
         ArgumentNullException.ThrowIfNull(projects);
@@ -82,6 +97,8 @@ public sealed class ProjectMatcher
         var candidates = connected
             .Select(p => Evaluate(p, checkedPaths, ct))
             .OrderByDescending(c => c.Ratio)
+            // 同率なら現在のプロジェクトを先に置く（OrderBy は安定ソートなので、それ以外の並びは従来どおり）。
+            .ThenByDescending(c => currentProjectId is not null && c.Project.Id == currentProjectId)
             .ToList();
 
         return Task.FromResult(BuildOutcome(candidates));
