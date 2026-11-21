@@ -93,6 +93,7 @@ public partial class EditorPane : UserControl
         Editor.TextArea.IndentationStrategy = new DefaultIndentationStrategy();
         Editor.Options.EnableRectangularSelection = true; // 4.4: 矩形選択（Alt+ドラッグ）
         Editor.TextArea.Caret.PositionChanged += OnCaretPositionChanged;
+        InitializeVbaMenu(); // 右クリックした行の記録（Excel VBA 連携。EditorPane.Vba.cs）。
         // 細かいユーザビリティ改善1: 選択文字数のステータスバー表示用。TextArea.SelectionChangedは
         // ドラッグ選択中も連続発火するが、Editor.SelectionLengthはAvalonEdit内部で維持済みの
         // O(1)プロパティを読むだけ（文書を走査しない）なので、既存のCaret.PositionChanged

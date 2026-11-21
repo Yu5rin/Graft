@@ -210,6 +210,7 @@ public sealed class SettingsStore
             Git = raw.Git ?? new GitSettings(),
             Editor = raw.Editor ?? new EditorSettings(),
             Update = raw.Update ?? new UpdateSettings(),
+            Vba = raw.Vba ?? new VbaSettings(),
         };
 
         return safe with
@@ -236,7 +237,30 @@ public sealed class SettingsStore
             Hooks = ValidateHooks(safe.Hooks, issues, context),
             Editor = ValidateEditor(safe.Editor, issues, context),
             Update = ValidateUpdate(safe.Update, issues, context),
+            Vba = ValidateVba(safe.Vba, issues, context),
         };
+    }
+
+    /// <summary>
+    /// Excel VBA 連携（仕様書_VBA連携 8章）の範囲検証。<c>CallTimeoutMs</c> は COM の再試行の上限
+    /// （<c>ComTimeoutMs</c>）以上でないと、再試行の途中で呼び出し全体が諦められて意味をなさないので、
+    /// 下回る場合は既定値（30000。<c>ComTimeoutMs</c> の上限30000以上なので必ず条件を満たす）へ戻す。
+    /// </summary>
+    private static VbaSettings ValidateVba(VbaSettings s, List<GraftIssue> issues, ValidationContext context)
+    {
+        var comTimeout = NormalizeIntRange(s.ComTimeoutMs, 1000, 30000, 5000, "vba.comTimeoutMs", issues, context);
+        var callTimeout = NormalizeIntRange(s.CallTimeoutMs, 5000, 120000, 30000, "vba.callTimeoutMs", issues, context);
+        if (callTimeout < comTimeout)
+        {
+            issues.Add(GraftIssue.Of(ErrorCode.E404,
+                detail: DescribeInvalid(
+                    $"vba.callTimeoutMs の値 {callTimeout} は vba.comTimeoutMs の値 {comTimeout} 未満です。",
+                    context, "既定値 30000 を使用します。"),
+                severity: Severity.Warning));
+            callTimeout = 30000;
+        }
+
+        return s with { ComTimeoutMs = comTimeout, CallTimeoutMs = callTimeout };
     }
 
     private static EditorSettings ValidateEditor(EditorSettings s, List<GraftIssue> issues, ValidationContext context)

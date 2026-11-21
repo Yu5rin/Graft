@@ -180,7 +180,7 @@
         </Border>
 
         <!-- diff本体（表示範囲のみレンダリング） -->
-        <ListBox Grid.Row="2" ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource RowTemplate}"
+        <ListBox x:Name="DiffListBox" Grid.Row="2" ItemsSource="{Binding Lines}" ItemTemplate="{StaticResource RowTemplate}"
                  Background="Transparent" BorderThickness="0"
                  FontFamily="{DynamicResource CodeFontFamily}" FontSize="{Binding CodeFontSize}"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -190,7 +190,7 @@
                 衝突を避けるため、ContextMenuの追加以外は変更しない。
             -->
             <ListBox.ContextMenu>
-                <ContextMenu>
+                <ContextMenu Opening="OnDiffContextMenuOpening">
                     <MenuItem Header="変更前をコピー"
                               Command="{Binding CopyBeforeCommand}"
                               views:HelpTip.Standard="このブロックの変更前の全文をクリップボードへコピーします。新規作成ブロックでは使えません。"
@@ -204,6 +204,15 @@
                               Command="{Binding CopyUnifiedDiffCommand}"
                               views:HelpTip.Standard="この変更をunified diff形式でクリップボードへコピーします。AIへ「この変更のここを直して」と依頼するときに貼れる形です。"
                               AutomationProperties.Name="この差分をunified diff形式でコピー" />
+                    <!-- 仕様書_VBA連携 7.6: Excel VBA プロジェクトのミラー内のファイルの差分のときだけ出す
+                         （表示は OnDiffContextMenuOpening が決める）。 -->
+                    <Separator x:Name="ShowInVbeSeparator" IsVisible="False" />
+                    <MenuItem x:Name="ShowInVbeMenuItem"
+                              Header="VBE でこの行を開く"
+                              IsVisible="False"
+                              Click="OnShowInVbeClicked"
+                              views:HelpTip.Standard="右クリックした行のあたりを、Excel の VBE（Visual Basic Editor）のコードウィンドウで開いて前面に出します。Excel でそのブックが開いているときだけ使えます。"
+                              AutomationProperties.Name="VBE でこの行を開く" />
                 </ContextMenu>
             </ListBox.ContextMenu>
             <ListBox.Styles>

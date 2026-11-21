@@ -83,6 +83,13 @@ public sealed partial class ShellViewModel
             new("選択中のプロジェクトのパスをコピー", Graft.ProjectPane.CopyPathCommand, null, null, c),
             new("選択中のプロジェクトを" + Views.MenuText.RevealInFileManager, Graft.ProjectPane.RevealCommand, null, null, c),
 
+            // Excel VBA 連携（仕様書_VBA連携 7.2・7.2b・7.6）。この環境で使えないときは一覧に出さない。
+            // ホットキーは設けない（再登録処理の作り直しが大きいため。Pull はパレットと右クリックメニューで行う）。
+            new("Excel ブックからプロジェクトを追加", Graft.ProjectPane.AddFromWorkbookCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
+            new("Excel から取込（選択中の VBA プロジェクト）", Graft.ProjectPane.PullFromExcelCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
+            new("Excel へ反映（選択中の VBA プロジェクト）", Graft.ProjectPane.PushToExcelCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
+            new("Excel のブックを前面に出す（選択中の VBA プロジェクト）", Graft.ProjectPane.ActivateWorkbookCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
+
             // ===== 編集 =====
             new("ファイル内を検索", EditorKey("Find", HasDocumentTab), null, Gesture("Find"), PaletteCategories.Edit),
             new("ファイル内を置換", EditorKey("Replace", HasDocumentTab), null, Gesture("Replace"), PaletteCategories.Edit),

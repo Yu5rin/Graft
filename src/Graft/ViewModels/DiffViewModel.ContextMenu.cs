@@ -24,6 +24,44 @@ public sealed partial class DiffViewModel
     /// </summary>
     public ICommand CopyUnifiedDiffCommand { get; private set; } = null!;
 
+    /// <summary>
+    /// 「VBE でこの行を開く」を出してよい差分か（Excel VBA プロジェクトのミラー内のファイルのときだけ）。
+    /// <c>MainViewModel</c> がプロジェクトペインへつなぐ。未設定なら出さない。
+    /// </summary>
+    public Func<string, bool>? CanShowInVbe { get; set; }
+
+    /// <summary>VBE でモジュールを開いて指定行へ移動する（相対パス、1 始まりの行）。</summary>
+    public Func<string, int, Task>? ShowInVbeAsync { get; set; }
+
+    /// <summary>右クリックメニューに「VBE でこの行を開く」を出すか（表示中の差分のファイルで判定する）。</summary>
+    public bool IsShowInVbeAvailable => _plan?.Path is { } path && CanShowInVbe?.Invoke(path) == true;
+
+    /// <summary>
+    /// 差分の行から、VBE で開く行番号を求める。Excel は適用前の本文を持っているので、変更前の行番号を優先し、
+    /// 追加行のように変更前の番号が無いときは変更後の番号（ほぼ同じ位置）を使う。どちらも無ければ 1 行目。
+    /// </summary>
+    public static int VbeLineOf(DiffLineViewModel? row)
+    {
+        if (row is null) return 1;
+        foreach (var cell in new[] { row.Left, row.Right })
+        {
+            if (cell is null) continue;
+            if (int.TryParse(cell.OldLineText, out var oldLine) && oldLine > 0) return oldLine;
+        }
+
+        foreach (var cell in new[] { row.Left, row.Right })
+        {
+            if (cell is null) continue;
+            if (int.TryParse(cell.NewLineText, out var newLine) && newLine > 0) return newLine;
+        }
+
+        return 1;
+    }
+
+    /// <summary>右クリックした行を VBE で開く。</summary>
+    public Task OpenInVbeAsync(DiffLineViewModel? row)
+        => _plan?.Path is { } path && ShowInVbeAsync is { } open ? open(path, VbeLineOf(row)) : Task.CompletedTask;
+
     private void InitializeContextMenuCommands()
     {
         // 新規作成ブロックのBeforeTextは「元ファイルが無い」ことを表すため空文字列

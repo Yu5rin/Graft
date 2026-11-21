@@ -129,6 +129,17 @@ public partial class ShellWindow : Window
         viewModel.PropertyChanged += OnShellViewModelPropertyChanged;
         viewModel.Graft.RequestOpenQueue += OnRequestOpenQueue;
         viewModel.Graft.ApplyPreviewRequested += OnApplyPreviewRequested;
+        // Excel VBA 連携（仕様書_VBA連携 7.1）: 「Excel ブックから追加」の選択画面。ViewModel は Window の型を知らないので、
+        // 開く処理をここから渡す。
+        viewModel.Graft.ProjectPane.ShowWorkbookPickerAsync = picker => new VbaWorkbookPickerWindow(picker).ShowAndConfirmAsync(this);
+        // 衝突ダイアログと、ボタンの文言を指定する確認（Push 失敗など。仕様書_VBA連携 7.3・7.5）。
+        viewModel.Graft.ShowVbaConflictAsync = async request =>
+            await new VbaConflictWindow(viewModel.Graft.CreateVbaConflictViewModel(request)).ShowAndResolveAsync(this).ConfigureAwait(true);
+        viewModel.Graft.ChooseVbaAsync = async request =>
+            await new VbaChoiceWindow(request, viewModel.Graft.ProjectPane.OpenWorkbookInExcel).ShowAndChooseAsync(this).ConfigureAwait(true);
+        // ブックが開いているかの調べ直しの契機: Graft のウィンドウが前面になったとき（仕様書_VBA連携 7.6。
+        // 定期的な監視はしない。間隔の制限は ProjectPaneViewModel.RequestVbaBadgeRefresh が持つ）。
+        Activated += (_, _) => viewModel.Graft.ProjectPane.RequestVbaBadgeRefresh();
         viewModel.Graft.RequestOpenContextCollect += OnRequestOpenContextCollect;
         viewModel.Graft.RequestFocusHistory += OnRequestFocusHistory;
         viewModel.RequestFocusSearchView += OnRequestFocusSearchView;
@@ -366,6 +377,9 @@ public partial class ShellWindow : Window
             await ViewModel.Graft.InitializeAsync().ConfigureAwait(true);
             ApplyLayoutToWindow();
             IsLayoutApplied = true;
+            // 起動直後にプロジェクト一覧が読めた段階で、VBA プロジェクトのブックが開いているかを調べる
+            // （仕様書_VBA連携 7.6。待たない。Excel が無い環境・VBA プロジェクトが無いときは何もしない）。
+            ViewModel.Graft.ProjectPane.RequestVbaBadgeRefresh();
         }).ConfigureAwait(true);
     }
 
@@ -588,7 +602,8 @@ public partial class ShellWindow : Window
         // 取り消さずそのまま続けるため、従来の同期的な閉じ方は変わらない。
         // トレイに常駐する設定のときは上で隠して戻っているので、ここへは来ない（確認しない）。
         if (!_closeConfirmed
-            && (ViewModel.Graft.IsApplyInProgress || ViewModel.Editor.UnsavedDocumentNames().Count > 0))
+            && (ViewModel.Graft.IsApplyInProgress || ViewModel.Graft.IsVbaWriting
+                || ViewModel.Editor.UnsavedDocumentNames().Count > 0))
         {
             e.Cancel = true;
             if (!_closeCheckInProgress) _ = ConfirmThenCloseAsync();
@@ -673,7 +688,10 @@ public partial class ShellWindow : Window
         var proceed = false;
         try
         {
-            while (ViewModel.Graft.IsApplyInProgress) await Task.Delay(100).ConfigureAwait(true);
+            // Excel へ書いている最中（取り消し・復元の後の反映、手動の反映など。適用ではない）も待つ（不具合 9）。
+            // 書き込みの途中（消したあと・書く前）でプロセスが終わると、Excel 側のモジュールが空のまま残る。
+            // 待ち時間は有限（COM の呼び出しには時間切れがある。仕様 5.3）。
+            while (ViewModel.Graft.IsApplyInProgress || ViewModel.Graft.IsVbaWriting) await Task.Delay(100).ConfigureAwait(true);
             proceed = await ViewModel.Editor.ConfirmSaveBeforeExitAsync().ConfigureAwait(true);
         }
         finally

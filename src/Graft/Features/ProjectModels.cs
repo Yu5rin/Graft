@@ -49,6 +49,28 @@ public sealed record ProjectOverrides
         new Dictionary<string, string>();
 }
 
+/// <summary>
+/// Excel ブックとの紐付け（仕様書_VBA連携 4.1）。<see cref="Project.Vba"/> が非 null のプロジェクトが
+/// VBA プロジェクトで、<see cref="Project.Root"/> はミラーフォルダ（モジュール本文のテキスト）を指す。
+/// <para>
+/// 【<see cref="ProjectOverrides"/> ではなくここに置く理由】 <see cref="AutoPushAfterApply"/> と
+/// <see cref="SaveWorkbookAfterPush"/> を変える画面は、プロジェクトの右クリックメニューのチェック項目で、
+/// <c>ProjectOverrides</c> を編集する画面は存在しない（編集されるのはコンテキスト収集の
+/// Excludes／ContextFileStates だけ）ため。
+/// </para>
+/// </summary>
+public sealed record VbaLink
+{
+    /// <summary>紐付けたブックのフルパス（ROT の表示名と照合する。大文字小文字は区別しない）。</summary>
+    public string WorkbookFullName { get; init; } = string.Empty;
+
+    /// <summary>適用後に Excel へ自動反映するか。既定は true。</summary>
+    public bool AutoPushAfterApply { get; init; } = true;
+
+    /// <summary>反映後にブックを保存するか。既定は false（保存は利用者が Excel で行う）。</summary>
+    public bool SaveWorkbookAfterPush { get; init; }
+}
+
 /// <summary>プロジェクト定義。projects.json の1要素。仕様書3.1。</summary>
 public sealed record Project
 {
@@ -123,6 +145,13 @@ public sealed record Project
     public ProjectOverrides Overrides { get; init; } = new();
     /// <summary>適用後フック。</summary>
     public IReadOnlyList<PostApplyHook> PostApplyHooks { get; init; } = Array.Empty<PostApplyHook>();
+
+    /// <summary>
+    /// Excel ブックとの紐付け（仕様書_VBA連携 4.1）。null のプロジェクトは従来どおりのファイルプロジェクト。
+    /// この項目が無い既存の projects.json はそのまま読めて null になる（JSON のキーは camelCase の
+    /// <c>vba</c>）。
+    /// </summary>
+    public VbaLink? Vba { get; init; }
 
     /// <summary>ルートが存在せず未接続かどうか。永続化はせず起動時の検証で設定する。</summary>
     [System.Text.Json.Serialization.JsonIgnore]

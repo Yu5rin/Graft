@@ -17,7 +17,8 @@ namespace Graft.ViewModels;
 /// ShellViewModelが渡す（無い操作はnull）。</param>
 /// <param name="Category">分類（ファイル／編集／表示／AIに渡す／AIから受け取る／履歴／設定とヘルプ）。
 /// 各行に添えて表示し、候補を分類順に並べる。<see cref="PaletteCategories"/>の定数を使う。</param>
-public sealed record PaletteCommandDescriptor(string Title, ICommand Command, object? Parameter, string? Gesture, string Category);
+public sealed record PaletteCommandDescriptor(
+    string Title, ICommand Command, object? Parameter, string? Gesture, string Category, Func<bool>? IsAvailable = null);
 
 /// <summary>
 /// コマンドパレットの分類名と、その並び順。ツールバー・メニューの区分（AIに渡す→AIから受け取る→履歴→
@@ -206,17 +207,21 @@ public sealed class CommandPaletteViewModel : ObservableObject
     {
         Results.Clear();
 
+        // 環境によって存在しない機能（この環境では使えない Excel VBA 連携など）は、無効な行として見せるのではなく
+        // 一覧に出さない。判定は開くたび・入力のたびに行うので、設定や環境が途中で変わっても追随する。
+        var available = _allCommands.Where(c => c.IsAvailable?.Invoke() ?? true).ToList();
+
         IEnumerable<PaletteCommandDescriptor> ordered;
         if (_query.Length == 0)
         {
             // 分類ごとに並べる（分類の順は PaletteCategories.Order）。同じ分類の中は、定義した順
             // （よく使う順に並べてある）のまま。以前は操作名の五十音順で、関連する操作が散らばっていた。
-            ordered = _allCommands.OrderBy(c => CategoryRank(c.Category));
+            ordered = available.OrderBy(c => CategoryRank(c.Category));
         }
         else
         {
             // 操作名に一致しなければ、分類名つき（「履歴 取り消す」のような入力）でも探す。
-            ordered = _allCommands
+            ordered = available
                 .Select(c => (Descriptor: c, Match: MatchTitleOrCategory(c)))
                 .Where(x => x.Match.IsMatch)
                 .OrderBy(x => x.Match.Tier)

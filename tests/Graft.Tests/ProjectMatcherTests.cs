@@ -202,4 +202,41 @@ public class ProjectMatcherTests
         outcome.Value.Best!.Ratio.Should().Be(1.0, "新規ファイル2件は分母から除かれ、既存3件が全て一致するため100%になるはず");
         outcome.Value.Best!.MatchedPaths.Should().HaveCount(3);
     }
+
+    [Fact(DisplayName = "VBA連携: 一致率が同率のとき、一覧の並び順ではなく現在のプロジェクトが優先される")]
+    public async Task 同率のときは現在のプロジェクトが優先される()
+    {
+        // VBA のミラーはどのブックでも Modules/Module1.bas などが同じ名前で並ぶため、一致率が毎回同率になる。
+        using var wsA = new TempWorkspace();
+        using var wsB = new TempWorkspace();
+        wsA.WriteText("Modules/Module1.bas", "x");
+        wsB.WriteText("Modules/Module1.bas", "x");
+        var a = MakeProject(wsA.RootPath, "p_a");
+        var b = MakeProject(wsB.RootPath, "p_b");
+        var patch = MakePatch(Existing("Modules/Module1.bas"));
+
+        var withoutCurrent = await new ProjectMatcher().MatchAsync(patch, new[] { a, b });
+        withoutCurrent.Value.Best!.Project.Id.Should().Be("p_a", "現在のプロジェクトを渡さなければ従来どおり一覧の先頭が勝つ");
+
+        var currentIsB = await new ProjectMatcher().MatchAsync(patch, new[] { a, b }, "p_b");
+        currentIsB.Value.Best!.Project.Id.Should().Be("p_b", "同率なら現在のプロジェクトを優先する");
+        currentIsB.Value.Best!.Ratio.Should().Be(1.0);
+    }
+
+    [Fact(DisplayName = "VBA連携: 現在のプロジェクトより一致率が高いプロジェクトがあれば、そちらが優先される")]
+    public async Task 現在のプロジェクトより一致率が高ければ高いほうが勝つ()
+    {
+        using var wsA = new TempWorkspace();
+        using var wsB = new TempWorkspace();
+        wsA.WriteText("a.py", "x");
+        wsB.WriteText("a.py", "x");
+        wsB.WriteText("b.py", "x");
+        var a = MakeProject(wsA.RootPath, "p_a");
+        var b = MakeProject(wsB.RootPath, "p_b");
+        var patch = MakePatch(Existing("a.py"), Existing("b.py"));
+
+        var outcome = await new ProjectMatcher().MatchAsync(patch, new[] { a, b }, "p_a");
+
+        outcome.Value.Best!.Project.Id.Should().Be("p_b", "同率優先は一致率の高さを覆さない");
+    }
 }

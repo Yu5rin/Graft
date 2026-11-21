@@ -54,7 +54,19 @@ public sealed partial class MainViewModel
         if (outcome == TargetSaveOutcome.Cancelled) return null;
         if (outcome == TargetSaveOutcome.NothingToSave) return (dryRun, context);
 
-        // 保存が起きた。やり直しは一覧を作り直してチェックを既定へ戻すため、先に控える。
+        // 保存が起きた。チェックの状態を保ったまま解析し直す。
+        return await ReanalyzeKeepingSelectionAsync(dryRun).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// チェックの状態を保ったまま、現在のパッチを解析し直す。保存でディスクの内容が変わったとき
+    /// （<see cref="SaveTargetsAndReanalyzeAsync"/>）と、Excel VBA 連携で解析の後に Excel 側の内容をミラーへ取り込んだとき
+    /// （<c>MainViewModel.VbaApply.cs</c>。仕様書_VBA連携 7.3-3 は「同じ再解析の仕組みを再利用する」と定める）に使う。
+    /// 戻り値の意味は <see cref="SaveTargetsAndReanalyzeAsync"/> と同じ（null なら適用を進めない）。
+    /// </summary>
+    private async Task<(DryRunResult DryRun, ApplyContext Context)?> ReanalyzeKeepingSelectionAsync(DryRunResult dryRun)
+    {
+        // やり直しは一覧を作り直してチェックを既定へ戻すため、先に控える。
         var previousSelection = new Dictionary<object, bool>(ReferenceEqualityComparer.Instance);
         foreach (var b in Blocks) previousSelection[SelectionKey(b.Plan)] = b.IsSelected;
         var mustStayApplicable = Blocks
@@ -62,7 +74,15 @@ public sealed partial class MainViewModel
             .Select(b => SelectionKey(b.Plan))
             .ToList();
 
-        await RunDryRunAsync().ConfigureAwait(true);
+        _suppressVbaGuardNotice = true;
+        try
+        {
+            await RunDryRunAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            _suppressVbaGuardNotice = false;
+        }
 
         // やり直しが完走しなかった（エラー・破棄・プロジェクト切替）。画面側にエラー等が出ているので、
         // 古い結果のまま適用へ進まない。

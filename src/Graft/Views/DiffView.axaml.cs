@@ -58,6 +58,9 @@ public partial class DiffView : UserControl
         // が失われるため、GroupNameという仕組み自体は残しつつ、値をDiffViewのインスタンスごとに
         // 一意にする（Guid採番）。これにより「ペア内では排他」という意図した挙動は保ったまま、
         // 別インスタンス間の意図しない相互干渉を断つ。
+        // 仕様書_VBA連携 7.6: 右クリックした行を覚えておく（メニューが開く前に、トンネル段階で行を特定する）。
+        DiffListBox.AddHandler(ContextRequestedEvent, OnDiffContextRequested, RoutingStrategies.Tunnel);
+
         var groupName = "DiffMode-" + Guid.NewGuid().ToString("N");
         SideBySideRadio.GroupName = groupName;
         UnifiedRadio.GroupName = groupName;
@@ -91,6 +94,36 @@ public partial class DiffView : UserControl
     }
 
     private DiffViewModel? _observed;
+
+    // 右クリックした差分の行（VBE でこの行を開く用）。行の上でなければ null（1 行目として扱う）。
+    private DiffLineViewModel? _contextRow;
+
+    private void OnDiffContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        _contextRow = null;
+        for (var visual = e.Source as Avalonia.Visual; visual is not null; visual = Avalonia.VisualTree.VisualExtensions.GetVisualParent(visual))
+        {
+            if (visual is ListBoxItem { DataContext: DiffLineViewModel row })
+            {
+                _contextRow = row;
+                break;
+            }
+        }
+    }
+
+    /// <summary>右クリックメニューを開く直前。Excel VBA プロジェクトのミラー内のファイルの差分のときだけ「VBE でこの行を開く」を出す。</summary>
+    private void OnDiffContextMenuOpening(object? sender, CancelEventArgs e)
+    {
+        var visible = DataContext is DiffViewModel { IsShowInVbeAvailable: true };
+        ShowInVbeMenuItem.IsVisible = visible;
+        ShowInVbeSeparator.IsVisible = visible;
+    }
+
+    private async void OnShowInVbeClicked(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not DiffViewModel vm) return;
+        await SafeHandler.RunAsync("VBE で開く", () => vm.OpenInVbeAsync(_contextRow)).ConfigureAwait(true);
+    }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

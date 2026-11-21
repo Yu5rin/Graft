@@ -258,13 +258,18 @@ public sealed class FileTreeService
     }
 
     /// <summary>設定からPathGuardの検証オプションを組み立てる。</summary>
-    public static PathGuardOptions BuildGuardOptions(Settings settings)
+    /// <param name="settings">設定。</param>
+    /// <param name="project">
+    /// 対象のプロジェクト。VBA プロジェクトのときだけ、実効の許可拡張子に <c>.bas/.cls/.frm</c> が加わる
+    /// （仕様書_VBA連携 4.1。全体の既定とユーザーの設定は変えない）。省略または VBA 以外なら従来どおり。
+    /// </param>
+    public static PathGuardOptions BuildGuardOptions(Settings settings, Project? project = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         var safety = settings.Safety;
         return new PathGuardOptions
         {
-            AllowedExtensions = safety.AllowedExtensions,
+            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(safety.AllowedExtensions, project),
             MaxFileSizeMB = safety.MaxFileSizeMB,
             MaxFilesPerRevision = safety.MaxFilesPerRevision,
         };

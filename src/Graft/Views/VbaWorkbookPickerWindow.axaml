@@ -1,0 +1,184 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Graft.Views"
+        x:Class="Graft.Views.VbaWorkbookPickerWindow"
+        x:Name="Root"
+        Title="Excel ブックから追加"
+        Width="620" Height="600"
+        MinWidth="480" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource TextPrimary}"
+        AutomationProperties.Name="Excel ブックから追加">
+    <!--
+        仕様書_VBA連携 7.1: 起動中の Excel ブックを選び、ミラーフォルダの場所を決めて、プロジェクトを作る。
+        選べないブック（ロック中・保護ビュー・OneDrive／SharePoint など）は理由つきで無効にして見せる。
+        見た目は QueueWindow などの既存ダイアログに揃える（トークン・primary ボタン・Enter 既定・Esc で閉じる）。
+    -->
+    <Grid Margin="16" RowDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
+
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+            <TextBlock Grid.Column="0"
+                       Text="起動中の Excel ブック"
+                       VerticalAlignment="Center"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <Button Grid.Column="1"
+                    Content="更新"
+                    Command="{Binding RefreshCommand}"
+                    views:HelpTip.Standard="Excel で開いているブックの一覧を読み込み直します。"
+                    views:HelpTip.Detailed="Excel でブックを開いた直後や、トラストセンターの設定を変えた後に押すと、一覧を最新の状態に読み込み直します。"
+                    AutomationProperties.Name="ブックの一覧を更新" />
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <ListBox x:Name="WorkbookListBox"
+                     ItemsSource="{Binding Workbooks}"
+                     SelectedItem="{Binding SelectedWorkbook, Mode=TwoWay}"
+                     Background="{DynamicResource BgSurface}"
+                     AutomationProperties.Name="起動中のブック一覧"
+                     views:HelpTip.Standard="Excel で開いている保存済みのブックの一覧です。選べないブックには理由が表示されます。"
+                     views:HelpTip.Detailed="Excel で開いている、保存済みのブックの一覧です。名前の下にフルパスが出ます。VBA プロジェクトに触れないブック（ロック中、保護ビュー、OneDrive／SharePoint 上、アクセス未許可など）は選べず、理由が表示されます。">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="IsEnabled" Value="{Binding IsSelectable}" />
+                        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,4">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding Name}"
+                                           FontSize="{DynamicResource BodyFontSize}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding StatusText}"
+                                           Margin="8,0,0,0"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource StateWarn}"
+                                           IsVisible="{Binding StatusText, Converter={x:Static views:Converters.NotEmptyString}}" />
+                            </Grid>
+                            <TextBlock Text="{Binding FullName}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding ReasonText}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}"
+                                       TextWrapping="Wrap"
+                                       IsVisible="{Binding ReasonText, Converter={x:Static views:Converters.NotEmptyString}}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <!-- 一覧が空のとき（読み込みが済んでからだけ）。ブックが無い、または出ない理由の手がかりは、一覧の下の注意に常にある。 -->
+            <TextBlock Text="起動中のブックがありません。Excel でブックを保存してから、「更新」を押してください。"
+                       Margin="12"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondary}"
+                       x:Name="EmptyMessage"
+                       IsVisible="False" />
+        </Grid>
+
+        <!-- 5.2: OneDrive 同期フォルダ上のブックなどは一覧に出ないことがあるため、この注意は常に添える。 -->
+        <TextBlock Grid.Row="2"
+                   Text="{Binding Note}"
+                   Margin="0,8,0,0"
+                   FontSize="{DynamicResource CaptionFontSize}"
+                   Foreground="{DynamicResource TextSecondary}"
+                   TextWrapping="Wrap" />
+
+        <!-- 失敗（E802 のトラストセンターの案内など）は、その場に出す。 -->
+        <Border Grid.Row="3"
+                Margin="0,8,0,0"
+                Padding="8"
+                CornerRadius="4"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource StateError}"
+                IsVisible="{Binding HasError}">
+            <TextBlock Text="{Binding ErrorText}"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource StateError}"
+                       x:Name="ErrorMessage" />
+        </Border>
+
+        <StackPanel Grid.Row="4" Margin="0,12,0,0">
+            <TextBlock Text="ミラーフォルダ（モジュールをテキストで置く場所）"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                <TextBox Grid.Column="0"
+                         Text="{Binding MirrorFolder, Mode=TwoWay}"
+                         views:HelpTip.Standard="モジュールのテキストを置くフォルダです。既定は Graft のデータ保存先の中です。"
+                         views:HelpTip.Detailed="選んだブックの VBA コードを、1モジュール1ファイルのテキストとして置くフォルダです。既定は Graft のデータ保存先（vba-mirrors）の中で、共有ドライブ上のブックの隣に勝手にフォルダを作らないようにしています。バージョン管理したいときなどは、別のフォルダを選べます。"
+                         AutomationProperties.Name="ミラーフォルダ" />
+                <Button Grid.Column="1"
+                        Content="参照…"
+                        Margin="8,0,0,0"
+                        Command="{Binding BrowseMirrorFolderCommand}"
+                        views:HelpTip.Standard="ミラーフォルダの場所をダイアログで選びます。"
+                        views:HelpTip.Detailed="フォルダ選択ダイアログを開き、ミラーフォルダの場所を選びます。"
+                        AutomationProperties.Name="ミラーフォルダを参照" />
+            </Grid>
+        </StackPanel>
+
+        <!-- 同じ場所に既存のミラーがあるときだけ。三方比較で続けるか、作り直すかを選ばせる（7.1 の 3）。 -->
+        <StackPanel Grid.Row="5" Margin="0,12,0,0" IsVisible="{Binding ExistingMirrorFound}">
+            <TextBlock Text="この場所には、すでにミラーがあります。"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <RadioButton GroupName="ExistingMirror"
+                         Content="既存のミラーを使う（Excel との違いは三方比較で続ける）"
+                         IsChecked="{Binding ReuseExistingMirror, Mode=TwoWay}"
+                         Margin="0,4,0,0"
+                         views:HelpTip.Standard="いまのミラーとその同期の記録をそのまま使います。"
+                         views:HelpTip.Detailed="フォルダにあるミラーと、Graft に残っている同期の記録をそのまま使います。以前に外したプロジェクトを同じブックで追加し直すときの選択です。Excel 側と違いがあれば、取込や反映のときに三方比較で扱います。"
+                         AutomationProperties.Name="既存のミラーを使う" />
+            <!-- ミラーのものではないファイルが混じっている場所では、作り直しを出さない（ごみ箱へ送る範囲を守る）。 -->
+            <RadioButton GroupName="ExistingMirror"
+                         Content="作り直す（既存のモジュールのファイルはごみ箱へ送り、Excel から取り込み直す）"
+                         IsChecked="{Binding RebuildMirror, Mode=TwoWay}"
+                         IsVisible="{Binding CanRebuildMirror}"
+                         Margin="0,2,0,0"
+                         views:HelpTip.Standard="既存のモジュールのファイルをごみ箱へ送り、Excel の内容から作り直します。"
+                         views:HelpTip.Detailed="既存のミラーのうち、同期の対象のファイル（Modules・Classes・Forms・Documents の中のモジュール）だけをごみ箱へ送り、Excel の現在の内容から作り直します。ミラーだけにあった未反映の編集は、ごみ箱から戻さない限り失われます。"
+                         AutomationProperties.Name="ミラーを作り直す" />
+            <TextBlock Text="このフォルダにはミラーのものではないファイルがあるため、作り直しは選べません。"
+                       IsVisible="{Binding !CanRebuildMirror}"
+                       Margin="0,2,0,0"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="6"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,16,0,0">
+            <Button Classes="primary" x:Name="ConfirmButton"
+                    Content="追加"
+                    IsDefault="True"
+                    IsEnabled="{Binding CanConfirm}"
+                    Click="OnConfirmClicked"
+                    Margin="0,0,8,0"
+                    views:HelpTip.Standard="選んだブックのコードをミラーへ書き出して、プロジェクトとして追加します。"
+                    views:HelpTip.Detailed="選んだブックの全モジュールを Excel から読み、ミラーフォルダにテキストとして書き出して、同期の基準を作り、プロジェクトとして追加します。Excel のブックには何も書き込みません。"
+                    AutomationProperties.Name="プロジェクトとして追加" />
+            <Button x:Name="CancelButton"
+                    Content="キャンセル"
+                    IsCancel="True"
+                    Click="OnCancelClicked"
+                    views:HelpTip.Standard="追加せずに閉じます（Esc）。"
+                    views:HelpTip.Detailed="何も追加せずにこの画面を閉じます。キーボードの Esc キーでも閉じられます。"
+                    AutomationProperties.Name="キャンセル" />
+        </StackPanel>
+    </Grid>
+</Window>

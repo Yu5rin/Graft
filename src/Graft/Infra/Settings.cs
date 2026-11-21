@@ -114,6 +114,54 @@ public sealed record Settings
 
     /// <summary>自動更新（機能追加）。既定はオン（起動時に確認する）。</summary>
     public UpdateSettings Update { get; init; } = new();
+
+    /// <summary>
+    /// Excel VBA 連携（仕様書_VBA連携 8章）。settings.json に <c>vba</c> キーが無い旧版の設定は
+    /// 既定値で読まれる。<see cref="Graft.ViewModels.SettingsViewModel"/> の保存は <c>new Settings</c> で
+    /// 全項目を組み立て直すため、そちらにも引き継ぎを書かないと、設定画面で何か保存するたびに
+    /// この値が既定へ戻る。
+    /// </summary>
+    public VbaSettings Vba { get; init; } = new();
+}
+
+/// <summary>
+/// Excel VBA 連携の設定（仕様書_VBA連携 8章）。プロジェクトごとの自動反映・ブック保存は
+/// <c>Project.Vba</c>（VbaLink）の項目で、ここには置かない。
+/// <para>
+/// ホットキー（<c>PullHotkey</c>）は初版から設けない。既存のホットキーは <see cref="Settings.Hotkey"/>・
+/// <see cref="Settings.PromptHotkey"/> の2本固定で、再登録（<c>ReapplyHotkey</c> は個別解除なしの
+/// <c>UnregisterAll</c>）の作り直しが大きいため。
+/// </para>
+/// </summary>
+public sealed record VbaSettings
+{
+    /// <summary>
+    /// 機能全体の有効・無効。false のときは COM を一切呼ばず、VBA プロジェクトも
+    /// 普通のファイルプロジェクトとして扱う（ミラーは編集・適用できるが同期の操作は無効）。
+    /// </summary>
+    public bool Enabled { get; init; } = true;
+
+    /// <summary>コンテキスト収集の走査の前に、Excel から自動で取り込む（Pull）か。</summary>
+    public bool PullOnContextOpen { get; init; } = true;
+
+    /// <summary>
+    /// 解析（ドライラン）の直前に対象モジュールを自動で Pull するか。false のときは
+    /// 同じ内容を確認ダイアログ（取り込む／取り込まずに続ける／中止）で行う。
+    /// </summary>
+    public bool PullBeforeDryRun { get; init; } = true;
+
+    /// <summary>
+    /// COM が「拒否」を返した（セル編集中・ダイアログ表示中など）ときの再試行の上限（ミリ秒）。
+    /// 範囲 1000〜30000。超えたら E805。
+    /// </summary>
+    public int ComTimeoutMs { get; init; } = 5000;
+
+    /// <summary>
+    /// COM 呼び出し全体の時間切れ（ミリ秒）。範囲 5000〜120000、<see cref="ComTimeoutMs"/> 以上。
+    /// 再試行は「拒否」が返る場合にしか効かず、マクロ実行中などは呼び出しが戻らない見込みなので、
+    /// 待つ側がこの時間で諦めて E805 にする。
+    /// </summary>
+    public int CallTimeoutMs { get; init; } = 30000;
 }
 
 /// <summary>

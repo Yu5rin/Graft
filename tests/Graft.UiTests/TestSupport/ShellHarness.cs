@@ -213,7 +213,10 @@ public sealed class ScriptedDialogs : IDialogService
     public Task<string?> PromptAsync(string title, string message, string? initial = null)
         => Task.FromResult(PromptAnswer is null ? initial ?? "テスト" : PromptAnswer(title, message, initial));
 
-    public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
+    /// <summary>PickFolderAsyncの応答（title）。未指定ならキャンセル（null）。</summary>
+    public Func<string, string?>? PickFolderAnswer { get; set; }
+
+    public Task<string?> PickFolderAsync(string title) => Task.FromResult(PickFolderAnswer?.Invoke(title));
 
     public Task<string?> PickFileAsync(string title, IReadOnlyList<string>? extensions = null) => Task.FromResult<string?>(null);
 

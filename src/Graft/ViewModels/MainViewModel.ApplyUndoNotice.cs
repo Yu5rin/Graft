@@ -56,9 +56,16 @@ public sealed partial class MainViewModel
     /// ApplyCoreAsyncの適用成功直後から呼ぶ。仕様どおり、適用が失敗した場合や
     /// （呼び出し元でガードすることにより）リビジョンが記録されなかった場合は呼ばれない。
     /// </summary>
-    private void ShowApplyUndoNotice(int revision)
+    /// <param name="revision">適用したリビジョン番号。</param>
+    /// <param name="detail">
+    /// 「rN として適用しました」に続けて添える括弧書き（Excel VBA 連携の「Excel へ反映済み」など。仕様書_VBA連携 7.3-4-7）。
+    /// null なら従来どおり。
+    /// </param>
+    private void ShowApplyUndoNotice(int revision, string? detail = null)
     {
-        ApplyUndoNoticeText = $"r{revision} として適用しました — 元に戻す";
+        ApplyUndoNoticeText = detail is null
+            ? $"r{revision} として適用しました — 元に戻す"
+            : $"r{revision} として適用しました（{detail}） — 元に戻す";
         LastAppliedRevision = revision;
         HasApplyUndoNotice = true;
         _applyUndoNoticeTimer.Restart();

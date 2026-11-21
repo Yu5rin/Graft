@@ -144,7 +144,10 @@ public sealed partial class MainViewModel
         // （課題2追加要件: プロジェクト切替後に古いタイマーが発火して不要な保存が走るのを防ぐ）。
         ContextCollect?.Dispose();
         if (PromptCopy is not null) PromptCopy.AppendSelectedFilesChangeCommitted -= OnAppendSelectedFilesChangeCommitted;
-        ContextCollect = new ContextCollectViewModel(_appPaths, _projectStore, project, _settings, _ui, _dialogs);
+        // Excel VBA プロジェクトのときだけ、走査の前に Excel から最新を取り込む処理を渡す（仕様書_VBA連携 7.2。
+        // 通常のファイルプロジェクトでは null で、従来どおり何も増えない）。
+        ContextCollect = new ContextCollectViewModel(
+            _appPaths, _projectStore, project, _settings, _ui, _dialogs, vbaPull: CreateVbaContextPull(project));
         PromptCopy = new PromptCopyViewModel(
             _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings, _ui);
         PromptCopy.AppendSelectedFilesChangeCommitted += OnAppendSelectedFilesChangeCommitted;
