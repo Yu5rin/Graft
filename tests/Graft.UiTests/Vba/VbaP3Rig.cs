@@ -48,9 +48,10 @@ internal sealed class VbaP3Rig : IDisposable
     /// <summary>衝突ダイアログへの答え。null を返すと既定の結果（中止、または「反映しない」）。</summary>
     public Func<VbaConflictRequest, VbaConflictDecision?>? ConflictAnswer { get; set; }
 
-    public static async Task<VbaP3Rig> CreateAsync(Settings? settings = null, bool plainProjectFirst = false, Action<FakeVbaBridge>? arrange = null)
+    public static async Task<VbaP3Rig> CreateAsync(
+        Settings? settings = null, bool plainProjectFirst = false, Action<FakeVbaBridge>? arrange = null, bool withWindow = false)
     {
-        var harness = await ShellHarness.CreateAsync(settings ?? new Settings { ShowPreview = false }).ConfigureAwait(true);
+        var harness = await ShellHarness.CreateAsync(settings ?? new Settings { ShowPreview = false }, withWindow).ConfigureAwait(true);
         var bridge = new FakeVbaBridge();
         bridge.AddWorkbook(Book,
             FakeVbaBridge.Std("Module1", Module1Original),

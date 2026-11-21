@@ -57,7 +57,9 @@ public sealed partial class MainViewModel
         if (!result.IsSuccess)
         {
             Logger?.Warn("vba-pull", "コンテキスト収集の前の Excel からの取り込みに失敗しました。ミラーの現在の内容で続けます。", targetPath: current.Root);
-            var reason = result.Issues.FirstOrDefault(i => i.Severity == Severity.Error)?.ToDisplayText();
+            // 理由は、コードと見出しだけを添える（詳細の長い文は、警告の行に収まらないため。全文はログと、手動の取込で見られる）。
+            var firstError = result.Issues.FirstOrDefault(i => i.Severity == Severity.Error);
+            var reason = firstError is null ? null : $"{firstError.Code}: {ErrorCatalog.SummaryOf(firstError.Code)}";
             return reason is null
                 ? "Excel の最新を取り込めていません。Graft 側（ミラー）の現在の内容で続けます。"
                 : $"Excel の最新を取り込めていません。Graft 側（ミラー）の現在の内容で続けます（{reason}）";
