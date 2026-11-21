@@ -92,8 +92,7 @@ public static class VbaApplyGuard
 
     /// <summary>チェックが付いていて、ミラーに新しくファイルを作るブロック（削除・名前変更・フォルダ作成を除く）。</summary>
     public static bool CreatesMirrorFile(BlockPlan plan)
-        => plan.IsSelected && plan.BeforeText is null && plan.AfterText is not null
-           && plan.Block.Kind is not (BlockKind.Delete or BlockKind.Rename or BlockKind.Mkdir)
+        => plan.IsSelected && plan.Operation == EntryOperation.Create && plan.AfterText is not null
            && VbaMirrorLayout.TryParse(plan.Path, out _, out _);
 
     private static IEnumerable<BlockPlan> NewMirrorFiles(IEnumerable<BlockPlan> plans) => plans.Where(CreatesMirrorFile);

@@ -342,4 +342,38 @@ public class VbaFixScenarioTests
         link.SaveWorkbookAfterPush.Should().BeTrue();
         link.WorkbookFullName.Should().Be(VbaP3Rig.Book);
     }
+
+    // ------------------------------------------------------------------
+    // 不具合 1: 適用の前の検査（画面側のガード）
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "不具合1 再現: Excel に Document の Sheet1 があるのに Classes/Sheet1.cls を新規作成する回答は、解析の直後に E808 で案内され、適用は始まらずミラーにファイルも作られない")]
+    public async Task 同名で種別違いの新規作成は適用の前に止まる()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+
+        await rig.PasteAsync(VbaP3Rig.Create("Classes/Sheet1.cls", "Option Explicit\n' new class")).ConfigureAwait(true);
+
+        var message = rig.H.Dialogs.Messages.Should().ContainSingle(m => m.Title == "VBA プロジェクトでは適用できない変更があります").Subject;
+        message.Message.Should().Contain("E808").And.Contain("Documents/Sheet1.cls");
+
+        await rig.ApplyAsync().ConfigureAwait(true);
+
+        File.Exists(rig.MirrorPath("Classes/Sheet1.cls")).Should().BeFalse("適用の前に止めたので、ミラーに残らない");
+        rig.WriteCalls.Should().Be(0);
+        rig.Excel("Sheet1").Code.Should().Be("' sheet");
+        (await rig.RevisionsAsync().ConfigureAwait(true)).Should().BeEmpty();
+    }
+
+    [AvaloniaFact(DisplayName = "不具合1: 名前が重ならない新規のクラス（Classes/Brand.cls）はこれまでどおり適用され、Excel に作られる")]
+    public async Task 重ならない新規作成は通る()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+
+        await rig.PasteAsync(VbaP3Rig.Create("Classes/Brand.cls", "Option Explicit\n' brand new")).ConfigureAwait(true);
+        await rig.ApplyAsync().ConfigureAwait(true);
+
+        rig.Excel("Brand").Kind.Should().Be(VbaModuleKind.Class);
+        rig.Excel("Brand").Code.Should().Contain("brand new");
+    }
 }
