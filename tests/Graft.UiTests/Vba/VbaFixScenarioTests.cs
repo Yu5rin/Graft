@@ -315,4 +315,31 @@ public class VbaFixScenarioTests
         rig.Graft.State.Should().Be(CenterPaneState.Error);
         rig.Graft.CenterError!.Code.Should().Be(ErrorCode.E805);
     }
+
+    // ------------------------------------------------------------------
+    // 疑わしい点: AddFromWorkbookAsync が既存プロジェクトの VbaLink の設定を既定に戻さない
+    // ------------------------------------------------------------------
+
+    [AvaloniaFact(DisplayName = "VbaLink の保持 再現: 同じブックを「既存のミラーを使う」で追加し直しても、適用後の自動反映・反映後の保存の設定は既定に戻らない")]
+    public async Task 再追加で設定が既定に戻らない()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        await rig.UpdateLinkAsync(l => l with { AutoPushAfterApply = false, SaveWorkbookAfterPush = true }).ConfigureAwait(true);
+        var pane = rig.Graft.ProjectPane;
+        pane.ShowWorkbookPickerAsync = async picker =>
+        {
+            await picker.LoadAsync().ConfigureAwait(true);
+            picker.SelectedWorkbook = picker.Workbooks.First(w => w.FullName == VbaP3Rig.Book);
+            picker.ExistingMirrorFound.Should().BeTrue();
+            picker.ReuseExistingMirror.Should().BeTrue();
+            return await picker.ConfirmAsync().ConfigureAwait(true);
+        };
+
+        await ShellHarness.ExecuteAsync(pane.AddFromWorkbookCommand).ConfigureAwait(true);
+
+        var link = pane.Items.Single(i => i.Project.Id == rig.Project.Id).Project.Vba!;
+        link.AutoPushAfterApply.Should().BeFalse();
+        link.SaveWorkbookAfterPush.Should().BeTrue();
+        link.WorkbookFullName.Should().Be(VbaP3Rig.Book);
+    }
 }

@@ -34,7 +34,8 @@ public sealed class VbaSyncStateStore
 
     /// <summary>
     /// 同期基準を読む。ファイルが無ければ空の状態（<paramref name="workbookFullName"/> を持つ）を返す。
-    /// 壊れていれば退避して空の状態を返す（警告つき）。
+    /// 壊れていれば退避して空の状態を返す（警告つき）。記録されているブックが <paramref name="workbookFullName"/> と
+    /// 別のものなら、その記録は使わず空の状態を返す（警告つき）。
     /// </summary>
     public async Task<GraftResult<VbaSyncState>> LoadAsync(
         string projectId, string workbookFullName, CancellationToken ct = default)
@@ -59,6 +60,26 @@ public sealed class VbaSyncStateStore
             {
                 if (value is not null) normalized[key] = value;
             }
+        }
+
+        // 別のブックの同期状態は使わない。任意のフォルダを「既存のミラーを使う」で別のブックに結び付けると、前のブックの
+        // 基準（ミラーと Excel のハッシュ）で三方比較してしまい、新しいブックの内容を「Excel 側だけが変わった」と
+        // 判定して、確認なしにミラーへ取り込んだ（取り込みと反映の向きが基準と食い違う）。使わなければ「記録なし」の
+        // 初回の突き合わせになり、本文が同じなら基準を作り直し、違えば衝突として利用者に選んでもらう
+        // （黙って上書きしない側へ倒れる。壊れた JSON を退避したときと同じ扱い）。
+        if (!string.IsNullOrEmpty(state.WorkbookFullName) && !string.IsNullOrEmpty(workbookFullName)
+            && !VbaRotNames.SamePath(state.WorkbookFullName, workbookFullName))
+        {
+            var issues = new List<GraftIssue>(result.Issues)
+            {
+                GraftIssue.Of(
+                    ErrorCode.E812,
+                    $"このミラーの同期の記録は別のブック（{state.WorkbookFullName}）のものだったため使いません。" +
+                    "ファイルと Excel の違いは、すべて衝突として確認します。別のブックへ結び付け直すときは、" +
+                    "プロジェクトを削除して「Excel ブックから追加」で「作り直す」を選ぶと、迷わず揃います。",
+                    severity: Severity.Warning),
+            };
+            return GraftResult<VbaSyncState>.Ok(new VbaSyncState { WorkbookFullName = workbookFullName }, issues);
         }
 
         return GraftResult<VbaSyncState>.Ok(state with { Modules = normalized }, result.Issues);

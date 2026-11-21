@@ -47,7 +47,7 @@ public class VbaSyncStateStoreTests
         var store = new VbaSyncStateStore(paths);
 
         await store.SaveAsync("p_aaaaaa", Sample());
-        var loaded = await store.LoadAsync("p_aaaaaa", "ignored");
+        var loaded = await store.LoadAsync("p_aaaaaa", @"C:\Work\計画.xlsm");
 
         File.Exists(paths.GetVbaSyncFilePath("p_aaaaaa")).Should().BeTrue();
         loaded.Value.WorkbookFullName.Should().Be(@"C:\Work\計画.xlsm");
@@ -91,7 +91,7 @@ public class VbaSyncStateStoreTests
         var store = new VbaSyncStateStore(new AppPaths(ws.CreateDirectory("app")));
         await store.SaveAsync("p_aaaaaa", Sample());
 
-        var loaded = await store.LoadAsync("p_aaaaaa", "x");
+        var loaded = await store.LoadAsync("p_aaaaaa", @"C:\Work\計画.xlsm");
 
         loaded.Value.Modules.Should().ContainKey("modules/MODULE1.bas");
     }
@@ -122,7 +122,7 @@ public class VbaSyncStateStoreTests
         await File.WriteAllTextAsync(
             paths.GetVbaSyncFilePath("p_aaaaaa"), "{ \"version\": 1, \"workbookFullName\": \"C:\\\\a.xlsm\", \"modules\": null }");
 
-        var result = await new VbaSyncStateStore(paths).LoadAsync("p_aaaaaa", "x");
+        var result = await new VbaSyncStateStore(paths).LoadAsync("p_aaaaaa", @"C:\a.xlsm");
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Modules.Should().BeEmpty();
@@ -142,7 +142,7 @@ public class VbaSyncStateStoreTests
 
         File.Exists(paths.GetVbaSyncFilePath("p_old000")).Should().BeFalse();
         Directory.Exists(paths.GetVbaRescueDirectory("p_old000")).Should().BeFalse();
-        var loaded = await store.LoadAsync("p_new000", "x");
+        var loaded = await store.LoadAsync("p_new000", @"C:\Work\計画.xlsm");
         loaded.Value.Modules.Should().HaveCount(2);
         File.ReadAllText(Path.Combine(paths.GetVbaRescueDirectory("p_new000"), "Module1-20261121.txt")).Should().Be("控え");
     }
@@ -173,7 +173,7 @@ public class VbaSyncStateStoreTests
 
         store.Move("p_old000", "p_new000");
 
-        (await store.LoadAsync("p_new000", "x")).Value.WorkbookFullName.Should().Be(@"C:\Work\計画.xlsm");
+        (await store.LoadAsync("p_new000", @"C:\Work\計画.xlsm")).Value.WorkbookFullName.Should().Be(@"C:\Work\計画.xlsm");
     }
 
     [Fact(DisplayName = "Delete: 同期基準のファイルを消す。控え（.rescue）は Excel から失われた本文を含みうるので残す")]
