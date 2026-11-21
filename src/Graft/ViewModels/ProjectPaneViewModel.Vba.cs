@@ -459,7 +459,7 @@ public sealed partial class ProjectPaneViewModel
             return;
         }
 
-        await RefreshVbaBadgesAsync(checkWorkbookOpen: false).ConfigureAwait(true);
+        await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
         Notify?.Invoke($"Excel から {result.Value.Pulled.Count} 件復元しました。");
     }
 

@@ -304,7 +304,23 @@ public sealed partial class MainViewModel
     private async Task PushVbaAfterRestoreAsync(IReadOnlyList<string> restoredPaths)
     {
         var project = ProjectPane.SelectedItem?.Project;
-        if (!IsVbaActive(project) || !project!.Vba!.AutoPushAfterApply) return;
+        if (!IsVbaActive(project)) return;
+
+        try
+        {
+            // 取り消し・復元も、適用と同じく「適用後に Excel へ自動反映する」の設定に従う（オフなら Excel には触れず、
+            // ミラーだけが戻って「未反映」の印が付く）。
+            if (project!.Vba!.AutoPushAfterApply) await PushVbaAfterRestoreCoreAsync(project, restoredPaths).ConfigureAwait(true);
+        }
+        finally
+        {
+            // 戻したミラーの未反映・削除保留の件数をバッジに反映する（Excel には接続しない）。
+            ProjectPane.RequestVbaBadgeRefresh(checkWorkbookOpen: false);
+        }
+    }
+
+    private async Task PushVbaAfterRestoreCoreAsync(Project project, IReadOnlyList<string> restoredPaths)
+    {
 
         var scope = VbaScopeOf(restoredPaths);
         if (scope.Count == 0) return;

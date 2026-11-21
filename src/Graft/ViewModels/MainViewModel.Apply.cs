@@ -241,6 +241,10 @@ public sealed partial class MainViewModel
             rolledBack = vbaUndone;
         }
 
+        // 未反映・削除保留の件数のバッジを数え直す（仕様書_VBA連携 7.6。Excel には接続しない。自動反映をオフにしている
+        // プロジェクトでも、この適用でミラーが変わって「未反映」が増えるため、Push の有無にかかわらず呼ぶ）。
+        if (project is not null && IsVbaActive(project)) ProjectPane.RequestVbaBadgeRefresh(checkWorkbookOpen: false);
+
         if (!rolledBack && project is not null && project.PostApplyHooks.Count > 0)
         {
             rolledBack = await RunPostApplyHooksAsync(project, result.Value.Revision).ConfigureAwait(true);
