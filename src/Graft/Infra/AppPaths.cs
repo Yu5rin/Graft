@@ -137,6 +137,35 @@ public sealed class AppPaths
     /// </summary>
     public string WindowLayoutFilePath => Path.Combine(BaseDirectory, "layout.json");
 
+    /// <summary>
+    /// Excel VBA 連携（仕様書_VBA連携 4.2・4.4）のミラーフォルダの既定置き場（vba-mirrors/）。
+    /// 各ミラーは <c>vba-mirrors/&lt;ブック名&gt;-&lt;パスの短いハッシュ&gt;/</c> に置く。
+    ///
+    /// 【なぜ BaseDirectory 直下に置くか】ミラーは利用者が持ち出したいデータ（履歴・バックアップと
+    /// 対になる）であり、exe のフォルダごとコピーする引っ越しや、データ保存先の移行
+    /// （<see cref="DataDirectory"/>）で一緒に移ってほしい。共有ドライブ上のブックの隣に勝手に
+    /// フォルダを作らないためでもある。移行対象への追加は DataDirectory.KnownDirectoryPaths 側。
+    /// </summary>
+    public string VbaMirrorsDirectory => Path.Combine(BaseDirectory, "vba-mirrors");
+
+    /// <summary>
+    /// Excel VBA 連携の同期状態（<c>&lt;プロジェクトId&gt;.json</c>）と、書き込み失敗時の控え
+    /// （<c>&lt;プロジェクトId&gt;.rescue/</c>）の置き場（vba-sync/）。ミラーの中に置くと、
+    /// エクスプローラーやコンテキスト収集に管理ファイルが混ざるため、ミラーとは別の場所にする（仕様4.2）。
+    /// </summary>
+    public string VbaSyncDirectory => Path.Combine(BaseDirectory, "vba-sync");
+
+    /// <summary>指定プロジェクトの同期状態ファイルの絶対パス（vba-sync/&lt;プロジェクトID&gt;.json）。</summary>
+    public string GetVbaSyncFilePath(string projectId)
+        => Path.Combine(VbaSyncDirectory, projectId + ".json");
+
+    /// <summary>
+    /// 指定プロジェクトの「控え」の退避先（vba-sync/&lt;プロジェクトID&gt;.rescue/）。Excel へ書く前の
+    /// 本文を、書き戻しに失敗したときや「Graft 側で上書き」で Excel 側を失うときに残す（仕様5.5・7.5）。
+    /// </summary>
+    public string GetVbaRescueDirectory(string projectId)
+        => Path.Combine(VbaSyncDirectory, projectId + ".rescue");
+
     /// <summary>指定プロジェクトのバックアップディレクトリ（back/&lt;プロジェクトID&gt;/）。</summary>
     public string GetProjectBackupDirectory(string projectId)
         => Path.Combine(BackupRootDirectory, projectId);
