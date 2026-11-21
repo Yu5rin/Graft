@@ -18,11 +18,14 @@ public sealed record VbaPullSaveOutcome(IReadOnlyCollection<string> Declined, bo
 
 /// <summary>Pull の結果。いずれもミラー内の正規の相対パス（<c>Modules/Module1.bas</c>）。</summary>
 /// <param name="Pulled">Excel から取り込んでミラーを書いたもの。</param>
-/// <param name="Conflicts">衝突のため取り込まなかったもの（P3 で衝突ダイアログに置き換える）。</param>
+/// <param name="Conflicts">衝突のため取り込まなかったもの（衝突ダイアログで利用者に選んでもらう。7.5）。</param>
 /// <param name="Skipped">未保存の編集を保存してもらえなかったため取り込まなかったもの。</param>
 public sealed record VbaPullResult(
     IReadOnlyList<string> Pulled, IReadOnlyList<string> Conflicts, IReadOnlyList<string> Skipped)
 {
+    /// <summary>衝突の詳細（両側の本文つき）。<see cref="Conflicts"/> と同じ順・同じ件数。</summary>
+    public IReadOnlyList<VbaConflictItem> ConflictItems { get; init; } = Array.Empty<VbaConflictItem>();
+
     /// <summary>何も起きなかった。</summary>
     public bool IsEmpty => Pulled.Count == 0 && Conflicts.Count == 0 && Skipped.Count == 0;
 }
@@ -31,14 +34,37 @@ public sealed record VbaPullResult(
 /// <param name="Pushed">既存のモジュールへ書けたもの。</param>
 /// <param name="Created">Excel 側にモジュールを新規作成して書けたもの。</param>
 /// <param name="Failed">書けなかったもの（E811 で除外したもの、書き込みの失敗、書き戻し済みを含む）。</param>
-/// <param name="Conflicts">衝突のため反映しなかったもの。</param>
+/// <param name="Conflicts">衝突のため反映しなかったもの（衝突ダイアログで利用者に選んでもらう。7.5）。</param>
 /// <param name="WorkbookSaved"><c>SaveWorkbookAfterPush</c> でブックを保存したか。</param>
 public sealed record VbaPushResult(
     IReadOnlyList<string> Pushed, IReadOnlyList<string> Created, IReadOnlyList<string> Failed,
     IReadOnlyList<string> Conflicts, bool WorkbookSaved)
 {
+    /// <summary>衝突の詳細（両側の本文つき）。<see cref="Conflicts"/> と同じ順・同じ件数。</summary>
+    public IReadOnlyList<VbaConflictItem> ConflictItems { get; init; } = Array.Empty<VbaConflictItem>();
+
+    /// <summary>
+    /// ミラーのファイルが無く、Excel 側にはモジュールが残っている（削除保留）もの。新規モジュールを含む適用を
+    /// 取り消したあとに現れる（仕様 6.5・7.3-4-6）。呼び出し側が「Excel 側に残っています」と知らせるのに使う。
+    /// </summary>
+    public IReadOnlyList<string> DeletePending { get; init; } = Array.Empty<string>();
+
     /// <summary>Excel へ書けた件数。</summary>
     public int WrittenCount => Pushed.Count + Created.Count;
+}
+
+/// <summary>
+/// Excel とミラーを突き合わせるだけで何も書かない検査の結果（<see cref="VbaSyncService.CheckAsync"/>）。
+/// 解析の前後に「取り込むべき変更があるか」「衝突しているか」を、書き込みの前に知るために使う。
+/// </summary>
+/// <param name="Pull">Excel 側だけが変わっているもの。</param>
+/// <param name="Push">ミラー側だけが変わっているもの（新規作成を含む）。</param>
+/// <param name="Conflicts">両側が変わっていて本文が違うもの。</param>
+public sealed record VbaSyncCheck(
+    IReadOnlyList<string> Pull, IReadOnlyList<string> Push, IReadOnlyList<VbaConflictItem> Conflicts)
+{
+    /// <summary>取り込むもの・衝突のどちらも無い。</summary>
+    public bool IsClean => Pull.Count == 0 && Conflicts.Count == 0;
 }
 
 /// <summary>ミラー作成（プロジェクト作成フロー）の結果。</summary>
@@ -222,21 +248,27 @@ public sealed class VbaSyncService
 
     /// <summary>
     /// Excel 側だけが変わったモジュールをミラーへ取り込む（7.2）。衝突は取り込まずに結果へ載せる
-    /// （P2 では衝突ダイアログが無いため、呼び出し側が通知する）。削除保留のモジュールは取り込まない。
+    /// （呼び出し側が衝突ダイアログで利用者に選んでもらい、「Excel 側を採用」なら <paramref name="adoptConflicts"/> に
+    /// 挙げて呼び直す）。削除保留のモジュールは取り込まない。
     /// </summary>
     /// <param name="only">対象を絞る相対パス。null なら全モジュール。</param>
     /// <param name="restoreDeletePending">
     /// true なら <paramref name="only"/> に挙げた削除保留のモジュールを Excel から取り込み直して保留を解除する
     /// （右クリックの「Excel から復元」）。
     /// </param>
+    /// <param name="adoptConflicts">
+    /// 衝突していても Excel の本文でミラーを置き換えるモジュール（衝突ダイアログの「Excel 側を採用」）。
+    /// 衝突していないモジュールを挙げても何も起きない。
+    /// </param>
     public async Task<GraftResult<VbaPullResult>> PullAsync(
-        Project project, IReadOnlyCollection<string>? only = null, bool restoreDeletePending = false, CancellationToken ct = default)
+        Project project, IReadOnlyCollection<string>? only = null, bool restoreDeletePending = false,
+        IReadOnlyCollection<string>? adoptConflicts = null, CancellationToken ct = default)
     {
         var link = RequireLink(project);
         await _gate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            return await PullCoreAsync(project, link, only, restoreDeletePending, ct).ConfigureAwait(true);
+            return await PullCoreAsync(project, link, only, restoreDeletePending, Scope(adoptConflicts), ct).ConfigureAwait(true);
         }
         finally
         {
@@ -245,7 +277,8 @@ public sealed class VbaSyncService
     }
 
     private async Task<GraftResult<VbaPullResult>> PullCoreAsync(
-        Project project, VbaLink link, IReadOnlyCollection<string>? only, bool restoreDeletePending, CancellationToken ct)
+        Project project, VbaLink link, IReadOnlyCollection<string>? only, bool restoreDeletePending,
+        HashSet<string>? adopt, CancellationToken ct)
     {
         var scope = Scope(only);
         var snapshot = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
@@ -254,7 +287,7 @@ public sealed class VbaSyncService
         var issues = new List<GraftIssue>(snapshot.Issues);
 
         var skipped = new List<string>();
-        var pullPaths = PullTargets(work.Plan, restoreDeletePending);
+        var pullPaths = PullTargets(work.Plan, restoreDeletePending, adopt);
 
         // 取り込み先に未保存の編集があれば、先に保存してもらう。保存するとミラーが変わるので、計画を作り直す。
         if (BeforePullAsync is not null)
@@ -271,7 +304,7 @@ public sealed class VbaSyncService
                     var again = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
                     if (!again.IsSuccess) return GraftResult<VbaPullResult>.Fail(again.Issues);
                     work = again.Value;
-                    pullPaths = PullTargets(work.Plan, restoreDeletePending);
+                    pullPaths = PullTargets(work.Plan, restoreDeletePending, adopt);
                 }
 
                 foreach (var declined in outcome.Declined)
@@ -316,7 +349,11 @@ public sealed class VbaSyncService
         state = ApplyLocalChanges(work.Plan, state, pulled);
         issues.AddRange(work.Plan.Modules.Where(m => m.Issue is not null).Select(m => m.Issue!));
 
-        var conflicts = work.Plan.Where(VbaSyncAction.Conflict).Select(m => m.RelativePath).ToList();
+        // 「Excel 側を採用」と言われた衝突は取り込み済みなので、未解決の衝突から外す。
+        var conflicts = work.Plan.Where(VbaSyncAction.Conflict)
+            .Select(m => m.RelativePath)
+            .Where(p => adopt is null || !adopt.Contains(p))
+            .ToList();
         foreach (var conflict in conflicts)
         {
             issues.Add(GraftIssue.Of(
@@ -325,12 +362,34 @@ public sealed class VbaSyncService
         }
 
         await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(true);
-        return GraftResult<VbaPullResult>.Ok(new VbaPullResult(pulled, conflicts, skipped), issues);
+        return GraftResult<VbaPullResult>.Ok(
+            new VbaPullResult(pulled, conflicts, skipped) { ConflictItems = ConflictItemsOf(work, conflicts) }, issues);
     }
 
-    private static List<string> PullTargets(VbaSyncPlan plan, bool restoreDeletePending)
+    /// <summary>衝突したモジュールの、両側の本文つきの一覧（衝突ダイアログの表示用）。</summary>
+    private static List<VbaConflictItem> ConflictItemsOf(Work work, IEnumerable<string> conflicts)
+    {
+        var items = new List<VbaConflictItem>();
+        foreach (var path in conflicts)
+        {
+            var module = work.Plan.Modules.First(m => string.Equals(m.RelativePath, path, StringComparison.OrdinalIgnoreCase));
+            work.Excel.TryGetValue(path, out var excel);
+            work.MirrorTexts.TryGetValue(path, out var mirror);
+            items.Add(new VbaConflictItem(path, module.Kind, module.Component, excel?.Code ?? string.Empty, mirror ?? string.Empty));
+        }
+
+        return items;
+    }
+
+    private static List<string> PullTargets(VbaSyncPlan plan, bool restoreDeletePending, HashSet<string>? adopt = null)
     {
         var paths = plan.Where(VbaSyncAction.Pull).Select(m => m.RelativePath).ToList();
+        if (adopt is not null)
+        {
+            // 衝突の解決で「Excel 側を採用」と言われたものは、通常の取り込みと同じ経路で Excel の本文を書く。
+            paths.AddRange(plan.Where(VbaSyncAction.Conflict).Select(m => m.RelativePath).Where(adopt.Contains));
+        }
+
         if (restoreDeletePending)
         {
             // 削除保留は自動 Pull では復活させない。「Excel から復元」で名指しされたときだけ取り込む。
@@ -349,14 +408,19 @@ public sealed class VbaSyncService
     /// （7.2b）。衝突は反映せずに結果へ載せる。CP932 で表せない文字を含むモジュールは反映しない（E811）。
     /// </summary>
     /// <param name="only">対象を絞る相対パス。null なら Push 判定の全モジュール。</param>
+    /// <param name="overwriteConflicts">
+    /// 衝突していても Excel を上書きするモジュール（衝突ダイアログの「Graft 側で上書き」）。上書きの前に、Excel 側の
+    /// 本文を <c>vba-sync/&lt;プロジェクトId&gt;.rescue/</c> へ控える。控えを書けなければ、そのモジュールは上書きしない。
+    /// </param>
     public async Task<GraftResult<VbaPushResult>> PushAsync(
-        Project project, IReadOnlyCollection<string>? only = null, CancellationToken ct = default)
+        Project project, IReadOnlyCollection<string>? only = null,
+        IReadOnlyCollection<string>? overwriteConflicts = null, CancellationToken ct = default)
     {
         var link = RequireLink(project);
         await _gate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            return await PushCoreAsync(project, link, only, ct).ConfigureAwait(true);
+            return await PushCoreAsync(project, link, only, Scope(overwriteConflicts), ct).ConfigureAwait(true);
         }
         finally
         {
@@ -365,7 +429,7 @@ public sealed class VbaSyncService
     }
 
     private async Task<GraftResult<VbaPushResult>> PushCoreAsync(
-        Project project, VbaLink link, IReadOnlyCollection<string>? only, CancellationToken ct)
+        Project project, VbaLink link, IReadOnlyCollection<string>? only, HashSet<string>? overwrite, CancellationToken ct)
     {
         var snapshot = await BuildPlanAsync(project, link, Scope(only), ct).ConfigureAwait(true);
         if (!snapshot.IsSuccess) return GraftResult<VbaPushResult>.Fail(snapshot.Issues);
@@ -377,7 +441,8 @@ public sealed class VbaSyncService
         var writes = new List<VbaComponentWrite>();
         var writeSources = new Dictionary<string, (VbaModulePlan Plan, string Text)>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var module in work.Plan.Modules.Where(m => m.Action is VbaSyncAction.Push or VbaSyncAction.PushCreate))
+        foreach (var module in work.Plan.Modules.Where(m => m.Action is VbaSyncAction.Push or VbaSyncAction.PushCreate
+                     || (m.Action == VbaSyncAction.Conflict && overwrite is not null && overwrite.Contains(m.RelativePath))))
         {
             var text = work.MirrorTexts[module.RelativePath];
 
@@ -393,6 +458,27 @@ public sealed class VbaSyncService
                 continue;
             }
 
+            if (module.Action == VbaSyncAction.Conflict)
+            {
+                // 「Graft 側で上書き」: Excel 側の本文はここで失われるので、書く前に必ず控える（7.5）。
+                // 控えを残せないまま上書きはしない（利用者の VBE 上の編集が取り戻せなくなるため）。
+                var kept = work.Excel.TryGetValue(module.RelativePath, out var current)
+                    ? await KeepRescueCopyAsync(project, module.Component, current.Code).ConfigureAwait(true)
+                    : "!Excel 側の本文を読めませんでした。";
+                if (kept.StartsWith('!'))
+                {
+                    issues.Add(GraftIssue.Of(
+                        ErrorCode.E809,
+                        $"{module.RelativePath}: Excel 側の本文を控えに保存できなかったため、上書きしませんでした。{kept[1..]}",
+                        path: module.RelativePath));
+                    failed.Add(module.RelativePath);
+                    continue;
+                }
+
+                Logger?.Info("vba-push", $"衝突を「Graft 側で上書き」で解決しました（Excel 側の控え: {kept}）: {module.RelativePath}",
+                    targetPath: Path.Combine(project.Root, module.RelativePath));
+            }
+
             writes.Add(new VbaComponentWrite(
                 module.Component, module.Kind,
                 // CRLF にそろえ、末尾の改行は除いて渡す。Excel 側の本文（CodeModule.Lines）は末尾に改行を持たず、
@@ -402,7 +488,10 @@ public sealed class VbaSyncService
             writeSources[module.Component] = (module, text);
         }
 
-        var conflicts = work.Plan.Where(VbaSyncAction.Conflict).Select(m => m.RelativePath).ToList();
+        var conflicts = work.Plan.Where(VbaSyncAction.Conflict)
+            .Select(m => m.RelativePath)
+            .Where(p => overwrite is null || !overwrite.Contains(p))
+            .ToList();
         foreach (var conflict in conflicts)
         {
             issues.Add(GraftIssue.Of(
@@ -410,6 +499,8 @@ public sealed class VbaSyncService
                 path: conflict, severity: Severity.Warning));
         }
 
+        var conflictItems = ConflictItemsOf(work, conflicts);
+        var deletePending = work.Plan.Where(VbaSyncAction.DeletePending).Select(m => m.RelativePath).ToList();
         var state = work.State;
         var pushed = new List<string>();
         var created = new List<string>();
@@ -466,7 +557,70 @@ public sealed class VbaSyncService
 
         state = ApplyLocalChanges(work.Plan, state, pushed.Concat(created).ToList());
         await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(true);
-        return GraftResult<VbaPushResult>.Ok(new VbaPushResult(pushed, created, failed, conflicts, saved), issues);
+        return GraftResult<VbaPushResult>.Ok(
+            new VbaPushResult(pushed, created, failed, conflicts, saved) { ConflictItems = conflictItems, DeletePending = deletePending },
+            issues);
+    }
+
+    /// <summary>
+    /// Excel 側の本文を控えのフォルダへ書く。成功したらそのパス、失敗したら <c>!</c> で始まる理由を返す
+    /// （戻り値を文字列1つで返すのは、呼び出し側が「控えを残せたか」だけを見るため）。
+    /// </summary>
+    private async Task<string> KeepRescueCopyAsync(Project project, string component, string code)
+    {
+        try
+        {
+            var directory = _paths.GetVbaRescueDirectory(project.Id);
+            Directory.CreateDirectory(directory);
+            var fileName = VbaRescueNaming.BuildFileName(component, _clock());
+            var path = Path.Combine(directory, fileName);
+            for (var n = 2; File.Exists(path); n++)
+            {
+                path = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(fileName)}_{n}.txt");
+            }
+
+            await File.WriteAllTextAsync(path, code, Utf8NoBom).ConfigureAwait(true);
+            return path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return "!" + ExceptionMessages.Describe(ex);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 検査（何も書かない）
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Excel とミラーを突き合わせるだけで、何も書かずに結果を返す（仕様 7.3-1・7.3-3）。解析の前に
+    /// 「取り込むべき変更があるか」「衝突しているか」を知り、確認を挟むかどうかを決めるために使う。
+    /// </summary>
+    /// <param name="only">対象を絞る相対パス。null なら全モジュール。</param>
+    public async Task<GraftResult<VbaSyncCheck>> CheckAsync(
+        Project project, IReadOnlyCollection<string>? only = null, CancellationToken ct = default)
+    {
+        var link = RequireLink(project);
+        await _gate.WaitAsync(ct).ConfigureAwait(true);
+        try
+        {
+            var snapshot = await BuildPlanAsync(project, link, Scope(only), ct).ConfigureAwait(true);
+            if (!snapshot.IsSuccess) return GraftResult<VbaSyncCheck>.Fail(snapshot.Issues);
+
+            var work = snapshot.Value;
+            var conflicts = work.Plan.Where(VbaSyncAction.Conflict).Select(m => m.RelativePath).ToList();
+            var push = work.Plan.Modules
+                .Where(m => m.Action is VbaSyncAction.Push or VbaSyncAction.PushCreate)
+                .Select(m => m.RelativePath)
+                .ToList();
+            return GraftResult<VbaSyncCheck>.Ok(
+                new VbaSyncCheck(work.Plan.Where(VbaSyncAction.Pull).Select(m => m.RelativePath).ToList(), push, ConflictItemsOf(work, conflicts)),
+                snapshot.Issues);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>
