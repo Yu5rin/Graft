@@ -112,6 +112,10 @@ public sealed partial class MainViewModel
         return request.Options.Any(o => o.Id == id) ? id! : request.Default.Id;
     }
 
+    /// <summary>E804（ブックが開いていない）が含まれるとき、「Excel で開く」ボタンに渡すブックのフルパス。無ければ null。</summary>
+    private static string? OpenWorkbookPathFor(Project project, IEnumerable<GraftIssue> issues)
+        => project.Vba is { WorkbookFullName.Length: > 0 } link && issues.Any(i => i.Code == ErrorCode.E804) ? link.WorkbookFullName : null;
+
     /// <summary>
     /// Excel に接続できないなどで同期そのものが失敗したとき、「ファイルだけ適用する」か「中止」かを選ばせる
     /// （仕様 7.3-1）。「ファイルだけ」を選ぶと、この適用では Push を試みず、変更は「未反映」として残る。
@@ -129,7 +133,9 @@ public sealed partial class MainViewModel
             {
                 new VbaChoiceOption("fileOnly", "ファイルだけ適用する"),
                 new VbaChoiceOption("abort", "中止", IsDefault: true),
-            })).ConfigureAwait(true);
+            },
+            // ブックが開いていない（E804）ときは、ここから Excel で開けるようにする（仕様 9章）。
+            OpenWorkbookPathFor(project, issues))).ConfigureAwait(true);
         if (choice != "fileOnly") return false;
 
         _vbaFileOnly = true;

@@ -4,6 +4,7 @@ using System.Windows.Input;
 using Graft.Core;
 using Graft.Core.Vba;
 using Graft.Features;
+using Graft.Platform;
 
 namespace Graft.ViewModels;
 
@@ -116,7 +117,212 @@ public sealed partial class ProjectPaneViewModel
     private void RaiseVbaStateChanged()
     {
         OnPropertyChanged(nameof(IsVbaFeatureAvailable));
+        RaiseVbaSelectionChanged();
+        // 機能の有効・無効が変わると、バッジも「VBA 連携オフ」との間で切り替わる（Excel には触れず、保持した結果から描き直す）。
+        ReapplyVbaBadges();
+    }
+
+    /// <summary>選択が変わった（または一覧が読み直された）とき、右クリックメニューの VBA 項目を更新する。</summary>
+    private void RaiseVbaSelectionChanged()
+    {
         OnPropertyChanged(nameof(IsSelectedVbaProject));
+        OnPropertyChanged(nameof(IsAutoPushChecked));
+        OnPropertyChanged(nameof(IsSaveAfterPushChecked));
+    }
+
+    // ------------------------------------------------------------------
+    // 右クリックメニューのチェック項目（7.6）。VbaLink を ProjectStore 経由で更新する
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 「適用後に Excel へ自動反映する」（<see cref="VbaLink.AutoPushAfterApply"/>）。メニューの項目に双方向で束縛する。
+    /// <para>
+    /// 【コマンドではなくプロパティにした理由】 チェック項目は、押すと項目自身が表示を反転する。コマンドで受けて
+    /// 一方向に束縛し直すと、反転と通知の順序で見かけと実際の値がずれることがある。双方向のプロパティなら、
+    /// 書き込みに失敗したときも通知を投げ直して見かけを実際の値へ戻せる。
+    /// </para>
+    /// </summary>
+    public bool IsAutoPushChecked
+    {
+        get => SelectedItem?.Project.Vba?.AutoPushAfterApply ?? false;
+        set
+        {
+            if (value == IsAutoPushChecked) return;
+            _pendingVbaOption = SetAutoPushAfterApplyAsync(value);
+        }
+    }
+
+    /// <summary>「反映後にブックを保存する」（<see cref="VbaLink.SaveWorkbookAfterPush"/>）。</summary>
+    public bool IsSaveAfterPushChecked
+    {
+        get => SelectedItem?.Project.Vba?.SaveWorkbookAfterPush ?? false;
+        set
+        {
+            if (value == IsSaveAfterPushChecked) return;
+            _pendingVbaOption = SetSaveWorkbookAfterPushAsync(value);
+        }
+    }
+
+    // 直近のチェック項目の保存。テストと、続けて操作したときの順序の保証に使う（必ず前の保存が終わってから次へ進む）。
+    private Task _pendingVbaOption = Task.CompletedTask;
+
+    /// <summary>直近のチェック項目の保存が終わるまで待つ（テスト用。画面の操作は待たない）。</summary>
+    public Task WaitForVbaOptionAsync() => _pendingVbaOption;
+
+    /// <summary>選択中のプロジェクトの「適用後に自動反映」を変える。</summary>
+    public Task SetAutoPushAfterApplyAsync(bool value)
+        => UpdateSelectedVbaLinkAsync(link => link with { AutoPushAfterApply = value });
+
+    /// <summary>選択中のプロジェクトの「反映後にブックを保存」を変える。</summary>
+    public Task SetSaveWorkbookAfterPushAsync(bool value)
+        => UpdateSelectedVbaLinkAsync(link => link with { SaveWorkbookAfterPush = value });
+
+    private async Task UpdateSelectedVbaLinkAsync(Func<VbaLink, VbaLink> change)
+    {
+        // 機能を切っているときは、チェックの変更も受け付けない（メニューも無効にしているが、念のため）。
+        if (!IsVbaFeatureAvailable || SelectedItem is not { } item || item.Project.Vba is null)
+        {
+            RaiseVbaSelectionChanged();
+            return;
+        }
+
+        // 前の保存が終わるのを待つ（連続して押したときに、古い値で上書きし合わないように）。
+        await _vbaOptionGate.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            var id = item.Project.Id;
+            var updated = await _store.UpdateAsync(id, p => p.Vba is null ? p : p with { Vba = change(p.Vba) }).ConfigureAwait(true);
+            if (!updated.IsSuccess)
+            {
+                RaiseVbaSelectionChanged(); // 見かけのチェックを実際の値へ戻す。
+                await ShowFailureAsync("設定を保存できませんでした", updated.Issues).ConfigureAwait(true);
+                return;
+            }
+
+            // 一覧を読み直して、選択中の Project（VbaLink）を新しい値にする。選択は Id で保たれる。
+            await LoadAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            _vbaOptionGate.Release();
+        }
+    }
+
+    private readonly SemaphoreSlim _vbaOptionGate = new(1, 1);
+
+    // ------------------------------------------------------------------
+    // 「VBA」バッジ（7.6）
+    // ------------------------------------------------------------------
+
+    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen);
+
+    // プロジェクト Id → 最後に調べた結果。LoadAsync で一覧が作り直されても、ちらつかずに同じ見た目を保つため。
+    private readonly Dictionary<string, VbaBadgeCacheEntry> _vbaBadgeCache = new(StringComparer.Ordinal);
+
+    // 調べ直しの直列化。Excel への問い合わせ（COM）が重なって積み上がらないようにする。
+    private readonly SemaphoreSlim _vbaBadgeGate = new(1, 1);
+
+    // 開閉の調べ直し（Excel への問い合わせ）を、前面化のたびに連打しないための最小の間隔。
+    private const long VbaOpenCheckMinIntervalMs = 3000;
+    private long _lastVbaOpenCheckTick = long.MinValue / 2;
+
+    private VbaBadgeState BadgeFor(Project project)
+    {
+        if (project.Vba is null || _vbaSync?.IsSupported != true) return VbaBadgeState.Hidden;
+        _vbaBadgeCache.TryGetValue(project.Id, out var entry);
+        return VbaBadgeLogic.Compute(true, _isVbaEnabled(), entry?.WorkbookOpen, entry?.Unpushed ?? 0, entry?.DeletePending ?? 0);
+    }
+
+    /// <summary>保持している結果から、すべての行のバッジを描き直す（Excel には触れない）。</summary>
+    private void ReapplyVbaBadges()
+    {
+        foreach (var item in Items) item.VbaBadge = BadgeFor(item.Project);
+    }
+
+    /// <summary>
+    /// バッジの調べ直しを頼む（待たない）。ウィンドウの前面化時とプロジェクトペインを開いたときに View から呼ぶ。
+    /// 定期的な監視（ポーリング）はしない（仕様 7.6）。契機のたびに呼ばれても、前回の開閉の調べから
+    /// <see cref="VbaOpenCheckMinIntervalMs"/> 経っていなければ開閉は調べない（件数だけ数え直す）。
+    /// </summary>
+    /// <param name="checkWorkbookOpen">ブックが開いているかも調べるか（Excel への問い合わせを伴う）。</param>
+    public void RequestVbaBadgeRefresh(bool checkWorkbookOpen = true)
+    {
+        if (_vbaSync?.IsSupported != true || !Items.Any(i => i.Project.Vba is not null)) return;
+        if (_vbaBadgeGate.CurrentCount == 0) return; // 調べている最中。その結果で足りる。
+
+        if (checkWorkbookOpen)
+        {
+            var now = Environment.TickCount64;
+            if (now - _lastVbaOpenCheckTick < VbaOpenCheckMinIntervalMs) checkWorkbookOpen = false;
+        }
+
+        var check = checkWorkbookOpen;
+        _ = SafeHandler.RunAsync("VBA バッジの更新", () => RefreshVbaBadgesAsync(check));
+    }
+
+    /// <summary>
+    /// 全 VBA プロジェクトのバッジを調べ直して反映する。
+    /// <list type="bullet">
+    /// <item>未反映・削除保留の件数は <c>GetLocalStatusAsync</c> で数える。ミラーと同期基準を比べるだけで、Excel には接続しない。</item>
+    /// <item>ブックが開いているかは、<paramref name="checkWorkbookOpen"/> のときだけ、起動中のブックの一覧を1回だけ取って全プロジェクト分を決める。</item>
+    /// </list>
+    /// 一覧を取れなかったとき（Excel が応答しない等）は、開閉の表示を前回のまま保つ（調べられなかったことを
+    /// 「閉じている」と決めつけない）。件数を数えるファイルの読み込みは、UI を止めないようスレッドプールで行う。
+    /// </summary>
+    public async Task RefreshVbaBadgesAsync(bool checkWorkbookOpen)
+    {
+        var service = _vbaSync;
+        if (service?.IsSupported != true)
+        {
+            ReapplyVbaBadges();
+            return;
+        }
+
+        await _vbaBadgeGate.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            var targets = Items.Where(i => i.Project.Vba is not null).Select(i => i.Project).ToList();
+            if (targets.Count == 0) return;
+
+            IReadOnlyList<VbaWorkbookInfo>? open = null;
+            if (checkWorkbookOpen && _isVbaEnabled())
+            {
+                _lastVbaOpenCheckTick = Environment.TickCount64;
+                var listed = await service.ListWorkbooksAsync().ConfigureAwait(true);
+                if (listed.IsSuccess) open = listed.Value;
+            }
+
+            foreach (var project in targets)
+            {
+                _vbaBadgeCache.TryGetValue(project.Id, out var previous);
+                var status = new VbaLocalStatus(previous?.Unpushed ?? 0, previous?.DeletePending ?? 0);
+                if (Directory.Exists(project.Root))
+                {
+                    try
+                    {
+                        status = await Task.Run(() => service.GetLocalStatusAsync(project)).ConfigureAwait(true);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // 読めなかったときは前回の件数のまま。バッジのために利用者へ問い合わせることはしない。
+                    }
+                }
+
+                var isOpen = previous?.WorkbookOpen;
+                if (open is not null)
+                {
+                    isOpen = open.Any(w => VbaRotNames.SamePath(w.FullName, project.Vba!.WorkbookFullName));
+                }
+
+                _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(status.UnpushedCount, status.DeletePendingCount, isOpen);
+            }
+
+            ReapplyVbaBadges();
+        }
+        finally
+        {
+            _vbaBadgeGate.Release();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -171,12 +377,16 @@ public sealed partial class ProjectPaneViewModel
         if (!result.IsSuccess)
         {
             await ShowVbaFailureAsync("Excel から取り込めませんでした", project, result.Issues).ConfigureAwait(true);
+            await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true); // ブックが閉じていたらバッジをグレーにする。
             return;
         }
 
         var pulled = result.Value;
         var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPull, pulled.ConflictItems).ConfigureAwait(true);
         await ShowWarningsAsync("Excel からの取込の注意", result.Issues.Where(i => i.Code != ErrorCode.E812)).ConfigureAwait(true);
+
+        // 取り込み後の件数と、ブックの開閉（Excel と通信できたかどうか）を描き直す（仕様 7.6）。
+        await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
 
         var imported = pulled.Pulled.Count + resolved.Adopted;
         if (imported > 0)
@@ -199,6 +409,7 @@ public sealed partial class ProjectPaneViewModel
         {
             // 手動の Push は適用ではないので、取り消しは提案しない（仕様 7.2b）。未反映の印が残るので再試行できる。
             await ShowVbaFailureAsync("Excel へ反映できませんでした", project, result.Issues).ConfigureAwait(true);
+            await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
             return;
         }
 
@@ -209,6 +420,8 @@ public sealed partial class ProjectPaneViewModel
         {
             await ShowWarningsAsync("Excel への反映の注意", problems).ConfigureAwait(true);
         }
+
+        await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
 
         var written = pushed.WrittenCount + resolved.Overwritten;
         if (written > 0)
@@ -246,7 +459,44 @@ public sealed partial class ProjectPaneViewModel
             return;
         }
 
+        await RefreshVbaBadgesAsync(checkWorkbookOpen: false).ConfigureAwait(true);
         Notify?.Invoke($"Excel から {result.Value.Pulled.Count} 件復元しました。");
+    }
+
+    // ------------------------------------------------------------------
+    // VBE で開く（7.6）。エディタの本文と差分ビューの右クリックから呼ぶ
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 「VBE でこの行を開く」を出してよいか。選択中が VBA プロジェクト（機能が有効でこの環境で使える）で、
+    /// 引数のファイルがそのミラーの中の同期対象のモジュールのときだけ true。普通のファイルプロジェクトでは
+    /// メニュー項目そのものを出さない（表示条件の判定を ViewModel に置き、View は結果だけ見る）。
+    /// </summary>
+    /// <param name="relativePath">プロジェクトルートからの相対パス（区切りは バックスラッシュでもスラッシュでもよい）。</param>
+    public bool CanShowInVbe(string? relativePath)
+    {
+        if (string.IsNullOrEmpty(relativePath) || !IsVbaFeatureAvailable) return false;
+        if (SelectedItem is not { IsDisconnected: false } item || item.Project.Vba is null) return false;
+        return VbaMirrorLayout.TryParse(relativePath.Replace('\\', '/'), out var parsed, out _) && parsed is not null;
+    }
+
+    /// <summary>
+    /// VBE で、指定のモジュールのコードウィンドウを開いて指定行へ移動する。失敗したときは理由と対処を出す
+    /// （ブックが開いていなければ「Excel で開く」ボタンつき）。行はミラーの行番号と同じ
+    /// （ミラーは VBE の画面に見える本文そのもので、ヘッダ行が無いため）。
+    /// </summary>
+    public async Task ShowInVbeAsync(string relativePath, int line)
+    {
+        if (_vbaSync is null || SelectedItem is not { } item || item.Project.Vba is null) return;
+        if (!VbaMirrorLayout.TryParse(relativePath.Replace('\\', '/'), out var parsed, out _) || parsed is null) return;
+
+        var project = item.Project;
+        var result = await _vbaSync.ShowInVbeAsync(project.Vba!.WorkbookFullName, parsed.ComponentName, Math.Max(1, line)).ConfigureAwait(true);
+        if (!result.IsSuccess)
+        {
+            await ShowVbaFailureAsync("VBE で開けませんでした", project, result.Issues).ConfigureAwait(true);
+            await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
+        }
     }
 
     private async Task ActivateSelectedAsync()

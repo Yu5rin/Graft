@@ -213,6 +213,15 @@ public sealed class PromptCopyViewModel : ObservableObject
             // {{tree}}/{{files}} を空のまま提示しないよう、未走査なら先にスキャンしておく。
             await Context.InitializeAsync().ConfigureAwait(true);
         }
+        else if (!Context.IsScanning)
+        {
+            // すでに走査済みでも、Excel VBA のプロジェクトは最新を取り込んでから依頼文を組み立てる（仕様書_VBA連携 7.2）。
+            // ウィンドウを開かないこの経路（依頼文コピー・Ctrl+Shift+C）でも、古い本文が AI に渡らないようにするため。
+            // VBA プロジェクトでなければ、何もせず即座に戻る。
+            await Context.PullFromExcelAsync().ConfigureAwait(true);
+        }
+
+        var vbaWarning = Context.VbaPullWarning;
 
         var loaded = await _templateStore.LoadAsync().ConfigureAwait(true);
         if (!loaded.IsSuccess)
@@ -245,6 +254,9 @@ public sealed class PromptCopyViewModel : ObservableObject
         SelectedTemplate = (previousId is null ? null : Templates.FirstOrDefault(t => t.Template.Id == previousId))
             ?? Templates.FirstOrDefault(t => t.Template.IsContinuation == useContinuation)
             ?? Templates.FirstOrDefault();
+
+        // Excel から最新を取り込めなかった（接続できない・衝突を中止した）ときは、古い本文で依頼文を組み立てたことを伝える。
+        if (vbaWarning is not null) StatusMessage = vbaWarning;
     }
 
     private async Task CopySelectedAsync()

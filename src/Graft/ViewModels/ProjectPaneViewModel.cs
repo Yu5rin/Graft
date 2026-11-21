@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Graft.Core;
+using Graft.Core.Vba;
 using Graft.Features;
 using Graft.Platform;
 
@@ -19,8 +20,10 @@ public enum ProjectPaneState
 /// プロジェクト一覧の1行。ピン留め・未接続表示・数字キーショートカット（仕様書3.2）に
 /// 必要な表示用プロパティを持つ。
 /// </summary>
-public sealed class ProjectListItemViewModel
+public sealed class ProjectListItemViewModel : ObservableObject
 {
+    private VbaBadgeState _vbaBadge = VbaBadgeState.Hidden;
+
     public ProjectListItemViewModel(Project project, int? shortcutNumber)
     {
         Project = project ?? throw new ArgumentNullException(nameof(project));
@@ -48,6 +51,44 @@ public sealed class ProjectListItemViewModel
 
     public string ShortcutText => ShortcutNumber is int n ? n.ToString() : string.Empty;
 
+    /// <summary>
+    /// 「VBA」バッジの内容（仕様書_VBA連携 7.6）。VBA プロジェクトでない行、またはこの環境で機能が使えないときは
+    /// <see cref="VbaBadgeState.Hidden"/>。ブックの開閉と件数は非同期に調べて後から入るので、変更通知を持つ。
+    /// </summary>
+    public VbaBadgeState VbaBadge
+    {
+        get => _vbaBadge;
+        set
+        {
+            if (!SetProperty(ref _vbaBadge, value ?? VbaBadgeState.Hidden)) return;
+            OnPropertyChanged(nameof(IsVbaBadgeVisible));
+            OnPropertyChanged(nameof(VbaBadgeText));
+            OnPropertyChanged(nameof(IsVbaBadgeGray));
+            OnPropertyChanged(nameof(VbaStatusText));
+            OnPropertyChanged(nameof(HasVbaStatus));
+            OnPropertyChanged(nameof(VbaTooltip));
+            OnPropertyChanged(nameof(AutomationName));
+        }
+    }
+
+    /// <summary>バッジを出すか。</summary>
+    public bool IsVbaBadgeVisible => _vbaBadge.IsVisible;
+
+    /// <summary>バッジの文言（「VBA」「VBA 連携オフ」）。</summary>
+    public string VbaBadgeText => _vbaBadge.Text;
+
+    /// <summary>グレー表示か（ブックが開いていない、または機能がオフ）。</summary>
+    public bool IsVbaBadgeGray => _vbaBadge.IsGray;
+
+    /// <summary>名前の下に出す補足（「未反映 N・削除保留 N」）。</summary>
+    public string VbaStatusText => _vbaBadge.StatusText;
+
+    /// <summary>補足を出すか。</summary>
+    public bool HasVbaStatus => _vbaBadge.StatusText.Length > 0;
+
+    /// <summary>バッジのツールチップ。</summary>
+    public string VbaTooltip => _vbaBadge.Tooltip;
+
     /// <summary>色のみに依存しないための読み上げ用テキスト（8.14）。</summary>
     public string AutomationName
     {
@@ -56,6 +97,12 @@ public sealed class ProjectListItemViewModel
             var parts = new List<string> { DisplayName };
             if (IsPinned) parts.Add("ピン留め");
             if (IsDisconnected) parts.Add("未接続");
+            if (_vbaBadge.IsVisible)
+            {
+                parts.Add(_vbaBadge.Text);
+                if (_vbaBadge.IsGray && _vbaBadge.Text == "VBA") parts.Add(VbaBadgeLogic.WorkbookClosedTip);
+                if (_vbaBadge.StatusText.Length > 0) parts.Add(_vbaBadge.StatusText);
+            }
             if (ShortcutNumber is int n) parts.Add($"ショートカット{n}");
             return string.Join("、", parts);
         }
@@ -172,7 +219,7 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
             }
 
             if (!SetProperty(ref _selectedItem, value)) return;
-            OnPropertyChanged(nameof(IsSelectedVbaProject)); // 右クリックメニューの VBA 項目の表示（ProjectPaneViewModel.Vba.cs）。
+            RaiseVbaSelectionChanged(); // 右クリックメニューの VBA 項目の表示とチェック状態（ProjectPaneViewModel.Vba.cs）。
             if (value is null) return;
 
             // 切り替えの前に確認が要る（開いているタブの未保存の確認）場合は、確認が済んでから
@@ -227,7 +274,7 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
             {
                 _selectedItem = previous;
                 OnPropertyChanged(nameof(SelectedItem));
-                OnPropertyChanged(nameof(IsSelectedVbaProject));
+                RaiseVbaSelectionChanged();
             }
             return;
         }
@@ -332,7 +379,9 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         var shortcut = 1;
         foreach (var project in sorted)
         {
-            Items.Add(new ProjectListItemViewModel(project, shortcut <= 9 ? shortcut : null));
+            // バッジは、前回調べた結果（ブックの開閉・件数）があればそれで先に描く。作り直しのたびに消えて
+            // ちらつかないようにするため。件数の調べ直しは下の RequestVbaBadgeRefresh が非同期で行う。
+            Items.Add(new ProjectListItemViewModel(project, shortcut <= 9 ? shortcut : null) { VbaBadge = BadgeFor(project) });
             shortcut++;
         }
 
@@ -343,7 +392,7 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         {
             _selectedItem = restored;
             OnPropertyChanged(nameof(SelectedItem));
-            OnPropertyChanged(nameof(IsSelectedVbaProject));
+            RaiseVbaSelectionChanged();
         }
         else if (Items.Count > 0)
         {
@@ -358,9 +407,12 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
             // 既存の起動直後の空一覧の挙動は変えない）。
             _selectedItem = null;
             OnPropertyChanged(nameof(SelectedItem));
-            OnPropertyChanged(nameof(IsSelectedVbaProject));
+            RaiseVbaSelectionChanged();
             SelectionCleared?.Invoke(this, EventArgs.Empty);
         }
+
+        // VBA プロジェクトの未反映・削除保留の件数を、Excel に接続せずに数え直す（開閉は調べない）。
+        RequestVbaBadgeRefresh(checkWorkbookOpen: false);
     }
 
     // ------------------------------------------------------------------

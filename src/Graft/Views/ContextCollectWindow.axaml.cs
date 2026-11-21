@@ -34,6 +34,12 @@ public partial class ContextCollectWindow : Window
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         DataContext = viewModel;
+        // Excel VBA 連携（仕様書_VBA連携 7.2）: 走査の前の自動 Pull で衝突したときのダイアログは、この窓がモーダルで
+        // 開いている間、この窓を親にして出す。メインウィンドウを親にすると、モーダルの裏に回って操作できない。
+        // 窓が閉じたら外す（窓を開かない経路——依頼文コピー——では、メインウィンドウが親の既定に戻る）。
+        viewModel.ShowVbaConflictAsync = async request =>
+            await new VbaConflictWindow(viewModel.CreateVbaConflictViewModel(request)).ShowAndResolveAsync(this).ConfigureAwait(true);
+        Closed += (_, _) => viewModel.ShowVbaConflictAsync = null;
         Loaded += async (_, _) =>
         {
             await SafeHandler.RunAsync("コンテキスト収集の初期化", () => viewModel.InitializeAsync())

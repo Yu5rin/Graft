@@ -108,6 +108,7 @@ public sealed class VbaConflictViewModel : ObservableObject
         VbaConflictScene.BeforeAnalysis => "解析する前に、Excel 側とファイル側の両方が変更されているモジュールがあります。",
         VbaConflictScene.Reanalysis => "解析したあとに、Excel 側とファイル側の両方が変更されているモジュールがあります。",
         VbaConflictScene.ManualPull => "Excel 側とファイル側の両方が変更されているため、取り込めないモジュールがあります。",
+        VbaConflictScene.ContextCollect => "AI に渡すファイルを集める前に、Excel 側とファイル側の両方が変更されているモジュールがあります。中止すると、Graft 側（ミラー）の現在の内容で集めます。",
         VbaConflictScene.ManualPush => "Excel 側とファイル側の両方が変更されているため、反映できないモジュールがあります。",
         VbaConflictScene.AfterApply => "適用はファイルに済んでいますが、Excel 側も変更されているため、そのまま反映できないモジュールがあります。",
         _ => "取り消し・復元はファイルに済んでいますが、Excel 側も変更されているため、そのまま反映できないモジュールがあります。",

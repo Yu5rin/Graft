@@ -153,7 +153,7 @@ public sealed partial class MainViewModel
                 return new VbaPushLoopResult(VbaPushEnd.Completed, written, created, deletePending);
             }
 
-            var choiceId = await ChooseAfterVbaPushFailureAsync(undoRevision, errors, failedPaths, skipped).ConfigureAwait(true);
+            var choiceId = await ChooseAfterVbaPushFailureAsync(project, undoRevision, errors, failedPaths, skipped).ConfigureAwait(true);
             switch (choiceId)
             {
                 case "retry":
@@ -170,7 +170,7 @@ public sealed partial class MainViewModel
 
     /// <summary>Push が一部でも失敗したときの選択（仕様 7.3-4-6）。既定は「ファイルの変更は残す」。</summary>
     private async Task<string> ChooseAfterVbaPushFailureAsync(
-        int? undoRevision, IReadOnlyList<GraftIssue> errors, IReadOnlyList<string> failedPaths, IReadOnlyCollection<string> skipped)
+        Project project, int? undoRevision, IReadOnlyList<GraftIssue> errors, IReadOnlyList<string> failedPaths, IReadOnlyCollection<string> skipped)
     {
         var lines = new List<string>
         {
@@ -195,7 +195,7 @@ public sealed partial class MainViewModel
         if (retryable) options.Add(new VbaChoiceOption("retry", "もう一度反映する"));
         if (undoRevision is int revision) options.Add(new VbaChoiceOption("undo", $"この適用（r{revision}）を取り消す"));
 
-        return await ChooseVbaOptionAsync(new VbaChoiceRequest("Excel へ反映できませんでした", string.Join(Environment.NewLine, lines), options))
+        return await ChooseVbaOptionAsync(new VbaChoiceRequest("Excel へ反映できませんでした", string.Join(Environment.NewLine, lines), options, OpenWorkbookPathFor(project, errors)))
             .ConfigureAwait(true);
     }
 

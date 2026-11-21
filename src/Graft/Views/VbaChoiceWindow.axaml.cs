@@ -14,6 +14,7 @@ namespace Graft.Views;
 public partial class VbaChoiceWindow : Window
 {
     private readonly VbaChoiceRequest _request;
+    private readonly Action<string>? _openWorkbook;
     private string? _chosen;
 
     /// <summary>headlessテスト・デザイナ用の引数なしコンストラクタ。</summary>
@@ -21,14 +22,32 @@ public partial class VbaChoiceWindow : Window
     {
     }
 
-    public VbaChoiceWindow(VbaChoiceRequest request)
+    /// <param name="request">ボタンの文言と数。</param>
+    /// <param name="openWorkbook">
+    /// 「Excel で開く」ボタン（<see cref="VbaChoiceRequest.OpenWorkbookPath"/> があるとき）が呼ぶ処理。ブックのフルパスを渡す。
+    /// null ならボタンを出さない（開く手段が無い環境・テスト）。
+    /// </param>
+    public VbaChoiceWindow(VbaChoiceRequest request, Action<string>? openWorkbook = null)
     {
         _request = request ?? throw new ArgumentNullException(nameof(request));
+        _openWorkbook = openWorkbook;
         InitializeComponent();
         Title = request.Title;
         AutomationProperties.SetName(this, request.Title);
         MessageText.Text = request.Message;
         AutomationProperties.SetName(MessageText, request.Message);
+
+        // E804（ブックが開いていない）のときの「Excel で開く」。選択のボタンとは別で、押しても窓は閉じない
+        // （開いたあとに、そのまま「ファイルだけ適用する」「中止」などを選べるように）。いちばん左に置き、
+        // 右側の選択のボタン（肯定的な選択肢が左）と区別する。
+        if (request.OpenWorkbookPath is { Length: > 0 } workbookPath && openWorkbook is not null)
+        {
+            var openButton = new Button { Content = "Excel で開く", MinWidth = 88, Margin = new Avalonia.Thickness(0, 0, 16, 0) };
+            AutomationProperties.SetName(openButton, "Excel でブックを開く");
+            openButton.Click += (_, _) => openWorkbook(workbookPath);
+            openButton.Name = "OpenWorkbookButton";
+            ButtonRow.Children.Add(openButton);
+        }
 
         Button? defaultButton = null;
         foreach (var option in request.Options)

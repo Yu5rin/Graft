@@ -15,6 +15,12 @@ public enum VbaConflictScene
     /// <summary>プロジェクトの右クリック「Excel から取込」（7.2）。</summary>
     ManualPull,
 
+    /// <summary>
+    /// コンテキスト収集（依頼文コピーを含む）の走査の前の自動 Pull（7.2）。「Excel 側を採用」を出し、
+    /// 「中止」なら収集は止めずにミラーの現在の内容で続ける。
+    /// </summary>
+    ContextCollect,
+
     /// <summary>プロジェクトの右クリック「Excel へ反映」（7.2b）。</summary>
     ManualPush,
 
@@ -113,7 +119,13 @@ public sealed record VbaChoiceOption(string Id, string Label, bool IsDefault = f
 /// <param name="Title">タイトル。</param>
 /// <param name="Message">本文。</param>
 /// <param name="Options">ボタン（左から。既定のボタンは1つ）。</param>
-public sealed record VbaChoiceRequest(string Title, string Message, IReadOnlyList<VbaChoiceOption> Options)
+/// <param name="OpenWorkbookPath">
+/// 紐付けたブックが開いていない（E804）ときに、「Excel で開く」ボタンを足すためのブックのフルパス
+/// （仕様書_VBA連携 9章）。null ならボタンを出さない。このボタンは窓を閉じず、ブックを開くだけで、
+/// 選択（<see cref="Options"/>）は別に残る。
+/// </param>
+public sealed record VbaChoiceRequest(
+    string Title, string Message, IReadOnlyList<VbaChoiceOption> Options, string? OpenWorkbookPath = null)
 {
     /// <summary>既定のボタン。ダイアログが配線されていない環境や、選ばずに閉じたときの結果。</summary>
     public VbaChoiceOption Default => Options.FirstOrDefault(o => o.IsDefault) ?? Options[0];

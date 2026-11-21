@@ -41,7 +41,17 @@ public partial class ProjectPane : UserControl
         // 既存挙動（ListBoxのSelectedItemバインドによる選択）はそのまま変えず、ダブルタップの
         // 通知だけを追加する。
         ProjectListBox.DoubleTapped += OnDoubleTapped;
+
+        // 仕様書_VBA連携 7.6: ブックが開いているかの調べ直しの契機のうち「プロジェクトペインを開いたとき」。
+        // 定期的な監視（ポーリング）はしない。ウィンドウの前面化は ShellWindow が同じ入口を呼ぶ。
+        AttachedToVisualTree += (_, _) => RequestVbaBadgeRefresh();
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property.Name == nameof(IsEffectivelyVisible) && e.NewValue is true) RequestVbaBadgeRefresh();
+        };
     }
+
+    private void RequestVbaBadgeRefresh() => (DataContext as ProjectPaneViewModel)?.RequestVbaBadgeRefresh();
 
     /// <summary>F6でのペイン間フォーカス移動先として、外部（ShellWindow）から参照する。</summary>
     public ListBox ListBoxElement => ProjectListBox;

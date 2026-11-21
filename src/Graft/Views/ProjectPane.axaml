@@ -28,6 +28,27 @@
         <Style Selector="ListBox.dragOver">
             <Setter Property="Background" Value="{DynamicResource BgHover}" />
         </Style>
+        <!-- 仕様書_VBA連携 7.6: 「VBA」バッジ。ブックが開いていないとき・機能をオフにしているときはグレー（色だけに
+             頼らないよう、ツールチップと読み上げにも理由を出す）。 -->
+        <Style Selector="Border.vbaBadge">
+            <Setter Property="Background" Value="{DynamicResource BgHover}" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.vbaBadge > TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        </Style>
+        <Style Selector="Border.vbaBadge.gray">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource TextDisabled}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Border.vbaBadge.gray > TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
+        </Style>
     </UserControl.Styles>
 
     <Grid RowDefinitions="Auto,*">
@@ -146,6 +167,23 @@
                                   IsVisible="{Binding IsSelectedVbaProject}"
                                   local:HelpTip.Standard="このプロジェクトに結び付けた Excel のブックを前面に出します。"
                                   AutomationProperties.Name="ブックを前面化" />
+                        <!-- 仕様書_VBA連携 7.6: プロジェクトごとの設定（VbaLink）。チェック項目は押すと項目自身が表示を反転するので、
+                             双方向に束縛して、保存に失敗したときも通知の投げ直しで見かけを実際の値へ戻す。
+                             設定で VBA 連携を切っているとき（IsVbaFeatureAvailable が false）は無効にする。 -->
+                        <MenuItem Header="適用後に Excel へ自動反映する"
+                                  ToggleType="CheckBox"
+                                  IsChecked="{Binding IsAutoPushChecked, Mode=TwoWay}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  IsEnabled="{Binding IsVbaFeatureAvailable}"
+                                  local:HelpTip.Standard="オンにすると、AI の回答を適用したあと、変わったモジュールを自動で Excel へ反映します。オフのときは、右クリックの「Excel へ反映」で手動で送ります。"
+                                  AutomationProperties.Name="適用後に Excel へ自動反映する" />
+                        <MenuItem Header="反映後にブックを保存する"
+                                  ToggleType="CheckBox"
+                                  IsChecked="{Binding IsSaveAfterPushChecked, Mode=TwoWay}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  IsEnabled="{Binding IsVbaFeatureAvailable}"
+                                  local:HelpTip.Standard="オンにすると、Excel へ反映したあとにブックも自動で保存します。既定はオフで、保存は Excel で自分で行います。読み取り専用で開いているブックは保存できません。"
+                                  AutomationProperties.Name="反映後にブックを保存する" />
                         <Separator />
                         <MenuItem Header="削除…"
                                   Command="{Binding DeleteProjectCommand}"
@@ -180,7 +218,7 @@
                             <StackPanel Grid.Column="1">
                                 <!-- 要望3: ピン留め状態は太字（既存）に加え、ピンアイコンでも示す
                                      （色のみ・太さのみに依存しないための追加表示）。 -->
-                                <Grid ColumnDefinitions="Auto,*">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
                                     <local:IconGlyph Grid.Column="0"
                                                      Data="{DynamicResource IconPinGeometry}"
                                                      Width="11" Height="11"
@@ -196,12 +234,27 @@
                                                Text="{Binding DisplayName}"
                                                TextTrimming="CharacterEllipsis"
                                                ToolTip.Tip="{Binding DisplayName}" />
+                                    <!-- Excel VBA 連携のバッジ（仕様書_VBA連携 7.6）。VBA プロジェクトでないとき・この環境で
+                                         使えないときは出ない。 -->
+                                    <Border Grid.Column="2"
+                                            Classes="vbaBadge"
+                                            Classes.gray="{Binding IsVbaBadgeGray}"
+                                            IsVisible="{Binding IsVbaBadgeVisible}"
+                                            ToolTip.Tip="{Binding VbaTooltip}">
+                                        <TextBlock Text="{Binding VbaBadgeText}" />
+                                    </Border>
                                 </Grid>
                                 <TextBlock Text="{Binding TagsText}"
                                            FontSize="{DynamicResource CaptionFontSize}"
                                            Foreground="{DynamicResource TextSecondary}"
                                            IsVisible="{Binding TagsText,
                                                        Converter={x:Static local:Converters.NotEmptyString}}" />
+                                <!-- 未反映・削除保留の件数（仕様書_VBA連携 7.6）。 -->
+                                <TextBlock Text="{Binding VbaStatusText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource StateWarn}"
+                                           IsVisible="{Binding HasVbaStatus}"
+                                           ToolTip.Tip="{Binding VbaTooltip}" />
                                 <TextBlock Text="未接続"
                                            FontSize="{DynamicResource CaptionFontSize}"
                                            Foreground="{DynamicResource StateWarn}"

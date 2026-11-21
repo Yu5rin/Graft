@@ -93,6 +93,8 @@ public sealed partial class MainViewModel : ObservableObject
         // 読み込み後にWordWrap/ShowWhitespaceのみ反映し直す（InitializeAsync参照）。
         Diff = new DiffViewModel(new Settings(), _ui);
         Diff.PropertyChanged += OnDiffPropertyChanged;
+        Diff.CanShowInVbe = ProjectPane.CanShowInVbe; // 差分ビューの右クリック「VBE でこの行を開く」（仕様書_VBA連携 7.6）。
+        Diff.ShowInVbeAsync = ProjectPane.ShowInVbeAsync;
         Diff.InlineEditAdopter = AdoptInlineEditAsync; // 8.7: 書き換えたSEARCH部を適用に含める（MainViewModel.InlineEditAdopt.cs）。
         // 修正1: 履歴差分タブ専用の表示状態。接ぎ木パネル（Diff/Blocks/State）とは完全に独立させ、
         // 履歴を閲覧しても接ぎ木パネルには一切触れないようにする（OnRevisionSelected参照）。

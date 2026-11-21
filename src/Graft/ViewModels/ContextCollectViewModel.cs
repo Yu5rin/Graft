@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using Graft.Core;
+using Graft.Core.Vba;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
@@ -46,6 +47,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     private readonly IUiTimer _filterTimer;
     private readonly GitIntegration _git;
     private Project _project; private readonly Settings _settings;
+    private readonly VbaContextPullAsync? _vbaPull;
 
     private ContextMode _selectedMode = ContextMode.TreeAndSelected;
     private RevisionOption? _selectedRevision;
@@ -69,9 +71,13 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     /// 「gitの変更ファイルだけ」で使う git 連携。省略時は既定の実装。引数にしているのは、
     /// テストが git の有無・出力を差し替えられるようにするため（ほかの呼び出し元は渡さなくてよい）。
     /// </param>
+    /// <param name="vbaPull">
+    /// 走査の前に Excel から最新を取り込む処理（Excel VBA 連携。仕様書_VBA連携 7.2）。VBA プロジェクトのときだけ
+    /// <c>MainViewModel</c> が渡す。null（通常のファイルプロジェクト、テスト）なら何もしない。
+    /// </param>
     public ContextCollectViewModel(
         AppPaths appPaths, ProjectStore projectStore, Project project, Settings settings, IUiServices ui, IDialogService dialogs,
-        GitIntegration? git = null)
+        GitIntegration? git = null, VbaContextPullAsync? vbaPull = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -84,6 +90,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         _persistTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(PersistDebounceMs), OnPersistTick);
         _filterTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(FilterDebounceMs), OnFilterTick);
         _git = git ?? new GitIntegration();
+        _vbaPull = vbaPull;
 
         Modes = new ObservableCollection<ModeOption>
         {
@@ -307,6 +314,38 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         }
     }
 
+    /// <summary>
+    /// 衝突ダイアログ（<c>VbaConflictWindow</c>）を出して利用者の選択を返す。コンテキスト収集の窓がモーダルで開いている間は、
+    /// その窓が自分を親にして出す（メインウィンドウを親にすると、モーダルの裏に回って操作できない）。窓を開かない経路
+    /// （依頼文コピー・グローバルホットキー）では未設定のままで、<c>MainViewModel</c> の既定（メインウィンドウ）で出る。
+    /// 窓が閉じるときは null に戻すこと。
+    /// </summary>
+    public Func<VbaConflictRequest, Task<VbaConflictDecision?>>? ShowVbaConflictAsync { get; set; }
+
+    /// <summary>衝突ダイアログの ViewModel を作る（<see cref="ShowVbaConflictAsync"/> を窓が配線するときに使う）。</summary>
+    public VbaConflictViewModel CreateVbaConflictViewModel(VbaConflictRequest request) => new(request, _settings, _ui);
+
+    /// <summary>
+    /// 直近の Excel からの取り込みで出た警告（「Excel の最新を取り込めていません」など）。無ければ null。
+    /// 窓を開かない経路（依頼文コピー）が、自分の画面に出すために読む。
+    /// </summary>
+    public string? VbaPullWarning { get; private set; }
+
+    /// <summary>
+    /// Excel から最新を取り込む（VBA プロジェクトで、設定 <c>Vba.PullOnContextOpen</c> が有効なときだけ）。
+    /// 失敗や衝突の「中止」でも収集は止めず、ミラーの現在の内容で続ける。代わりに警告を 1 件、
+    /// <see cref="StatusMessage"/> と <see cref="VbaPullWarning"/> に残す。
+    /// </summary>
+    public async Task PullFromExcelAsync(CancellationToken ct = default)
+    {
+        VbaPullWarning = null;
+        if (_vbaPull is null) return;
+
+        var warning = await _vbaPull(ShowVbaConflictAsync, ct).ConfigureAwait(true);
+        VbaPullWarning = warning;
+        if (warning is not null) StatusMessage = warning;
+    }
+
     /// <summary>デバウンス用タイマーを止める。プロジェクト切替でこのインスタンスを捨てる際に呼ぶ。</summary>
     public void Dispose()
     {
@@ -343,6 +382,10 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         ErrorIssue = null;
         try
         {
+            // Excel VBA 連携（仕様書_VBA連携 7.2）: 走査の前に Excel の最新を取り込む。走査より後に取り込むと、
+            // 古い本文を前提に作ったツリー・トークン数の概算が、取り込み後の内容と食い違う。
+            await PullFromExcelAsync(ct).ConfigureAwait(true);
+
             // ScanAsyncの中身（GitignoreFilterの構築とディレクトリの全走査）は、.gitignoreが
             // 無いプロジェクトでは一度もawaitで中断せず最後まで同期に走りきる。呼び出し元が
             // UIスレッドのため、そのまま呼ぶとフォルダの大きさに比例して画面が止まる。
