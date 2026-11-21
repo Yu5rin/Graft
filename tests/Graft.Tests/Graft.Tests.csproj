@@ -94,6 +94,11 @@
     <Compile Include="..\..\src\Graft\Platform\Windows\StaWorker.cs" LinkBase="Linked\Platform\Windows" />
     <Compile Include="..\..\src\Graft\Platform\Windows\ComFailures.cs" LinkBase="Linked\Platform\Windows" />
     <!--
+      FakeVbaBridge（メモリ上のブックとモジュール）は UI テストと共有する。VbaSyncService（Pull／Push のつなぎ）は
+      画面を使わないので、Avalonia なしのこのプロジェクトで全経路を速く確かめる。
+    -->
+    <Compile Include="..\Graft.UiTests\Vba\FakeVbaBridge.cs" LinkBase="Linked\UiTests" />
+    <!--
       利用者からの要望: タイトルバー色のテーマ連動。COLORREF変換・Windows 11以降判定・
       「非Windowsでは適用しない」判定（WindowsTitleBarThemeSupport.ShouldApply）は
       いずれもWin32 P/Invokeを一切呼ばない純粋関数のみで構成されるため、上と同じ理由で
