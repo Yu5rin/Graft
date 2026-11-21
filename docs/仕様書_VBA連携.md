@@ -391,7 +391,7 @@ public enum VbaWriteStatus { Written, Created, RolledBack, Failed }
 | Excel が応答しない | 5.3 の再試行切れ、または呼び出し全体の時間切れ | E805 |
 | マクロを持てない形式（.xlsx） | 拡張子で判定 | E806 |
 | 読み取り専用で開いている | `Workbook.ReadOnly` | 警告（反映は可能、保存は不可）。`SaveWorkbookAfterPush` のときは E807 |
-| マクロの実行中または中断中 | 書き込みの前に `VBProject.Mode`（`vbext_vm_Design = 1` 以外）を確かめる | E813 |
+| マクロの実行中または中断中 | 書き込みの前に `VBProject.Mode`（デザインモード以外。VBIDE の定義は Run=0・Break=1・Design=2 で、P2 の実装は Design=2 とした。実機で要確認）を確かめる | E813 |
 | そのほかの COM の失敗 | 上記のどれにも当たらない `COMException`（RPC サーバー利用不可 0x800706BA、切断 0x80010108 など。Excel が終了した場合を含む） | E801 |
 
 - E802 では、Excel の「ファイル → オプション → トラストセンター → トラストセンターの設定 → マクロの設定 → VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」を案内する。**Graft からレジストリ（`AccessVBOM`）を書き換えてはいけない。** セキュリティ設定は利用者自身に変えてもらう。読み取りだけなら、案内の精度を上げる目的でしてもよい。
