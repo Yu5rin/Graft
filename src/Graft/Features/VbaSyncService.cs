@@ -484,15 +484,46 @@ public sealed class VbaSyncService
         IReadOnlyCollection<string>? overwriteConflicts = null, CancellationToken ct = default)
     {
         var link = RequireLink(project);
-        await _gate.WaitAsync(ct).ConfigureAwait(true);
+        BeginWriting();
         try
         {
-            return await PushCoreAsync(project, link, only, Scope(overwriteConflicts), ct).ConfigureAwait(true);
+            await _gate.WaitAsync(ct).ConfigureAwait(true);
+            try
+            {
+                return await PushCoreAsync(project, link, only, Scope(overwriteConflicts), ct).ConfigureAwait(true);
+            }
+            finally
+            {
+                _gate.Release();
+            }
         }
         finally
         {
-            _gate.Release();
+            EndWriting();
         }
+    }
+
+    // 「Excel へ書いている最中」の旗（不具合 9）。Push の呼び出しの数を数える（ゲートの順番待ちも含める: 順番が来れば
+    // すぐ書くため）。適用中の旗（MainViewModel の _isApplyInProgress）は適用の全体を覆うが、取り消し・復元の後の反映、
+    // プロジェクトペインの手動の反映、コンテキスト収集の「Graft 側で上書き」は適用ではないので、ウィンドウを閉じる確認の
+    // 待ち・プロジェクトペインのコマンド・設定の反映の保留は、この旗を見る。書き込みの途中（消したあと・書く前）で
+    // プロセスが終わるとモジュールが空のまま残り、反映中のプロジェクトの削除はミラーが消える途中で同期状態を書いてしまう。
+    private int _writing;
+
+    /// <summary>いま Excel へ書いている最中（または書く順番を待っている）か。</summary>
+    public bool IsWritingToExcel => Volatile.Read(ref _writing) > 0;
+
+    /// <summary><see cref="IsWritingToExcel"/> が変わったとき（呼び出し側の同期コンテキストで）。</summary>
+    public event EventHandler? WritingChanged;
+
+    private void BeginWriting()
+    {
+        if (Interlocked.Increment(ref _writing) == 1) WritingChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void EndWriting()
+    {
+        if (Interlocked.Decrement(ref _writing) == 0) WritingChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private async Task<GraftResult<VbaPushResult>> PushCoreAsync(

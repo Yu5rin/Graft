@@ -132,11 +132,11 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         // すべて「右クリックメニューの1項目としても、ボタンとしても呼べる」ようにするため、
         // HistoryPaneのMenuItem群と同じ設計（CommandParameterを使わずSelectedItemを直接見る）に
         // 揃える。右クリックで選択行を切り替える処理はView側（ProjectPane.axaml.cs）が担う。
-        DeleteProjectCommand = new AsyncRelayCommand(DeleteSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの削除");
+        DeleteProjectCommand = new AsyncRelayCommand(DeleteSelectedProjectAsync, () => SelectedItem is not null && !IsSelectedVbaProjectBusy(), context: "プロジェクトの削除");
         TogglePinCommand = new AsyncRelayCommand(ToggleSelectedPinAsync, () => SelectedItem is not null, context: "ピン留めの切り替え");
         RenameProjectCommand = new AsyncRelayCommand(RenameSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクト名の変更");
         EditTagsCommand = new AsyncRelayCommand(EditSelectedTagsAsync, () => SelectedItem is not null, context: "タグの編集");
-        RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクトの場所の変更");
+        RelocateProjectCommand = new AsyncRelayCommand(RelocateSelectedProjectAsync, () => SelectedItem is not null && !IsSelectedVbaProjectBusy(), context: "プロジェクトの場所の変更");
         InitializeVbaCommands(); // Excel VBA 連携（ProjectPaneViewModel.Vba.cs）。
 
         // 右クリックメニューの「パスをコピー」「エクスプローラーで表示」。クリップボードと通知の窓口は
@@ -431,6 +431,7 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         var item = SelectedItem;
         if (item is null) return;
         var project = item.Project;
+        if (RejectWhileVbaBusy()) return;
 
         // 不具合2点検（実機報告の横断チェック）: 以前は「履歴も削除する」（不可逆）をyesLabelに
         // 渡しており、AvaloniaDialogService.ConfirmThreeWayAsyncの既定ボタン（IsDefault、Enterで
@@ -572,6 +573,7 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         var item = SelectedItem;
         if (item is null) return;
         var project = item.Project;
+        if (RejectWhileVbaBusy()) return;
 
         var folder = await _dialogs.PickFolderAsync("プロジェクトの新しい場所を選択").ConfigureAwait(true);
         if (string.IsNullOrEmpty(folder)) return;

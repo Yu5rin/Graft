@@ -602,7 +602,8 @@ public partial class ShellWindow : Window
         // 取り消さずそのまま続けるため、従来の同期的な閉じ方は変わらない。
         // トレイに常駐する設定のときは上で隠して戻っているので、ここへは来ない（確認しない）。
         if (!_closeConfirmed
-            && (ViewModel.Graft.IsApplyInProgress || ViewModel.Editor.UnsavedDocumentNames().Count > 0))
+            && (ViewModel.Graft.IsApplyInProgress || ViewModel.Graft.IsVbaWriting
+                || ViewModel.Editor.UnsavedDocumentNames().Count > 0))
         {
             e.Cancel = true;
             if (!_closeCheckInProgress) _ = ConfirmThenCloseAsync();
@@ -687,7 +688,10 @@ public partial class ShellWindow : Window
         var proceed = false;
         try
         {
-            while (ViewModel.Graft.IsApplyInProgress) await Task.Delay(100).ConfigureAwait(true);
+            // Excel へ書いている最中（取り消し・復元の後の反映、手動の反映など。適用ではない）も待つ（不具合 9）。
+            // 書き込みの途中（消したあと・書く前）でプロセスが終わると、Excel 側のモジュールが空のまま残る。
+            // 待ち時間は有限（COM の呼び出しには時間切れがある。仕様 5.3）。
+            while (ViewModel.Graft.IsApplyInProgress || ViewModel.Graft.IsVbaWriting) await Task.Delay(100).ConfigureAwait(true);
             proceed = await ViewModel.Editor.ConfirmSaveBeforeExitAsync().ConfigureAwait(true);
         }
         finally

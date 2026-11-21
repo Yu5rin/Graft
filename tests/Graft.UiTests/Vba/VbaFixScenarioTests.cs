@@ -1,6 +1,7 @@
 using Avalonia.Headless.XUnit;
 using FluentAssertions;
 using Graft.Core.Vba;
+using Graft.Infra;
 using Graft.UiTests.TestSupport;
 using Graft.ViewModels;
 
@@ -127,5 +128,116 @@ public class VbaFixScenarioTests
         rig.Mirror(Module1).Should().Contain("hello");
         rig.Graft.ApplyUndoNoticeText.Should().Contain("Excel には未反映");
         (await rig.StatusAsync().ConfigureAwait(true)).UnpushedCount.Should().Be(1);
+    }
+
+    // ------------------------------------------------------------------
+    // 不具合 9: 取り消し後の反映・手動の反映の最中に、塞がれていない操作がある
+    // ------------------------------------------------------------------
+
+    private static async Task<(TaskCompletionSource Release, Task Restoring)> StartBlockedRestoreAsync(VbaP3Rig rig)
+    {
+        await rig.PasteAsync(VbaP3Rig.Edit(Module1, "  MsgBox \"hi\"", "  MsgBox \"hello\"")).ConfigureAwait(true);
+        await rig.ApplyAsync().ConfigureAwait(true);
+
+        // 履歴の取り消し（適用ではない）の後の Excel への反映を、書き込みの手前で止める。
+        var reached = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        rig.Bridge.BeforeWrite = async () =>
+        {
+            reached.TrySetResult();
+            await release.Task.ConfigureAwait(false);
+        };
+        rig.Graft.History.SelectedItem = rig.Graft.History.Items.Single(i => i.RevisionLabel == "r1");
+        var restoring = ShellHarness.ExecuteAsync(rig.Graft.History.RestoreCommand);
+        await ShellHarness.WaitUntilAsync(() => reached.Task.IsCompleted).ConfigureAwait(true);
+        return (release, restoring);
+    }
+
+    [AvaloniaFact(DisplayName = "不具合9 再現: 取り消し後の反映の最中は、適用中の旗が立たなくても「Excel へ書いている最中」になり、反映・復元・プロジェクトの削除と場所の変更のコマンドが無効になる")]
+    public async Task 反映の最中はコマンドが無効になる()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        var pane = rig.Graft.ProjectPane;
+        var (release, restoring) = await StartBlockedRestoreAsync(rig).ConfigureAwait(true);
+
+        rig.Graft.IsApplyInProgress.Should().BeFalse("取り消しは適用ではない。以前はこの旗しか見ていなかった");
+        rig.Graft.IsVbaWriting.Should().BeTrue();
+        rig.Graft.VbaSync.IsWritingToExcel.Should().BeTrue();
+        pane.PushToExcelCommand.CanExecute(null).Should().BeFalse();
+        pane.PullFromExcelCommand.CanExecute(null).Should().BeFalse();
+        pane.RestoreFromExcelCommand.CanExecute(null).Should().BeFalse();
+        pane.DeleteProjectCommand.CanExecute(null).Should().BeFalse("反映中に削除すると、ミラーがごみ箱へ行く途中で同期状態が書かれる");
+        pane.RelocateProjectCommand.CanExecute(null).Should().BeFalse();
+        pane.ActivateWorkbookCommand.CanExecute(null).Should().BeTrue("前面化は書き込みと競合しない");
+
+        release.SetResult();
+        await restoring.ConfigureAwait(true);
+
+        rig.Graft.IsVbaWriting.Should().BeFalse();
+        pane.PushToExcelCommand.CanExecute(null).Should().BeTrue();
+        pane.DeleteProjectCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [AvaloniaFact(DisplayName = "不具合9 再現: 反映の最中に閉じようとすると、反映が終わるまで閉じるのを保留する（書き込みの途中でプロセスが終わらない）")]
+    public async Task 反映の最中は閉じるのを保留する()
+    {
+        using var rig = await VbaP3Rig.CreateAsync(withWindow: true).ConfigureAwait(true);
+        var (release, restoring) = await StartBlockedRestoreAsync(rig).ConfigureAwait(true);
+
+        rig.H.Window!.Close();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        rig.H.Window.IsVisible.Should().BeTrue("Excel へ書いている最中は閉じない");
+
+        release.SetResult();
+        await restoring.ConfigureAwait(true);
+        await ShellHarness.WaitUntilAsync(() => !rig.H.Window.IsVisible).ConfigureAwait(true);
+
+        rig.H.Window.IsVisible.Should().BeFalse("反映が終わったら閉じる");
+        rig.Excel("Module1").Code.Should().Be(VbaP3Rig.Module1Original, "書き込みは最後まで終わっている");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合9 再現: 反映の最中の設定の変更は保留し、反映が終わってから反映する")]
+    public async Task 反映の最中の設定の変更は保留される()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        var (release, restoring) = await StartBlockedRestoreAsync(rig).ConfigureAwait(true);
+        var before = rig.Bridge.ComTimeoutMs;
+
+        rig.Graft.UpdateSettings(new Settings { ShowPreview = false, Vba = new VbaSettings { ComTimeoutMs = 9000, CallTimeoutMs = 40000 } });
+
+        rig.Bridge.ComTimeoutMs.Should().Be(before, "書き込みの最中は設定を差し替えない");
+
+        release.SetResult();
+        await restoring.ConfigureAwait(true);
+
+        rig.Bridge.ComTimeoutMs.Should().Be(9000);
+        rig.Bridge.CallTimeoutMs.Should().Be(40000);
+    }
+
+    [AvaloniaFact(DisplayName = "不具合9: 手動の反映（プロジェクトペイン）の最中も「Excel へ書いている最中」になり、同じコマンドをもう一度受け付けない")]
+    public async Task 手動の反映の最中も旗が立つ()
+    {
+        using var rig = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
+        var pane = rig.Graft.ProjectPane;
+        File.WriteAllText(rig.MirrorPath(Module1), "Sub A()\r\n  Debug.Print 1\r\nEnd Sub\r\n");
+        var reached = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        rig.Bridge.BeforeWrite = async () =>
+        {
+            reached.TrySetResult();
+            await release.Task.ConfigureAwait(false);
+        };
+
+        var pushing = ShellHarness.ExecuteAsync(pane.PushToExcelCommand);
+        await ShellHarness.WaitUntilAsync(() => reached.Task.IsCompleted).ConfigureAwait(true);
+
+        rig.Graft.IsVbaWriting.Should().BeTrue();
+        pane.PushToExcelCommand.CanExecute(null).Should().BeFalse();
+        pane.DeleteProjectCommand.CanExecute(null).Should().BeFalse();
+
+        release.SetResult();
+        await pushing.ConfigureAwait(true);
+        rig.Graft.IsVbaWriting.Should().BeFalse();
+        rig.Excel("Module1").Code.Should().Contain("Debug.Print 1");
     }
 }

@@ -85,6 +85,7 @@ public sealed partial class MainViewModel
     {
         _isVbaPushing = value;
         CommandRequery.Invalidate(); // 貼り付け・取り消しなどのボタンの有効・無効を更新する。
+        if (!value) FlushPendingSettingsIfIdle(); // 反映の間、保留していた設定を反映する（不具合 9）。
     }
 
     // ------------------------------------------------------------------

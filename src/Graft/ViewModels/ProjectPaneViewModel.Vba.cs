@@ -108,10 +108,34 @@ public sealed partial class ProjectPaneViewModel
         PullFromExcelCommand = new AsyncRelayCommand(PullSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel からの取込");
         PushToExcelCommand = new AsyncRelayCommand(PushSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel への反映");
         RestoreFromExcelCommand = new AsyncRelayCommand(RestoreSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel からの復元");
-        ActivateWorkbookCommand = new AsyncRelayCommand(ActivateSelectedAsync, CanOperateOnSelectedVbaProject, context: "ブックの前面化");
+        ActivateWorkbookCommand = new AsyncRelayCommand(ActivateSelectedAsync, CanActivateSelectedVbaWorkbook, context: "ブックの前面化");
+    }
+
+    /// <summary>
+    /// 適用の最中か、Excel へ書いている最中か（<c>MainViewModel</c> が配線する）。この間は、書き込みと競合する操作
+    /// （反映・取込・復元、VBA プロジェクトの削除と場所の変更）を受け付けない（不具合 9）。
+    /// </summary>
+    public Func<bool> IsVbaBusy { get; set; } = static () => false;
+
+    /// <summary>選択中が VBA プロジェクトで、書き込みと競合する操作を受け付けられない状態か。</summary>
+    private bool IsSelectedVbaProjectBusy() => SelectedItem?.Project.Vba is not null && IsVbaBusy();
+
+    /// <summary>
+    /// 選択中が VBA プロジェクトで、適用または Excel への書き込みの最中なら、受け付けずに理由を知らせて true を返す
+    /// （コマンドの有効・無効の更新が間に合わない経路や、コマンドを通らない呼び出しでも守るため）。
+    /// </summary>
+    private bool RejectWhileVbaBusy()
+    {
+        if (!IsSelectedVbaProjectBusy()) return false;
+        Notify?.Invoke("適用または Excel への反映の最中のため、終わってからやり直してください。");
+        return true;
     }
 
     private bool CanOperateOnSelectedVbaProject()
+        => IsVbaFeatureAvailable && SelectedItem is { IsDisconnected: false } item && item.Project.Vba is not null && !IsVbaBusy();
+
+    // 前面化は書き込みと競合しない（Excel のウィンドウを前に出すだけ）ので、反映中も使える。
+    private bool CanActivateSelectedVbaWorkbook()
         => IsVbaFeatureAvailable && SelectedItem is { IsDisconnected: false } item && item.Project.Vba is not null;
 
     private void RaiseVbaStateChanged()
@@ -371,6 +395,7 @@ public sealed partial class ProjectPaneViewModel
     private async Task PullSelectedAsync()
     {
         if (_vbaSync is null || SelectedItem is not { } item) return;
+        if (RejectWhileVbaBusy()) return;
         var project = item.Project;
 
         var result = await _vbaSync.PullAsync(project).ConfigureAwait(true);
@@ -402,6 +427,7 @@ public sealed partial class ProjectPaneViewModel
     private async Task PushSelectedAsync()
     {
         if (_vbaSync is null || SelectedItem is not { } item) return;
+        if (RejectWhileVbaBusy()) return;
         var project = item.Project;
 
         var result = await _vbaSync.PushAsync(project).ConfigureAwait(true);
@@ -439,6 +465,7 @@ public sealed partial class ProjectPaneViewModel
     private async Task RestoreSelectedAsync()
     {
         if (_vbaSync is null || SelectedItem is not { } item) return;
+        if (RejectWhileVbaBusy()) return;
         var project = item.Project;
 
         // 対象は「記録があるのにミラーのファイルが無いもの」（バッジの削除保留と同じ基準）。同期状態の DeletePending の

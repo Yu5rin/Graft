@@ -319,7 +319,9 @@ public sealed partial class MainViewModel : ObservableObject
         Diff.UpdateSettings(settings);
         HistoryDiff.UpdateSettings(settings);
 
-        if (_isApplyInProgress)
+        // 適用の最中に加えて、Excel へ書いている最中も保留する（不具合 9。取り消し・復元の後の反映や手動の反映は
+        // 適用ではない）。終わったところで FlushPendingSettingsIfIdle が反映する。
+        if (_isApplyInProgress || IsVbaWriting)
         {
             _pendingSettings = settings;
             return;

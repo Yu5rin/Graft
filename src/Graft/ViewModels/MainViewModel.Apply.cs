@@ -57,6 +57,7 @@ public sealed partial class MainViewModel
         // 設定のまま最後まで一貫して動かす。finallyで必ず解除し、保留中の変更があれば
         // ここでまとめて反映する。
         _isApplyInProgress = true;
+        CommandRequery.Invalidate(); // VBA プロジェクトの反映・復元・削除などのコマンドを無効にする（不具合 9）。
         try
         {
             await ApplyCoreAsync(dryRun, context).ConfigureAwait(true);
@@ -65,11 +66,8 @@ public sealed partial class MainViewModel
         {
             _isApplyInProgress = false;
             ResetVbaApplyChoices(); // 「ファイルだけ適用する」・上書きの承認はこの適用だけの選択（MainViewModel.VbaApply.cs）。
-            if (_pendingSettings is { } pending)
-            {
-                _pendingSettings = null;
-                ApplySettingsNow(pending);
-            }
+            FlushPendingSettingsIfIdle(); // 保留していた設定を反映する（Excel へ書いている最中なら、その終わりで反映する）。
+            CommandRequery.Invalidate();
         }
     }
 

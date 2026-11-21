@@ -48,12 +48,43 @@ public sealed partial class MainViewModel
             // 差し替えやすいよう、プロパティの現在値を呼ぶ形で渡す（Shell が後から配線するため）。
             BeforePullAsync = paths2 => BeforeVbaPullAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing),
         };
+        service.WritingChanged += OnVbaWritingChanged;
         return service;
+    }
+
+    /// <summary>
+    /// Excel へ書いている最中か（不具合 9）。取り消し・復元の後の反映、手動の反映、コンテキスト収集の「Graft 側で上書き」
+    /// は適用ではなく <see cref="IsApplyInProgress"/> が立たないので、ウィンドウを閉じる確認の待ち・プロジェクトペインの
+    /// コマンド・設定の反映の保留は、これも見る。
+    /// </summary>
+    public bool IsVbaWriting => _isVbaPushing || _vbaSync?.IsWritingToExcel == true;
+
+    /// <summary>適用の最中か、Excel へ書いている最中か。この間は、書き込みと競合する操作（反映・復元・プロジェクトの削除や場所の変更）を受け付けない。</summary>
+    private bool IsVbaBusy() => _isApplyInProgress || IsVbaWriting;
+
+    /// <summary>
+    /// 適用も Excel への書き込みも終わったときに、保留していた設定の反映を行う。適用の最中は設定の差し替えを保留する
+    /// （<see cref="UpdateSettings"/>）が、Excel への書き込みも同じ理由（1 回の操作は開始時点の設定のまま最後まで一貫して
+    /// 動く。時間切れの設定など）で保留する。
+    /// </summary>
+    private void FlushPendingSettingsIfIdle()
+    {
+        if (_isApplyInProgress || IsVbaWriting || _pendingSettings is not { } pending) return;
+        _pendingSettings = null;
+        ApplySettingsNow(pending);
+    }
+
+    private void OnVbaWritingChanged(object? sender, EventArgs e)
+    {
+        CommandRequery.Invalidate(); // 反映中は、反映・復元・プロジェクトの削除などのコマンドを無効にする。
+        FlushPendingSettingsIfIdle();
     }
 
     private void RebuildVbaSync()
     {
+        if (_vbaSync is not null) _vbaSync.WritingChanged -= OnVbaWritingChanged;
         _vbaSync = CreateVbaSync();
+        ProjectPane.IsVbaBusy = IsVbaBusy;
         ProjectPane.VbaSync = _vbaSync;
         // 手動の取込・反映の衝突も、適用の流れと同じ衝突ダイアログで解決する（仕様書_VBA連携 7.5）。
         ProjectPane.ShowConflictAsync = request => ShowVbaConflictAsync is null
