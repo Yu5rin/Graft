@@ -182,13 +182,14 @@ public class VbaLooseFormFixTests : VbaServiceFixture
     [Fact(DisplayName = "不具合2 再現: 文字列・コメントだけを Excel 側で直したモジュールは、取込でミラーへ入る")]
     public async Task 文字列の編集は取込で入る()
     {
-        var project = await CreatedProjectAsync(FakeVbaBridge.Std("Module1", "Sub A()\r\n  MsgBox \"hi\" ' old\r\nEnd Sub"));
-        Excel("Module1").Code = "Sub A()\r\n  MsgBox \"hi\" ' new wording\r\nEnd Sub";
+        // 空白と大文字小文字だけの違いを、文字列とコメントの中に入れる（旧算法では「整形差」と見なされて取り込まれなかった）。
+        var project = await CreatedProjectAsync(FakeVbaBridge.Std("Module1", "Sub A()\r\n  MsgBox \"hi\" ' old note\r\nEnd Sub"));
+        Excel("Module1").Code = "Sub A()\r\n  MsgBox \"H I\" ' OLD  Note\r\nEnd Sub";
 
         var pull = await Service.PullAsync(project);
 
         pull.Value.Pulled.Should().Equal("Modules/Module1.bas");
-        File.ReadAllText(MirrorFile("Modules/Module1.bas")).Should().Contain("' new wording");
+        File.ReadAllText(MirrorFile("Modules/Module1.bas")).Should().Contain("\"H I\"").And.Contain("' OLD  Note");
     }
 
     [Fact(DisplayName = "不具合2 保険: Excel 側の本文が基準と厳密に違うまま（整形差と判断して）Push で上書きするときは、上書きの前に .rescue/ に控える")]
