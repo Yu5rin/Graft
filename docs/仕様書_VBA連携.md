@@ -398,7 +398,7 @@ public enum VbaWriteStatus { Written, Created, RolledBack, Failed }
 ### 5.3 スレッドと再試行と時間切れ
 
 - COM 呼び出しはすべて専用スレッド（`ComWorker`）で行い、UI スレッドを止めない（UI スレッドは `[STAThread]` だが、そこで COM を呼ばない方針は正しい）。呼び出しはキューに積んで直列に処理する。**STA にするか MTA（スレッドプール＋直列化）にするかは、実機検証 9・12 の結果で決める。** イベントを受けず `IMessageFilter` も使わないので、自前のメッセージループは要らない。待機は管理された待ち方で行う。
-- Excel がセル編集中やダイアログ表示中だと、`RPC_E_CALL_REJECTED`（0x80010001）や `RPC_E_SERVERCALL_RETRYLATER`（0x8001010A）が返る。`ComRetry` で 200ms 間隔、`Vba.ComTimeoutMs`（既定 5 秒）まで再試行し、それでもだめなら E805 を返す。`IMessageFilter` の登録は、実装量に見合わないのでこの版では行わない。
+- Excel がセル編集中やダイアログ表示中だと、`RPC_E_CALL_REJECTED`（0x80010001）や `RPC_E_SERVERCALL_RETRYLATER`（0x8001010A）が返る。セル編集中のオブジェクトモデルの呼び出しには、Excel が `VBA_E_IGNORE`（0x800AC472）を返すことも知られている（実機で要確認。実機検証手順 6-9 の状況1）。この3つはどれも「実行されていない」ので再試行の対象にする。`ComRetry` で 200ms 間隔、`Vba.ComTimeoutMs`（既定 5 秒）まで再試行し、それでもだめなら E805 を返す。`IMessageFilter` の登録は、実装量に見合わないのでこの版では行わない。
 - **呼び出し全体の時間切れ。** 再試行は「拒否」が返る場合だけに効く。マクロ実行中・中断モード・VBE のモーダル表示中などは、呼び出しが拒否もされず戻ってこない見込みで（実機で要確認）、`CancellationToken` では進行中の COM 呼び出しを止められない。
   - ブリッジの各メソッドは、呼び出し全体に `Vba.CallTimeoutMs`（既定 30 秒）の時間切れを設ける。待つ側が `Task.WhenAny` で諦めて **E805** を返す。
   - 諦めたスレッドは捨てる（`IsBackground = true` にして、アプリの終了を妨げない）。以後の呼び出し用に、新しいスレッドを作り直す。
@@ -410,14 +410,14 @@ public enum VbaWriteStatus { Written, Created, RolledBack, Failed }
 
 | 状況 | 検出方法 | エラー |
 |---|---|---|
-| 「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」がオフ | `Workbook.VBProject` の取得で COMException | E802 |
+| 「VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」がオフ | `Workbook.VBProject` の取得で、既知の HRESULT（0x800A03EC）の COMException。**既知の値だけ**を E802 にする（セル編集中の拒否など別の原因まで「トラストセンターで許可を」と案内しないため） | E802 |
 | VBA プロジェクトがロックされている | `VBProject.Protection == 1`（vbext_pp_locked） | E803 |
 | ブックが開いていない | ROT に見つからない | E804 |
 | Excel が応答しない | 5.3 の再試行切れ、または呼び出し全体の時間切れ | E805 |
 | マクロを持てない形式（.xlsx） | 拡張子で判定 | E806 |
 | 読み取り専用で開いている | `Workbook.ReadOnly` | 警告（反映は可能、保存は不可）。`SaveWorkbookAfterPush` のときは E807 |
 | マクロの実行中または中断中 | 書き込みの前に `VBProject.Mode`（デザインモード以外。VBIDE の定義は Run=0・Break=1・Design=2 で、P2 の実装は Design=2 とした。実機で要確認）を確かめる | E813 |
-| そのほかの COM の失敗 | 上記のどれにも当たらない `COMException`（RPC サーバー利用不可 0x800706BA、切断 0x80010108 など。Excel が終了した場合を含む） | E801 |
+| そのほかの COM の失敗 | 上記のどれにも当たらない `COMException`（RPC サーバー利用不可 0x800706BA、切断 0x80010108 など。Excel が終了した場合や、`VBProject` の取得で既知の値以外が返った場合を含む）。HRESULT を詳細に添える | E801 |
 
 - E802 では、Excel の「ファイル → オプション → トラストセンター → トラストセンターの設定 → マクロの設定 → VBA プロジェクト オブジェクト モデルへのアクセスを信頼する」を案内する。**Graft からレジストリ（`AccessVBOM`）を書き換えてはいけない。** セキュリティ設定は利用者自身に変えてもらう。読み取りだけなら、案内の精度を上げる目的でしてもよい。
 - E813 は Push の**前**に、1件も書かずに止める（実行中に書き込むとコードが壊れる、あるいは呼び出しが戻らない見込み）。デザインモードかどうかの判定が実機で期待どおり取れるかは、付録Bで確かめる。

@@ -120,10 +120,11 @@ public sealed partial class WindowsVbaBridge
         {
             return NotTrusted(fullName, name, readOnly);
         }
-        catch (COMException)
+        catch (COMException ex)
         {
+            // トラストセンターの設定（既知の値）以外の失敗。原因を決めつけず、HRESULT を添えて見せる。
             return new VbaWorkbookInfo(fullName, name, VbaWorkbookAvailability.Unresponsive,
-                "Excel との接続が切れました。", readOnly);
+                $"Excel と通信できませんでした（0x{ex.HResult:X8}）。Excel を確認して、もう一度開いてください。", readOnly);
         }
     }
 

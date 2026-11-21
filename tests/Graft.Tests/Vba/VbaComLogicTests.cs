@@ -77,9 +77,10 @@ public class VbaComLogicTests
     // HRESULT の分類
     // ------------------------------------------------------------------
 
-    [Theory(DisplayName = "HRESULT の分類: 拒否は再試行、切断は E801、それ以外は VBProject の取得なら E802")]
+    [Theory(DisplayName = "HRESULT の分類: 拒否（0x800AC472 を含む）は再試行、切断は E801、それ以外は Other")]
     [InlineData(0x80010001u, VbaComFailure.RetryLater)]
     [InlineData(0x8001010Au, VbaComFailure.RetryLater)]
+    [InlineData(0x800AC472u, VbaComFailure.RetryLater)]
     [InlineData(0x800706BAu, VbaComFailure.Disconnected)]
     [InlineData(0x80010108u, VbaComFailure.Disconnected)]
     [InlineData(0x800706BEu, VbaComFailure.Disconnected)]
@@ -88,13 +89,35 @@ public class VbaComLogicTests
     public void HRESULTの分類(uint hresult, VbaComFailure expected)
         => VbaComHResult.Classify(unchecked((int)hresult)).Should().Be(expected);
 
-    [Theory(DisplayName = "VBProject の取得で COMException: 切断なら E801、それ以外は「アクセスを信頼していない」の E802")]
+    [Theory(DisplayName = "VBProject の取得で COMException: 既知の値（0x800A03EC）だけが「アクセスを信頼していない」の E802。切断もそれ以外も E801（HRESULT つき）")]
     [InlineData(0x800706BAu, ErrorCode.E801)]
     [InlineData(0x80010108u, ErrorCode.E801)]
     [InlineData(0x800A03ECu, ErrorCode.E802)]
-    [InlineData(0x80004005u, ErrorCode.E802)]
+    [InlineData(0x80004005u, ErrorCode.E801)]
+    [InlineData(0x800AC472u, ErrorCode.E801)]
     public void VBProject取得の失敗の分類(uint hresult, ErrorCode expected)
         => VbaComHResult.ClassifyVbProjectAccess(unchecked((int)hresult)).Should().Be(expected);
+
+    [Fact(DisplayName = "不具合7: 0x800AC472（セル編集中の VBA_E_IGNORE）は ComRetry が再試行し、尽きたら ComBusyException（E805 になる）。包まれた例外でも同じ")]
+    public void セル編集中の拒否は再試行される()
+    {
+        var rejected = new COMException("VBA_E_IGNORE", unchecked((int)0x800AC472));
+        ComRetry.IsRetryable(rejected).Should().BeTrue();
+        ComRetry.IsRetryable(new System.Reflection.TargetInvocationException(rejected)).Should().BeTrue();
+        VbaComHResult.IsRetryLater(unchecked((int)0x800AC472)).Should().BeTrue();
+
+        var attempts = 0;
+        var elapsed = TimeSpan.Zero;
+        var result = ComRetry.Run(
+            () => ++attempts < 3 ? throw rejected : "ok", TimeSpan.FromSeconds(5), CancellationToken.None,
+            sleep: t => elapsed += t, elapsed: () => elapsed);
+        result.Should().Be("ok");
+        attempts.Should().Be(3);
+
+        var act = () => ComRetry.Run<string>(
+            () => throw rejected, TimeSpan.FromSeconds(1), CancellationToken.None, sleep: t => elapsed += t, elapsed: () => elapsed);
+        act.Should().Throw<ComBusyException>();
+    }
 
     [Fact(DisplayName = "ComFailures: 切断は「接続が切れた」、時間切れ・拒否は E805、HRESULT が詳細に載る")]
     public void COMの失敗が問題へ写る()
