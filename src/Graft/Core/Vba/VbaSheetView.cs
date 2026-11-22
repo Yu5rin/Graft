@@ -96,6 +96,24 @@ public static class VbaSheetViewLimits
 
     /// <summary>N を 0〜<see cref="MaxHeaderRows"/> に収める。</summary>
     public static int ClampHeaderRows(int rows) => Math.Clamp(rows, 0, MaxHeaderRows);
+
+    /// <summary>
+    /// 入力欄の文字を N として読む。<b>全角の数字（<c>５</c>）も、半角へそろえて受け付ける</b>
+    /// （日本語入力のまま打つと全角になりやすい。範囲の入力 <see cref="VbaA1Range"/> と同じ扱い）。
+    /// 整数でない・負・<see cref="MaxHeaderRows"/> 超は false。
+    /// </summary>
+    public static bool TryParseHeaderRows(string? text, out int rows)
+    {
+        var normalized = VbaA1Range.ToHalfWidth(text).Trim();
+        if (int.TryParse(normalized, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out rows)
+            && rows <= MaxHeaderRows)
+        {
+            return true;
+        }
+
+        rows = 0;
+        return false;
+    }
 }
 
 /// <summary><see cref="VbaSheetViewMode"/> の文字列（保存用）と画面の名前との往復。</summary>
@@ -166,9 +184,14 @@ public sealed class VbaSheetViewSet
     /// <summary>明示した見せ方（<see cref="CodeNames"/> の分）。</summary>
     public IEnumerable<KeyValuePair<string, VbaSheetView>> Overrides => _byCodeName;
 
-    /// <summary>シートの見せ方。</summary>
+    /// <summary>
+    /// シートの見せ方。<b>コード名が空のシートは、常に構成だけ</b>（鍵が無いので見せ方を記録できず、<see cref="Default"/> に任せると、
+    /// 移行（全シート「見出し＋N 行」）の既定がそのまま値を渡してしまうため。値が渡らない側＝安全側に倒す）。
+    /// </summary>
     public VbaSheetView For(string codeName)
-        => !string.IsNullOrEmpty(codeName) && _byCodeName.TryGetValue(codeName, out var view) ? view : Default;
+        => string.IsNullOrEmpty(codeName)
+            ? VbaSheetView.StructureOnly
+            : _byCodeName.TryGetValue(codeName, out var view) ? view : Default;
 
     /// <summary>ブック全体の出し方を掛けた一覧（<see cref="VbaSheetView.ForLevel"/>）。</summary>
     public VbaSheetViewSet ForLevel(VbaWorkbookInfoLevel level)

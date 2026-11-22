@@ -275,6 +275,54 @@ public static class VbaWorkbookInfoReadRules
                || refersTo.Contains(sheetName + "!", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static readonly Regex QuotedSheetPrefix = new(@"'((?:[^']|'')+)'!", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // 引用なしのシート名: 英数・かな漢字・_・. だけでできた語の直後の「!」。3-D 参照（Sheet1:Sheet3!A1）は両端を数える。
+    // 直前が「#」なら #REF!、「]」なら別ブックの参照（[Book.xlsx]Sheet1!）なので、シート名として数えない。
+    private static readonly Regex PlainSheetPrefix = new(
+        @"(?<![\p{L}\p{N}_.'#\]])([\p{L}\p{N}_.]+)(?::([\p{L}\p{N}_.]+))?!",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex StructuredTableName = new(
+        @"(?<![\p{L}\p{N}_.])([\p{L}_\\][\p{L}\p{N}_.]*)\[",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 名前付き範囲の <c>RefersTo</c> が、シート名つきで指している<b>シート名</b>（<c>=設定!$B$3</c> の「設定」、
+    /// <c>='売上 2026'!$A$1</c> の「売上 2026」、3-D 参照の両端）を挙げる。引用の中の <c>''</c> は <c>'</c> に戻す。
+    /// 「ブックの全シートに無い名前のシートを指す式」を伏せる判断（<see cref="VbaWorkbookInfoFormatter"/>）に使う。
+    /// 迷うもの（解釈できないシート名の接頭辞）は、一覧に無い名前として挙がる＝伏せる側に倒れる。
+    /// </summary>
+    public static IReadOnlyList<string> ReferencedSheetNames(string? refersTo)
+    {
+        if (string.IsNullOrEmpty(refersTo)) return Array.Empty<string>();
+        var found = new List<string>();
+        foreach (Match match in QuotedSheetPrefix.Matches(refersTo))
+        {
+            found.Add(match.Groups[1].Value.Replace("''", "'", StringComparison.Ordinal));
+        }
+
+        // 引用の中の「!」を、引用なしの規則で読み直さない（引用の部分を取り除いてから探す）。
+        var rest = QuotedSheetPrefix.Replace(refersTo, "_");
+        foreach (Match match in PlainSheetPrefix.Matches(rest))
+        {
+            found.Add(match.Groups[1].Value);
+            if (match.Groups[2].Success) found.Add(match.Groups[2].Value);
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// 名前付き範囲の <c>RefersTo</c> が構造化参照（<c>=単価表[金額]</c>・<c>=Sheet1!売上[[#Headers],[日付]]</c>）で指している
+    /// <b>テーブル名</b>を挙げる。「出さない」のシートのテーブルを指す名前を伏せる判断に使う
+    /// （そのシートのテーブルは読まない＝一覧に無いので、「出してよいテーブルの一覧に無い名前」を伏せる）。
+    /// </summary>
+    public static IReadOnlyList<string> StructuredReferenceTables(string? refersTo)
+        => string.IsNullOrEmpty(refersTo)
+            ? Array.Empty<string>()
+            : StructuredTableName.Matches(refersTo).Select(m => m.Groups[1].Value).ToArray();
+
     /// <summary>
     /// 利用者が作った名前ではなく、Excel が内部で持つ名前（印刷範囲・印刷タイトル・オートフィルターの
     /// <c>_xlnm.*</c>、<c>_FilterDatabase</c>）か。名前付き範囲の一覧から除く。

@@ -49,7 +49,16 @@ public static class VbaSheetReadPlanner
     public static VbaSheetReadPlan Plan(VbaA1Range? used, VbaSheetView view, int maxColumns, int allMaxRows, int allMaxColumns)
     {
         ArgumentNullException.ThrowIfNull(view);
-        if (used is not { } bounds || !view.PassesValues) return VbaSheetReadPlan.None(view.Mode);
+        if (!view.PassesValues) return VbaSheetReadPlan.None(view.Mode);
+        if (used is not { } bounds)
+        {
+            // 【空のシートでも、「範囲を指定」なら「使用範囲の外」と伝える】 使用範囲が無い（空のシート）とき、以前は何の計画も立てず、
+            // 値が無い理由（範囲の外）が依頼文にも画面にも出なかった（利用者は、範囲を入れたのに何も出ない理由が分からない）。
+            // 範囲が有効なら、読まずに「外だった」計画を返す。見出し＋N 行・全部は、読む所が無いだけなので従来どおり何も出さない。
+            return view.Mode == VbaSheetViewMode.Range && VbaA1Range.TryParse(view.Range, out var wanted, out _)
+                ? new VbaSheetReadPlan(VbaSheetViewMode.Range, wanted.Row1, wanted.Column1, 0, 0, 0, 0, wanted.ToA1(), true)
+                : VbaSheetReadPlan.None(view.Mode);
+        }
 
         switch (view.Mode)
         {
@@ -123,6 +132,10 @@ public static class VbaSheetReadPlanner
 
         if (plan.Mode is VbaSheetViewMode.All or VbaSheetViewMode.Range)
         {
+            // 読む所が無く、「範囲の外」でもない（空のシートの「全部」など）なら、値のかたまりは作らない
+            // （見出しだけで中身の無い「全部」を依頼文に出さない）。
+            if (!plan.ReadsCells && !plan.OutsideUsedRange) return structure;
+
             var rows = plan.ReadsCells ? (valuesWithFormulas ?? values) : Array.Empty<IReadOnlyList<string>>();
             return structure with
             {

@@ -49,11 +49,35 @@ public enum VbaSheetVisibility
 /// <param name="Names">名前付き範囲。</param>
 /// <param name="References">参照設定。読めなかったときは空で、理由は <paramref name="Omitted"/> にある。</param>
 /// <param name="Omitted">上限・時間切れ・権限で省いたものの説明（警告 E815 の元）。</param>
+/// <param name="AllSheets">
+/// <b>ブックの全シートの表示名とコード名</b>（グラフシートは含まない）。値を読まなかったシート、時間切れ・読み取り失敗・
+/// 枚数の上限で <paramref name="Sheets"/> に載らなかったシートも含む。名前（表示名・コード名）だけは、セルを読まないので安く先に取れる。
+/// 「出さない」のシートが <paramref name="Sheets"/> に載らなかったとき、その名前を知らないと、そのシートを指す名前付き範囲や
+/// 「読めませんでした」の注記を伏せられず、シート名が漏れていた。null は「<paramref name="Sheets"/> がすべて」（従来の取得結果）。
+/// </param>
 public sealed record VbaWorkbookInfoSnapshot(
     string WorkbookName, DateTimeOffset ReadAt,
     IReadOnlyList<VbaSheetInfo> Sheets, IReadOnlyList<VbaTableInfo> Tables,
     IReadOnlyList<VbaNamedRangeInfo> Names, IReadOnlyList<VbaReferenceInfo> References,
-    IReadOnlyList<string> Omitted);
+    IReadOnlyList<string> Omitted,
+    IReadOnlyList<VbaSheetIdentity>? AllSheets = null)
+{
+    /// <summary>
+    /// ブックの全シートの名前（<see cref="AllSheets"/>。無ければ <see cref="Sheets"/> から）。
+    /// 載っているシートの値は <see cref="Sheets"/> と重なり、<see cref="Sheets"/> にだけあるものも漏らさず含める。
+    /// </summary>
+    public IReadOnlyList<VbaSheetIdentity> KnownSheets
+        => AllSheets is null
+            ? Sheets.Select(s => new VbaSheetIdentity(s.Name, s.CodeName)).ToArray()
+            : AllSheets.Concat(Sheets.Select(s => new VbaSheetIdentity(s.Name, s.CodeName)))
+                .DistinctBy(s => (s.Name.ToUpperInvariant(), s.CodeName.ToUpperInvariant()))
+                .ToArray();
+}
+
+/// <summary>シート 1 枚の名前（表示名とコード名）。セルの値は持たない。</summary>
+/// <param name="Name">表示名。</param>
+/// <param name="CodeName">コード名（<c>Sheet1</c> など）。</param>
+public sealed record VbaSheetIdentity(string Name, string CodeName);
 
 /// <summary>シート 1 枚。</summary>
 /// <param name="Name">表示名。</param>

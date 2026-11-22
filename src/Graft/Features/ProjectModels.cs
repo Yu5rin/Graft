@@ -154,15 +154,105 @@ public sealed record VbaLink
     /// 「構成だけ」（既定）と同じ記録は書かない。一覧に載っている記録は、いま画面に無いシート（消えたシート）の分も残す。
     /// </summary>
     /// <param name="views">全シート分の見せ方（<see cref="ResolveSheetViews"/> と同じ一覧の更新後）。</param>
-    public VbaLink WithSheetViews(VbaSheetViewSet views)
+    public VbaLink WithSheetViews(VbaSheetViewSet views) => WithSheetViews(views, null);
+
+    /// <summary>
+    /// <see cref="WithSheetViews(VbaSheetViewSet)"/> の、シートの表示名を記録に添える版。
+    /// <para>
+    /// 【表示名を記録する理由】 記録の鍵はコード名（表示名を変えても外れない）だが、Excel はシートを削除したあとに同じコード名
+    /// （<c>Sheet3</c> など）を別のシートへ割り当てうる。コード名だけで引くと、消えたシートの「全部」が、同じコード名の
+    /// 別のシートへ確認なしで引き継がれる。表示名も持っておけば、食い違いに気づける（<see cref="ReconcileSheetViews"/>）。
+    /// </para>
+    /// </summary>
+    /// <param name="views">全シート分の見せ方。</param>
+    /// <param name="sheetNames">
+    /// 記録に書くシートの表示名（コード名 → 表示名）。ここに無いコード名は、いまある記録の表示名をそのまま残す
+    /// （食い違いを確認なしに上書きして、無かったことにしないため）。
+    /// </param>
+    public VbaLink WithSheetViews(VbaSheetViewSet views, IReadOnlyDictionary<string, string>? sheetNames)
     {
         ArgumentNullException.ThrowIfNull(views);
+        var existing = (WorkbookInfoSheetViews ?? Array.Empty<VbaSheetViewSetting>())
+            .GroupBy(r => r.CodeName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Last().SheetName, StringComparer.OrdinalIgnoreCase);
         var records = views.Overrides
             .Where(p => p.Value != VbaSheetView.StructureOnly)
-            .Select(p => VbaSheetViewSetting.From(p.Key, p.Value))
+            .Select(p =>
+            {
+                var name = sheetNames is not null && sheetNames.TryGetValue(p.Key, out var given)
+                    ? given
+                    : existing.GetValueOrDefault(p.Key);
+                return VbaSheetViewSetting.From(p.Key, p.Value) with { SheetName = name };
+            })
             .OrderBy(r => r.CodeName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return this with { WorkbookInfoSheetViews = records, WorkbookInfoSampleValues = false, WorkbookInfoIncludeFormulas = false };
+    }
+
+    /// <summary>
+    /// 取得したブックのシート（<paramref name="sheets"/>）と記録を突き合わせ、<b>別のシートへ確認なしで引き継がれる恐れのある、
+    /// 値が渡る見せ方の記録を落とす</b>（「構成だけ」に戻る＝再び選ぶときに確認が出る）。
+    /// <list type="bullet">
+    /// <item>記録のコード名が、取得結果のどのシートにも無い（シートを削除した）: 値が渡る見せ方の記録を落とす。
+    /// 後で別の内容のシートが同じコード名になっても、確認なしで値が渡ることがない。
+    /// 「出さない」「構成だけ」の記録は、値が渡らないので残す（「出さない」を残すほうが安全側）。</item>
+    /// <item>コード名は同じだが、記録した表示名と取得結果の表示名が違う: 値が渡る見せ方の記録を落とす。
+    /// <b>表示名を変えただけ</b>のシートと、<b>別のシートが同じコード名になった</b>場合とは、記録からは区別できないので、
+    /// どちらも安全側（再確認）に倒す。「出さない」の記録は残し、表示名を更新する。</item>
+    /// <item>記録に表示名が無い（この項目が無かった版の記録）: 取得結果の表示名を添えるだけで、見せ方は変えない
+    /// （既存の利用者の設定を、版が上がった途端に落とさない）。</item>
+    /// </list>
+    /// 記録が無い（<see cref="WorkbookInfoSheetViews"/> が null）ときは何もしない。
+    /// </summary>
+    /// <param name="sheets">取得結果の全シート（<see cref="VbaWorkbookInfoSnapshot.KnownSheets"/>）。</param>
+    public VbaSheetViewReconcileResult ReconcileSheetViews(IReadOnlyList<VbaSheetIdentity> sheets)
+    {
+        ArgumentNullException.ThrowIfNull(sheets);
+        if (WorkbookInfoSheetViews is null) return new VbaSheetViewReconcileResult(this, false, Array.Empty<string>(), Array.Empty<string>());
+
+        var kept = new List<VbaSheetViewSetting>();
+        var renamed = new List<string>();
+        var removed = new List<string>();
+        var changed = false;
+        foreach (var record in WorkbookInfoSheetViews)
+        {
+            var passes = VbaSheetViewModes.IsValueMode(VbaSheetViewModes.Parse(record.Mode));
+            var match = sheets.FirstOrDefault(s => string.Equals(s.CodeName, record.CodeName, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                if (passes)
+                {
+                    removed.Add(record.CodeName);
+                    changed = true;
+                }
+                else
+                {
+                    kept.Add(record);
+                }
+
+                continue;
+            }
+
+            if (record.SheetName is null)
+            {
+                kept.Add(record with { SheetName = match.Name });
+                changed = true;
+            }
+            else if (!string.Equals(record.SheetName, match.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                changed = true;
+                if (passes) renamed.Add(record.CodeName);
+                else kept.Add(record with { SheetName = match.Name });
+            }
+            else
+            {
+                kept.Add(record);
+            }
+        }
+
+        return changed
+            ? new VbaSheetViewReconcileResult(this with { WorkbookInfoSheetViews = kept.ToArray() }, true, renamed, removed)
+            : new VbaSheetViewReconcileResult(this, false, renamed, removed);
     }
 
     /// <summary>
@@ -208,6 +298,13 @@ public sealed record VbaSheetViewSetting
     /// <summary>範囲（<c>Range</c> のとき。正規化した A1 形式）。</summary>
     public string? Range { get; init; }
 
+    /// <summary>
+    /// 記録したときのシートの表示名。コード名が同じでも表示名が食い違えば、別のシートかもしれないので、値が渡る見せ方は
+    /// 構成だけに戻して再確認を求める（<see cref="VbaLink.ReconcileSheetViews"/>）。この項目が無い既存の記録は null
+    /// （食い違いの判定をせず、次に取得したときに表示名を添える）。
+    /// </summary>
+    public string? SheetName { get; init; }
+
     /// <summary>実行時の見せ方にする。範囲が壊れていれば捨てる（値を渡さない側）。</summary>
     public VbaSheetView ToView() => new(
         VbaSheetViewModes.Parse(Mode),
@@ -225,6 +322,14 @@ public sealed record VbaSheetViewSetting
         Range = view.Range,
     };
 }
+
+/// <summary><see cref="VbaLink.ReconcileSheetViews"/> の結果。</summary>
+/// <param name="Link">突き合わせ後の紐付け（変わらなければ元のもの）。</param>
+/// <param name="Changed">記録が変わったか（表示名を添えただけの変更も含む）。</param>
+/// <param name="Renamed">表示名が食い違い、値が渡る見せ方を構成だけに戻したシートのコード名。</param>
+/// <param name="Removed">取得結果に無く、値が渡る見せ方の記録を落としたシートのコード名。</param>
+public sealed record VbaSheetViewReconcileResult(
+    VbaLink Link, bool Changed, IReadOnlyList<string> Renamed, IReadOnlyList<string> Removed);
 
 /// <summary>プロジェクト定義。projects.json の1要素。仕様書3.1。</summary>
 public sealed record Project

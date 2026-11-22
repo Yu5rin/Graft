@@ -406,7 +406,9 @@ public class VbaWorkbookInfoFormatterTests
         cut.Should().Contain("### 大きい（Sheet1）: 全部");
         cut.Should().Contain("| 1 | v1-1 |", "先頭の行は残る");
         cut.Should().NotContain("| 500 | v500-1 |");
-        cut.Should().MatchRegex(@"文字数の上限のため、500 行のうち先頭の \d+ 行だけを出しています");
+        // 不具合 9: 注記は、読んだ行数（500）ではなく、実際に出した行数とアドレスで 1 つにまとめて言う（2 つの数字を並べない）。
+        cut.Should().MatchRegex(@"対象は 500 行・10 列ありますが、先頭の \d+ 行・10 列（A1:J\d+）だけを出しています");
+        cut.Should().NotContain("先頭の 500 行").And.NotContain("文字数の上限のため、500 行のうち");
         cut.Should().Contain("| 小さい | Sheet2 |", "構成は残る");
     }
 

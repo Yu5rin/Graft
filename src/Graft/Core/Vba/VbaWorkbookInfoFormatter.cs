@@ -61,11 +61,20 @@ public static class VbaWorkbookInfoFormatter
         var full = level == VbaWorkbookInfoLevel.Full;
 
         // 「出さない」のシートとその周辺を落とした、出してよい部分。
-        var excluded = snapshot.Sheets.Where(s => effective.For(s.CodeName).Mode == VbaSheetViewMode.None).ToArray();
-        var visible = snapshot.Sheets.Except(excluded).ToArray();
-        var tables = snapshot.Tables.Where(t => !excluded.Any(e => SameSheet(e.Name, t.SheetName))).ToArray();
-        var names = snapshot.Names.Where(n => !IsTiedToExcluded(n, excluded)).ToArray();
-        var omittedNotes = snapshot.Omitted.Where(o => !excluded.Any(e => o.Contains($"「{e.Name}」", StringComparison.Ordinal))).ToArray();
+        // 【出さないシートの特定は、値を読んだシートだけでなく、ブックの全シートの名前から行う】 時間切れ・読み取り失敗・枚数の上限で
+        // 取得結果のシート（snapshot.Sheets）に載らなかった「出さない」のシートも、名前（AllSheets）は分かっているので、
+        // そのシートを指す名前付き範囲・注記を確実に伏せられる。
+        var known = snapshot.KnownSheets;
+        var excludedNames = known
+            .Where(k => effective.For(k.CodeName).Mode == VbaSheetViewMode.None)
+            .Select(k => k.Name)
+            .ToArray();
+        var visible = snapshot.Sheets.Where(s => effective.For(s.CodeName).Mode != VbaSheetViewMode.None).ToArray();
+        var knownNames = new HashSet<string>(known.Select(k => k.Name), StringComparer.OrdinalIgnoreCase);
+        var tables = snapshot.Tables.Where(t => !excludedNames.Any(e => SameSheet(e, t.SheetName))).ToArray();
+        var tableNames = new HashSet<string>(tables.Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
+        var names = snapshot.Names.Where(n => !IsHiddenName(n, excludedNames, knownNames, tableNames)).ToArray();
+        var omittedNotes = snapshot.Omitted.Where(o => !IsHiddenNote(o, excludedNames, knownNames)).ToArray();
 
         var entries = full ? BuildValueEntries(visible, effective) : new List<ValueEntry>();
         var plan = new Plan
@@ -137,10 +146,42 @@ public static class VbaWorkbookInfoFormatter
     private static bool SameSheet(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>名前が「出さない」のシートに結び付いているか（シート限定、または参照先がそのシート）。</summary>
-    private static bool IsTiedToExcluded(VbaNamedRangeInfo name, IReadOnlyList<VbaSheetInfo> excluded)
-        => excluded.Any(e =>
-            (name.Scope is not null && SameSheet(name.Scope, e.Name))
-            || VbaWorkbookInfoReadRules.RefersToSheet(name.RefersTo, e.Name));
+    private static bool IsTiedToExcluded(VbaNamedRangeInfo name, IReadOnlyList<string> excludedNames)
+        => excludedNames.Any(e =>
+            (name.Scope is not null && SameSheet(name.Scope, e))
+            || VbaWorkbookInfoReadRules.RefersToSheet(name.RefersTo, e));
+
+    /// <summary>
+    /// 名前付き範囲を伏せるか。次のどれかなら伏せる。
+    /// <list type="bullet">
+    /// <item>「出さない」のシートに結び付いている（<see cref="IsTiedToExcluded"/>）。</item>
+    /// <item><b>ブックの全シートに無い名前のシート</b>に限定されている・を指している（取得結果に載らなかったシートの名前を出さない。
+    /// 迷ったら伏せる側）。</item>
+    /// <item><b>出してよいテーブルの一覧に無いテーブル</b>を構造化参照で指している（<c>=単価表[金額]</c>）。「出さない」のシートの
+    /// テーブルは読まないので一覧に無く、シート名を伏せても、式のテーブル名から存在が漏れていた。</item>
+    /// </list>
+    /// </summary>
+    private static bool IsHiddenName(
+        VbaNamedRangeInfo name, IReadOnlyList<string> excludedNames, HashSet<string> knownSheetNames, HashSet<string> visibleTableNames)
+    {
+        if (IsTiedToExcluded(name, excludedNames)) return true;
+        if (name.Scope is not null && !knownSheetNames.Contains(name.Scope)) return true;
+        if (VbaWorkbookInfoReadRules.ReferencedSheetNames(name.RefersTo).Any(sheet => !knownSheetNames.Contains(sheet))) return true;
+        return VbaWorkbookInfoReadRules.StructuredReferenceTables(name.RefersTo).Any(table => !visibleTableNames.Contains(table));
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex SheetInNote = new(
+        "シート「([^」]+)」", System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 「読み取れなかったもの」の注記を伏せるか。「出さない」のシート名を含む、またはブックの全シートに無い名前のシートを指す注記は伏せる
+    /// （注記の文にシート名が入っているため。名前を出さないという約束を、注記から崩さない）。
+    /// </summary>
+    private static bool IsHiddenNote(string note, IReadOnlyList<string> excludedNames, HashSet<string> knownSheetNames)
+    {
+        if (excludedNames.Any(e => note.Contains($"「{e}」", StringComparison.Ordinal))) return true;
+        return SheetInNote.Matches(note).Any(m => !knownSheetNames.Contains(m.Groups[1].Value));
+    }
 
     /// <summary>描画に使う、変わらない材料。</summary>
     private sealed record Context(
@@ -161,8 +202,15 @@ public static class VbaWorkbookInfoFormatter
         public required int StartRow { get; init; }
         public required int StartColumn { get; init; }
 
-        /// <summary>常に添える注記（切った・範囲の外など。切った理由と「範囲を指定」の案内を含む）。</summary>
-        public IReadOnlyList<string> Notes { get; init; } = Array.Empty<string>();
+        /// <summary>注記に書くシートの表示名（文字数の上限で値を落としたシートの列挙にも使う）。</summary>
+        public required string SheetName { get; init; }
+
+        /// <summary>
+        /// 常に添える注記（切った・範囲の外など。切った理由と「範囲を指定」の案内を含む）。<b>出す行数（<see cref="Keep"/>）を受けて作る</b>:
+        /// 「全部」「範囲を指定」の切り詰めの注記は、読んだ行数ではなく、依頼文に実際に出した行数とアドレスで書く
+        /// （文字数の上限で行を減らしたのに、注記が「先頭の 500 行」のままだと、案内どおりに範囲を指定しても抜けが出た）。
+        /// </summary>
+        public Func<int, IReadOnlyList<string>> NotesFor { get; init; } = _ => Array.Empty<string>();
 
         public int Keep { get; set; }
         public bool Dropped { get; set; }
@@ -196,7 +244,8 @@ public static class VbaWorkbookInfoFormatter
                         Grid = grid,
                         StartRow = StartRowOf(sheet.UsedRange),
                         StartColumn = VbaWorkbookInfoReadRules.StartColumnOf(sheet.UsedRange),
-                        Notes = notes,
+                        SheetName = sheet.Name,
+                        NotesFor = _ => notes,
                         Keep = grid.Count,
                     });
                     break;
@@ -218,7 +267,8 @@ public static class VbaWorkbookInfoFormatter
                         Grid = block.Rows,
                         StartRow = block.StartRow,
                         StartColumn = block.StartColumn,
-                        Notes = BlockNotes(sheet, block),
+                        SheetName = sheet.Name,
+                        NotesFor = keep => BlockNotes(sheet, keep < block.Rows.Count ? block with { Rows = block.Rows.Take(keep).ToArray() } : block),
                         Keep = block.Rows.Count,
                     });
                     break;
@@ -378,6 +428,14 @@ public static class VbaWorkbookInfoFormatter
 
         AppendValues(sb, ctx.Entries);
 
+        // 文字数の上限で値を丸ごと落としたシートは、名前を挙げる（「長いため一部を省略しました」だけでは、
+        // どのシートの値が渡っていないのか、AI にも利用者にも分からない）。
+        var dropped = ctx.Entries.Where(e => e.Dropped).Select(e => $"「{e.SheetName}」").ToArray();
+        if (dropped.Length > 0)
+        {
+            sb.Append("\n（文字数の上限のため、次のシートの値は出していません: ").Append(string.Join("", dropped)).Append("）\n");
+        }
+
         if (ctx.Omitted.Count > 0)
         {
             // 読めなかったものを AI にも伝える。伝えないと「そのシートは無い」と誤解して書かれうる。
@@ -405,15 +463,15 @@ public static class VbaWorkbookInfoFormatter
                 else AppendBlockTable(sb, entry, rows);
             }
 
-            foreach (var note in entry.Notes) sb.Append(note).Append('\n');
-            if (entry.Keep < entry.Grid.Count)
+            foreach (var note in entry.NotesFor(entry.Keep)) sb.Append(note).Append('\n');
+
+            // 見出し＋N 行は、切った行数を専用の 1 行で言う。「全部」「範囲を指定」は、切り詰めの注記（NotesFor）が実際に出した行数と
+            // アドレスで言うので、ここで重ねて別の数字を言わない（読んだ行数と出した行数の 2 つが並び、食い違って見えていた）。
+            if (entry.IsHeaderStyle && entry.Keep < entry.Grid.Count)
             {
-                var total = entry.IsHeaderStyle ? entry.Grid.Count - 1 : entry.Grid.Count;
-                var kept = entry.IsHeaderStyle ? Math.Max(0, entry.Keep - 1) : entry.Keep;
-                sb.Append(entry.IsHeaderStyle
-                        ? $"（文字数の上限のため、見出しに続く {total} 行のうち {kept} 行だけを出しています）"
-                        : $"（文字数の上限のため、{total} 行のうち先頭の {kept} 行だけを出しています）")
-                    .Append('\n');
+                var total = entry.Grid.Count - 1;
+                var kept = Math.Max(0, entry.Keep - 1);
+                sb.Append($"（文字数の上限のため、見出しに続く {total} 行のうち {kept} 行だけを出しています）").Append('\n');
             }
         }
     }

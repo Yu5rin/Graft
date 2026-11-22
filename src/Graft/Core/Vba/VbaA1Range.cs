@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Graft.Core.Vba;
@@ -6,8 +7,14 @@ namespace Graft.Core.Vba;
 /// セル範囲（行・列の矩形）。「範囲を指定」の入力の検証と、読む範囲の計算（使用範囲との共通部分・上限での切り詰め）に使う
 /// 純ロジック（仕様書_ブックの情報と依頼の観点 5.2・5.5）。COM には触れない。
 /// <para>
-/// 【受け付ける書き方】 <c>A1</c>・<c>A1:F30</c>（<c>$</c> と小文字と前後の空白は許す）、列範囲 <c>A:F</c>、行範囲 <c>3:10</c>。
-/// 向きが逆（<c>F30:A1</c>）なら正規化する（Excel も同じ扱い）。
+/// 【受け付ける書き方】 <c>A1</c>・<c>A1:F30</c>（小文字と前後の空白は許す。<c>$</c> は Excel と同じ位置、つまり
+/// 列の前と行の前だけ）、列範囲 <c>A:F</c>、行範囲 <c>3:10</c>。向きが逆（<c>F30:A1</c>）なら正規化する（Excel も同じ扱い）。
+/// </para>
+/// <para>
+/// 【全角で打っても通す】 日本語入力のまま打つと、<c>Ａ１：Ｆ３０</c> のように全角になりやすい。最初に NFKC で半角へそろえてから
+/// 読む（<c>Ａ１</c>・<c>：</c>・全角の空白もそろう）。数字は <c>\d</c>（全角数字にも一致する）ではなく <c>[0-9]</c> で見る。
+/// 以前は全角を半角にそろえず、<c>Ａ１</c> が「名前付き範囲は指定できません」、<c>A１</c> が「行は 1〜1,048,576 の範囲」と、
+/// 的外れな理由で退けられていた。
 /// </para>
 /// <para>
 /// 【受け付けない書き方】 <b>名前付き範囲</b>（<c>売上</c>・<c>税率</c>）は不可。名前は Excel に問い合わせないと範囲が決まらず、
@@ -28,9 +35,30 @@ public readonly record struct VbaA1Range(int Row1, int Column1, int Row2, int Co
     /// <summary>Excel の最大列（XFD = 16,384）。</summary>
     public const int MaxColumn = 16_384;
 
-    private static readonly Regex CellPattern = new(@"^([A-Za-z]{1,3})(\d+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    private static readonly Regex ColumnsPattern = new(@"^([A-Za-z]{1,3})$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    private static readonly Regex RowsPattern = new(@"^(\d+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    // 【$ は正しい位置だけ】 Excel の絶対参照は「列の前」と「行の前」にだけ付く（$A$1・A$1・$A1）。以前は $ をどこにあっても
+    // 取り除いていたので、A1$・$$A1・A$$1 まで通っていた。パターンの側で位置を決める。
+    // 【\d は使わない】 .NET の \d は全角数字などにも一致するが、後段の int.TryParse は ASCII しか読めず、一致したのに読めない
+    // （int.MaxValue 扱いになって「行は 1〜1,048,576」と誤った理由が出る）食い違いになる。[0-9] に限り、全角は先に半角へそろえる。
+    private static readonly Regex CellPattern = new(@"^\$?([A-Za-z]{1,3})\$?([0-9]+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex ColumnsPattern = new(@"^\$?([A-Za-z]{1,3})$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex RowsPattern = new(@"^\$?([0-9]+)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 入力欄の文字を半角へそろえる（NFKC。全角の英数・記号・空白、半角カナなどの互換文字を、対応する普通の文字にする）。
+    /// 範囲・行数の入力で共通に使う。正規化できない（不正な Unicode の）文字列は、そのまま返す（呼び出し側の検証で退ける）。
+    /// </summary>
+    public static string ToHalfWidth(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        try
+        {
+            return text.Normalize(NormalizationForm.FormKC);
+        }
+        catch (ArgumentException)
+        {
+            return text;
+        }
+    }
 
     /// <summary>行数。</summary>
     public int RowCount => Row2 - Row1 + 1;
@@ -46,7 +74,7 @@ public readonly record struct VbaA1Range(int Row1, int Column1, int Row2, int Co
     {
         range = default;
         error = null;
-        var input = (text ?? string.Empty).Trim();
+        var input = ToHalfWidth(text).Trim();
         if (input.Length == 0)
         {
             error = "範囲を入力してください（例 A1:F30）。";
@@ -65,8 +93,9 @@ public readonly record struct VbaA1Range(int Row1, int Column1, int Row2, int Co
             return false;
         }
 
-        var compact = input.Replace("$", string.Empty, StringComparison.Ordinal).Replace(" ", string.Empty, StringComparison.Ordinal);
-        var parts = compact.Split(':');
+        // 空白は「:」の前後だけ許す（A1 : F30）。セルの途中の空白（A 1・A1 B2）は、Excel も受け付けないので退ける。
+        var parts = input.Split(':').Select(p => p.Trim()).ToArray();
+        var compact = string.Join(":", parts);
         if (parts.Length > 2)
         {
             error = "範囲は A1:F30 の形で入力してください。";
@@ -93,13 +122,15 @@ public readonly record struct VbaA1Range(int Row1, int Column1, int Row2, int Co
         // 列範囲（A:F）。「A」だけは名前（またはタイプミス）と見分けられないので不可。
         if (second is not null && ColumnsPattern.IsMatch(first) && ColumnsPattern.IsMatch(second))
         {
-            return Build(1, ColumnOf(first), MaxRow, ColumnOf(second), out range, out error);
+            return Build(1, ColumnOf(ColumnsPattern.Match(first).Groups[1].Value), MaxRow,
+                ColumnOf(ColumnsPattern.Match(second).Groups[1].Value), out range, out error);
         }
 
         // 行範囲（3:10）。
         if (second is not null && RowsPattern.IsMatch(first) && RowsPattern.IsMatch(second))
         {
-            return Build(RowOf(first), 1, RowOf(second), MaxColumn, out range, out error);
+            return Build(RowOf(RowsPattern.Match(first).Groups[1].Value), 1,
+                RowOf(RowsPattern.Match(second).Groups[1].Value), MaxColumn, out range, out error);
         }
 
         error = Regex.IsMatch(compact, @"^[\p{L}_\\][\p{L}\p{N}_.]*$")
@@ -110,7 +141,7 @@ public readonly record struct VbaA1Range(int Row1, int Column1, int Row2, int Co
 
     private static int ColumnOf(string letters) => VbaWorkbookInfoReadRules.ColumnNumber(letters);
 
-    private static int RowOf(string digits) => int.TryParse(digits, out var row) ? row : int.MaxValue;
+    private static int RowOf(string digits) => int.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var row) ? row : int.MaxValue;
 
     private static bool Build(int row1, int col1, int row2, int col2, out VbaA1Range range, out string? error)
     {
