@@ -144,14 +144,14 @@ public class VbaRescueScreenshotTests : IDisposable
         Save(window, "q3-rescue-restored.png");
     }
 
-    [AvaloniaFact(DisplayName = "画面の確認: 値の見本をオンにする確認ダイアログの新しい形（動詞のボタン。既定は「やめる」）")]
+    [AvaloniaFact(DisplayName = "画面の確認: 値が渡る見せ方を選ぶ確認ダイアログの形（動詞のボタン。既定は「やめる」）")]
     public async Task 見本オンの確認ダイアログ()
     {
         using var r = await VbaP3Rig.CreateAsync(arrange: bridge => bridge.Get(VbaP3Rig.Book)!.Info = WorkbookInfoTests.Sample()).ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
 
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true); // 既定（やめる）で閉じる。
+        await context.SetSheetViewModeAsync("Sheet1", Graft.Core.Vba.VbaSheetViewMode.HeaderRows).ConfigureAwait(true); // 既定（やめる）で閉じる。
 
         var request = r.Choices.Should().ContainSingle().Subject;
         var dialog = _windows.Track(new VbaChoiceWindow(request));

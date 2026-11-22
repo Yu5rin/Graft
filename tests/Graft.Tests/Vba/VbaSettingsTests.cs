@@ -28,7 +28,7 @@ public class VbaSettingsTests
         vba.CallTimeoutMs.Should().Be(30000);
     }
 
-    [Fact(DisplayName = "ブックの情報の既定値: 取得する・見本 5 行・30 列・1 セル 60 文字・全体 20000 文字")]
+    [Fact(DisplayName = "ブックの情報の既定値: 取得する・見出し＋N 行の N は 5・30 列・1 セル 60 文字・全体 20000 文字・全部は 500 行 50 列")]
     public void ブックの情報の既定値()
     {
         var vba = new Settings().Vba;
@@ -38,6 +38,8 @@ public class VbaSettingsTests
         vba.WorkbookInfoMaxColumns.Should().Be(30);
         vba.WorkbookInfoMaxCellChars.Should().Be(60);
         vba.WorkbookInfoMaxChars.Should().Be(20000);
+        vba.WorkbookInfoAllMaxRows.Should().Be(500);
+        vba.WorkbookInfoAllMaxColumns.Should().Be(50);
     }
 
     [Fact(DisplayName = "控えの既定値: 1 モジュール 20 世代・全体 50MB")]
@@ -104,7 +106,8 @@ public class VbaSettingsTests
         var custom = new VbaSettings
         {
             CollectWorkbookInfo = false, WorkbookInfoSampleRows = 12, WorkbookInfoMaxColumns = 50,
-            WorkbookInfoMaxCellChars = 120, WorkbookInfoMaxChars = 40000, RescueMaxGenerations = 33, RescueMaxTotalMB = 77,
+            WorkbookInfoMaxCellChars = 120, WorkbookInfoMaxChars = 40000, WorkbookInfoAllMaxRows = 800, WorkbookInfoAllMaxColumns = 70,
+            RescueMaxGenerations = 33, RescueMaxTotalMB = 77,
         };
 
         await store.SaveAsync(new Settings { Vba = custom });
@@ -114,6 +117,7 @@ public class VbaSettingsTests
         json.Should().Contain("\"collectWorkbookInfo\": false").And.Contain("\"workbookInfoSampleRows\": 12");
         json.Should().Contain("\"workbookInfoMaxColumns\": 50").And.Contain("\"workbookInfoMaxCellChars\": 120");
         json.Should().Contain("\"workbookInfoMaxChars\": 40000");
+        json.Should().Contain("\"workbookInfoAllMaxRows\": 800").And.Contain("\"workbookInfoAllMaxColumns\": 70");
         loaded.Value.Vba.Should().Be(custom);
         loaded.Issues.Should().BeEmpty();
 
@@ -122,10 +126,12 @@ public class VbaSettingsTests
         old.Value.Vba.ComTimeoutMs.Should().Be(7000);
         old.Value.Vba.CollectWorkbookInfo.Should().BeTrue();
         old.Value.Vba.WorkbookInfoSampleRows.Should().Be(5);
+        old.Value.Vba.WorkbookInfoAllMaxRows.Should().Be(500, "このキーの無い旧形式は既定値で読める");
+        old.Value.Vba.WorkbookInfoAllMaxColumns.Should().Be(50);
         old.Issues.Should().BeEmpty();
     }
 
-    [Theory(DisplayName = "ブックの情報の数値は範囲外なら既定値に戻り、E404 の警告が付く（見本 1〜20・列 5〜100・文字 10〜500・全体 2000〜100000）")]
+    [Theory(DisplayName = "ブックの情報の数値は範囲外なら既定値に戻り、E404 の警告が付く（N 1〜20・列 5〜100・文字 10〜500・全体 2000〜100000・全部の行 10〜5000・列 5〜200）")]
     [InlineData("workbookInfoSampleRows", 0, 5)]
     [InlineData("workbookInfoSampleRows", 21, 5)]
     [InlineData("workbookInfoMaxColumns", 4, 30)]
@@ -134,6 +140,10 @@ public class VbaSettingsTests
     [InlineData("workbookInfoMaxCellChars", 501, 60)]
     [InlineData("workbookInfoMaxChars", 1999, 20000)]
     [InlineData("workbookInfoMaxChars", 100001, 20000)]
+    [InlineData("workbookInfoAllMaxRows", 9, 500)]
+    [InlineData("workbookInfoAllMaxRows", 5001, 500)]
+    [InlineData("workbookInfoAllMaxColumns", 4, 50)]
+    [InlineData("workbookInfoAllMaxColumns", 201, 50)]
     public async Task ブックの情報の範囲外(string key, int value, int fallback)
     {
         using var ws = new TempWorkspace();
@@ -148,6 +158,8 @@ public class VbaSettingsTests
             "workbookInfoSampleRows" => vba.WorkbookInfoSampleRows,
             "workbookInfoMaxColumns" => vba.WorkbookInfoMaxColumns,
             "workbookInfoMaxCellChars" => vba.WorkbookInfoMaxCellChars,
+            "workbookInfoAllMaxRows" => vba.WorkbookInfoAllMaxRows,
+            "workbookInfoAllMaxColumns" => vba.WorkbookInfoAllMaxColumns,
             _ => vba.WorkbookInfoMaxChars,
         };
         actual.Should().Be(fallback);
@@ -163,6 +175,10 @@ public class VbaSettingsTests
     [InlineData("workbookInfoMaxCellChars", 500)]
     [InlineData("workbookInfoMaxChars", 2000)]
     [InlineData("workbookInfoMaxChars", 100000)]
+    [InlineData("workbookInfoAllMaxRows", 10)]
+    [InlineData("workbookInfoAllMaxRows", 5000)]
+    [InlineData("workbookInfoAllMaxColumns", 5)]
+    [InlineData("workbookInfoAllMaxColumns", 200)]
     public async Task ブックの情報の境界は有効(string key, int value)
     {
         using var ws = new TempWorkspace();

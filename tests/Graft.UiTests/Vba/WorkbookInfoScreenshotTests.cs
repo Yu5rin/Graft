@@ -5,6 +5,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FluentAssertions;
+using Graft.Core.Vba;
 using Graft.Infra;
 using Graft.Platform;
 using Graft.Platform.Null;
@@ -73,7 +74,7 @@ public class WorkbookInfoScreenshotTests : IDisposable
             new Settings { ShowPreview = false },
             arrange: bridge => bridge.Get(VbaP3Rig.Book)!.Info = WorkbookInfoTests.Sample(),
             withWindow: withWindow).ConfigureAwait(true);
-        // 値の見本をオンにする確認（既定は「やめる」の選択ダイアログ）は、「値の見本を渡す」を押したことにする。
+        // 値を渡す確認（既定は「やめる」の選択ダイアログ）は、「値を渡す」を押したことにする。
         rig.ChoiceAnswer = _ => "give";
         return rig;
     }
@@ -101,13 +102,13 @@ public class WorkbookInfoScreenshotTests : IDisposable
     // 値の見本をオンにしたときの確認ダイアログは、段階 Q3 で選択ダイアログ（VbaChoiceWindow）に変わった。
     // 画面の確認は VbaRescueScreenshotTests（q3-sample-confirm-dialog.png）にある。
 
-    [AvaloniaFact(DisplayName = "画面の確認: 値の見本がオンの間の注意（行と、依頼文コピーのドロップダウン）")]
+    [AvaloniaFact(DisplayName = "画面の確認: 値が渡るシートがある間の注意（行と、依頼文コピーのドロップダウン）")]
     public async Task 見本オンの注意()
     {
         using var r = await NewRigAsync(withWindow: true).ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
 
         // コンテキスト収集の窓
         var collect = _windows.Track(new ContextCollectWindow(context));
@@ -140,13 +141,13 @@ public class WorkbookInfoScreenshotTests : IDisposable
         Save(host, "q2-sample-on-dropdown.png");
     }
 
-    [AvaloniaFact(DisplayName = "画面の確認: プレビューに出たブックの情報（値の見本あり）")]
+    [AvaloniaFact(DisplayName = "画面の確認: プレビューに出たブックの情報（値が渡るシートあり）")]
     public async Task プレビューの内容()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
         context.Focus.Groups.SelectMany(g => g.Chips).First(c => c.Id == "focus-readable").IsSelected = true;
 
         var window = _windows.Track(new ContextCollectWindow(context) { Height = 900 });

@@ -45,11 +45,19 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         public int SaveCount { get; set; }
 
         /// <summary>
-        /// <see cref="IVbaBridge.ReadWorkbookInfoAsync"/> が返す内容（ブックの情報。仕様書_ブックの情報と依頼の観点 5.5）。
-        /// null なら、モジュール名だけを持つ空の構造を返す。値の見本は、受け取った <c>options.SampleRows</c> に
-        /// 合わせて返す側が切る（本物のブリッジと同じく、0 なら見本を含めない）。
+        /// <see cref="IVbaBridge.ReadWorkbookInfoAsync"/> が返す内容の元（ブックの情報。仕様書_ブックの情報と依頼の観点 5.5）。
+        /// null なら、モジュール名だけを持つ空の構造を返す。各シートの <c>HeaderRow</c>・<c>SampleRows</c> は「シートの先頭の
+        /// セル」として扱い、受け取った <c>options.Views</c>（シートごとの見せ方）に合わせて返す側が詰め直す
+        /// （本物のブリッジと同じく、値が渡る見せ方のシートにしか値を含めない。読む範囲の計画は Core の
+        /// <see cref="VbaSheetReadPlanner"/> で、本物と同じものを使う）。
         /// </summary>
         public VbaWorkbookInfoSnapshot? Info { get; set; }
+
+        /// <summary>
+        /// シートの全セル（コード名 → 行×列の文字列。使用範囲の左上から）。大きなシートで「全部」「範囲を指定」を
+        /// 確かめるために使う。無いシートは、<c>Info</c> の <c>HeaderRow</c>＋<c>SampleRows</c> を全セルとして扱う。
+        /// </summary>
+        public Dictionary<string, string[][]> SheetGrids { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public Module? Find(string name)
             => Modules.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -88,6 +96,16 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
     /// <summary>ブックの情報の読み取り（<c>Info</c>）の呼び出しごとに受け取った <c>options</c> の記録。</summary>
     public List<VbaWorkbookInfoOptions> InfoRequests { get; } = new();
+
+    /// <summary>
+    /// ブックの情報の読み取りで、<b>セルの値を実際に読んだシート</b>の記録（呼び出しごとに 1 件ずつ追加）。
+    /// 「値が要るシートだけ読む」（構成だけ・出さないのシートは読まない）ことを確かめるために使う。
+    /// 各要素は、コード名 → 読んだ見せ方（<c>見出し＋N 行</c>・<c>全部</c>・<c>範囲を指定</c>）。
+    /// </summary>
+    public List<IReadOnlyDictionary<string, VbaSheetViewMode>> InfoValueReads { get; } = new();
+
+    /// <summary>ブックの情報の読み取りで、テーブルを読んだシート（「出さない」のシートは読まない）の記録。</summary>
+    public List<IReadOnlyList<string>> InfoTableReads { get; } = new();
 
     /// <summary>
     /// <c>ReadComponentsAsync</c> の呼び出しごとの <c>names</c>（null は全件読み）の記録。保存時の自動反映（仕様書_ブックの
@@ -285,10 +303,33 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
             workbook.Name, DateTimeOffset.Now, Array.Empty<VbaSheetInfo>(), Array.Empty<VbaTableInfo>(),
             Array.Empty<VbaNamedRangeInfo>(), Array.Empty<VbaReferenceInfo>(), Array.Empty<string>());
 
-        // 値の見本は、指示の行数に合わせて切る。0 なら 1 行も返さない（オフのときは読まない、の再現）。
-        var sheets = source.Sheets
-            .Select(sheet => sheet with { SampleRows = sheet.SampleRows.Take(options.SampleRows).ToArray() })
-            .ToArray();
+        // シートごとの見せ方に合わせて、値を詰め直す。値が渡る見せ方のシートだけ読み、それ以外は値を持たない構造だけを返す
+        // （本物のブリッジの再現。読む範囲の計画は Core の VbaSheetReadPlanner。）
+        var valueReads = new Dictionary<string, VbaSheetViewMode>(StringComparer.OrdinalIgnoreCase);
+        var sheets = source.Sheets.Select(sheet =>
+        {
+            var structure = sheet with
+            {
+                HeaderRow = Array.Empty<string>(), SampleRows = Array.Empty<IReadOnlyList<string>>(), OmittedColumns = 0, Block = null,
+            };
+            var view = options.Views.For(sheet.CodeName);
+            var used = VbaA1Range.FromAddress(sheet.UsedRange);
+            var plan = VbaSheetReadPlanner.Plan(used, view, options.MaxColumns, options.AllMaxRows, options.AllMaxColumns);
+            if (plan.Mode is not (VbaSheetViewMode.HeaderRows or VbaSheetViewMode.All or VbaSheetViewMode.Range)) return structure;
+
+            if (plan.ReadsCells) valueReads[sheet.CodeName] = plan.Mode;
+            var cells = workbook.SheetGrids.TryGetValue(sheet.CodeName, out var grid)
+                ? grid.Select(r => (IReadOnlyList<string>)r).ToArray()
+                : new[] { (IReadOnlyList<string>)sheet.HeaderRow }.Concat(sheet.SampleRows).ToArray();
+            var slice = used is { } u && plan.ReadsCells ? Slice(cells, plan, u, view.IncludeFormulas) : Array.Empty<IReadOnlyList<string>>();
+            return VbaSheetReadPlanner.Assemble(structure, plan, slice, slice);
+        }).ToArray();
+        InfoValueReads.Add(valueReads);
+
+        // 「出さない」のシートのテーブルは読まない（出力に出ないので）。
+        var skipped = sheets.Where(sh => options.Views.For(sh.CodeName).Mode == VbaSheetViewMode.None).Select(sh => sh.Name).ToArray();
+        InfoTableReads.Add(sheets.Select(sh => sh.Name).Except(skipped).ToArray());
+        var tables = source.Tables.Where(t => !skipped.Contains(t.SheetName, StringComparer.OrdinalIgnoreCase)).ToArray();
 
         var omitted = source.Omitted.ToList();
         var references = source.References;
@@ -300,7 +341,42 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         }
 
         return GraftResult<VbaWorkbookInfoSnapshot>.Ok(
-            source with { Sheets = sheets, References = references, Omitted = omitted });
+            source with { Sheets = sheets, Tables = tables, References = references, Omitted = omitted });
+    }
+
+    /// <summary>
+    /// シートの全セルから、計画の範囲を切り出す（使用範囲の左上が先頭）。数式を含めない指示のときは、
+    /// <c>=式 → 値</c> の形のセルを値だけにする（本物は <c>Value2</c> が値で、数式を含めるときだけ <c>Formula</c> も読む）。
+    /// </summary>
+    private static IReadOnlyList<IReadOnlyList<string>> Slice(
+        IReadOnlyList<IReadOnlyList<string>> cells, VbaSheetReadPlan plan, VbaA1Range used, bool includeFormulas)
+    {
+        var rows = new List<IReadOnlyList<string>>();
+        for (var r = 0; r < plan.RowCount; r++)
+        {
+            // 手元のセルの表が使用範囲より小さいときは、あるところまでを返す（空の行を足さない）。
+            var sourceRow = plan.StartRow - used.Row1 + r;
+            if (sourceRow >= cells.Count) break;
+
+            var row = new List<string>();
+            for (var c = 0; c < plan.ColumnCount; c++)
+            {
+                var sourceColumn = plan.StartColumn - used.Column1 + c;
+                if (sourceColumn >= cells[sourceRow].Count) break;
+
+                var text = cells[sourceRow][sourceColumn];
+                if (!includeFormulas && text.StartsWith('=') && text.IndexOf(" → ", StringComparison.Ordinal) is var arrow and >= 0)
+                {
+                    text = text[(arrow + 3)..];
+                }
+
+                row.Add(text);
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
     }
 
     // ------------------------------------------------------------------
