@@ -1,4 +1,5 @@
 using Graft.Core;
+using Graft.Core.Vba;
 
 namespace Graft.Platform.Null;
 
@@ -37,4 +38,8 @@ public sealed class NullVbaBridge : IVbaBridge
 
     public Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default)
         => Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E706, Reason));
+
+    public Task<GraftResult<VbaWorkbookInfoSnapshot>> ReadWorkbookInfoAsync(
+        string workbookFullName, VbaWorkbookInfoOptions options, CancellationToken ct = default)
+        => Task.FromResult(GraftResult<VbaWorkbookInfoSnapshot>.Fail(ErrorCode.E706, Reason));
 }

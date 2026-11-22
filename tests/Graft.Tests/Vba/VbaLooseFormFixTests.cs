@@ -207,7 +207,7 @@ public class VbaLooseFormFixTests : VbaServiceFixture
         RescueTexts().Should().ContainSingle().Which.Should().Be("Sub A()\r\n  X  =  1\r\nEnd Sub", "上書きされる前の Excel 側の本文");
     }
 
-    [Fact(DisplayName = "不具合2 保険: Excel 側が基準と厳密に同じなら、通常の Push では控えを増やさない")]
+    [Fact(DisplayName = "不具合2 保険: Excel 側が基準と厳密に同じなら、通常の Push では従来の控え（上書き前）を作らない。反映前の自動控え（-auto）だけが残る")]
     public async Task 厳密に同じなら控えは作らない()
     {
         var project = await CreatedProjectAsync(FakeVbaBridge.Std("Module1", "Sub A()\r\nEnd Sub"));
@@ -215,7 +215,9 @@ public class VbaLooseFormFixTests : VbaServiceFixture
 
         (await Service.PushAsync(project)).Value.Pushed.Should().HaveCount(1);
 
-        RescueTexts().Should().BeEmpty();
+        RescueTexts().Should().BeEmpty("従来の控え（Legacy）は作らない");
+        RescueFileNames().Should().Equal("Module1-20261121-100000-auto.txt");
+        RescueTexts(includeAuto: true).Should().ContainSingle().Which.Should().Be("Sub A()\r\nEnd Sub");
     }
 
     [Fact(DisplayName = "不具合2 移行: 版 0 の同期状態でも、Excel 側が基準と厳密に同じなら Pull しない。Pull などで保存した基準はいまの版になる")]

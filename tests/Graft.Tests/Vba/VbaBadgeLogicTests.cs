@@ -87,4 +87,37 @@ public class VbaBadgeLogicTests
     {
         VbaBadgeLogic.Compute(true, true, true, -1, -5).StatusText.Should().BeEmpty();
     }
+
+    // ------------------------------------------------------------------
+    // 保存時の自動反映をしなかった衝突（機能 D。仕様書_ブックの情報と依頼の観点 8.5）
+    // ------------------------------------------------------------------
+
+    [Fact(DisplayName = "衝突 N: 補足行に「衝突 N」が出て、ツールチップに手動の反映への案内が出る")]
+    public void 衝突の表示()
+    {
+        var badge = VbaBadgeLogic.Compute(true, true, workbookOpen: true, 0, 0, saveConflictCount: 2);
+
+        badge.StatusText.Should().Be("衝突 2");
+        badge.Tooltip.Should().Contain("衝突: 2 件").And.Contain("Excel へ反映");
+        badge.Text.Should().Be("VBA");
+        badge.IsGray.Should().BeFalse();
+    }
+
+    [Fact(DisplayName = "衝突 N: 未反映・削除保留と並べて出る（既存の表示は崩れない）")]
+    public void 衝突は他の件数と並ぶ()
+    {
+        var badge = VbaBadgeLogic.Compute(true, true, workbookOpen: false, 3, 1, saveConflictCount: 2);
+
+        badge.StatusText.Should().Be("未反映 3・削除保留 1・衝突 2");
+        badge.IsGray.Should().BeTrue("ブックが開いていないグレーは変わらない");
+        badge.Tooltip.Should().Contain("ブックが開いていません").And.Contain("未反映のモジュール: 3 件").And.Contain("削除保留のモジュール: 1 件");
+    }
+
+    [Fact(DisplayName = "衝突 0（既定）: 従来の表示とまったく同じ")]
+    public void 衝突なしは従来どおり()
+    {
+        VbaBadgeLogic.Compute(true, true, true, 3, 1, saveConflictCount: 0)
+            .Should().Be(VbaBadgeLogic.Compute(true, true, true, 3, 1));
+        VbaBadgeLogic.Compute(true, true, true, 0, 0, saveConflictCount: -1).StatusText.Should().BeEmpty("負の値は 0 として扱う");
+    }
 }

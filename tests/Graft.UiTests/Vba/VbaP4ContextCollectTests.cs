@@ -73,7 +73,9 @@ public class VbaP4ContextCollectTests
 
         context.Files.Should().NotBeEmpty("接続できなくても、ミラーの現在の内容で収集を続ける");
         context.StatusMessage.Should().Contain("Excel の最新を取り込めていません");
-        context.VbaPullWarning.Should().Be(context.StatusMessage);
+        // Q2: 取り込みの警告とブックの情報の警告は 1 行に連結してステータスに出る（VbaPullWarning は取り込み分だけ）。
+        context.StatusMessage.Should().StartWith(context.VbaPullWarning!);
+        context.StatusMessage.Should().Be(context.VbaWarning);
         r.Mirror(Module1).Should().Be(before);
     }
 
@@ -121,7 +123,8 @@ public class VbaP4ContextCollectTests
     public async Task 設定でオフなら取り込まない()
     {
         using var r = await VbaP3Rig.CreateAsync().ConfigureAwait(true);
-        r.Graft.UpdateSettings(r.Graft.CurrentSettings with { Vba = new VbaSettings { PullOnContextOpen = false } });
+        // ブックの情報の取得（Vba.CollectWorkbookInfo）は Pull とは別の設定なので、ここでは一緒に切って「Excel を呼ばない」を確かめる。
+        r.Graft.UpdateSettings(r.Graft.CurrentSettings with { Vba = new VbaSettings { PullOnContextOpen = false, CollectWorkbookInfo = false } });
         r.Excel("Module1").Code = ExcelEdited;
         r.Bridge.Calls.Clear();
 

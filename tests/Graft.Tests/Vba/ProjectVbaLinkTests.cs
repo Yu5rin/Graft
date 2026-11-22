@@ -91,4 +91,101 @@ public class ProjectVbaLinkTests
 
         (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Which.Vba.Should().BeNull();
     }
+
+    [Fact(DisplayName = "ブックの情報の項目（出し方・値の見本・数式）を持たない既存の vba は、既定値（内容も出す・見本オフ・数式オフ）で読める")]
+    public async Task ブックの情報の項目が無い旧形式は既定値()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var root = ws.CreateDirectory("proj");
+        await File.WriteAllTextAsync(paths.ProjectsFilePath, $$"""
+            {
+              "projects": [
+                { "id": "p_000002", "name": "旧VBA", "root": "{{root.Replace("\\", "\\\\")}}",
+                  "vba": { "workbookFullName": "C:\\Work\\計画.xlsm", "autoPushAfterApply": false } }
+              ]
+            }
+            """);
+
+        var vba = (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Subject.Vba!;
+
+        vba.WorkbookInfoState.Should().Be("Full");
+        vba.WorkbookInfoSampleValues.Should().BeFalse("値の見本は既定オフ");
+        vba.WorkbookInfoIncludeFormulas.Should().BeFalse();
+        vba.AutoPushAfterApply.Should().BeFalse("既存の項目は変わらない");
+        Graft.Core.Vba.VbaWorkbookInfoLevels.Parse(vba.WorkbookInfoState).Should().Be(Graft.Core.Vba.VbaWorkbookInfoLevel.Full);
+    }
+
+    [Fact(DisplayName = "ブックの情報の項目は、保存して読み直すと往復する。不明な出し方の文字列は Full として読まれる")]
+    public async Task ブックの情報の項目が往復する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var root = ws.CreateDirectory("app/vba-mirrors/計画-1a2b3c4d");
+        var store = new ProjectStore(paths);
+        var registered = await store.RegisterAsync(root, null);
+        var withVba = registered.Value with
+        {
+            Vba = new VbaLink
+            {
+                WorkbookFullName = @"C:\Work\計画.xlsm", WorkbookInfoState = "StructureOnly",
+                WorkbookInfoSampleValues = true, WorkbookInfoIncludeFormulas = true,
+            },
+        };
+        await store.SaveAsync(new[] { withVba });
+
+        var json = await File.ReadAllTextAsync(paths.ProjectsFilePath);
+        var reloaded = (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Subject.Vba!;
+
+        json.Should().Contain("\"workbookInfoState\": \"StructureOnly\"").And.Contain("\"workbookInfoSampleValues\": true");
+        reloaded.WorkbookInfoState.Should().Be("StructureOnly");
+        reloaded.WorkbookInfoSampleValues.Should().BeTrue();
+        reloaded.WorkbookInfoIncludeFormulas.Should().BeTrue();
+        Graft.Core.Vba.VbaWorkbookInfoLevels.Parse("壊れた値").Should().Be(Graft.Core.Vba.VbaWorkbookInfoLevel.Full);
+    }
+
+    [Fact(DisplayName = "保存時の自動反映（autoPushOnSave）を持たない既存の vba は、オフで読める。オンにすると往復する")]
+    public async Task 保存時の自動反映は既定オフで往復する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var root = ws.CreateDirectory("proj");
+        await File.WriteAllTextAsync(paths.ProjectsFilePath, $$"""
+            {
+              "projects": [
+                { "id": "p_000003", "name": "旧VBA", "root": "{{root.Replace("\\", "\\\\")}}",
+                  "vba": { "workbookFullName": "C:\\Work\\計画.xlsm" } }
+              ]
+            }
+            """);
+        var store = new ProjectStore(paths);
+
+        var old = (await store.LoadAsync()).Value.Should().ContainSingle().Subject;
+        old.Vba!.AutoPushOnSave.Should().BeFalse("既定はオフ（キーが無い既存の projects.json を、勝手にオンにしない）");
+
+        await store.SaveAsync(new[] { old with { Vba = old.Vba with { AutoPushOnSave = true } } });
+        var json = await File.ReadAllTextAsync(paths.ProjectsFilePath);
+        var reloaded = (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Subject.Vba!;
+
+        json.Should().Contain("\"autoPushOnSave\": true");
+        reloaded.AutoPushOnSave.Should().BeTrue();
+        reloaded.AutoPushAfterApply.Should().BeTrue("ほかの項目の既定は変わらない");
+    }
+    [Fact(DisplayName = "疑わしい 2: 別のブックへ結び直したら値の見本のオンは解除される。同じブック（大文字小文字違い）なら保つ")]
+    public void 結び直しで値の見本のオンを解除する()
+    {
+        var link = new VbaLink
+        {
+            WorkbookFullName = @"C:\Work\計画.xlsm", WorkbookInfoSampleValues = true, WorkbookInfoIncludeFormulas = true, AutoPushOnSave = true,
+        };
+
+        var other = link.WithWorkbook(@"C:\Other\別の本.xlsm");
+        other.WorkbookFullName.Should().Be(@"C:\Other\別の本.xlsm");
+        other.WorkbookInfoSampleValues.Should().BeFalse("確認は「このブックの値を渡してよいか」だった。新しいブックでは確認をやり直す");
+        other.AutoPushOnSave.Should().BeTrue("ほかの設定は引き継ぐ");
+
+        link.WithWorkbook(@"c:\work\計画.xlsm").WorkbookInfoSampleValues.Should().BeTrue("同じブックの再追加では選択を保つ");
+        new VbaLink { WorkbookFullName = @"C:\Work\計画.xlsm" }.WithWorkbook(@"C:\Other\別の本.xlsm")
+            .WorkbookInfoSampleValues.Should().BeFalse();
+    }
 }

@@ -168,12 +168,14 @@ public class NewFileNewLineTests
         // 改行の無いファイルを大量に置く。全件を開くと遅いが、上限で打ち切って手がかり無しになる。
         for (var i = 0; i < 3000; i++) File.WriteAllText(Path.Combine(root, $"f{i:D4}.txt"), "x");
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        // 1回きりの測定は JIT の初回の費用と共有ランナーでの並行実行の揺れを受けるため、温めてから複数回測った
+        // 中央値で判定する（PatchTextDetectorTests の性能テストと同じ方針。TestSupport/PerformanceMeasure 参照）。
         var result = NewLineResolver.Resolve("auto", Path.Combine(root, "new.txt"), root, osDefault: "\n");
-        sw.Stop();
+        var median = PerformanceMeasure.MedianMilliseconds(
+            () => NewLineResolver.Resolve("auto", Path.Combine(root, "new.txt"), root, osDefault: "\n"));
 
         result.Should().Be("\n");
-        sw.ElapsedMilliseconds.Should().BeLessThan(500, "上限で打ち切るので3000ファイルあっても軽い");
+        median.Should().BeLessThan(500, "上限で打ち切るので3000ファイルあっても軽い");
     }
 
     [Theory(DisplayName = "B3: 設定値は大文字小文字を問わず、未知の値は自動として扱う")]

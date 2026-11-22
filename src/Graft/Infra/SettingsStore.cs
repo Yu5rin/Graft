@@ -260,7 +260,19 @@ public sealed class SettingsStore
             callTimeout = 30000;
         }
 
-        return s with { ComTimeoutMs = comTimeout, CallTimeoutMs = callTimeout };
+        // ブックの情報（仕様書_ブックの情報と依頼の観点 9章）の 4 項目と、控えの 2 項目。範囲外は既定値へ戻して警告する。
+        return s with
+        {
+            ComTimeoutMs = comTimeout,
+            CallTimeoutMs = callTimeout,
+            WorkbookInfoSampleRows = NormalizeIntRange(s.WorkbookInfoSampleRows, 1, 20, 5, "vba.workbookInfoSampleRows", issues, context),
+            WorkbookInfoMaxColumns = NormalizeIntRange(s.WorkbookInfoMaxColumns, 5, 100, 30, "vba.workbookInfoMaxColumns", issues, context),
+            WorkbookInfoMaxCellChars = NormalizeIntRange(s.WorkbookInfoMaxCellChars, 10, 500, 60, "vba.workbookInfoMaxCellChars", issues, context),
+            WorkbookInfoMaxChars = NormalizeIntRange(s.WorkbookInfoMaxChars, 2000, 100000, 20000, "vba.workbookInfoMaxChars", issues, context),
+            // 反映前の自動控え（仕様書_ブックの情報と依頼の観点 7.3）の 2 項目。
+            RescueMaxGenerations = NormalizeIntRange(s.RescueMaxGenerations, 1, 200, 20, "vba.rescueMaxGenerations", issues, context),
+            RescueMaxTotalMB = NormalizeIntRange(s.RescueMaxTotalMB, 5, 1000, 50, "vba.rescueMaxTotalMB", issues, context),
+        };
     }
 
     private static EditorSettings ValidateEditor(EditorSettings s, List<GraftIssue> issues, ValidationContext context)

@@ -35,13 +35,15 @@ public class NullVbaBridgeTests
         var save = await bridge.SaveWorkbookAsync(@"C:\a.xlsm");
         var show = await bridge.ShowInVbeAsync(@"C:\a.xlsm", "Module1", 3);
         var activate = await bridge.ActivateWorkbookAsync(@"C:\a.xlsm");
+        var info = await bridge.ReadWorkbookInfoAsync(
+            @"C:\a.xlsm", new VbaWorkbookInfoOptions(true, 0, false, 30, 60, 100, TimeSpan.FromSeconds(20)));
 
-        foreach (var issues in new[] { list.Issues, read.Issues, write.Issues, save.Issues, show.Issues, activate.Issues })
+        foreach (var issues in new[] { list.Issues, read.Issues, write.Issues, save.Issues, show.Issues, activate.Issues, info.Issues })
         {
             issues.Should().ContainSingle().Which.Code.Should().Be(ErrorCode.E706);
         }
 
-        new[] { list.IsSuccess, read.IsSuccess, write.IsSuccess, save.IsSuccess, show.IsSuccess, activate.IsSuccess }
+        new[] { list.IsSuccess, read.IsSuccess, write.IsSuccess, save.IsSuccess, show.IsSuccess, activate.IsSuccess, info.IsSuccess }
             .Should().AllBeEquivalentTo(false);
     }
 

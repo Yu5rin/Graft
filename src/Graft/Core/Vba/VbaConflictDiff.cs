@@ -37,4 +37,31 @@ public static class VbaConflictDiff
             Removed = diff.Removed,
         };
     }
+
+    /// <summary>
+    /// 2 つの本文の差分のブロック（控えの一覧の差分に使う。左: 控え → 右: 現在のミラー）。比較は <see cref="BuildPlan(VbaConflictItem, int)"/>
+    /// と同じく、改行コードの違いを拾わない形にそろえてから行う。
+    /// </summary>
+    public static BlockPlan BuildPlan(string path, string beforeText, string afterText, string description, int contextLines)
+    {
+        var before = VbaTextNormalizer.ToCrLf(beforeText);
+        var after = VbaTextNormalizer.ToCrLf(afterText);
+        var diff = DiffBuilder.Build(path, before, after, contextLines);
+        return new BlockPlan
+        {
+            Block = new FullContentBlock { Path = path, Content = after },
+            Path = path,
+            Operation = EntryOperation.Modify,
+            Stage = MatchStage.None,
+            CanApply = false,
+            NeedsConfirmation = false,
+            IsSelected = false,
+            BeforeText = before,
+            AfterText = after,
+            Diff = diff,
+            Description = description,
+            Added = diff.Added,
+            Removed = diff.Removed,
+        };
+    }
 }

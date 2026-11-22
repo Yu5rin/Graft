@@ -143,12 +143,26 @@ internal sealed class VbaP3Rig : IDisposable
         Project = Graft.ProjectPane.SelectedItem!.Project;
     }
 
-    /// <summary>Excel 側の控え（<c>.rescue/</c>）に残ったファイルの本文。</summary>
-    public IReadOnlyList<string> RescueTexts()
+    /// <summary>
+    /// Excel 側の控え（<c>.rescue/</c>）に残ったファイルの本文。反映前の自動控え（<c>-auto</c>）は反映のたびに残るので、
+    /// 従来の控え（衝突の上書き前・書き戻し失敗）だけを見たいテストのために、<paramref name="includeAuto"/> が false なら除く。
+    /// </summary>
+    public IReadOnlyList<string> RescueTexts(bool includeAuto = false)
     {
         var directory = H.AppPaths.GetVbaRescueDirectory(Project.Id);
         return Directory.Exists(directory)
-            ? Directory.GetFiles(directory).Select(File.ReadAllText).ToList()
+            ? Directory.GetFiles(directory)
+                .Where(f => includeAuto || VbaRescueNaming.Parse(Path.GetFileName(f))?.Kind != VbaRescueKind.Auto)
+                .Select(File.ReadAllText).ToList()
+            : Array.Empty<string>();
+    }
+
+    /// <summary>控え（<c>.rescue/</c>）のファイル名（新しい順ではなく名前順）。</summary>
+    public IReadOnlyList<string> RescueFileNames()
+    {
+        var directory = H.AppPaths.GetVbaRescueDirectory(Project.Id);
+        return Directory.Exists(directory)
+            ? Directory.GetFiles(directory).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToList()!
             : Array.Empty<string>();
     }
 

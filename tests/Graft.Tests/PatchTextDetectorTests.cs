@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using FluentAssertions;
@@ -341,13 +340,14 @@ public class PatchTextDetectorTests
         while (sb.Length < 500_000) sb.Append(paragraph);
         var text = sb.ToString();
 
-        var sw = Stopwatch.StartNew();
+        // 1回きりの測定は JIT の初回の費用と、共有ランナーでの他テストとの並行実行の揺れを
+        // そのまま受けて落ちた（CI で 384.89ms。手元は 12〜17ms）。温めてから複数回測った中央値で判定する。
         var detected = PatchTextDetector.LooksLikePatch(text);
-        sw.Stop();
+        var median = PerformanceMeasure.MedianMilliseconds(() => PatchTextDetector.LooksLikePatch(text));
 
         detected.Should().BeFalse();
-        _output.WriteLine($"非パッチ約{text.Length / 1024}KB: {sw.Elapsed.TotalMilliseconds:F2}ms");
-        sw.Elapsed.TotalMilliseconds.Should().BeLessThan(200,
+        _output.WriteLine($"非パッチ約{text.Length / 1024}KB: 中央値{median:F2}ms（温め1回＋{PerformanceMeasure.DefaultRuns}回）");
+        median.Should().BeLessThan(200,
             "クリップボードが変わるたびに走る判定なので、体感で引っかからない速さである必要がある");
     }
 
@@ -361,13 +361,13 @@ public class PatchTextDetectorTests
         while (sb.Length < 500_000) sb.Append(manual).Append('\n');
         var text = sb.ToString();
 
-        var sw = Stopwatch.StartNew();
+        // 測り方の理由は上の「非パッチ」のテストと PerformanceMeasure のコメントを参照（温め＋中央値）。
         var detected = PatchTextDetector.LooksLikePatch(text);
-        sw.Stop();
+        var median = PerformanceMeasure.MedianMilliseconds(() => PatchTextDetector.LooksLikePatch(text));
 
         detected.Should().BeFalse();
-        _output.WriteLine($"取扱説明書を繰り返した約{text.Length / 1024}KB: {sw.Elapsed.TotalMilliseconds:F2}ms");
-        sw.Elapsed.TotalMilliseconds.Should().BeLessThan(500,
+        _output.WriteLine($"取扱説明書を繰り返した約{text.Length / 1024}KB: 中央値{median:F2}ms（温め1回＋{PerformanceMeasure.DefaultRuns}回）");
+        median.Should().BeLessThan(500,
             "コードブロックを含む長文でも体感で引っかからない速さである必要がある");
     }
 
@@ -389,13 +389,13 @@ public class PatchTextDetectorTests
         }
         var text = sb.ToString();
 
-        var sw = Stopwatch.StartNew();
+        // 測り方の理由は上の「非パッチ」のテストと PerformanceMeasure のコメントを参照（温め＋中央値）。
         var detected = PatchTextDetector.LooksLikePatch(text);
-        sw.Stop();
+        var median = PerformanceMeasure.MedianMilliseconds(() => PatchTextDetector.LooksLikePatch(text));
 
         detected.Should().BeTrue();
-        _output.WriteLine($"本物の大規模パッチ約{text.Length / 1024}KB（2000ブロック）: {sw.Elapsed.TotalMilliseconds:F2}ms");
-        sw.Elapsed.TotalMilliseconds.Should().BeLessThan(1000,
+        _output.WriteLine($"本物の大規模パッチ約{text.Length / 1024}KB（2000ブロック）: 中央値{median:F2}ms（温め1回＋{PerformanceMeasure.DefaultRuns}回）");
+        median.Should().BeLessThan(1000,
             "実解析まで通るケースでも体感で引っかからない速さである必要がある");
     }
 

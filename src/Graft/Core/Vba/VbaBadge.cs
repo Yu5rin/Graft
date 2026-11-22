@@ -39,13 +39,20 @@ public static class VbaBadgeLogic
     /// </param>
     /// <param name="unpushedCount">未反映（Push 判定）のモジュール数。</param>
     /// <param name="deletePendingCount">削除保留のモジュール数。</param>
-    public static VbaBadgeState Compute(bool isSupported, bool isEnabled, bool? workbookOpen, int unpushedCount, int deletePendingCount)
+    /// <param name="saveConflictCount">
+    /// 保存時の自動反映（機能 D。仕様書_ブックの情報と依頼の観点 8.5）が、衝突のため送らなかったモジュール数。
+    /// 起動をまたいで残さない（メモリだけの印。次に同じモジュールが衝突なしで反映できたら消える）。既定は 0 で、
+    /// 既存の呼び出しと表示は変わらない。
+    /// </param>
+    public static VbaBadgeState Compute(
+        bool isSupported, bool isEnabled, bool? workbookOpen, int unpushedCount, int deletePendingCount, int saveConflictCount = 0)
     {
         if (!isSupported) return VbaBadgeState.Hidden;
 
         var unpushed = Math.Max(0, unpushedCount);
         var pending = Math.Max(0, deletePendingCount);
-        var status = BuildStatusText(unpushed, pending);
+        var conflicts = Math.Max(0, saveConflictCount);
+        var status = BuildStatusText(unpushed, pending, conflicts);
 
         if (!isEnabled)
         {
@@ -60,16 +67,22 @@ public static class VbaBadgeLogic
         if (workbookOpen == false) lines.Add(WorkbookClosedTip);
         if (unpushed > 0) lines.Add($"未反映のモジュール: {unpushed} 件（右クリックの「Excel へ反映」で送れます）");
         if (pending > 0) lines.Add($"削除保留のモジュール: {pending} 件（右クリックの「Excel から復元」で戻せます）");
+        if (conflicts > 0)
+        {
+            // 衝突は、保存のたびにダイアログを出さない代わりに、ここへ印だけ残す。解決は手動の「Excel へ反映」の衝突画面で行う。
+            lines.Add($"保存時の自動反映をしなかった衝突: {conflicts} 件（右クリックの「Excel へ反映」で、どちらを残すか選べます）");
+        }
         if (lines.Count == 0) lines.Add("Excel VBA プロジェクトです。");
 
         return new VbaBadgeState(true, "VBA", workbookOpen == false, status, string.Join(Environment.NewLine, lines));
     }
 
-    private static string BuildStatusText(int unpushed, int pending)
+    private static string BuildStatusText(int unpushed, int pending, int conflicts)
     {
         var parts = new List<string>();
         if (unpushed > 0) parts.Add($"未反映 {unpushed}");
         if (pending > 0) parts.Add($"削除保留 {pending}");
+        if (conflicts > 0) parts.Add($"衝突 {conflicts}");
         return string.Join("・", parts);
     }
 }

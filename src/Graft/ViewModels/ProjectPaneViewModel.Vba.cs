@@ -102,6 +102,21 @@ public sealed partial class ProjectPaneViewModel
     /// <summary>「ブックを前面化」。</summary>
     public ICommand ActivateWorkbookCommand { get; private set; } = null!;
 
+    /// <summary>「Excel 側の控えを見る…」（仕様書_ブックの情報と依頼の観点 7.4）。</summary>
+    public ICommand ShowRescueCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// 控えの窓（<c>VbaRescueWindow</c>）を開く（View が配線する。ViewModel は Window の型を知らない）。
+    /// 未設定なら何もしない。
+    /// </summary>
+    public Func<VbaRescueViewModel, Task>? ShowRescueAsync { get; set; }
+
+    /// <summary>
+    /// 控えの窓の ViewModel を作る（<c>MainViewModel</c> が、設定と UI 機能を渡して配線する）。
+    /// 未設定なら控えの窓は開けない。
+    /// </summary>
+    public Func<Project, VbaRescueViewModel?>? CreateRescueViewModel { get; set; }
+
     private void InitializeVbaCommands()
     {
         AddFromWorkbookCommand = new AsyncRelayCommand(AddFromWorkbookAsync, () => IsVbaFeatureAvailable, context: "Excel ブックからの追加");
@@ -109,6 +124,9 @@ public sealed partial class ProjectPaneViewModel
         PushToExcelCommand = new AsyncRelayCommand(PushSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel への反映");
         RestoreFromExcelCommand = new AsyncRelayCommand(RestoreSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel からの復元");
         ActivateWorkbookCommand = new AsyncRelayCommand(ActivateSelectedAsync, CanActivateSelectedVbaWorkbook, context: "ブックの前面化");
+        // 控えはファイルを見るだけなので、Excel が開いていなくても、設定で VBA 連携を切っていても開ける（仕様書 7.4）。
+        // この環境で VBA 連携が使えること（控えが作られる環境）と、VBA プロジェクトであることだけを条件にする。
+        ShowRescueCommand = new AsyncRelayCommand(ShowRescueForSelectedAsync, CanShowRescue, context: "Excel 側の控えの表示");
     }
 
     /// <summary>
@@ -131,6 +149,9 @@ public sealed partial class ProjectPaneViewModel
         return true;
     }
 
+    private bool CanShowRescue()
+        => IsSelectedVbaProject && SelectedItem is { IsDisconnected: false } && CreateRescueViewModel is not null && ShowRescueAsync is not null;
+
     private bool CanOperateOnSelectedVbaProject()
         => IsVbaFeatureAvailable && SelectedItem is { IsDisconnected: false } item && item.Project.Vba is not null && !IsVbaBusy();
 
@@ -152,6 +173,7 @@ public sealed partial class ProjectPaneViewModel
         OnPropertyChanged(nameof(IsSelectedVbaProject));
         OnPropertyChanged(nameof(IsAutoPushChecked));
         OnPropertyChanged(nameof(IsSaveAfterPushChecked));
+        OnPropertyChanged(nameof(IsAutoPushOnSaveChecked));
     }
 
     // ------------------------------------------------------------------
@@ -187,6 +209,20 @@ public sealed partial class ProjectPaneViewModel
         }
     }
 
+    /// <summary>
+    /// 「保存したらそのモジュールを Excel へ反映する」（<see cref="VbaLink.AutoPushOnSave"/>。機能 D）。
+    /// 双方向に束縛する理由は <see cref="IsAutoPushChecked"/> と同じ。
+    /// </summary>
+    public bool IsAutoPushOnSaveChecked
+    {
+        get => SelectedItem?.Project.Vba?.AutoPushOnSave ?? false;
+        set
+        {
+            if (value == IsAutoPushOnSaveChecked) return;
+            _pendingVbaOption = SetAutoPushOnSaveAsync(value);
+        }
+    }
+
     // 直近のチェック項目の保存。テストと、続けて操作したときの順序の保証に使う（必ず前の保存が終わってから次へ進む）。
     private Task _pendingVbaOption = Task.CompletedTask;
 
@@ -196,6 +232,26 @@ public sealed partial class ProjectPaneViewModel
     /// <summary>選択中のプロジェクトの「適用後に自動反映」を変える。</summary>
     public Task SetAutoPushAfterApplyAsync(bool value)
         => UpdateSelectedVbaLinkAsync(link => link with { AutoPushAfterApply = value });
+
+    /// <summary>選択中のプロジェクトの「保存したら Excel へ反映」を変える。</summary>
+    public async Task SetAutoPushOnSaveAsync(bool value)
+    {
+        var projectId = SelectedItem?.Project.Id;
+        await UpdateSelectedVbaLinkAsync(link => link with { AutoPushOnSave = value }).ConfigureAwait(true);
+
+        // 【オフにしたら、衝突の印も外す】 印は保存時の自動反映が付けたもの。機能をオフにしたあとも「衝突 N」と
+        // 「どちらを残すか選べます」の案内が残ると、もう自動では何も起きないのに衝突が続いているように見える。
+        // 手動の取込・反映は、印が無くても衝突を検査して知らせる。
+        if (!value && projectId is not null && !(SelectedItem?.Project.Vba?.AutoPushOnSave ?? false))
+        {
+            ClearAllVbaSaveConflicts(projectId);
+        }
+    }
+
+    private void ClearAllVbaSaveConflicts(string projectId)
+    {
+        if (_vbaSaveConflicts.Remove(projectId)) ReapplyVbaBadges();
+    }
 
     /// <summary>選択中のプロジェクトの「反映後にブックを保存」を変える。</summary>
     public Task SetSaveWorkbookAfterPushAsync(bool value)
@@ -250,11 +306,59 @@ public sealed partial class ProjectPaneViewModel
     private const long VbaOpenCheckMinIntervalMs = 3000;
     private long _lastVbaOpenCheckTick = long.MinValue / 2;
 
+    // 保存時の自動反映（機能 D）が、衝突のため送らなかったモジュール（プロジェクト Id → 相対パス）。メモリだけに持ち、
+    // 起動をまたいで残さない（仕様書_ブックの情報と依頼の観点 8.5）: 衝突はそのときの Excel とミラーの状態で決まるので、
+    // 次の起動では保存のたびの印ではなく、手動の「Excel へ反映」で改めて検査するのが正しい。
+    private readonly Dictionary<string, HashSet<string>> _vbaSaveConflicts = new(StringComparer.Ordinal);
+
+    /// <summary>保存時の自動反映をしなかった衝突の印を付ける（バッジの「衝突 N」）。</summary>
+    public void MarkVbaSaveConflicts(string projectId, IEnumerable<string> relativePaths)
+    {
+        if (!_vbaSaveConflicts.TryGetValue(projectId, out var set))
+        {
+            _vbaSaveConflicts[projectId] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var before = set.Count;
+        foreach (var path in relativePaths) set.Add(path);
+        if (set.Count != before) ReapplyVbaBadges();
+    }
+
+    /// <summary>衝突の印を外す（そのモジュールが衝突なしで反映できたとき）。</summary>
+    public void ClearVbaSaveConflicts(string projectId, IEnumerable<string> relativePaths)
+    {
+        if (!_vbaSaveConflicts.TryGetValue(projectId, out var set)) return;
+        var before = set.Count;
+        foreach (var path in relativePaths) set.Remove(path);
+        if (set.Count == 0) _vbaSaveConflicts.Remove(projectId);
+        if (before != set.Count) ReapplyVbaBadges();
+    }
+
+    /// <summary>印の付いているモジュールの数（テスト・表示用）。</summary>
+    public int VbaSaveConflictCount(string projectId)
+        => _vbaSaveConflicts.TryGetValue(projectId, out var set) ? set.Count : 0;
+
+    /// <summary>
+    /// 手動の取込・反映のあとに、印を実際の状態へ合わせる。<paramref name="scope"/>（null なら全体）の中で、
+    /// なお衝突しているもの（<paramref name="stillConflicting"/>）以外は、解決したか衝突でなくなったので外す。
+    /// </summary>
+    private void ReconcileVbaSaveConflicts(string projectId, IReadOnlyCollection<string>? scope, IReadOnlyCollection<string> stillConflicting)
+    {
+        if (!_vbaSaveConflicts.TryGetValue(projectId, out var set)) return;
+        var resolved = set
+            .Where(p => (scope is null || scope.Contains(p, StringComparer.OrdinalIgnoreCase))
+                        && !stillConflicting.Contains(p, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        ClearVbaSaveConflicts(projectId, resolved);
+    }
+
     private VbaBadgeState BadgeFor(Project project)
     {
         if (project.Vba is null || _vbaSync?.IsSupported != true) return VbaBadgeState.Hidden;
         _vbaBadgeCache.TryGetValue(project.Id, out var entry);
-        return VbaBadgeLogic.Compute(true, _isVbaEnabled(), entry?.WorkbookOpen, entry?.Unpushed ?? 0, entry?.DeletePending ?? 0);
+        return VbaBadgeLogic.Compute(
+            true, _isVbaEnabled(), entry?.WorkbookOpen, entry?.Unpushed ?? 0, entry?.DeletePending ?? 0,
+            VbaSaveConflictCount(project.Id));
     }
 
     /// <summary>保持している結果から、すべての行のバッジを描き直す（Excel には触れない）。</summary>
@@ -339,6 +443,13 @@ public sealed partial class ProjectPaneViewModel
                 }
 
                 _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(status.UnpushedCount, status.DeletePendingCount, isOpen);
+
+                // 【衝突の印は、未反映のモジュールにだけ残す】 衝突しているモジュールは、ミラーが同期基準と違う
+                // （＝未反映）ままである。「Excel 側を採用」「Graft 側で上書き」で解決する、別の手段で取り込む、
+                // ミラーを Excel と同じに戻す、のいずれでも未反映でなくなる。解決の経路は、手動の取込・反映のほかに
+                // コンテキスト収集や依頼文コピーの自動取込・適用後や取り消し後の反映など多数あり、それぞれで印を外すのは
+                // 取りこぼしやすい。バッジを数え直すたびに、未反映でなくなったモジュールの印を外す（経路を問わない）。
+                if (status.UnpushedPaths is { } stillUnpushed) ReconcileVbaSaveConflicts(project.Id, null, stillUnpushed);
             }
 
             ReapplyVbaBadges();
@@ -373,8 +484,9 @@ public sealed partial class ProjectPaneViewModel
         {
             // 同じ場所を再び追加したとき（既存のミラーを使う）、既に VBA の紐付けを持つプロジェクトの設定
             // （適用後の自動反映・反映後の保存）を黙って既定へ戻さない。変えるのはブックのパスだけ。
+            // 別のブックへ結び直したときは、値の見本のオンを解除する（VbaLink.WithWorkbook）。
             Vba = p.Vba is { } existing
-                ? existing with { WorkbookFullName = chosen.WorkbookFullName }
+                ? existing.WithWorkbook(chosen.WorkbookFullName)
                 : new VbaLink { WorkbookFullName = chosen.WorkbookFullName },
             // 同じブックの再追加で、利用者が編集した常設コンテキストを既定文で上書きしない。
             StandingContext = string.IsNullOrWhiteSpace(p.StandingContext) ? VbaStandingContext.Default : p.StandingContext,
@@ -412,6 +524,7 @@ public sealed partial class ProjectPaneViewModel
 
         var pulled = result.Value;
         var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPull, pulled.ConflictItems).ConfigureAwait(true);
+        ReconcileVbaSaveConflicts(project.Id, null, resolved.Unresolved);
         await ShowWarningsAsync("Excel からの取込の注意", result.Issues.Where(i => i.Code != ErrorCode.E812)).ConfigureAwait(true);
 
         // 取り込み後の件数と、ブックの開閉（Excel と通信できたかどうか）を描き直す（仕様 7.6）。
@@ -432,9 +545,45 @@ public sealed partial class ProjectPaneViewModel
     {
         if (_vbaSync is null || SelectedItem is not { } item) return;
         if (RejectWhileVbaBusy()) return;
-        var project = item.Project;
+        await PushProjectAsync(item.Project, only: null).ConfigureAwait(true);
+    }
 
-        var result = await _vbaSync.PushAsync(project).ConfigureAwait(true);
+    /// <summary>
+    /// 「Excel 側の控えを見る」窓で控えをミラーへ戻したあとの「今すぐ Excel へ反映」。戻した 1 モジュールだけを、
+    /// 手動の「Excel へ反映」と同じ流れ（衝突ダイアログ・失敗の案内を含む）で送る。
+    /// </summary>
+    private async Task PushRestoredFromRescueAsync(Project project, string relativePath)
+    {
+        if (_vbaSync is null) return;
+        if (!IsVbaFeatureAvailable)
+        {
+            Notify?.Invoke("VBA 連携が設定で無効のため、Excel へ反映できません。");
+            return;
+        }
+
+        if (RejectWhileVbaBusy()) return;
+        await PushProjectAsync(project, new[] { relativePath }).ConfigureAwait(true);
+    }
+
+    private async Task ShowRescueForSelectedAsync()
+    {
+        if (SelectedItem is not { } item || ShowRescueAsync is null || CreateRescueViewModel is null) return;
+        var project = item.Project;
+        var viewModel = CreateRescueViewModel(project);
+        if (viewModel is null) return;
+
+        viewModel.IsBusy = IsVbaBusy;
+        viewModel.PushModuleAsync = relative => PushRestoredFromRescueAsync(project, relative);
+        await ShowRescueAsync(viewModel).ConfigureAwait(true);
+        // 戻すと、ミラーが「未反映」になる。窓を閉じたあとにバッジへ反映する。
+        await RefreshVbaBadgesAsync(checkWorkbookOpen: false).ConfigureAwait(true);
+    }
+
+    private async Task PushProjectAsync(Project project, IReadOnlyCollection<string>? only)
+    {
+        if (_vbaSync is null) return;
+
+        var result = await _vbaSync.PushAsync(project, only).ConfigureAwait(true);
         if (!result.IsSuccess)
         {
             // 手動の Push は適用ではないので、取り消しは提案しない（仕様 7.2b）。未反映の印が残るので再試行できる。
@@ -445,6 +594,9 @@ public sealed partial class ProjectPaneViewModel
 
         var pushed = result.Value;
         var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPush, pushed.ConflictItems).ConfigureAwait(true);
+        // 手動の反映で衝突が解決した（または衝突でなくなった）モジュールの印を外す。対象を絞った反映（控えから戻した 1 件など）は、
+        // その対象の中だけを見直す。
+        ReconcileVbaSaveConflicts(project.Id, only, resolved.Unresolved);
         var problems = result.Issues.Where(i => i.Code != ErrorCode.E812).ToList();
         if (pushed.Failed.Count > 0 || problems.Count > 0)
         {
@@ -578,10 +730,11 @@ public sealed partial class ProjectPaneViewModel
     /// 手動の取込・反映で衝突したモジュールを、衝突ダイアログ（仕様書_VBA連携 7.5）で利用者に選んでもらい、結果を実行する。
     /// 「Graft 側で上書き」は Excel 側の本文を <c>.rescue/</c> に控えてから Push、「Excel 側を採用」は Pull、「中止」は何もしない。
     /// </summary>
-    private async Task<(int Adopted, int Overwritten)> ResolveConflictsAsync(
+    private async Task<(int Adopted, int Overwritten, IReadOnlyCollection<string> Unresolved)> ResolveConflictsAsync(
         Project project, VbaConflictScene scene, IReadOnlyList<VbaConflictItem> items)
     {
-        if (items.Count == 0 || _vbaSync is null) return (0, 0);
+        var none = Array.Empty<string>();
+        if (items.Count == 0 || _vbaSync is null) return (0, 0, none);
 
         var request = new VbaConflictRequest(scene, items);
         var decision = (ShowConflictAsync is null ? null : await ShowConflictAsync(request).ConfigureAwait(true)) ?? request.DefaultDecision;
@@ -594,7 +747,7 @@ public sealed partial class ProjectPaneViewModel
                 string.Join("、", items.Select(i => i.RelativePath)) + "。",
                 severity: Severity.Warning);
             await _dialogs.ShowMessageAsync("Excel 側とファイル側の衝突", FormatIssue(issue)).ConfigureAwait(true);
-            return (0, 0);
+            return (0, 0, items.Select(i => i.RelativePath).ToList());
         }
 
         var adopted = 0;
@@ -623,6 +776,8 @@ public sealed partial class ProjectPaneViewModel
             }
         }
 
-        return (adopted, overwritten);
+        // 解決（採用・上書き）の選択をしなかった（「反映しない」）モジュールは、なお衝突したまま。
+        var decided = decision.PathsWith(VbaConflictChoice.AdoptExcel).Concat(decision.PathsWith(VbaConflictChoice.OverwriteExcel));
+        return (adopted, overwritten, items.Select(i => i.RelativePath).Except(decided, StringComparer.OrdinalIgnoreCase).ToList());
     }
 }

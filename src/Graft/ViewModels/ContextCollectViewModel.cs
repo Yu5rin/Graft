@@ -75,9 +75,13 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     /// 走査の前に Excel から最新を取り込む処理（Excel VBA 連携。仕様書_VBA連携 7.2）。VBA プロジェクトのときだけ
     /// <c>MainViewModel</c> が渡す。null（通常のファイルプロジェクト、テスト）なら何もしない。
     /// </param>
+    /// <param name="vbaWorkbookInfo">
+    /// ブックの情報（仕様書_ブックの情報と依頼の観点 5章）を Excel から取る窓口。VBA プロジェクトのときだけ
+    /// <c>MainViewModel</c> が渡す。null なら「ブックの情報」の行は出ず、Excel も呼ばない。
+    /// </param>
     public ContextCollectViewModel(
         AppPaths appPaths, ProjectStore projectStore, Project project, Settings settings, IUiServices ui, IDialogService dialogs,
-        GitIntegration? git = null, VbaContextPullAsync? vbaPull = null)
+        GitIntegration? git = null, VbaContextPullAsync? vbaPull = null, VbaWorkbookInfoSource? vbaWorkbookInfo = null)
     {
         ArgumentNullException.ThrowIfNull(appPaths);
         _projectStore = projectStore ?? throw new ArgumentNullException(nameof(projectStore));
@@ -89,8 +93,16 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         _revisionStore = new RevisionStore(appPaths);
         _persistTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(PersistDebounceMs), OnPersistTick);
         _filterTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(FilterDebounceMs), OnFilterTick);
+        _focusPersistTimer = ui.CreateTimer(TimeSpan.FromMilliseconds(FocusPersistDebounceMs), OnFocusPersistTick);
+        _focusStore = new PromptFocusStore(appPaths);
+        // 依頼の観点: 組み込みの17件で最初から並べ、前回の選択を復元する。自作の観点は
+        // ReloadFocusAsync で読み込んだあとに加わる（ContextCollectViewModel.Focus.cs）。
+        Focus = new PromptFocusSelectionViewModel(PromptFocusStore.BuiltIns, project.Vba is not null, project.Overrides.PromptFocusIds);
+        Focus.Changed += OnFocusChanged;
         _git = git ?? new GitIntegration();
         _vbaPull = vbaPull;
+        _workbookInfoSource = vbaWorkbookInfo;
+        InitializeWorkbookInfo(project, vbaWorkbookInfo);
 
         Modes = new ObservableCollection<ModeOption>
         {
@@ -297,6 +309,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         var gitCheck = _git.CheckCommitPreflightAsync(_project.Root, ct);
         try
         {
+            await ReloadFocusAsync(ct).ConfigureAwait(true);
             await RefreshAsync(ct).ConfigureAwait(true);
         }
         finally
@@ -343,7 +356,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
 
         var warning = await _vbaPull(ShowVbaConflictAsync, ct).ConfigureAwait(true);
         VbaPullWarning = warning;
-        if (warning is not null) StatusMessage = warning;
+        if (warning is not null) StatusMessage = VbaWarning;
     }
 
     /// <summary>デバウンス用タイマーを止める。プロジェクト切替でこのインスタンスを捨てる際に呼ぶ。</summary>
@@ -351,6 +364,20 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     {
         _persistTimer.Dispose();
         _filterTimer.Dispose();
+        // 観点の選択は、保存待ちのまま破棄すると利用者の最後の操作が失われる（プロジェクトを切り替えた直後など）。
+        // ファイルの3状態と違い、保存は Id 指定の ProjectStore.UpdateAsync なので、古いインスタンスからでも
+        // 他の項目を巻き戻さず安全に書ける。タイマーは止めたうえで、残っていた分だけここで1回書く。
+        _focusPersistTimer.Dispose();
+        Focus.Changed -= OnFocusChanged;
+        // ブックの情報（値の見本を含みうる）は、このインスタンスの寿命より長く持たない。ディスクには元々書いていない。
+        _workbookSnapshot = null;
+        // 画面に残るプレビュー（見本を含みうる）も手放す。
+        _previewLines = Array.Empty<PreviewLine>();
+        if (_focusPersistPending)
+        {
+            _focusPersistPending = false;
+            _ = PersistFocusAsync();
+        }
     }
 
     private void OnModeChanged()
@@ -385,6 +412,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             // Excel VBA 連携（仕様書_VBA連携 7.2）: 走査の前に Excel の最新を取り込む。走査より後に取り込むと、
             // 古い本文を前提に作ったツリー・トークン数の概算が、取り込み後の内容と食い違う。
             await PullFromExcelAsync(ct).ConfigureAwait(true);
+            // ブックの情報（仕様書_ブックの情報と依頼の観点 5.4）も、Pull の直後に取る。Pull と同じ契機。
+            // 失敗しても収集は止めない（警告にして続ける）。
+            await FetchWorkbookInfoAsync(ct).ConfigureAwait(true);
 
             // ScanAsyncの中身（GitignoreFilterの構築とディレクトリの全走査）は、.gitignoreが
             // 無いプロジェクトでは一度もawaitで中断せず最後まで同期に走りきる。呼び出し元が
@@ -553,6 +583,8 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             SelectedPaths = selectedPaths,
             HiddenPaths = hiddenPaths,
             SinceRevision = _selectedRevision?.Revision,
+            FocusText = BuildFocusText(),
+            WorkbookInfoText = BuildWorkbookInfoText(),
         };
 
         // 8.8: 収集本体（プレビュー・コピー・ファイル保存）にも待機表示を出す。従来は
@@ -851,8 +883,14 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
 
         var treeChars = IncludesTreeInEstimate(_selectedMode) ? EstimateTreeSectionChars() : 0;
 
+        // 依頼の観点（チップ）の文も出力の先頭近くに入るので、概算に含める（何も選んでいなければ0）。
+        var workbookChars = BuildWorkbookInfoText().Length;
+        var focusChars = BuildFocusText().Length;
+
         EstimatedTokens = TokenEstimator.EstimateLength(totalBytes, _settings.Context.TokenRatio)
-            + TokenEstimator.EstimateLength(treeChars, _settings.Context.TokenRatio);
+            + TokenEstimator.EstimateLength(treeChars, _settings.Context.TokenRatio)
+            + TokenEstimator.EstimateLength(workbookChars, _settings.Context.TokenRatio)
+            + TokenEstimator.EstimateLength(focusChars, _settings.Context.TokenRatio);
         ExceedsWarnThreshold = EstimatedTokens > TokenWarnThreshold;
     }
 

@@ -43,7 +43,7 @@ public class VbaPushSaveFixTests : VbaServiceFixture
         Bridge.Get(Book)!.SaveCount.Should().Be(0, "壊れたまま保存すると、保存せずに閉じる逃げ道が無くなる");
         Bridge.Calls.Should().NotContain("Save");
         push.Issues.Should().Contain(i => i.Code == ErrorCode.E809 && i.Severity == Severity.Warning && i.Detail!.Contains("保存しませんでした"));
-        RescueTexts().Should().ContainSingle().Which.Should().Be("Sub A()\r\nEnd Sub", "元の本文は .rescue/ にある");
+        RescueTexts().Should().ContainSingle().Which.Should().Be("Sub A()\r\nEnd Sub", "元の本文は .rescue/ にある（従来の控え。自動控えとは別に残り、自動では消えない）");
     }
 
     [Fact(DisplayName = "不具合4: 書き戻しに成功した（RolledBack）モジュールがあるだけなら、成功したものがある限り従来どおりブックを保存する")]

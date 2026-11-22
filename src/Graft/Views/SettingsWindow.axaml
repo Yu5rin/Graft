@@ -123,6 +123,11 @@
                      local:HelpTip.Detailed="コマンドバーの「依頼文をコピー」ボタンでコピーされる、AIへの依頼文のひな形を管理します。Graftが読み取れる形式で回答するよう指示する文面で、プロジェクトごとに既定のテンプレートを分けることもできます。">
                 <settings:TemplateSettingsView />
             </TabItem>
+            <TabItem Header="依頼の観点" AutomationProperties.Name="依頼の観点設定タブ"
+                     local:HelpTip.Standard="依頼文に添える「観点」（読みやすく・不具合を直す など）を追加・複製・編集します。組み込みの観点は編集できません。"
+                     local:HelpTip.Detailed="依頼文のコピーや「AIに渡すファイルを選ぶ」画面に並ぶチップ（観点）を管理します。選んだ観点の指示文が依頼文に入り、AIの作業の方向をそろえます。組み込みの観点は編集も削除もできないので、手を加えたいときは「複製」して自分用の観点にしてから編集してください。">
+                <settings:FocusSettingsView />
+            </TabItem>
             <TabItem Header="適用後に実行するコマンド" AutomationProperties.Name="適用後に実行するコマンド設定タブ"
                      local:HelpTip.Standard="パッチの適用が成功した直後に、リンターなどのコマンドを自動で実行する設定です。"
                      local:HelpTip.Detailed="適用が成功するたびに自動実行したいコマンド（リンター・フォーマッタなど）を、プロジェクトごとに登録します。コマンドは実際にファイルを書き換えられるため、内容をよく確認してから登録してください。">

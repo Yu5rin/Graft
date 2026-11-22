@@ -87,6 +87,14 @@ public sealed class JsonFileStore
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> UnreadablePaths =
         new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// このパスへの書き込みが、読み取り失敗の保護（<see cref="UnreadablePaths"/>）で止められているか。
+    /// <see cref="WriteAsync{T}"/> は止められているとき<b>黙って何も書かずに戻る</b>ので、呼び出し側が
+    /// 「保存できた」と利用者に伝えてよいかは、この問い合わせで知る（観点の追加で、書かれていないのに
+    /// 「追加しました」と出てしまうのを防ぐため）。
+    /// </summary>
+    public bool IsWriteProtected(string path) => UnreadablePaths.ContainsKey(NormalizeKey(path));
+
     private static string NormalizeKey(string path)
     {
         var full = Path.GetFullPath(path);

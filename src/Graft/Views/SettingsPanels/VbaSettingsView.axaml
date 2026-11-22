@@ -81,8 +81,99 @@
                              views:HelpTip.Detailed="マクロの実行中・中断中・VBE のダイアログ表示中などは、Excel が断りもせず戻ってこないことがあります。この時間を過ぎたら待つのをやめて「Excel が応答しません」とし、Graft 自身は固まらずに操作を続けられるようにします。既定は30000ミリ秒です。範囲は5000〜120000で、再試行の上限以上にする必要があります（下回ると既定値に戻ります）。" />
                 </Grid>
 
+                <TextBlock Text="ブックの情報" Classes="sectionHeading" />
+                <CheckBox Classes="settingRow hinted" Content="AI に渡すとき、ブックの情報（シート・テーブル・名前・見出し・参照設定）も取る"
+                          IsChecked="{Binding VbaCollectWorkbookInfo}"
+                          IsEnabled="{Binding VbaEnabled}"
+                          AutomationProperties.Name="ブックの情報を取る"
+                          views:HelpTip.Standard="「ファイルを選ぶ」画面を開くとき・依頼文をコピーするときに、Excel からブックの構造（シート名・テーブル・名前付き範囲・先頭行の見出し・参照設定）を読んで、AI に渡す内容へ加えます。既定はオンです。"
+                          views:HelpTip.Detailed="AI は、どんなシートや表があるブックかを知らないと、存在しないシート名や列を前提にした VBA を書いてしまいます。オンにすると、依頼文の作成のたびに Excel からブックの構造を読み、「# ブックの情報」として渡します（読み取りだけで、ブックは変更しません）。どこまで渡すかは、「ファイルを選ぶ」画面の「ブックの情報」の行で、プロジェクトごとに「内容も出す／構成だけ／出さない」から選べます。値の見本（各シートの先頭の数行の中身）は、この設定とは別に、その行で明示的にオンにしたときだけ渡ります。オフにすると、Excel には一切問い合わせません。" />
+                <TextBlock Text="Excel に繋がらないときも、依頼文の作成は止まりません（警告を出して続けます）。取得した内容はメモリにだけ置き、ファイルには保存しません。" Classes="settingHint indented" />
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="値の見本の行数（1〜20）" Classes="settingLabel" />
+                        <TextBlock Text="値の見本をオンにしたプロジェクトで、各シートの見出し行に続けて何行を渡すかです。見出し行（1 行目）は別に渡ります。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookInfoSampleRowsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="値の見本の行数"
+                             views:HelpTip.Minimal="{Binding VbaWorkbookInfoSampleRowsText, StringFormat='値の見本の行数: {0}'}"
+                             views:HelpTip.Standard="値の見本として渡す、各シートの見出し行に続く行数です。既定は5行です。"
+                             views:HelpTip.Detailed="「ブックの情報」の行で値の見本をオンにしたプロジェクトにだけ効きます。各シートの見出し行の次から、この行数だけを読んで AI に渡します。多いほど AI は中身を把握できますが、社外秘などが渡る量も増えます。既定は5行、範囲は1〜20です（範囲外は既定値に戻ります）。" />
+                </Grid>
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="見出し・見本の最大列数（5〜100）" Classes="settingLabel" />
+                        <TextBlock Text="右側の列は、この数で切ります（切った列数は「…（他 N 列）」と伝えます）。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookInfoMaxColumnsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="見出し・見本の最大列数"
+                             views:HelpTip.Minimal="{Binding VbaWorkbookInfoMaxColumnsText, StringFormat='最大列数: {0}'}"
+                             views:HelpTip.Standard="先頭行の見出しと値の見本で、左から何列まで読むかです。既定は30列です。"
+                             views:HelpTip.Detailed="横に非常に長い表で、依頼文が大きくなりすぎないようにする上限です。超えた右側は読まず、「…（他 N 列）」と伝えます。既定は30列、範囲は5〜100です（範囲外は既定値に戻ります）。" />
+                </Grid>
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="1 セルの最大文字数（10〜500）" Classes="settingLabel" />
+                        <TextBlock Text="見出し・見本のセルの文字が長いとき、この数で「…」をつけて切ります。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookInfoMaxCellCharsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="1セルの最大文字数"
+                             views:HelpTip.Minimal="{Binding VbaWorkbookInfoMaxCellCharsText, StringFormat='1セルの最大文字数: {0}'}"
+                             views:HelpTip.Standard="見出し・値の見本の1セルの文字数の上限です。既定は60文字です。"
+                             views:HelpTip.Detailed="長い文章が入ったセルで依頼文が膨らまないようにする上限です。超えた分は「…」をつけて切ります（改行は空白1つにまとめます）。既定は60文字、範囲は10〜500です（範囲外は既定値に戻ります）。" />
+                </Grid>
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="ブックの情報の最大文字数（2000〜100000）" Classes="settingLabel" />
+                        <TextBlock Text="超えたら、値の見本・見出し・参照設定の順に省いて収めます。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookInfoMaxCharsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="ブックの情報の最大文字数"
+                             views:HelpTip.Minimal="{Binding VbaWorkbookInfoMaxCharsText, StringFormat='ブックの情報の最大文字数: {0}'}"
+                             views:HelpTip.Standard="依頼文に入れるブックの情報全体の文字数の上限です。既定は20000文字です。"
+                             views:HelpTip.Detailed="シートや名前が多いブックで、依頼文が大きくなりすぎないようにする上限です。超えるときは、値の見本、先頭行の見出し、参照設定、名前付き範囲、テーブルの列名、テーブル、シートの順に（構成ほど後まで残して）省き、末尾に「（長いため一部を省略しました）」と添えます。既定は20000文字、範囲は2000〜100000です（範囲外は既定値に戻ります）。" />
+                </Grid>
+
+                <TextBlock Text="Excel 側の控え" Classes="sectionHeading" />
+                <TextBlock Text="「Excel へ反映」で Excel 側が上書きされる直前の本文を、毎回控えとして残します。プロジェクトの右クリック「Excel 側の控えを見る…」で、一覧・差分の確認と、ミラーへの取り込み（戻す）ができます。控えは履歴には記録されません。"
+                           Classes="settingHint indented" TextWrapping="Wrap" />
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="控えの世代数（1〜200）" Classes="settingLabel" />
+                        <TextBlock Text="1 つのモジュールについて残す、反映前の自動控えと戻す前のミラーの控えの数です。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaRescueMaxGenerationsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="控えの世代数"
+                             views:HelpTip.Minimal="{Binding VbaRescueMaxGenerationsText, StringFormat='控えの世代数: {0}'}"
+                             views:HelpTip.Standard="1 つのモジュールについて残す自動控えの数です。既定は20世代です。"
+                             views:HelpTip.Detailed="反映のたびに、上書きされる前の Excel 側の本文を残します（前回と同じ内容なら増やしません）。この数を超えた古いものから自動で消します。衝突で「Graft 側で上書き」を選んだ直前などの控えは、利用者の VBE での編集を救う最後の控えなので、自動では消しません。既定は20、範囲は1〜200です（範囲外は既定値に戻ります）。" />
+                </Grid>
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="控え全体の容量（MB。5〜1000）" Classes="settingLabel" />
+                        <TextBlock Text="超えたら、自動控えを古い順に消します。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaRescueMaxTotalMBText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="控え全体の容量"
+                             views:HelpTip.Minimal="{Binding VbaRescueMaxTotalMBText, StringFormat='控え全体の容量: {0} MB'}"
+                             views:HelpTip.Standard="1 つのプロジェクトの控え全体の容量の上限です。既定は50MBです。"
+                             views:HelpTip.Detailed="プロジェクトごとの控えのフォルダ全体の大きさの上限です。超えたら、自動控えを古い順に消します（各モジュールの最新の自動控えは残します）。従来の控え（衝突の上書き前など）は自動では消しませんが、容量には数えます。既定は50、範囲は5〜1000です（範囲外は既定値に戻ります）。" />
+                </Grid>
+
                 <TextBlock Text="プロジェクトごとの設定" Classes="sectionHeading" />
-                <TextBlock Text="「適用後に Excel へ自動反映する」と「反映後にブックを保存する」は、プロジェクト一覧で VBA プロジェクトを右クリックして切り替えます。"
+                <TextBlock Text="「適用後に Excel へ自動反映する」と「反映後にブックを保存する」は、プロジェクト一覧で VBA プロジェクトを右クリックして切り替えます。ブックの情報の出し方と値の見本は、「ファイルを選ぶ」画面の「ブックの情報」の行で切り替えます。"
                            Classes="settingHint" TextWrapping="Wrap" />
             </StackPanel>
         </StackPanel>

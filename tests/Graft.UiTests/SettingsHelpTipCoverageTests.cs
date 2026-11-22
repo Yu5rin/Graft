@@ -70,6 +70,9 @@ public class SettingsHelpTipCoverageTests : IDisposable
     [AvaloniaFact(DisplayName = "設定画面「依頼文のテンプレート」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
     public void 依頼文のテンプレート設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new TemplateSettingsView());
 
+    [AvaloniaFact(DisplayName = "設定画面「依頼の観点」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
+    public void 依頼の観点設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new FocusSettingsView());
+
     [AvaloniaFact(DisplayName = "設定画面「適用後に実行するコマンド」の操作可能なコントロールは全てHelpTip.Standardを持つ")]
     public void 適用後に実行するコマンド設定のコントロールは全てHelpTipを持つ() => AssertAllControlsHaveHelpTip(new HookSettingsView());
 

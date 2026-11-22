@@ -42,6 +42,19 @@ public interface IVbaBridge : IPlatformService
 
     /// <summary>ブックの Excel ウィンドウを前面化する。</summary>
     Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default);
+
+    /// <summary>
+    /// ブックの構造（シート・テーブル・名前・先頭行の見出し・参照設定。<paramref name="options"/> で値の見本）を読む。
+    /// 書き込みはしない（仕様書_ブックの情報と依頼の観点 5.5）。
+    /// <para>
+    /// 読めた分だけを返す: 参照設定だけ読めない（E802／E803 相当）・時間の予算切れ・上限は失敗にせず、
+    /// <see cref="VbaWorkbookInfoSnapshot.Omitted"/> に理由を残して成功で返す（呼び出し側が警告 E815 にする）。
+    /// ブックが開いていない（E804）・応答しない（E805）・通信の失敗（E801）は失敗で返す。
+    /// <c>VBProject.Mode</c>（デザインモード）は要求しない（E813 は使わない）。
+    /// </para>
+    /// </summary>
+    Task<GraftResult<VbaWorkbookInfoSnapshot>> ReadWorkbookInfoAsync(
+        string workbookFullName, VbaWorkbookInfoOptions options, CancellationToken ct = default);
 }
 
 /// <summary>起動中のブック1件。選べない場合は <see cref="Availability"/> と <see cref="UnavailableReason"/> に理由が入る。</summary>

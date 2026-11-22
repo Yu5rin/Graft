@@ -12,7 +12,13 @@ namespace Graft.ViewModels;
 /// </summary>
 public sealed partial class MainViewModel
 {
-    private readonly AppPaths _appPaths = new();
+    // 【データ保存先は、起動時に決まったものを使う】 以前は「new AppPaths()」で、MainViewModel を作るたびに
+    // ポインタファイル（datapath.txt）などから保存先を解決し直していた。起動時の StartupCoordinator が決めた保存先
+    // （旧配置への移行に失敗して旧配置のまま起動したときなど、解決し直した結果と食い違いうる）と別の場所の
+    // focus.json・templates.json を見ることになり、設定で作った観点がチップに出ない。ハーネス経由のテストも、
+    // 実行ファイルの隣の data を見てしまい、自作の観点を実際の経路で確かめられなかった。
+    // ProjectStore が持つ AppPaths（起動時に渡されたもの）を InitializePrompt で受け取って使う。
+    private AppPaths _appPaths = null!;
     // プロンプトコピー機能用に保持していたが、不具合2対応（MainViewModel.Apply.cs の
     // リビジョン番号消費）でも同じ ProjectStore を使うようになったため、用途を限定しない
     // 名前に変更した（保持自体はコンストラクタ経由でここが初出のため、このファイルに残す）。
@@ -81,6 +87,7 @@ public sealed partial class MainViewModel
     private void InitializePrompt(ProjectStore projectStore)
     {
         _projectStore = projectStore;
+        _appPaths = projectStore.Paths;
         _promptTemplateStore = new PromptTemplateStore(_appPaths);
         _promptTemplateRenderer = new PromptTemplateRenderer(new ContextCollector(_appPaths));
 
@@ -147,11 +154,16 @@ public sealed partial class MainViewModel
         // Excel VBA プロジェクトのときだけ、走査の前に Excel から最新を取り込む処理を渡す（仕様書_VBA連携 7.2。
         // 通常のファイルプロジェクトでは null で、従来どおり何も増えない）。
         ContextCollect = new ContextCollectViewModel(
-            _appPaths, _projectStore, project, _settings, _ui, _dialogs, vbaPull: CreateVbaContextPull(project));
+            _appPaths, _projectStore, project, _settings, _ui, _dialogs, vbaPull: CreateVbaContextPull(project),
+            vbaWorkbookInfo: CreateVbaWorkbookInfoSource(project));
         PromptCopy = new PromptCopyViewModel(
             _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings, _ui);
         PromptCopy.AppendSelectedFilesChangeCommitted += OnAppendSelectedFilesChangeCommitted;
         PromptCopy.Notify = text => Notice.Show(text);
+        // 依頼の観点: プロジェクトを開いた時点で、保存済みの選択（と自作の観点）を読み込んでおく。
+        // ドロップダウンや窓を開くたびにも読み直すが、開く前にチップの状態を確定させておけば、
+        // 最初の描画で「前回の選択」が見える。失敗しても依頼文の作成は止めない（ReloadFocusAsync内で記録のみ）。
+        _ = ContextCollect.ReloadFocusAsync();
         OnPropertyChanged(nameof(ContextCollect));
         OnPropertyChanged(nameof(PromptCopy));
     }

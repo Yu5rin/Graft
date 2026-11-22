@@ -89,6 +89,8 @@ public sealed partial class ShellViewModel
             new("Excel から取込（選択中の VBA プロジェクト）", Graft.ProjectPane.PullFromExcelCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
             new("Excel へ反映（選択中の VBA プロジェクト）", Graft.ProjectPane.PushToExcelCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
             new("Excel のブックを前面に出す（選択中の VBA プロジェクト）", Graft.ProjectPane.ActivateWorkbookCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
+            // 控えはファイルを見るだけなので、設定で VBA 連携を切っていても出す（この環境で使えるときだけ）。
+            new("Excel 側の控えを見る（選択中の VBA プロジェクト）", Graft.ProjectPane.ShowRescueCommand, null, null, c, () => Graft.ProjectPane.IsSelectedVbaProject),
 
             // ===== 編集 =====
             new("ファイル内を検索", EditorKey("Find", HasDocumentTab), null, Gesture("Find"), PaletteCategories.Edit),

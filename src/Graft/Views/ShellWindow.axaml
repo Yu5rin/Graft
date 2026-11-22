@@ -271,7 +271,7 @@
                             BorderBrush="{DynamicResource BorderSubtle}"
                             BorderThickness="1"
                             Padding="12"
-                            MinWidth="280" MaxWidth="360"
+                            MinWidth="280" MaxWidth="420"
                             AutomationProperties.Name="依頼文テンプレートの選択">
                         <StackPanel DataContext="{Binding Graft.PromptCopy}">
                             <TextBlock Text="依頼文テンプレート"
@@ -311,6 +311,22 @@
                                        FontSize="{DynamicResource CaptionFontSize}"
                                        IsVisible="{Binding StatusMessage,
                                                    Converter={x:Static views:Converters.NotEmptyString}}" />
+                            <!--
+                                依頼の観点（チップ）。選んだ観点は依頼文の「# 対象ファイル」の直前に入る
+                                （何も選ばなければ従来と同じ依頼文）。選択はコンテキスト収集の窓と共有する
+                                （PromptCopyViewModel.Context.Focus。仕様書_ブックの情報と依頼の観点 6.2）。
+                            -->
+                            <views:PromptFocusPanel DataContext="{Binding Context.Focus}" Margin="0,10,0,0" />
+                            <!--
+                                値の見本（ブックの情報）をオンにしている間は、依頼文に各シートの先頭数行の値が入ることを
+                                常に1行出す（仕様書_ブックの情報と依頼の観点 5.2）。オフのときは出ない。
+                            -->
+                            <TextBlock Text="{Binding Context.WorkbookInfo.SampleNoticeText}"
+                                       IsVisible="{Binding Context.WorkbookInfo.IsSampleNoticeVisible}"
+                                       Margin="0,6,0,0" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource StateWarn}"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       AutomationProperties.Name="値の見本の注意" />
                             <!--
                                 指示文と選んだファイルを1回のコピーで渡すための選択肢。テンプレートの本文は
                                 書き換えず、コピーのたびに「指示文の後ろにファイルを付けるか」だけを選ぶ。

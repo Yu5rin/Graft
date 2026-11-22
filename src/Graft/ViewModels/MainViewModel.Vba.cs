@@ -39,6 +39,12 @@ public sealed partial class MainViewModel
     /// </summary>
     public Func<IReadOnlyList<string>, Task<VbaPullSaveOutcome>>? BeforeVbaPullAsync { get; set; }
 
+    /// <summary>
+    /// 控えを「ミラーへ戻す」前の未保存の確認（仕様書_ブックの情報と依頼の観点 7.5-1）。<see cref="BeforeVbaPullAsync"/> と
+    /// 同じ確認の仕組みで、文面だけ戻す操作向けにする（ShellViewModel が配線する）。未設定なら確認なしで戻す。
+    /// </summary>
+    public Func<IReadOnlyList<string>, Task<VbaPullSaveOutcome>>? BeforeVbaRestoreAsync { get; set; }
+
     private VbaSyncService CreateVbaSync()
     {
         var paths = _vbaPaths;
@@ -48,6 +54,8 @@ public sealed partial class MainViewModel
             // 差し替えやすいよう、プロパティの現在値を呼ぶ形で渡す（Shell が後から配線するため）。
             BeforePullAsync = paths2 => BeforeVbaPullAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing),
         };
+        service.Rescue.BeforeRestoreAsync = paths2 => BeforeVbaRestoreAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing);
+        ApplyRescueLimits(service, _settings);
         service.WritingChanged += OnVbaWritingChanged;
         return service;
     }
@@ -91,6 +99,8 @@ public sealed partial class MainViewModel
             ? Task.FromResult<Graft.Core.Vba.VbaConflictDecision?>(null)
             : ShowVbaConflictAsync(request);
         ProjectPane.IsVbaEnabledSetting = () => _settings.Vba.Enabled;
+        // 控えの窓（仕様書_ブックの情報と依頼の観点 7.4）。いまの VbaSync と設定で作る。
+        ProjectPane.CreateRescueViewModel = project => new VbaRescueViewModel(project, VbaSync.Rescue, _settings, _ui);
         ApplyVbaSettings(_settings);
     }
 
@@ -105,7 +115,16 @@ public sealed partial class MainViewModel
             timeouts.Configure(settings.Vba.ComTimeoutMs, settings.Vba.CallTimeoutMs);
         }
 
+        // 控えの世代数・容量（反映のたびに掃除で使う）。
+        if (_vbaSync is not null) ApplyRescueLimits(_vbaSync, settings);
+
         // 機能の有効・無効（ボタン・メニュー・パレットの表示）を更新するため、ペインへ再通知する。
         ProjectPane.IsVbaEnabledSetting = () => _settings.Vba.Enabled;
+    }
+
+    private static void ApplyRescueLimits(VbaSyncService service, Settings settings)
+    {
+        service.Rescue.MaxGenerations = settings.Vba.RescueMaxGenerations;
+        service.Rescue.MaxTotalMB = settings.Vba.RescueMaxTotalMB;
     }
 }

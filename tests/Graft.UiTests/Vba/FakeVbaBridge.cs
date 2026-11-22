@@ -44,6 +44,13 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
         public int SaveCount { get; set; }
 
+        /// <summary>
+        /// <see cref="IVbaBridge.ReadWorkbookInfoAsync"/> が返す内容（ブックの情報。仕様書_ブックの情報と依頼の観点 5.5）。
+        /// null なら、モジュール名だけを持つ空の構造を返す。値の見本は、受け取った <c>options.SampleRows</c> に
+        /// 合わせて返す側が切る（本物のブリッジと同じく、0 なら見本を含めない）。
+        /// </summary>
+        public VbaWorkbookInfoSnapshot? Info { get; set; }
+
         public Module? Find(string name)
             => Modules.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase));
     }
@@ -78,6 +85,15 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
     /// <summary>呼び出しの記録（<c>List</c>／<c>Read:パス</c>／<c>Write:パス:名前,名前</c>／<c>Save</c>／<c>Show</c>／<c>Activate</c>）。</summary>
     public List<string> Calls { get; } = new();
+
+    /// <summary>ブックの情報の読み取り（<c>Info</c>）の呼び出しごとに受け取った <c>options</c> の記録。</summary>
+    public List<VbaWorkbookInfoOptions> InfoRequests { get; } = new();
+
+    /// <summary>
+    /// <c>ReadComponentsAsync</c> の呼び出しごとの <c>names</c>（null は全件読み）の記録。保存時の自動反映（仕様書_ブックの
+    /// 情報と依頼の観点 8.4）が「保存したモジュールだけ」を読み、全件読みにならないことを固定するために使う。
+    /// </summary>
+    public List<IReadOnlyList<string>?> ReadNameRequests { get; } = new();
 
     /// <summary>Write の要求の記録（呼び出しごと）。</summary>
     public List<IReadOnlyList<VbaComponentWrite>> WriteRequests { get; } = new();
@@ -173,6 +189,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         string workbookFullName, IReadOnlyCollection<string>? names, CancellationToken ct = default)
     {
         Calls.Add($"Read:{workbookFullName}");
+        ReadNameRequests.Add(names?.ToList());
         var gate = await EnterAsync<IReadOnlyList<VbaComponentSnapshot>>("Read", ct).ConfigureAwait(false);
         if (gate is not null) return gate;
 
@@ -242,6 +259,48 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
         var open = Open(workbookFullName, requireDesign: false, out _);
         return open is not null ? GraftResult<bool>.Fail(open) : GraftResult<bool>.Ok(true);
+    }
+
+    public async Task<GraftResult<VbaWorkbookInfoSnapshot>> ReadWorkbookInfoAsync(
+        string workbookFullName, VbaWorkbookInfoOptions options, CancellationToken ct = default)
+    {
+        Calls.Add($"Info:{workbookFullName}");
+        InfoRequests.Add(options);
+        var gate = await EnterAsync<VbaWorkbookInfoSnapshot>("Info", ct).ConfigureAwait(false);
+        if (gate is not null) return gate;
+
+        // 本物のブリッジの前提検査と同じ: 開いていない・URL・保護ビューは弾く。ただし VBProject には依存しないので、
+        // トラストセンターがオフ（E802）・ロック中（E803）でもシート・テーブル・名前は読め、参照設定だけが省かれる。
+        if (!_workbooks.TryGetValue(workbookFullName, out var workbook))
+        {
+            return GraftResult<VbaWorkbookInfoSnapshot>.Fail(GraftIssue.Of(ErrorCode.E804, $"次のブックが開いていません: {workbookFullName}"));
+        }
+
+        var unavailable = workbook.Availability is VbaWorkbookAvailability.UrlLocation or VbaWorkbookAvailability.ProtectedView
+            ? VbaWorkbookAvailabilityIssues.ToIssue(workbook.Availability, workbookFullName)
+            : null;
+        if (unavailable is not null) return GraftResult<VbaWorkbookInfoSnapshot>.Fail(unavailable);
+
+        var source = workbook.Info ?? new VbaWorkbookInfoSnapshot(
+            workbook.Name, DateTimeOffset.Now, Array.Empty<VbaSheetInfo>(), Array.Empty<VbaTableInfo>(),
+            Array.Empty<VbaNamedRangeInfo>(), Array.Empty<VbaReferenceInfo>(), Array.Empty<string>());
+
+        // 値の見本は、指示の行数に合わせて切る。0 なら 1 行も返さない（オフのときは読まない、の再現）。
+        var sheets = source.Sheets
+            .Select(sheet => sheet with { SampleRows = sheet.SampleRows.Take(options.SampleRows).ToArray() })
+            .ToArray();
+
+        var omitted = source.Omitted.ToList();
+        var references = source.References;
+        var referencesUnreadable = workbook.Availability == VbaWorkbookAvailability.AccessNotTrusted || workbook.Locked;
+        if (!options.IncludeReferences || referencesUnreadable)
+        {
+            references = Array.Empty<VbaReferenceInfo>();
+            if (options.IncludeReferences && referencesUnreadable) omitted.Add(VbaWorkbookInfoReadRules.OmittedReferencesMessage);
+        }
+
+        return GraftResult<VbaWorkbookInfoSnapshot>.Ok(
+            source with { Sheets = sheets, References = references, Omitted = omitted });
     }
 
     // ------------------------------------------------------------------

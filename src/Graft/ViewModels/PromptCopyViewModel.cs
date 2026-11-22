@@ -72,6 +72,13 @@ public sealed class PromptCopyViewModel : ObservableObject
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _appendSelectedFiles = _settings.Context.AppendFilesToPrompt;
 
+        // 依頼の観点（チップ）を切り替えたら、一覧の推定トークン数を計算し直す。「選んだファイルも付ける」の
+        // 切り替えと同じ経路（RefreshEstimatesIfListed → RefreshAsync(keepSelection: true)）に乗せ、
+        // 選んでいるテンプレートは変えない。選択そのものは Context.Focus が持つ（収集の窓と共有）。
+        Context.Focus.Changed += (_, _) => RefreshEstimatesIfListed();
+        // ブックの情報の出し方・値の見本を切り替えたときも、同じ経路で推定トークン数を計算し直す。
+        Context.WorkbookInfoChanged += (_, _) => RefreshEstimatesIfListed();
+
         CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null, context: "プロンプトのコピー");
     }
 
@@ -208,6 +215,10 @@ public sealed class PromptCopyViewModel : ObservableObject
         var generation = ++_refreshGeneration;
         var previousId = keepSelection ? SelectedTemplate?.Template.Id : null;
         StatusMessage = null;
+        // 観点の一覧（自作の分）と保存済みの選択を読み直す。設定のタブで観点を足した・消した直後でも、
+        // ドロップダウンを開けば最新になる。チップの切り替えによる再計算（keepSelection）では読み直さない
+        // （選択の最中にチップを作り直さない）。
+        if (!keepSelection) await Context.ReloadFocusAsync().ConfigureAwait(true);
         if (Context.Files.Count == 0 && !Context.IsScanning)
         {
             // {{tree}}/{{files}} を空のまま提示しないよう、未走査なら先にスキャンしておく。
@@ -219,9 +230,13 @@ public sealed class PromptCopyViewModel : ObservableObject
             // ウィンドウを開かないこの経路（依頼文コピー・Ctrl+Shift+C）でも、古い本文が AI に渡らないようにするため。
             // VBA プロジェクトでなければ、何もせず即座に戻る。
             await Context.PullFromExcelAsync().ConfigureAwait(true);
+            // ブックの情報も、Pull の直後に取る（チップの切り替えによる再計算では取り直さず、前回の結果を使い回す。
+            // 取得は1回の契機につき1回。仕様書5.4）。
+            if (!keepSelection) await Context.FetchWorkbookInfoAsync().ConfigureAwait(true);
         }
 
-        var vbaWarning = Context.VbaPullWarning;
+        // 取り込みの警告とブックの情報の警告は、1行に連結して出す（仕様書5.6）。
+        var vbaWarning = Context.VbaWarning;
 
         var loaded = await _templateStore.LoadAsync().ConfigureAwait(true);
         if (!loaded.IsSuccess)
@@ -312,6 +327,10 @@ public sealed class PromptCopyViewModel : ObservableObject
             .Where(f => f is { IsDirectory: false, IsExcluded: false, State: ContextFileState.Hidden })
             .Select(f => f.RelativePath)
             .ToArray(),
+        // 依頼の観点（何も選んでいなければ空＝依頼文は従来と同じ）。要求を組み立てる1回の中で
+        // 1度だけ文にするので、一覧の全テンプレートが同じ選択で数えられる。
+        FocusText = Context.BuildFocusText(),
+        WorkbookInfoText = Context.BuildWorkbookInfoText(),
     };
 
     private async Task<string?> GetLastRevisionSummaryAsync()

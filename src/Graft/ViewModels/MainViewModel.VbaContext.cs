@@ -95,6 +95,10 @@ public sealed partial class MainViewModel
                 var pushed = await VbaSync.PushAsync(current, overwrite, overwrite, ct).ConfigureAwait(true);
                 if (!pushed.IsSuccess) return "Graft 側の内容を Excel へ反映できませんでした。Graft 側（ミラー）の現在の内容で続けます。";
             }
+
+            // 衝突を解決した（または取り込んだ）ので、保存時の自動反映が付けた「衝突 N」の印を見直す
+            // （バッジを数え直すと、未反映でなくなったモジュールの印が外れる）。
+            ProjectPane.RequestVbaBadgeRefresh(checkWorkbookOpen: false);
         }
 
         return null;

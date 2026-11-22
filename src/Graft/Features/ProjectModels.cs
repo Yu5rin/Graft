@@ -1,3 +1,5 @@
+using Graft.Core.Vba;
+
 namespace Graft.Features;
 
 /// <summary>適用後フックの定義。仕様書3.1・6.5。</summary>
@@ -47,6 +49,18 @@ public sealed record ProjectOverrides
     /// </summary>
     public IReadOnlyDictionary<string, string> ContextFileStates { get; init; } =
         new Dictionary<string, string>();
+
+    /// <summary>
+    /// 依頼の観点（<c>focus-readable</c> など）の、最後に選んだ Id（仕様書_ブックの情報と依頼の観点 4.1・6.2）。
+    /// 既定は空＝何も選ばない（依頼文は従来と同じ）。<see cref="ContextFileStates"/> と同じく、画面で選んだ
+    /// 状態の記憶なのでここに置く。キーを持たない既存の projects.json は空のまま読める。
+    /// <para>
+    /// 一覧に無い Id（削除された自作の観点）と、VBA でないプロジェクトでの VBA 専用の観点は、
+    /// 読み込み時に黙って捨てる（<c>PromptFocusSelectionViewModel</c>）。ここでは生の Id を保持するだけで、
+    /// 解釈しない。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> PromptFocusIds { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>
@@ -69,6 +83,48 @@ public sealed record VbaLink
 
     /// <summary>反映後にブックを保存するか。既定は false（保存は利用者が Excel で行う）。</summary>
     public bool SaveWorkbookAfterPush { get; init; }
+
+    /// <summary>
+    /// 保存時の自動反映（機能 D。仕様書_ブックの情報と依頼の観点 8章）。オンのとき、エディタで VBA のミラー内の同期対象の
+    /// モジュールを保存すると、そのモジュールだけを Excel へ送る。<b>既定はオフ</b>: 保存のたびに Excel のコードが変わると、
+    /// VBE で同じモジュールを開いている利用者や、実行中のマクロに思わぬ影響が出うるため、利用者が選んでオンにする。
+    /// この項目が無い既存の projects.json は、オフで読める。
+    /// </summary>
+    public bool AutoPushOnSave { get; init; }
+
+    /// <summary>
+    /// ブックの情報（仕様書_ブックの情報と依頼の観点 5章）の出し方。<c>"Full"</c>（内容も出す。既定）・
+    /// <c>"StructureOnly"</c>（構成だけ）・<c>"Hidden"</c>（出さない）。<c>ProjectOverrides.ContextFileStates</c> と
+    /// 同じく、列挙型ではなく名前の文字列で持つ。不明な文字列は <c>Full</c> として読む
+    /// （<see cref="Graft.Core.Vba.VbaWorkbookInfoLevels.Parse"/>）。この項目が無い既存の projects.json は既定値で読める。
+    /// </summary>
+    public string WorkbookInfoState { get; init; } = "Full";
+
+    /// <summary>
+    /// ブックの情報に「値の見本」（各シートの先頭の数行の中身）を含めるか。<b>既定はオフ</b>
+    /// （社外秘・個人情報が AI に渡りうるため。オンにするときは確認を出す）。
+    /// 保存するのはこの「出すか」の選択だけで、見本の値そのものはどこにも保存しない。
+    /// </summary>
+    public bool WorkbookInfoSampleValues { get; init; }
+
+    /// <summary>値の見本に数式も含めるか。既定オフ（数式は参照先のシート名・セル構造を AI に伝えるため）。</summary>
+    public bool WorkbookInfoIncludeFormulas { get; init; }
+
+    /// <summary>
+    /// 紐付けるブックを <paramref name="workbookFullName"/> に結び直した <see cref="VbaLink"/> を返す。
+    /// <para>
+    /// 【別のブックへ結び直したときは、値の見本のオンを解除する】 値の見本をオンにする確認ダイアログは、
+    /// 「<b>このブック</b>の値を AI へ渡してよいか」の確認だった。同じプロジェクトを別のブックへ結び直しても
+    /// オンのまま引き継ぐと、新しいブックの値（別の社外秘かもしれない）が確認なしで AI へ渡る。パスが変わるときだけ
+    /// オフに戻して、確認をやり直させる。同じブックの再追加（パスが同じ）では選択を保つ。
+    /// 数式を含めるか（<see cref="WorkbookInfoIncludeFormulas"/>）は見本がオンのときだけ意味を持つので、そのままにする。
+    /// </para>
+    /// </summary>
+    public VbaLink WithWorkbook(string workbookFullName) => this with
+    {
+        WorkbookFullName = workbookFullName,
+        WorkbookInfoSampleValues = WorkbookInfoSampleValues && VbaRotNames.SamePath(WorkbookFullName, workbookFullName),
+    };
 }
 
 /// <summary>プロジェクト定義。projects.json の1要素。仕様書3.1。</summary>
