@@ -68,10 +68,15 @@ public class WorkbookInfoScreenshotTests : IDisposable
     }
 
     private static async Task<VbaP3Rig> NewRigAsync(bool withWindow = false)
-        => await VbaP3Rig.CreateAsync(
+    {
+        var rig = await VbaP3Rig.CreateAsync(
             new Settings { ShowPreview = false },
             arrange: bridge => bridge.Get(VbaP3Rig.Book)!.Info = WorkbookInfoTests.Sample(),
             withWindow: withWindow).ConfigureAwait(true);
+        // 値の見本をオンにする確認（既定は「やめる」の選択ダイアログ）は、「値の見本を渡す」を押したことにする。
+        rig.ChoiceAnswer = _ => "give";
+        return rig;
+    }
 
     [AvaloniaFact(DisplayName = "画面の確認: コンテキスト収集の窓の「ブックの情報」の行（内容も出す／構成だけ／出さない）")]
     public async Task ブックの情報の行()
@@ -93,28 +98,8 @@ public class WorkbookInfoScreenshotTests : IDisposable
         Save(window, "q2-workbook-info-row-hidden.png");
     }
 
-    [AvaloniaFact(DisplayName = "画面の確認: 値の見本をオンにしたときの確認ダイアログ（実際のダイアログ）")]
-    public void 見本オンの確認ダイアログ()
-    {
-        Window? captured = null;
-        AvaloniaDialogService.OnButtonRowBuiltForTests = (window, _) => captured = window;
-        try
-        {
-            // 窓に載る文は ContextCollectViewModel.ToggleWorkbookSampleValuesAsync と同じ。
-            _ = new AvaloniaDialogService().ConfirmAsync(
-                "値の見本を AI に渡しますか",
-                "各シートの先頭 5 行の値が、依頼文に含まれ、AI に渡ります。" + Environment.NewLine
-                + "個人情報や社外秘が含まれていないか確認してください。");
-            captured.Should().NotBeNull();
-            Dispatcher.UIThread.RunJobs();
-            Save(captured!, "q2-sample-confirm-dialog.png");
-        }
-        finally
-        {
-            AvaloniaDialogService.OnButtonRowBuiltForTests = null;
-            captured?.Close();
-        }
-    }
+    // 値の見本をオンにしたときの確認ダイアログは、段階 Q3 で選択ダイアログ（VbaChoiceWindow）に変わった。
+    // 画面の確認は VbaRescueScreenshotTests（q3-sample-confirm-dialog.png）にある。
 
     [AvaloniaFact(DisplayName = "画面の確認: 値の見本がオンの間の注意（行と、依頼文コピーのドロップダウン）")]
     public async Task 見本オンの注意()

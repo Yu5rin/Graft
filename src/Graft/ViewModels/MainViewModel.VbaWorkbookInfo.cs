@@ -28,6 +28,8 @@ public sealed partial class MainViewModel
             IsAvailable = () => IsVbaActive(CurrentVbaProject(project)),
             SampleRows = () => _settings.Vba.WorkbookInfoSampleRows,
             FetchAsync = (sampleValues, includeFormulas, ct) => FetchVbaWorkbookInfoAsync(project, sampleValues, includeFormulas, ct),
+            // 値の見本をオンにする確認は、ボタンの文言と既定を指定できる選択ダイアログ（VbaChoiceWindow）で出す。
+            ChooseAsync = ChooseVbaOptionAsync,
         };
     }
 

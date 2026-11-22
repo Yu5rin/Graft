@@ -33,6 +33,13 @@ public sealed class VbaWorkbookInfoSource
 
     /// <summary>Excel から取得する。</summary>
     public required VbaWorkbookInfoFetchAsync FetchAsync { get; init; }
+
+    /// <summary>
+    /// 選択肢つきの確認ダイアログ（<c>VbaChoiceWindow</c>）を出して、選ばれたボタンの識別子を返す
+    /// （値の見本をオンにする確認に使う）。未配線の環境（テスト、画面なし）では null で、確認は「やめる」と同じ結果になる
+    /// （社外秘が AI へ渡る操作を、確認なしでは通さない）。
+    /// </summary>
+    public Func<VbaChoiceRequest, Task<string>>? ChooseAsync { get; init; }
 }
 
 /// <summary>
@@ -246,11 +253,22 @@ public sealed partial class ContextCollectViewModel
         if (!WorkbookInfo.SampleValues)
         {
             var rows = WorkbookInfo.SampleRows;
-            var confirmed = await _dialogs.ConfirmAsync(
+            // 【ボタンを動詞にし、既定（Enter）を「やめる」にする】 OK／キャンセルで既定が OK だと、文面を読まずに
+            // Enter を押しただけで、社外秘かもしれない値が AI に渡る設定になってしまう。何が起きるかが分かるボタンの文言にし、
+            // 何もせず閉じる側（Esc・×も同じ）を既定にする。
+            var request = new VbaChoiceRequest(
                 "値の見本を AI に渡しますか",
                 $"各シートの先頭 {rows} 行の値が、依頼文に含まれ、AI に渡ります。" + Environment.NewLine
-                + "個人情報や社外秘が含まれていないか確認してください。").ConfigureAwait(true);
-            if (!confirmed) return;
+                + "個人情報や社外秘が含まれていないか確認してください。",
+                new[]
+                {
+                    new VbaChoiceOption("give", "値の見本を渡す"),
+                    new VbaChoiceOption("cancel", "やめる", IsDefault: true),
+                });
+            var choice = _workbookInfoSource?.ChooseAsync is { } choose
+                ? await choose(request).ConfigureAwait(true)
+                : request.Default.Id;
+            if (choice != "give") return;
 
             WorkbookInfo.SampleValues = true;
             await PersistWorkbookInfoAsync(link => link with { WorkbookInfoSampleValues = true }).ConfigureAwait(true);

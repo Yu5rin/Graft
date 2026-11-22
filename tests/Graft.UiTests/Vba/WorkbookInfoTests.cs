@@ -36,9 +36,15 @@ public class WorkbookInfoTests
         Array.Empty<string>());
 
     private static async Task<VbaP3Rig> NewRigAsync(Func<FakeVbaBridge.Workbook, VbaWorkbookInfoSnapshot?>? info = null, Settings? settings = null)
-        => await VbaP3Rig.CreateAsync(
+    {
+        var rig = await VbaP3Rig.CreateAsync(
             settings ?? new Settings { ShowPreview = false },
             arrange: bridge => bridge.Get(VbaP3Rig.Book)!.Info = info is null ? Sample() : info(bridge.Get(VbaP3Rig.Book)!)).ConfigureAwait(true);
+        // 値の見本をオンにする確認は、既定（Enter）が「やめる」の選択ダイアログ。見本をオンにしたいテストは、
+        // 利用者が「値の見本を渡す」を押したことにする（断るテストだけ上書きする）。
+        rig.ChoiceAnswer = _ => "give";
+        return rig;
+    }
 
     private static async Task<string> CollectedTextAsync(VbaP3Rig r)
     {
@@ -161,17 +167,74 @@ public class WorkbookInfoTests
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
-        r.H.Dialogs.ConfirmAnswer = (_, _) => false;
+        r.ChoiceAnswer = _ => "cancel";
         var calls = InfoCalls(r);
 
         await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
 
-        var confirm = r.H.Dialogs.Confirms.Should().ContainSingle().Subject;
+        var confirm = r.Choices.Should().ContainSingle().Subject;
         confirm.Message.Should().Contain("先頭 5 行").And.Contain("AI に渡ります").And.Contain("社外秘");
+        r.H.Dialogs.Confirms.Should().BeEmpty("OK／キャンセルの確認ではなく、動詞のボタンの選択ダイアログを使う");
         context.WorkbookInfo.SampleValues.Should().BeFalse();
         context.WorkbookInfo.SampleNoticeText.Should().BeEmpty();
         InfoCalls(r).Should().Be(calls, "断ったので取り直さない");
         (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSampleValues.Should().BeFalse();
+    }
+
+    [AvaloniaFact(DisplayName = "値の見本の確認: ボタンは動詞（値の見本を渡す／やめる）で、既定（Enter）は「やめる」。既定のまま閉じると何も変わらない")]
+    public async Task 見本の確認は既定がやめる()
+    {
+        using var r = await NewRigAsync().ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+        r.ChoiceAnswer = null; // 何も選ばずに閉じた（Enter・Esc・×）のと同じ。
+
+        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+
+        var request = r.Choices.Should().ContainSingle().Subject;
+        request.Options.Select(o => o.Label).Should().Equal("値の見本を渡す", "やめる");
+        request.Default.Label.Should().Be("やめる");
+        request.Options.Count(o => o.IsDefault).Should().Be(1);
+        context.WorkbookInfo.SampleValues.Should().BeFalse("社外秘が AI に渡る操作なので、既定では何も変えない");
+        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSampleValues.Should().BeFalse();
+        r.H.Dialogs.Confirms.Should().BeEmpty();
+    }
+
+    [AvaloniaFact(DisplayName = "値の見本の確認: 選択ダイアログが配線されていない環境でも、確認を省略せず、オンにしない")]
+    public async Task 見本の確認が配線されていなければオンにしない()
+    {
+        using var r = await NewRigAsync().ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+        r.Graft.ChooseVbaAsync = null;
+
+        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+
+        context.WorkbookInfo.SampleValues.Should().BeFalse();
+    }
+
+    [AvaloniaFact(DisplayName = "値の見本の確認: 実際の窓で、Enter の既定のボタンは「やめる」（primary）になる")]
+    public async Task 見本の確認の窓の既定のボタン()
+    {
+        using var r = await NewRigAsync().ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        var request = r.Choices.Should().ContainSingle().Subject;
+
+        var window = new Graft.Views.VbaChoiceWindow(request);
+        try
+        {
+            window.Show();
+            var buttons = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Avalonia.Controls.Button>().ToList();
+
+            buttons.Select(b => b.Content).Should().Equal("値の見本を渡す", "やめる");
+            buttons.Single(b => b.IsDefault).Content.Should().Be("やめる");
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact(DisplayName = "値の見本をオンにすると、見本が読まれて出力に入り、注意が常時出る。オフに戻すと出力から消える")]
