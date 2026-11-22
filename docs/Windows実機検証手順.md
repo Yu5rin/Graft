@@ -1154,7 +1154,9 @@ Excel 側の本文が上書きされる前の控え（`vba-sync/<プロジェク
 
 利用者の実機で、行継続「 _」の次の行が `()` で始まる Declare を含む UserForm のモジュールを反映すると、書くたびに末尾へ「()」の行が増え、書き戻しも失敗して E809 になりました。切り分けの結果は、VBE の `AddFromString` の挙動です（2026-11-22・Microsoft 365・Windows 10.0.26200。新しいブックで 2 行の本文を入れて直後に読み直すと、`AddFromString` は標準モジュールでも UserForm でも 3 行になり 3 行目が `()`。`InsertLines(1, 本文)` は 3 行目が空行になるだけ）。Graft は `InsertLines` に変えて避けています。Linux のテストは `ICodeModuleAccess` の偽物で確かめてあり、ここでは**本物の VBE**で確かめます。
 
-- [ ] **(1) 再現（修正済みであること）**（10分）
+**確認済み（2026-11-22・Microsoft 365・Windows 10.0.26200）**: 利用者が 1.2.1 で、行継続の次が `()` で始まる Declare を反映しても、末尾の `()` が増えなくなったことを実機で確かめた（下の (1)）。(2) 以降は未確認。
+
+- [x] **(1) 再現（修正済みであること）**（10分。確認済み: 2026-11-22）
   1. 新しいブックの標準モジュール `Module1` と、UserForm `UserForm1` のそれぞれに、次の 2 行を入れる（`#If VBA7` 側と `#Else` 側に 1 つずつ入れてもよい）。
      ```
      Private Declare PtrSafe Function GetActiveWindow Lib "USER32.dll" _
