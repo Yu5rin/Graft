@@ -337,7 +337,7 @@ public class VbaSyncServiceTests : IDisposable
         (await _service.GetLocalStatusAsync(project)).UnpushedCount.Should().Be(0);
     }
 
-    [Fact(DisplayName = "Push: VBE が整形しても、ミラーは書き換えず、E809 は警告。基準は書いたミラーと読み直した Excel の2本になり、次は何も要らない")]
+    [Fact(DisplayName = "Push: VBE が整形しても、ミラーは書き換えず、E809 の警告は出さない（info にまとめる）。基準は書いたミラーと読み直した Excel の2本になり、次は何も要らない")]
     public async Task 整形差を基準で吸収する()
     {
         var project = await CreatedProjectAsync(FakeVbaBridge.Std("Module1", "Sub A()\r\nEnd Sub"));
@@ -347,7 +347,8 @@ public class VbaSyncServiceTests : IDisposable
         var push = await _service.PushAsync(project);
 
         push.IsSuccess.Should().BeTrue();
-        push.Issues.Should().Contain(i => i.Code == ErrorCode.E809 && i.Severity == Severity.Warning);
+        push.Issues.Should().NotContain(i => i.Code == ErrorCode.E809, "整形差は警告にしない");
+        push.Value.Reformatted.Should().Equal("Module1");
         File.ReadAllText(MirrorFile("Modules/Module1.bas")).Should().Be("Sub A()\r\n  x=1\r\nEnd Sub\r\n", "ミラーは整形差を取り込まない");
         var module = (await StateAsync()).Modules["Modules/Module1.bas"];
         module.MirrorHash.Should().Be(VbaTextNormalizer.Hash("Sub A()\r\n  x=1\r\nEnd Sub"));

@@ -376,12 +376,13 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         var verdict = VbaWriteVerifier.Verify(write.Code, readBack);
         if (verdict != VbaWriteVerdict.DifferentContent)
         {
+            // 整形差は課題にせず印だけ返す（本物の CodeModuleRewriter と同じ）。
             return new VbaWriteOutcome(
-                write.Name, created ? VbaWriteStatus.Created : VbaWriteStatus.Written, readBack,
-                VbaWriteVerifier.ToIssue(verdict, write.Name));
+                write.Name, created ? VbaWriteStatus.Created : VbaWriteStatus.Written, readBack, null,
+                Reformatted: verdict == VbaWriteVerdict.FormattingDifference);
         }
 
-        var issue = VbaWriteVerifier.ToIssue(verdict, write.Name)!;
+        var issue = VbaWriteVerifier.ToIssue(verdict, write.Name, VbaWriteVerifier.Describe(write.Code, readBack))!;
         if (created)
         {
             workbook.Modules.Remove(module); // 作ったばかりのモジュールだけを消す。

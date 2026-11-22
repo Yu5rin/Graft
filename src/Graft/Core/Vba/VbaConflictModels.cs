@@ -58,6 +58,9 @@ public sealed record VbaConflictItem(
 {
     /// <summary>Excel 側の本文のハッシュ（解析後の再検査で「上書きでよい」と承認した時点の Excel 側かを見分けるのに使う）。</summary>
     public string ExcelHash => VbaTextNormalizer.Hash(ExcelText);
+
+    /// <summary>衝突の理由（両側の変更・Excel 側が空・要確認）。文言の出し分けに使う。</summary>
+    public VbaConflictReason Reason { get; init; } = VbaConflictReason.BothChanged;
 }
 
 /// <summary>

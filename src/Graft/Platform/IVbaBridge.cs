@@ -152,8 +152,22 @@ public sealed record VbaComponentWrite(string Name, VbaModuleKind Kind, string C
 /// ブリッジはプロジェクトの Id もデータ保存先も知らないため、<c>.rescue/</c> への書き出しは呼び出し側
 /// （<c>VbaSyncService</c>）が、この値を使って行う。
 /// </param>
+/// <param name="Reformatted">
+/// VBE が空白・大文字小文字を整形しただけで成功した。課題（警告）にはせず、呼び出し側が 1 回の反映につき 1 行の info にまとめる。
+/// </param>
+/// <param name="TrimmedLines">
+/// 書き込みまたは書き戻しのあとに末尾へ余分に増えていて、取り除いた行の内容。なければ null。
+/// </param>
 public sealed record VbaWriteOutcome(
-    string Name, VbaWriteStatus Status, string? ReadBackCode, GraftIssue? Issue, string? BackupCode = null);
+    string Name, VbaWriteStatus Status, string? ReadBackCode, GraftIssue? Issue, string? BackupCode = null,
+    bool Reformatted = false, IReadOnlyList<string>? TrimmedLines = null)
+{
+    /// <summary>
+    /// 書き込みに失敗し、元の内容の書き戻しにも失敗した（E809。<see cref="BackupCode"/> を伴う）。Excel 側のモジュールは
+    /// 空・途中の状態かもしれず、同期状態に「要確認」として記録する対象。
+    /// </summary>
+    public bool IsRollbackFailed => Status == VbaWriteStatus.Failed && BackupCode is not null;
+}
 
 /// <summary>書き込みの結果。</summary>
 public enum VbaWriteStatus

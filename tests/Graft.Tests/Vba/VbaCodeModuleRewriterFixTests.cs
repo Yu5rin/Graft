@@ -51,9 +51,9 @@ public class VbaCodeModuleRewriterFixTests
             _code = string.Empty;
         }
 
-        public void AddFromString(string code)
+        public void InsertLines(int startLine, string code)
         {
-            OnCall?.Invoke("AddFromString");
+            OnCall?.Invoke("InsertLines");
             _code = Transform?.Invoke(_code, code) ?? code;
         }
     }
@@ -71,7 +71,7 @@ public class VbaCodeModuleRewriterFixTests
         var result = CodeModuleRewriter.Rewrite(cm, "Module1", Updated, created: false, comTimeoutMs: 1000, abandoned.Token);
 
         result.Status.Should().Be(VbaWriteStatus.Written);
-        cm.Code.Should().Be(Updated, "AddFromString まで進めた。以前は OperationCanceledException でここが空のままだった");
+        cm.Code.Should().Be(Updated, "InsertLines まで進めた。以前は OperationCanceledException でここが空のままだった");
     }
 
     [Fact(DisplayName = "不具合6 再現: 書き込みが失敗して書き戻すときに見捨てられていても、書き戻しは取り消さずに終える（控えの本文に戻る）")]
@@ -83,7 +83,7 @@ public class VbaCodeModuleRewriterFixTests
         {
             OnCall = op =>
             {
-                if (op == "AddFromString" && !failedOnce)
+                if (op == "InsertLines" && !failedOnce)
                 {
                     failedOnce = true;
                     abandoned.Cancel();
@@ -139,7 +139,7 @@ public class VbaCodeModuleRewriterFixTests
         {
             OnCall = op =>
             {
-                if (op == "AddFromString" && ++addCalls >= 1) throw new COMException("拒否", unchecked((int)0x800A9C68));
+                if (op == "InsertLines" && ++addCalls >= 1) throw new COMException("拒否", unchecked((int)0x800A9C68));
             },
         };
 
@@ -155,7 +155,7 @@ public class VbaCodeModuleRewriterFixTests
     {
         var cm = new MemoryCodeModule(string.Empty)
         {
-            OnCall = op => { if (op == "AddFromString") throw new COMException("拒否", unchecked((int)0x800A9C68)); },
+            OnCall = op => { if (op == "InsertLines") throw new COMException("拒否", unchecked((int)0x800A9C68)); },
         };
 
         var result = CodeModuleRewriter.Rewrite(cm, "New1", Updated, created: true, comTimeoutMs: 1000, CancellationToken.None);
@@ -180,7 +180,7 @@ public class VbaCodeModuleRewriterFixTests
         cm.Code.Should().Be(Original);
     }
 
-    [Fact(DisplayName = "不具合6: 整形差だけなら成功（警告つき）で、読み直した本文を返す")]
+    [Fact(DisplayName = "不具合6: 整形差だけなら成功で、読み直した本文と整形差の印を返す（課題にはしない）")]
     public void 整形差は成功()
     {
         var cm = new MemoryCodeModule(Original)
@@ -192,6 +192,7 @@ public class VbaCodeModuleRewriterFixTests
 
         result.Status.Should().Be(VbaWriteStatus.Written);
         result.ReadBack.Should().Contain("debug.print  1");
-        result.Issue!.Severity.Should().Be(Severity.Warning);
+        result.Issue.Should().BeNull("整形差は E809 の警告にしない");
+        result.Reformatted.Should().BeTrue();
     }
 }

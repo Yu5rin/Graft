@@ -447,4 +447,58 @@ public class VbaSyncPlannerTests
 
         state.Modules["Modules/Module1.bas"].Should().Be(before);
     }
+
+    // --- 書き戻し失敗（要確認）と空の Excel ---------------------------------
+
+    [Fact(DisplayName = "要確認: ハッシュがどう見えても、本文が違えば衝突（NeedsReview）。取込にも反映にもならない")]
+    public void 要確認は衝突()
+    {
+        var state = State("m", "e");
+        var flagged = state.WithModule(Std, state.Modules[Std] with { NeedsReview = true });
+
+        // 基準と同じ（本来なら何もしない）／ミラーだけ変わった（本来は Push）／Excel だけ変わった（本来は Pull）。
+        PlanOne(Mirror("m"), Excel("e"), flagged with { }).Action.Should().Be(VbaSyncAction.Conflict);
+        PlanOne(Mirror("m2"), Excel("e"), flagged).Action.Should().Be(VbaSyncAction.Conflict);
+        var plan = PlanOne(Mirror("m"), Excel("e2"), flagged);
+        plan.Action.Should().Be(VbaSyncAction.Conflict);
+        plan.ConflictReason.Should().Be(VbaConflictReason.NeedsReview);
+    }
+
+    [Fact(DisplayName = "要確認: 両側の本文が実質同じなら守るものが無いので、基準を作り直して要確認を外す")]
+    public void 要確認は同じ本文なら外れる()
+    {
+        var state = State("m", "e");
+        var flagged = state.WithModule(Std, state.Modules[Std] with { NeedsReview = true });
+
+        var plan = PlanOne(Mirror("same"), Excel("same"), flagged);
+
+        plan.Action.Should().Be(VbaSyncAction.Rebaseline);
+        plan.Baseline!.NeedsReview.Should().BeFalse();
+    }
+
+    [Fact(DisplayName = "空の Excel: 空（0 行）の Excel を、変わっていないミラーへ取り込む（Pull）はずのときは、衝突（ExcelEmpty）にする")]
+    public void 空のExcelは衝突()
+    {
+        var plan = PlanOne(Mirror("m"), Excel(string.Empty) with { IsEmpty = true }, State("m", "e"));
+
+        plan.Action.Should().Be(VbaSyncAction.Conflict);
+        plan.ConflictReason.Should().Be(VbaConflictReason.ExcelEmpty);
+    }
+
+    [Fact(DisplayName = "空の Excel: ミラーも空なら失うものが無いので通常どおり。Excel が空でなければ従来どおり Pull")]
+    public void 空でなければ従来どおり()
+    {
+        PlanOne(Mirror("e0") with { IsEmpty = true }, Excel(string.Empty) with { IsEmpty = true }, State("e0", "e")).Action
+            .Should().Be(VbaSyncAction.Pull);
+        PlanOne(Mirror("m"), Excel("e2"), State("m", "e")).Action.Should().Be(VbaSyncAction.Pull);
+    }
+
+    [Fact(DisplayName = "空の Excel: 記録がなく、両側にあって本文が違う初回の食い違いも、理由は ExcelEmpty")]
+    public void 初回の食い違いの理由()
+    {
+        var plan = PlanOne(Mirror("m"), Excel(string.Empty) with { IsEmpty = true }, null);
+
+        plan.Action.Should().Be(VbaSyncAction.Conflict);
+        plan.ConflictReason.Should().Be(VbaConflictReason.ExcelEmpty);
+    }
 }

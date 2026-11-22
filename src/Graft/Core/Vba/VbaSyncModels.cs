@@ -59,6 +59,19 @@ public sealed record VbaModuleState
     /// <summary>最後に同期（または基準を更新）した日時。</summary>
     public DateTimeOffset SyncedAt { get; init; }
 
+    /// <summary>
+    /// 要確認。Excel への書き込みに失敗し、元の内容の書き戻しにも失敗した（E809）モジュールの印。Excel 側の本文が
+    /// 空・途中・余分な行つきのまま残っているかもしれず、同期基準のハッシュはもう実態を表さない。この間は、取り込みも
+    /// 反映も自動では行わず、衝突として扱って利用者に選ばせる（<see cref="VbaSyncPlanner"/>）。手動の取込・反映で
+    /// 解決する（新しい基準を作り直すので false に戻る）か、控えからミラーへ戻したときに外れる。
+    /// <para>
+    /// 既存の同期状態ファイルには無い項目なので、読み込むと false（後方互換）。false のときは JSON に書かない
+    /// （古い版の Graft が読んでも差が出ないようにするため）。
+    /// </para>
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool NeedsReview { get; init; }
+
     /// <summary>ミラーの本文と Excel の本文から、同期直後の基準を作る。</summary>
     public static VbaModuleState Create(
         VbaModuleKind kind, string component, string? caption,
@@ -124,8 +137,9 @@ public sealed record VbaSyncState
 /// <param name="Component">コンポーネント名。</param>
 /// <param name="Hash">本文の正規化ハッシュ（<see cref="VbaTextNormalizer.Hash"/>）。</param>
 /// <param name="LooseHash">本文のゆるいハッシュ（<see cref="VbaTextNormalizer.LooseHash"/>）。</param>
+/// <param name="IsEmpty">本文が空（正規形で 0 行）か。空のミラーを Excel の本文で上書きする取り込みの判断に使う。</param>
 public sealed record VbaMirrorModule(
-    string RelativePath, VbaModuleKind Kind, string Component, string Hash, string LooseHash);
+    string RelativePath, VbaModuleKind Kind, string Component, string Hash, string LooseHash, bool IsEmpty = false);
 
 /// <summary>三方比較の入力のうち、Excel 側の1モジュール。</summary>
 /// <param name="Component">コンポーネント名。</param>
@@ -133,8 +147,9 @@ public sealed record VbaMirrorModule(
 /// <param name="Hash">本文の正規化ハッシュ。</param>
 /// <param name="LooseHash">本文のゆるいハッシュ。</param>
 /// <param name="Caption">シートの表示名（ドキュメントモジュールのみ。なければ null）。</param>
+/// <param name="IsEmpty">本文が空（正規形で 0 行）か。空の Excel を黙って取り込まず衝突にする判断に使う。</param>
 public sealed record VbaExcelModule(
-    string Component, VbaModuleKind Kind, string Hash, string LooseHash, string? Caption = null);
+    string Component, VbaModuleKind Kind, string Hash, string LooseHash, string? Caption = null, bool IsEmpty = false);
 
 /// <summary>1モジュールについて、同期で何をするか（仕様書_VBA連携 6.5 の表）。</summary>
 public enum VbaSyncAction
@@ -175,6 +190,22 @@ public enum VbaSyncAction
     DiscardRecord,
 }
 
+/// <summary>衝突になった理由。衝突ダイアログ・警告の文言を出し分けるのに使う。</summary>
+public enum VbaConflictReason
+{
+    /// <summary>両側が変わっていて本文が違う（従来の衝突）。</summary>
+    BothChanged,
+
+    /// <summary>
+    /// Excel 側が空（0 行）で、ミラー側は空でない。空の Excel を取り込むとミラーが 0 行になる。実機で、書き込みの失敗の
+    /// あとの自動取込がミラーを 0 行にした（Excel 側が本当に空だったのか、VBE で消されたのかは不明）ため、黙って取り込まない。
+    /// </summary>
+    ExcelEmpty,
+
+    /// <summary>書き戻しに失敗した「要確認」のモジュール（<see cref="VbaModuleState.NeedsReview"/>）。</summary>
+    NeedsReview,
+}
+
 /// <summary>画面に補足を出すための印。動作（<see cref="VbaSyncAction"/>）とは別に付く。</summary>
 public enum VbaSyncNotice
 {
@@ -200,6 +231,7 @@ public enum VbaSyncNotice
 /// </param>
 /// <param name="Notice">画面に出す補足。</param>
 /// <param name="Issue">警告にする問題（E808・E810）。なければ null。</param>
+/// <param name="ConflictReason">衝突のときの理由（衝突以外では意味を持たない）。</param>
 public sealed record VbaModulePlan(
     string RelativePath,
     VbaModuleKind Kind,
@@ -207,7 +239,8 @@ public sealed record VbaModulePlan(
     VbaSyncAction Action,
     VbaModuleState? Baseline = null,
     VbaSyncNotice Notice = VbaSyncNotice.None,
-    GraftIssue? Issue = null);
+    GraftIssue? Issue = null,
+    VbaConflictReason ConflictReason = VbaConflictReason.BothChanged);
 
 /// <summary>全モジュールの同期計画。</summary>
 public sealed record VbaSyncPlan(IReadOnlyList<VbaModulePlan> Modules)

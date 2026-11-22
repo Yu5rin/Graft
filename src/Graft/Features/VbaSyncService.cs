@@ -49,6 +49,9 @@ public sealed record VbaPushResult(
     /// </summary>
     public IReadOnlyList<string> DeletePending { get; init; } = Array.Empty<string>();
 
+    /// <summary>VBE が空白・大文字小文字を整形しただけで書けたモジュールのコンポーネント名（課題にはしない）。</summary>
+    public IReadOnlyList<string> Reformatted { get; init; } = Array.Empty<string>();
+
     /// <summary>Excel へ書けた件数。</summary>
     public int WrittenCount => Pushed.Count + Created.Count;
 }
@@ -77,6 +80,12 @@ public sealed record VbaMirrorCreation(string MirrorRoot, int ModuleCount);
 /// <param name="DeletePendingCount">削除保留のモジュール数。</param>
 public sealed record VbaLocalStatus(int UnpushedCount, int DeletePendingCount)
 {
+    /// <summary>
+    /// 要確認（書き戻しに失敗したままの）モジュールの数。件数だけを比べる呼び出し側のために、等価の比較には含めない
+    /// （<see cref="UnpushedPaths"/> と同じ扱い）。既定は 0。
+    /// </summary>
+    public int NeedsReviewCount { get; init; }
+
     /// <summary>
     /// 未反映のモジュールの相対パス（<see cref="UnpushedCount"/> の中身）。数えていないとき（読めなかったときの前回の値など）は null。
     /// 保存時の自動反映が付けた「衝突 N」の印を、未反映でなくなったモジュールについて外すために使う。
@@ -484,7 +493,7 @@ public sealed class VbaSyncService
         foreach (var conflict in conflicts)
         {
             issues.Add(GraftIssue.Of(
-                ErrorCode.E812, $"{conflict}: Excel 側とファイル側の両方が変更されているため、取り込みませんでした。",
+                ErrorCode.E812, $"{conflict}: {ConflictSentence(work, conflict, "取り込みませんでした")}",
                 path: conflict, severity: Severity.Warning));
         }
 
@@ -493,6 +502,21 @@ public sealed class VbaSyncService
             GraftResult<VbaPullResult>.Ok(
                 new VbaPullResult(pulled, conflicts, skipped) { ConflictItems = ConflictItemsOf(work, conflicts) }, issues),
             null);
+    }
+
+    /// <summary>衝突の理由に応じた警告の文（E812）。<paramref name="outcome"/> は「取り込みませんでした」「反映しませんでした」。</summary>
+    private static string ConflictSentence(Work work, string path, string outcome)
+    {
+        var reason = work.Plan.Modules
+            .First(m => string.Equals(m.RelativePath, path, StringComparison.OrdinalIgnoreCase)).ConflictReason;
+        return reason switch
+        {
+            VbaConflictReason.ExcelEmpty =>
+                $"Excel 側のモジュールが空（0 行）で、ファイル側には内容があるため、{outcome}。空のまま取り込むとファイルも空になります。どちらを残すか選んでください。",
+            VbaConflictReason.NeedsReview =>
+                $"前回の書き込みで Excel 側を元に戻せなかった「要確認」のモジュールのため、{outcome}。Excel 側の内容を VBE で確かめて、どちらを残すか選んでください。",
+            _ => $"Excel 側とファイル側の両方が変更されているため、{outcome}。",
+        };
     }
 
     /// <summary>衝突したモジュールの、両側の本文つきの一覧（衝突ダイアログの表示用）。</summary>
@@ -504,7 +528,10 @@ public sealed class VbaSyncService
             var module = work.Plan.Modules.First(m => string.Equals(m.RelativePath, path, StringComparison.OrdinalIgnoreCase));
             work.Excel.TryGetValue(path, out var excel);
             work.MirrorTexts.TryGetValue(path, out var mirror);
-            items.Add(new VbaConflictItem(path, module.Kind, module.Component, excel?.Code ?? string.Empty, mirror ?? string.Empty));
+            items.Add(new VbaConflictItem(path, module.Kind, module.Component, excel?.Code ?? string.Empty, mirror ?? string.Empty)
+            {
+                Reason = module.ConflictReason,
+            });
         }
 
         return items;
@@ -728,7 +755,7 @@ public sealed class VbaSyncService
         foreach (var conflict in conflicts)
         {
             issues.Add(GraftIssue.Of(
-                ErrorCode.E812, $"{conflict}: Excel 側とファイル側の両方が変更されているため、反映しませんでした。",
+                ErrorCode.E812, $"{conflict}: {ConflictSentence(work, conflict, "反映しませんでした")}",
                 path: conflict, severity: Severity.Warning));
         }
 
@@ -738,6 +765,7 @@ public sealed class VbaSyncService
         var pushed = new List<string>();
         var created = new List<string>();
         var mayBeBroken = new List<string>();
+        var reformatted = new List<string>();
         var saved = false;
 
         // 【全モジュールの控えを書き終えてから Excel へ書く】 書き始めたあとに控えを書くと、途中の失敗で
@@ -768,6 +796,15 @@ public sealed class VbaSyncService
                 if (!writeSources.TryGetValue(outcome.Name, out var source)) continue;
                 var relative = source.Plan.RelativePath;
 
+                if (outcome.TrimmedLines is { Count: > 0 } trimmedLines)
+                {
+                    // 書き込み・書き戻しのあとに末尾へ余分な行が付いていたので取り除いた（CodeModuleRewriter 参照）。
+                    // VBE の挙動に由来する異常なので、内容つきで残す。反映の成否は変えない軽い警告（E809 にはしない）。
+                    Logger?.Warn(
+                        "vba-push", $"{relative}: 書き込みのあと、モジュールの末尾に余分な行が付いたため取り除きました: {new VbaTrailingExtra(0, trimmedLines).Describe()}",
+                        targetPath: Path.Combine(project.Root, relative));
+                }
+
                 if (outcome.Status is VbaWriteStatus.Written or VbaWriteStatus.Created)
                 {
                     // 基準: mirrorHash は書いたミラー、excelHash／excelLooseHash は読み直した Excel 側。
@@ -778,12 +815,20 @@ public sealed class VbaSyncService
                         VbaTextNormalizer.Hash(source.Text), VbaTextNormalizer.Hash(readBack),
                         VbaTextNormalizer.LooseHash(readBack), now));
                     (outcome.Status == VbaWriteStatus.Created ? created : pushed).Add(relative);
+                    if (outcome.Reformatted) reformatted.Add(source.Plan.Component);
                     if (outcome.Issue is not null) issues.Add(outcome.Issue);
                     Logger?.Info("vba-push", $"Excel へ反映しました: {relative}", targetPath: Path.Combine(project.Root, relative));
                     continue;
                 }
 
                 failed.Add(relative);
+
+                if (outcome.IsRollbackFailed)
+                {
+                    // 書き戻しに失敗した。Excel 側の本文はもう基準のハッシュと対応しないので、「要確認」を同期状態に残す
+                    // （以後の自動の取込・反映は、衝突として利用者に選ばせる。VbaSyncPlanner 参照）。
+                    state = state.WithModule(relative, MarkNeedsReview(state, source.Plan, now));
+                }
 
                 // 書き戻しに失敗した（E809）、または時間切れ・中断で状態が分からない（E805）モジュールは、Excel 側の本文が
                 // 空のまま・途中のまま残っているかもしれない。書き戻せた（RolledBack）ものや、書く前に止めたもの
@@ -797,6 +842,15 @@ public sealed class VbaSyncService
                 {
                     issues.Add(await AttachRescueAsync(project, outcome).ConfigureAwait(true));
                 }
+            }
+
+            if (reformatted.Count > 0)
+            {
+                // 【整形差は 1 回の反映につき 1 行の info】 VBE の整形は通常の動きなので、モジュールごとの警告にしない
+                // （15 モジュールで 15 件の警告が並び、本当の失敗と見分けにくかった）。
+                Logger?.Info(
+                    "vba-push", $"VBE が {reformatted.Count} 個のモジュールを整形しました（{string.Join("、", reformatted)}）",
+                    targetPath: project.Root);
             }
 
             if (link.SaveWorkbookAfterPush && pushed.Count + created.Count > 0)
@@ -823,7 +877,7 @@ public sealed class VbaSyncService
         state = ApplyLocalChanges(work.Plan, state, pushed.Concat(created).ToList());
         await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(true);
         return GraftResult<VbaPushResult>.Ok(
-            new VbaPushResult(pushed, created, failed, conflicts, saved) { ConflictItems = conflictItems, DeletePending = deletePending },
+            new VbaPushResult(pushed, created, failed, conflicts, saved) { ConflictItems = conflictItems, DeletePending = deletePending, Reformatted = reformatted },
             issues);
     }
 
@@ -1001,11 +1055,13 @@ public sealed class VbaSyncService
         var records = loaded.Value.Modules;
 
         var unpushed = 0;
+        var needsReview = 0;
         var unpushedPaths = new List<string>();
         var pendingPaths = new List<string>();
         foreach (var (key, record) in records)
         {
             if (mirror.Unreadable.Contains(key)) continue; // 読めないだけで、無いわけではない。
+            if (record.NeedsReview) needsReview++;
 
             if (!mirror.Modules.TryGetValue(key, out var module))
             {
@@ -1028,7 +1084,7 @@ public sealed class VbaSyncService
             .ToList();
         unpushed += created.Count;
         unpushedPaths.AddRange(created);
-        return (new VbaLocalStatus(unpushed, pendingPaths.Count) { UnpushedPaths = unpushedPaths }, pendingPaths);
+        return (new VbaLocalStatus(unpushed, pendingPaths.Count) { UnpushedPaths = unpushedPaths, NeedsReviewCount = needsReview }, pendingPaths);
     }
 
     /// <summary>
@@ -1130,7 +1186,8 @@ public sealed class VbaSyncService
         var excelModules = excel.Value
             .Where(c => !VbaNameRules.CanMirror(c.Name) || InScope(VbaMirrorLayout.ToRelativePath(c.Kind, c.Name)))
             .Select(c => new VbaExcelModule(
-                c.Name, c.Kind, VbaTextNormalizer.Hash(c.Code), VbaTextNormalizer.LooseHash(c.Code), c.Caption))
+                c.Name, c.Kind, VbaTextNormalizer.Hash(c.Code), VbaTextNormalizer.LooseHash(c.Code), c.Caption,
+                VbaTextNormalizer.CountLines(c.Code) == 0))
             .ToList();
         var mirrorModules = mirror.Modules.Values.Where(m => InScope(m.RelativePath)).ToList();
 
@@ -1213,7 +1270,7 @@ public sealed class VbaSyncService
             var text = read.Value.Text;
             contents.Modules[parsed.RelativePath] = new VbaMirrorModule(
                 parsed.RelativePath, parsed.Kind, parsed.ComponentName,
-                VbaTextNormalizer.Hash(text), VbaTextNormalizer.LooseHash(text));
+                VbaTextNormalizer.Hash(text), VbaTextNormalizer.LooseHash(text), VbaTextNormalizer.CountLines(text) == 0);
             contents.Texts[parsed.RelativePath] = text;
         }
     }
@@ -1255,6 +1312,15 @@ public sealed class VbaSyncService
 
         return string.Equals(a.WorkbookFullName, b.WorkbookFullName, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// 書き戻しに失敗したモジュールの新しい記録（要確認つき）。記録が既にあればそれに印を足し、無ければ（衝突の上書きなど）
+    /// ハッシュを持たない記録を作る（ハッシュが空なら、次の計画は必ず「変わった」と見て、要確認として衝突になる）。
+    /// </summary>
+    private static VbaModuleState MarkNeedsReview(VbaSyncState state, VbaModulePlan plan, DateTimeOffset now)
+        => state.Modules.TryGetValue(plan.RelativePath, out var record)
+            ? record with { NeedsReview = true }
+            : new VbaModuleState { Kind = plan.Kind, Component = plan.Component, NeedsReview = true, SyncedAt = now };
 
     private static string? ExistingCaption(VbaSyncState state, string relative)
         => state.Modules.TryGetValue(relative, out var record) ? record.Caption : null;
