@@ -89,6 +89,12 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     /// <summary>ブックの情報の読み取り（<c>Info</c>）の呼び出しごとに受け取った <c>options</c> の記録。</summary>
     public List<VbaWorkbookInfoOptions> InfoRequests { get; } = new();
 
+    /// <summary>
+    /// <c>ReadComponentsAsync</c> の呼び出しごとの <c>names</c>（null は全件読み）の記録。保存時の自動反映（仕様書_ブックの
+    /// 情報と依頼の観点 8.4）が「保存したモジュールだけ」を読み、全件読みにならないことを固定するために使う。
+    /// </summary>
+    public List<IReadOnlyList<string>?> ReadNameRequests { get; } = new();
+
     /// <summary>Write の要求の記録（呼び出しごと）。</summary>
     public List<IReadOnlyList<VbaComponentWrite>> WriteRequests { get; } = new();
 
@@ -183,6 +189,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         string workbookFullName, IReadOnlyCollection<string>? names, CancellationToken ct = default)
     {
         Calls.Add($"Read:{workbookFullName}");
+        ReadNameRequests.Add(names?.ToList());
         var gate = await EnterAsync<IReadOnlyList<VbaComponentSnapshot>>("Read", ct).ConfigureAwait(false);
         if (gate is not null) return gate;
 

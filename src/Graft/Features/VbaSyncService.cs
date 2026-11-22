@@ -550,6 +550,45 @@ public sealed class VbaSyncService
         }
     }
 
+    /// <summary>
+    /// 保存時の自動反映（機能 D。仕様書_ブックの情報と依頼の観点 8章）。保存した<b>モジュールだけ</b>を Excel から読んで
+    /// 反映する。衝突は送らずに結果へ載せる（ダイアログは出さない。呼び出し側がバッジの印にする）。
+    /// <para>
+    /// 【<see cref="PushAsync"/> と分けた理由】 <see cref="PushAsync"/> は <paramref name="only"/> で対象を絞っても、
+    /// Excel の全モジュールとミラーの全ファイルを読む（計画を全体で作るため）。保存のたびにそれをすると、約 100 モジュールの
+    /// ブックで Excel を数秒占有し、利用者の操作を妨げる（8.4）。ここでは、対象のモジュールの名前だけを
+    /// <see cref="IVbaBridge.ReadComponentsAsync"/> に渡し、ミラーも対象のファイルだけ読む。
+    /// 手動の「Excel へ反映」・適用後の Push は従来どおり全体を読む（この絞り込みは D だけが使う）。
+    /// </para>
+    /// <para>
+    /// 反映の前の自動控え（7章）・基準の更新・<c>SaveWorkbookAfterPush</c> は、同じ <see cref="PushCoreAsync"/> を通るので
+    /// 手動の反映と同じに働く。<see cref="IsWritingToExcel"/> の旗も立てるので、ウィンドウを閉じる確認などの既存の排他と整合する。
+    /// </para>
+    /// </summary>
+    /// <param name="saved">保存したモジュールの相対パス（<c>Modules/Module1.bas</c>）。</param>
+    public async Task<GraftResult<VbaPushResult>> PushSavedAsync(
+        Project project, IReadOnlyCollection<string> saved, CancellationToken ct = default)
+    {
+        var link = RequireLink(project);
+        BeginWriting();
+        try
+        {
+            await _gate.WaitAsync(ct).ConfigureAwait(true);
+            try
+            {
+                return await PushCoreAsync(project, link, saved, null, ct, narrowRead: true).ConfigureAwait(true);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+        finally
+        {
+            EndWriting();
+        }
+    }
+
     // 「Excel へ書いている最中」の旗（不具合 9）。Push の呼び出しの数を数える（ゲートの順番待ちも含める: 順番が来れば
     // すぐ書くため）。適用中の旗（MainViewModel の _isApplyInProgress）は適用の全体を覆うが、取り消し・復元の後の反映、
     // プロジェクトペインの手動の反映、コンテキスト収集の「Graft 側で上書き」は適用ではないので、ウィンドウを閉じる確認の
@@ -574,9 +613,10 @@ public sealed class VbaSyncService
     }
 
     private async Task<GraftResult<VbaPushResult>> PushCoreAsync(
-        Project project, VbaLink link, IReadOnlyCollection<string>? only, HashSet<string>? overwrite, CancellationToken ct)
+        Project project, VbaLink link, IReadOnlyCollection<string>? only, HashSet<string>? overwrite, CancellationToken ct,
+        bool narrowRead = false)
     {
-        var snapshot = await BuildPlanAsync(project, link, Scope(only), ct).ConfigureAwait(true);
+        var snapshot = await BuildPlanAsync(project, link, Scope(only), ct, narrowRead).ConfigureAwait(true);
         if (!snapshot.IsSuccess) return GraftResult<VbaPushResult>.Fail(snapshot.Issues);
         var work = snapshot.Value;
         var issues = new List<GraftIssue>(snapshot.Issues);
@@ -996,13 +1036,38 @@ public sealed class VbaSyncService
         public List<GraftIssue> Issues { get; } = new();
     }
 
+    /// <param name="narrowRead">
+    /// true なら、<paramref name="scope"/> のモジュールだけを Excel から読み（<c>ReadComponentsAsync(names)</c>）、ミラーも
+    /// そのファイルだけ読む（保存時の自動反映用。仕様書_ブックの情報と依頼の観点 8.4）。<paramref name="scope"/> が null の
+    /// ときは意味を持たず、従来どおり全体を読む。
+    /// <para>
+    /// 絞った計画は、対象のモジュールの判定だけを返す。削除保留・記録の破棄のように全体を見ないと出せない判定は、
+    /// 計画の入力（ミラー・Excel・同期状態）を対象に絞る既存の仕組み（<c>InScope</c>）のおかげで、対象外のモジュールには
+    /// 起きない（絞った読み取りで「無い」と取り違えて、対象外の記録を破棄したり、削除保留の印を付けたりしない）。
+    /// </para>
+    /// </param>
     private async Task<GraftResult<Work>> BuildPlanAsync(
-        Project project, VbaLink link, HashSet<string>? scope, CancellationToken ct)
+        Project project, VbaLink link, HashSet<string>? scope, CancellationToken ct, bool narrowRead = false)
     {
-        var excel = await _bridge.ReadComponentsAsync(link.WorkbookFullName, null, ct).ConfigureAwait(true);
+        var narrow = narrowRead && scope is not null;
+        IReadOnlyCollection<string>? names = null;
+        if (narrow)
+        {
+            // 相対パス → コンポーネント名。名前にできないパス（同期の対象外のファイル）は読む対象に入れない。
+            names = scope!
+                .Select(p => VbaMirrorLayout.TryParse(p, out var parsed, out _) && parsed is not null ? parsed.ComponentName : null)
+                .Where(n => n is not null)
+                .Select(n => n!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        var excel = await _bridge.ReadComponentsAsync(link.WorkbookFullName, names, ct).ConfigureAwait(true);
         if (!excel.IsSuccess) return GraftResult<Work>.Fail(excel.Issues);
 
-        var mirror = await ReadMirrorAsync(project.Root, ct).ConfigureAwait(true);
+        var mirror = narrow
+            ? await ReadMirrorFilesAsync(project.Root, scope!, ct).ConfigureAwait(true)
+            : await ReadMirrorAsync(project.Root, ct).ConfigureAwait(true);
         var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(true);
 
         var excelByPath = new Dictionary<string, VbaComponentSnapshot>(StringComparer.OrdinalIgnoreCase);
@@ -1051,6 +1116,33 @@ public sealed class VbaSyncService
             .ToList();
         contents.Issues.AddRange(VbaMirrorLayout.CollectUnsupported(relatives));
 
+        await ReadMirrorEntriesAsync(root, relatives, contents, ct).ConfigureAwait(true);
+        return contents;
+    }
+
+    /// <summary>
+    /// 指定の相対パスのファイルだけを読む（保存時の自動反映用。<see cref="ReadMirrorAsync"/> の絞り込み版）。
+    /// <para>
+    /// 【ディレクトリを走査しない理由】 全体を走査すると、ミラーのファイルが増えるほど保存のたびの仕事が増える。
+    /// 保存したファイルの場所は分かっているので、そこだけ読む。対象外のファイルへの E810 の警告は、全体を見る
+    /// 手動の操作に任せる（保存のたびに同じ警告を出さない）。ファイルが無ければ「ミラーに無い」として扱う
+    /// （保存した直後に消された場合は、計画が削除保留と判定して反映しない）。
+    /// </para>
+    /// </summary>
+    private static async Task<MirrorContents> ReadMirrorFilesAsync(string root, IEnumerable<string> relatives, CancellationToken ct)
+    {
+        var contents = new MirrorContents();
+        if (!Directory.Exists(root)) return contents;
+
+        var existing = relatives
+            .Where(r => File.Exists(Path.Combine(root, r.Replace('/', Path.DirectorySeparatorChar))))
+            .ToList();
+        await ReadMirrorEntriesAsync(root, existing, contents, ct).ConfigureAwait(true);
+        return contents;
+    }
+
+    private static async Task ReadMirrorEntriesAsync(string root, IEnumerable<string> relatives, MirrorContents contents, CancellationToken ct)
+    {
         foreach (var relative in relatives)
         {
             if (!VbaMirrorLayout.TryParse(relative, out var parsed, out _) || parsed is null) continue;
@@ -1077,8 +1169,6 @@ public sealed class VbaSyncService
                 VbaTextNormalizer.Hash(text), VbaTextNormalizer.LooseHash(text));
             contents.Texts[parsed.RelativePath] = text;
         }
-
-        return contents;
     }
 
     /// <summary>
