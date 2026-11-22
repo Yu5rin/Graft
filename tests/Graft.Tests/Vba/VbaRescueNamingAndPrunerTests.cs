@@ -200,7 +200,11 @@ public class VbaRescueNamingAndPrunerTests
         };
 
         var first = VbaRescuePruner.Plan(entries, maxGenerations: 2, maxTotalBytes: long.MaxValue);
-        var second = VbaRescuePruner.Plan(entries.Reverse().ToArray(), maxGenerations: 2, maxTotalBytes: long.MaxValue);
+        // 配列に .Reverse() と書くと、C# 14（.NET 10 SDK）の「Span への暗黙変換」により
+        // MemoryExtensions.Reverse(Span<T>)（戻り値 void・その場で並べ替え）が選ばれ、
+        // CI のランナー（.NET 10 SDK が既定）でだけ CS0023 でコンパイルできなかった（手元の 8.0 SDK では通る）。
+        // LINQ の Enumerable.Reverse を明示して、どちらの SDK でも「元の配列を変えずに逆順の列を作る」意味にそろえる。
+        var second = VbaRescuePruner.Plan(Enumerable.Reverse(entries).ToArray(), maxGenerations: 2, maxTotalBytes: long.MaxValue);
 
         first.Delete.Select(e => e.FileName).Should().Equal(second.Delete.Select(e => e.FileName));
         first.Delete.Should().HaveCount(2);
