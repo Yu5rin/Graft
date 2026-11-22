@@ -42,6 +42,9 @@ public partial class ContextCollectWindow : Window
             await new VbaConflictWindow(viewModel.CreateVbaConflictViewModel(request)).ShowAndResolveAsync(this).ConfigureAwait(true);
         // 取り込み前の未保存の確認など、ほかのダイアログも同じ理由で、この窓が開いている間はこの窓を親にする。
         Opened += (_, _) => AvaloniaDialogService.PreferredOwner = this;
+        // 入力欄（ブックの情報の範囲・行数）に打っていた途中の文字を、窓を閉じる直前に確定する。×・Esc・「閉じる」のどれでも、
+        // フォーカスが外れる前に閉じることがあり、LostFocus だけに頼ると、打った内容が保存・反映されないまま消える。
+        Closing += (_, _) => _ = SafeHandler.RunAsync("入力の確定", viewModel.CommitPendingInputsAsync);
         Closed += (_, _) =>
         {
             viewModel.ShowVbaConflictAsync = null;

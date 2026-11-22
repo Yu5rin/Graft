@@ -279,6 +279,9 @@ public sealed class PromptCopyViewModel : ObservableObject
         var template = SelectedTemplate;
         if (template is null) return;
 
+        // 収集の窓の入力欄に打っていた途中の範囲・行数を、コピーの前に確定する（窓を閉じた直後でも、LostFocus に頼らない）。
+        await Context.CommitPendingInputsAsync().ConfigureAwait(true);
+
         var request = BuildRequest();
         var lastRevision = await GetLastRevisionSummaryAsync().ConfigureAwait(true);
         var rendered = await _renderer.RenderAsync(

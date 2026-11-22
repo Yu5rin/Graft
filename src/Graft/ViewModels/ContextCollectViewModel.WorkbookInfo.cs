@@ -68,6 +68,14 @@ public sealed class VbaWorkbookInfoSource
     /// （社外秘が AI へ渡る操作を、確認なしでは通さない）。
     /// </summary>
     public Func<VbaChoiceRequest, Task<string>>? ChooseAsync { get; init; }
+
+    /// <summary>
+    /// <b>いま紐付いているブックのフルパス</b>（一覧の最新の <c>VbaLink.WorkbookFullName</c>）を、呼び出しのたびに返す。
+    /// 収集のモデルは作成時の <c>VbaLink</c>（見せ方の記録を含む）を持ち続けるので、別のブックへ結び直されても、
+    /// 作り直されない限り古い見せ方のまま新しいブックの値を読んでしまう。取得と出力の直前に、取得に使ったブックのパスと
+    /// これを突き合わせ、違えば取得結果と見せ方を捨てる。未配線（null）のときは突き合わせない。
+    /// </summary>
+    public Func<string?>? CurrentWorkbookFullName { get; init; }
 }
 
 /// <summary>
@@ -92,6 +100,14 @@ public sealed partial class ContextCollectViewModel
     private readonly VbaWorkbookInfoSource? _workbookInfoSource;
     private VbaWorkbookInfoSnapshot? _workbookSnapshot;
     private bool _workbookSnapshotIsStale;
+
+    // 【取得の世代】 取得（Excel への問い合わせ）は時間がかかり、その間に利用者が見せ方を変えて次の取得が走りうる。
+    // 古い取得の結果が、あとから新しい指示の結果の上に格納されると、オフにしたはずの数式つきの値などが戻ってくる。
+    // 取得を始めるたびに番号を進め、戻ってきた時点で最新の世代でなければ結果を捨てる。
+    private int _fetchGeneration;
+
+    // 取得結果（_workbookSnapshot）を読んだブックのパス。いまの紐付けと違えば、別のブックの内容なので捨てる。
+    private string? _snapshotWorkbookPath;
 
     /// <summary>ブックの情報の行（コンテキスト収集の窓。VBA プロジェクトのときだけ表示される）。</summary>
     public VbaWorkbookInfoRowViewModel WorkbookInfo { get; private set; } = null!;
@@ -137,7 +153,12 @@ public sealed partial class ContextCollectViewModel
     /// </summary>
     public async Task FetchWorkbookInfoAsync(CancellationToken ct = default)
     {
+        var generation = ++_fetchGeneration;
         WorkbookInfoWarning = null;
+
+        // 別のブックへ結び直されていたら、前のブックの取得結果と見せ方を先に捨てる（古い見せ方で新しいブックの値を読まない）。
+        EnsureCurrentWorkbook();
+
         var source = _workbookInfoSource;
         var available = source is not null && source.IsAvailable();
         WorkbookInfo.IsVisible = available;
@@ -145,6 +166,7 @@ public sealed partial class ContextCollectViewModel
         {
             _workbookSnapshot = null;
             _workbookSnapshotIsStale = false;
+            _snapshotWorkbookPath = null;
             WorkbookInfo.StatusText = string.Empty;
             RebuildSheetRows();
             return;
@@ -160,10 +182,13 @@ public sealed partial class ContextCollectViewModel
         }
 
         // 値を読むのは、「内容も出す」で、かつ値が渡る見せ方のシートだけ（全体が構成だけなら、見せ方は構成だけに落ちる）。
+        // 「何を指示して読んだか」（見せ方・ブックのパス）を覚えておき、戻ってきたときの現在と突き合わせる。
+        var requestPath = source.CurrentWorkbookFullName?.Invoke();
+        var requestViews = EffectiveSheetViews();
         GraftResult<VbaWorkbookInfoSnapshot>? result;
         try
         {
-            result = await source.FetchAsync(EffectiveSheetViews(), ct).ConfigureAwait(true);
+            result = await source.FetchAsync(requestViews, ct).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -176,27 +201,88 @@ public sealed partial class ContextCollectViewModel
             result = GraftResult<VbaWorkbookInfoSnapshot>.Fail(ErrorCode.E801, "ブックの情報の取得中に想定外の問題が起きました。");
         }
 
-        ApplyWorkbookInfoResult(result);
+        // 【古い世代の結果は捨てる】 待っている間に、より新しい取得が始まっていたら、その結果に任せる。
+        if (generation != _fetchGeneration) return;
+
+        // 待っている間に別のブックへ結び直されていたら、読んだ内容は前のブックのもの。格納せず、いまの紐付けへ合わせ直す。
+        if (!IsSamePathOrUnknown(requestPath, source.CurrentWorkbookFullName?.Invoke()))
+        {
+            EnsureCurrentWorkbook();
+            RebuildSheetRows();
+            AfterWorkbookInfoSelectionChanged();
+            return;
+        }
+
+        ApplyWorkbookInfoResult(result, requestPath, requestViews);
+        var reconciled = ReconcileSheetViewsWithSnapshot();
+        if (reconciled is not null)
+        {
+            // 記録の整理（表示名の食い違い・消えたシート）を保存へも反映する。メモリ上は済んでいる。保存に失敗しても、
+            // 値が渡らない側へ倒した状態でそのまま続ける（利用者の操作の失敗ではないので、画面には知らせない）。
+            var known = _workbookSnapshot!.KnownSheets;
+            await PersistWorkbookInfoAsync(link => link.ReconcileSheetViews(known).Link, reportFailure: false).ConfigureAwait(true);
+        }
+
         RebuildSheetRows();
         PublishVbaWarningToStatus();
         WorkbookInfoChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void ApplyWorkbookInfoResult(GraftResult<VbaWorkbookInfoSnapshot>? result)
+    private static bool IsSamePathOrUnknown(string? a, string? b)
+        => string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b) || VbaRotNames.SamePath(a, b);
+
+    /// <summary>
+    /// <b>いま紐付いているブックと、保持している内容が合っているかを確かめ、違えば捨てる</b>。
+    /// 結び直し（<c>ProjectPaneViewModel.AddFromWorkbookAsync</c>）では、同じプロジェクトを選んだまま別のブックへ結べる。
+    /// このモデルは作成時の <c>VbaLink</c> と取得結果を持ち続けるので、何もしないと、前のブックの見せ方（例: Sheet1 は全部）の
+    /// まま新しいブックの値を確認なしで読み、依頼文へ出し、次の操作で古い見せ方を保存へ書き戻してしまう。
+    /// 取得・出力・操作の直前に呼ぶ。見せ方は、結び直しと同じ規則（<see cref="VbaLink.WithWorkbook"/>。全シート構成だけへ戻す）で捨てる。
+    /// </summary>
+    private void EnsureCurrentWorkbook()
+    {
+        var current = _workbookInfoSource?.CurrentWorkbookFullName?.Invoke();
+        if (string.IsNullOrEmpty(current)) return;
+
+        var changed = false;
+        if (_project.Vba is { } vba && !VbaRotNames.SamePath(vba.WorkbookFullName, current))
+        {
+            _project = _project with { Vba = vba.WithWorkbook(current) };
+            changed = true;
+        }
+
+        if (_workbookSnapshot is not null && _snapshotWorkbookPath is not null && !VbaRotNames.SamePath(_snapshotWorkbookPath, current))
+        {
+            changed = true;
+        }
+
+        if (!changed) return;
+        _workbookSnapshot = null;
+        _workbookSnapshotIsStale = false;
+        _snapshotWorkbookPath = null;
+        WorkbookInfo.StatusText = "ブックが結び直されたため、前のブックの情報を捨てました。";
+        RebuildSheetRows();
+    }
+
+    private void ApplyWorkbookInfoResult(
+        GraftResult<VbaWorkbookInfoSnapshot>? result, string? requestPath, VbaSheetViewSet requestViews)
     {
         if (result is null)
         {
             // 設定で取得をオフにしている。前回の結果も使わない（オフにしたのに古い内容が出続けるのは意図に反する）。
             _workbookSnapshot = null;
             _workbookSnapshotIsStale = false;
+            _snapshotWorkbookPath = null;
             WorkbookInfo.StatusText = "設定（VBA 連携）でブックの情報の取得をオフにしています。";
             return;
         }
 
         if (result.IsSuccess)
         {
-            _workbookSnapshot = result.Value;
+            // 【格納するときに、「取得に使った見せ方」と「いまの見せ方」を突き合わせる】 待っている間に、利用者が値を渡さない見せ方へ
+            // 戻した・数式をオフにしたシートの値と数式は、格納しない（取得の指示は古いので、戻ってきた結果に値が入っている）。
+            _workbookSnapshot = DropValuesNoLongerAllowed(result.Value, requestViews);
             _workbookSnapshotIsStale = false;
+            _snapshotWorkbookPath = requestPath;
             var at = result.Value.ReadAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
             if (result.Value.Omitted.Count > 0)
             {
@@ -230,6 +316,66 @@ public sealed partial class ContextCollectViewModel
     }
 
     /// <summary>
+    /// 取得に使った見せ方（<paramref name="used"/>）では値が入っているが、<b>いまの見せ方では渡らない</b>シートの値と数式を落とす
+    /// （値が渡らなくなった・数式をオフにした）。取得の待ち中の操作が、戻ってきた結果で打ち消されないようにする二重の鍵。
+    /// </summary>
+    private VbaWorkbookInfoSnapshot DropValuesNoLongerAllowed(VbaWorkbookInfoSnapshot snapshot, VbaSheetViewSet used)
+    {
+        var now = EffectiveSheetViews();
+        return snapshot with
+        {
+            Sheets = snapshot.Sheets
+                .Select(sheet =>
+                {
+                    var current = now.For(sheet.CodeName);
+                    var formulasTurnedOff = used.For(sheet.CodeName).IncludeFormulas && !current.IncludeFormulas;
+                    return !current.PassesValues || formulasTurnedOff ? WithoutValues(sheet) : sheet;
+                })
+                .ToArray(),
+        };
+    }
+
+    private static VbaSheetInfo WithoutValues(VbaSheetInfo sheet) => sheet with
+    {
+        HeaderRow = Array.Empty<string>(),
+        SampleRows = Array.Empty<IReadOnlyList<string>>(),
+        OmittedColumns = 0,
+        Block = null,
+    };
+
+    /// <summary>
+    /// 取得結果のシートと、保存してある見せ方の記録を突き合わせる（<see cref="VbaLink.ReconcileSheetViews"/>）。
+    /// コード名は同じでも表示名が食い違う（名前を変えた、または別のシートが同じコード名になった）シート、取得結果に無い
+    /// （消えた）シートの、値が渡る見せ方の記録を落とす。メモリ上のこのモデルの記録と取得結果の値を直ちに合わせ、
+    /// 保存への反映は呼び出し側が行う。変わらなければ null。
+    /// </summary>
+    private VbaSheetViewReconcileResult? ReconcileSheetViewsWithSnapshot()
+    {
+        if (_workbookSnapshot is null || _project.Vba is not { } vba) return null;
+        var result = vba.ReconcileSheetViews(_workbookSnapshot.KnownSheets);
+        if (!result.Changed) return null;
+
+        _project = _project with { Vba = result.Link };
+        foreach (var code in result.Renamed)
+        {
+            // 値は、落とした記録の見せ方（確認済みの）で読んでしまっている。メモリからも捨てる。
+            DropValuesFromMemory(s => string.Equals(s.CodeName, code, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (result.Renamed.Count > 0)
+        {
+            var names = result.Renamed
+                .Select(code => _workbookSnapshot.Sheets.FirstOrDefault(s => string.Equals(s.CodeName, code, StringComparison.OrdinalIgnoreCase))?.Name ?? code)
+                .Select(name => $"「{name}」");
+            var warning = $"シート{string.Join("", names)}は、記録していた表示名と違うため（名前を変えた、または別のシートになった）、"
+                          + "値を渡す見せ方を「構成だけ」に戻しました。値を渡すには、見せ方を選び直してください（確認が出ます）。";
+            WorkbookInfoWarning = CombineWarnings(WorkbookInfoWarning, warning);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 取り込みの警告とブックの情報の警告を、ステータス欄の 1 行にまとめる。
     /// （<see cref="PullFromExcelAsync"/>・<see cref="FetchWorkbookInfoAsync"/> のあとで呼ぶ。）
     /// </summary>
@@ -253,6 +399,8 @@ public sealed partial class ContextCollectViewModel
     /// </summary>
     public string BuildWorkbookInfoText()
     {
+        // 別のブックへ結び直されていたら、前のブックの取得結果を出さない（出力の直前の突き合わせ）。
+        EnsureCurrentWorkbook();
         if (_workbookSnapshot is null || !WorkbookInfo.IsVisible || WorkbookInfo.Level == VbaWorkbookInfoLevel.Hidden)
         {
             return string.Empty;
@@ -292,7 +440,14 @@ public sealed partial class ContextCollectViewModel
         var before = WorkbookInfo.Level;
         var next = VbaWorkbookInfoLevels.Next(before);
         WorkbookInfo.Level = next;
-        await PersistWorkbookInfoAsync(link => link with { WorkbookInfoState = next.ToString() }).ConfigureAwait(true);
+        if (!await PersistWorkbookInfoAsync(link => link with { WorkbookInfoState = next.ToString() }).ConfigureAwait(true))
+        {
+            // 保存できなかった。保存してある出し方（変わっていない）に、画面とメモリの値を合わせる。
+            WorkbookInfo.Level = before;
+            RebuildSheetRows();
+            AfterWorkbookInfoSelectionChanged();
+            return;
+        }
 
         // 【構成だけ・出さないへ戻したら、メモリ上の値を直ちに捨てる】 全体が構成だけでも値は渡らないが、
         // 取得済みの値をメモリに持ち続けない（オフにしたら直ちに捨てる、という約束を、全体の切り替えにも守る）。
@@ -342,6 +497,9 @@ public sealed partial class ContextCollectViewModel
             Mode = mode,
             HeaderRows = rows,
             IncludeFormulas = VbaSheetViewModes.IsValueMode(mode) && old.IncludeFormulas,
+            // 値が渡らない見せ方へ戻すときは、範囲も消す。残すと、あとで「範囲を指定」を選び直した瞬間に、確認の文面（「このあと入力する
+            // 範囲」）と食い違って、以前の範囲が入力なしで直ちに読まれた。
+            Range = VbaSheetViewModes.IsValueMode(mode) ? old.Range : null,
         };
 
         if (VbaSheetViewModes.IsValueMode(mode) && !await ConfirmSheetValuesAsync(sheet, next).ConfigureAwait(true))
@@ -357,8 +515,8 @@ public sealed partial class ContextCollectViewModel
     /// <summary>「見出し＋N 行」の N を変える（入力欄の文字）。誤りなら、その理由を返す（保存も取り直しもしない）。</summary>
     public async Task<string?> SetSheetHeaderRowsAsync(string codeName, string text)
     {
-        if (!int.TryParse(text?.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var rows)
-            || rows > VbaSheetViewLimits.MaxHeaderRows)
+        // 全角の数字（５）も受け付ける（日本語入力のまま打つと全角になりやすい）。
+        if (!VbaSheetViewLimits.TryParseHeaderRows(text, out var rows))
         {
             return $"0〜{VbaSheetViewLimits.MaxHeaderRows} の整数で入力してください（もっと多く見せたいときは「全部」か「範囲を指定」を使います）。";
         }
@@ -413,8 +571,42 @@ public sealed partial class ContextCollectViewModel
         await ApplySheetViewAsync(sheet, old, next).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// 入力欄（範囲・見出しに続く行数）に打っている途中の文字を、すべて確定する。<b>コピー・ファイル保存・プレビュー・
+    /// 依頼文のコピー・窓を閉じる直前</b>に呼ぶ。以前は、確定の契機がフォーカスを外したときと Enter だけ（LostFocus 頼み）で、
+    /// 入力した直後にコピーやショートカットを押すと、確定と取り直しが間に合わず、画面の入力と違う範囲・行数で出力されうる。
+    /// 返ったときは、それまでの確定（検証・保存・取り直し）がすべて済んでいる。
+    /// </summary>
+    public async Task CommitPendingInputsAsync()
+    {
+        foreach (var row in WorkbookInfo.Sheets.ToArray())
+        {
+            try
+            {
+                await row.CommitDraftsAsync().ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                // 窓を閉じるなどで中断された。
+            }
+            catch (Exception ex)
+            {
+                // 入力の確定に失敗しても、コピー・保存を止めない（出る内容は、確定できた範囲のもの）。記録だけ残す。
+                SafeHandler.OnUnexpected?.Invoke("ブックの情報の入力の確定", ex);
+            }
+        }
+    }
+
     private VbaSheetInfo? FindSheet(string codeName)
-        => _workbookSnapshot?.Sheets.FirstOrDefault(s => string.Equals(s.CodeName, codeName, StringComparison.OrdinalIgnoreCase));
+    {
+        // 操作の直前にも、紐付いているブックと合っているかを確かめる（結び直されたブックの古い見せ方を書き戻さない）。
+        EnsureCurrentWorkbook();
+
+        // コード名が空のシートは見せ方を記録できない（鍵が無い）ので、見せ方の操作の対象にしない。
+        return string.IsNullOrEmpty(codeName)
+            ? null
+            : _workbookSnapshot?.Sheets.FirstOrDefault(s => string.Equals(s.CodeName, codeName, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// 見せ方を保存して反映する。値が渡らなくなったシートの値はメモリから捨て、読み直しが要るときだけ取り直す
@@ -422,8 +614,19 @@ public sealed partial class ContextCollectViewModel
     /// </summary>
     private async Task ApplySheetViewAsync(VbaSheetInfo sheet, VbaSheetView old, VbaSheetView next, bool keepDraft = false)
     {
-        var views = MaterializeSheetViews(SavedSheetViews()).With(sheet.CodeName, next);
-        await PersistWorkbookInfoAsync(link => link.WithSheetViews(views)).ConfigureAwait(true);
+        // 【保存側の最新を読み、対象のシートだけを差し替える】 このモデルが持つ見せ方の一覧（作成時のもの）で、保存側の全体を
+        // 上書きしない。結び直し・他の経路での保存で保存側が変わっていても、巻き戻さない（変換は保存の臨界区間の中で、最新に対して行う）。
+        var snapshot = _workbookSnapshot;
+        var legacyRows = DefaultHeaderRowsFromSource(_workbookInfoSource);
+        var saved = await PersistWorkbookInfoAsync(
+            link => ReplaceSheetView(link, snapshot, sheet.CodeName, sheet.Name, next, legacyRows)).ConfigureAwait(true);
+        if (!saved)
+        {
+            // 保存できなかった。保存してある見せ方（変わっていない）に、画面の表示とメモリの値を合わせる。
+            RebuildSheetRows();
+            AfterWorkbookInfoSelectionChanged();
+            return;
+        }
 
         // 値が渡らなくなった（構成だけ・出さない・範囲が空）なら、そのシートの値を直ちに捨てる。
         // 数式をオフにしたときも捨てる（値は「=式 → 値」の文字列に畳んで持っているので、あとから数式だけを取り除けない）。
@@ -446,6 +649,20 @@ public sealed partial class ContextCollectViewModel
         }
     }
 
+    /// <summary>
+    /// 保存側の最新の <paramref name="link"/> に、1 枚のシートの見せ方を書き込んだ <see cref="VbaLink"/> を返す。
+    /// 先に取得結果と記録を突き合わせ（<see cref="VbaLink.ReconcileSheetViews"/>。消えたシート・表示名が食い違うシートの
+    /// 値が渡る記録を落とす）、そのうえで、このシートの記録を差し替える。このシートの記録には、いまの表示名を添える。
+    /// </summary>
+    private static VbaLink ReplaceSheetView(
+        VbaLink link, VbaWorkbookInfoSnapshot? snapshot, string codeName, string sheetName, VbaSheetView next, int legacyRows)
+    {
+        if (snapshot is not null) link = link.ReconcileSheetViews(snapshot.KnownSheets).Link;
+        var saved = MaterializeSheetViews(link, snapshot, link.ResolveSheetViews(legacyRows), out var names);
+        names[codeName] = sheetName;
+        return link.WithSheetViews(saved.With(codeName, next), names);
+    }
+
     /// <summary>読む内容が変わるか（同じなら取り直さない）。</summary>
     private static bool ReadsDifferently(VbaSheetView old, VbaSheetView next)
     {
@@ -464,14 +681,19 @@ public sealed partial class ContextCollectViewModel
     /// 記録がまだ無い（<see cref="VbaLink.WorkbookInfoSheetViews"/> が null）プロジェクトで、全シートが
     /// 「見出し＋N 行（既存の N）」として読まれている間に、利用者が 1 枚だけ変えたとき、残りのシートの見せ方を
     /// ここで確定して保存する（確定しないと、保存と同時に旧項目をオフにするため、残りが構成だけに変わってしまう）。
+    /// 確定した記録には、いまのシートの表示名を添える（<paramref name="names"/> に返す）。
     /// </summary>
-    private VbaSheetViewSet MaterializeSheetViews(VbaSheetViewSet saved)
+    private static VbaSheetViewSet MaterializeSheetViews(
+        VbaLink link, VbaWorkbookInfoSnapshot? snapshot, VbaSheetViewSet saved, out Dictionary<string, string> names)
     {
-        if (_project.Vba?.WorkbookInfoSheetViews is not null || _workbookSnapshot is null) return saved;
+        names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (link.WorkbookInfoSheetViews is not null || snapshot is null) return saved;
 
         var records = saved.Overrides.ToList();
-        foreach (var sheet in _workbookSnapshot.Sheets)
+        foreach (var sheet in snapshot.KnownSheets)
         {
+            if (string.IsNullOrEmpty(sheet.CodeName)) continue;
+            names[sheet.CodeName] = sheet.Name;
             if (!saved.CodeNames.Contains(sheet.CodeName, StringComparer.OrdinalIgnoreCase))
             {
                 records.Add(new KeyValuePair<string, VbaSheetView>(sheet.CodeName, saved.For(sheet.CodeName)));
@@ -496,7 +718,9 @@ public sealed partial class ContextCollectViewModel
         {
             VbaSheetViewMode.HeaderRows => $"使用範囲の見出し行（1 行目）と、続く {next.HeaderRows} 行の値が",
             VbaSheetViewMode.All => $"使用範囲の値すべて（最大 {maxRows} 行・{maxColumns} 列）が",
-            _ => "このあと入力する範囲の値が",
+            _ => next.Range is { } range
+                ? $"指定済みの範囲 {range} の値が"
+                : "このあと入力する範囲の値が",
         };
         var request = new VbaChoiceRequest(
             $"シート「{sheet.Name}」の値を AI に渡しますか",
@@ -528,15 +752,7 @@ public sealed partial class ContextCollectViewModel
         _workbookSnapshot = _workbookSnapshot with
         {
             Sheets = _workbookSnapshot.Sheets
-                .Select(s => only is null || only(s)
-                    ? s with
-                    {
-                        HeaderRow = Array.Empty<string>(),
-                        SampleRows = Array.Empty<IReadOnlyList<string>>(),
-                        OmittedColumns = 0,
-                        Block = null,
-                    }
-                    : s)
+                .Select(s => only is null || only(s) ? WithoutValues(s) : s)
                 .ToArray(),
         };
     }
@@ -549,17 +765,33 @@ public sealed partial class ContextCollectViewModel
     {
         var sheets = _workbookSnapshot?.Sheets ?? Array.Empty<VbaSheetInfo>();
         var views = SavedSheetViews();
-        var existing = WorkbookInfo.Sheets.ToDictionary(r => r.CodeName, StringComparer.OrdinalIgnoreCase);
+        // コード名が重なる・空の行があっても例外にしない（ToDictionary は重複で例外になる）。先の行を使う。
+        var existing = new Dictionary<string, VbaSheetViewRowViewModel>(StringComparer.OrdinalIgnoreCase);
+        foreach (var current in WorkbookInfo.Sheets)
+        {
+            if (current.CodeName.Length > 0) existing.TryAdd(current.CodeName, current);
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var rows = new List<VbaSheetViewRowViewModel>();
         foreach (var sheet in sheets)
         {
-            if (!existing.TryGetValue(sheet.CodeName, out var row)) row = new VbaSheetViewRowViewModel(this, sheet.Name, sheet.CodeName);
+            // 【コード名が空のシートは、見せ方を選べない行にする】 見せ方はコード名で記録するので、鍵が無い。常に構成だけで扱い、
+            // 画面でも選べないと伝える（空の鍵で記録を引くと、先頭の 1 枚に当たってしまう）。同じコード名が重なる行も同様に、
+            // 先の 1 枚だけを操作できる行にする。
+            var selectable = sheet.CodeName.Length > 0 && seen.Add(sheet.CodeName);
+            VbaSheetViewRowViewModel? row = null;
+            if (selectable) existing.TryGetValue(sheet.CodeName, out row);
+            row ??= new VbaSheetViewRowViewModel(this, sheet.Name, sheet.CodeName);
             row.Name = sheet.Name;
+            row.IsSelectable = selectable;
             row.UsedRangeText = sheet.UsedRange ?? "（空）";
-            var view = views.For(sheet.CodeName);
+            var view = selectable ? views.For(sheet.CodeName) : VbaSheetView.StructureOnly;
             row.Apply(view, keepDraft);
-            if (view.Mode == VbaSheetViewMode.Range && view.Range is null) row.ShowRangeRequired();
-            row.NoteText = DescribeSheetNote(sheet, view);
+            if (selectable && view.Mode == VbaSheetViewMode.Range && view.Range is null) row.ShowRangeRequired();
+            row.NoteText = selectable
+                ? DescribeSheetNote(sheet, view)
+                : "コード名を読めない（または重なっている）シートのため、見せ方は選べません。構成だけで扱います。";
             rows.Add(row);
         }
 
@@ -621,22 +853,43 @@ public sealed partial class ContextCollectViewModel
     /// <summary>
     /// <see cref="VbaLink"/> の項目だけを <see cref="ProjectStore.UpdateAsync"/> で差し替えて保存する
     /// （<see cref="PersistFocusAsync"/> と同じ理由。古いスナップショットで丸ごと上書きして履歴番号を巻き戻さない）。
-    /// VBA プロジェクトでなければ何もしない。
+    /// <paramref name="change"/> は保存側の<b>最新</b>の <see cref="VbaLink"/> に対して呼ばれる。
+    /// VBA プロジェクトでなければ何もしない（成功扱い）。
+    /// <para>
+    /// 【失敗は画面に知らせる】 保存できなかったとき、以前は何も知らせなかったので、メモリの値は消えたのに見せ方の表示は
+    /// 元に戻って見える、という食い違いが残った。<paramref name="reportFailure"/> が true なら、警告に出す。
+    /// 呼び出し側は、false が返ったら、保存側（変わっていない）に画面とメモリを合わせる。
+    /// </para>
     /// </summary>
-    private async Task PersistWorkbookInfoAsync(Func<VbaLink, VbaLink> change)
+    /// <returns>保存できた（または保存するものが無かった）なら true。</returns>
+    private async Task<bool> PersistWorkbookInfoAsync(Func<VbaLink, VbaLink> change, bool reportFailure = true)
     {
-        if (_project.Vba is null) return;
+        if (_project.Vba is null) return true;
         try
         {
             var result = await _projectStore.UpdateAsync(
                     _project.Id,
                     p => p.Vba is null ? p : p with { Vba = change(p.Vba) })
                 .ConfigureAwait(true);
-            if (result.IsSuccess) _project = result.Value with { IsDisconnected = _project.IsDisconnected };
+            if (result.IsSuccess)
+            {
+                _project = result.Value with { IsDisconnected = _project.IsDisconnected };
+                return true;
+            }
         }
         catch (Exception ex)
         {
             SafeHandler.OnUnexpected?.Invoke("ブックの情報の設定の保存", ex);
         }
+
+        if (reportFailure)
+        {
+            WorkbookInfoWarning = CombineWarnings(
+                WorkbookInfoWarning,
+                "ブックの情報の設定を保存できませんでした。変更は反映せず、保存してある設定のままにしています。");
+            PublishVbaWarningToStatus();
+        }
+
+        return false;
     }
 }

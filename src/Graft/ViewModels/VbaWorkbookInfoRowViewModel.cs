@@ -199,6 +199,18 @@ public sealed class VbaSheetViewRowViewModel : ObservableObject
     private string _rowsError = string.Empty;
     private string _rangeText = string.Empty;
     private string _rangeError = string.Empty;
+
+    // 【入力欄の「打っている途中の文字」（下書き）と、確定済みの文字】 画面の入力欄は、1 文字ごとに下書きへ書き込む。確定は
+    // フォーカスを外したとき・Enter のほか、コピー・ファイル保存・窓を閉じる直前にも行う（CommitDraftsAsync）。
+    // 以前は「フォーカスを外したとき」だけが確定の契機だったので、入力した直後にコピーやショートカットを押すと、
+    // 確定と取り直しが間に合わず、画面に見えている入力と違う範囲・行数でコピーされることがあった。
+    private string _rowsDraft = VbaSheetViewLimits.DefaultHeaderRows.ToString(CultureInfo.InvariantCulture);
+    private string _rowsCommitted = VbaSheetViewLimits.DefaultHeaderRows.ToString(CultureInfo.InvariantCulture);
+    private string _rangeDraft = string.Empty;
+    private string _rangeCommitted = string.Empty;
+    private Task _commitChain = Task.CompletedTask;
+    private string _name;
+    private bool _isSelectable = true;
     private bool _includeFormulas;
     private string _noteText = string.Empty;
     private string _usedRangeText = string.Empty;
@@ -210,18 +222,39 @@ public sealed class VbaSheetViewRowViewModel : ObservableObject
     internal VbaSheetViewRowViewModel(ContextCollectViewModel owner, string name, string codeName)
     {
         _owner = owner;
-        Name = name;
+        _name = name;
         CodeName = codeName;
     }
 
-    /// <summary>シートの表示名。</summary>
-    public string Name { get; internal set; }
+    /// <summary>
+    /// シートの表示名。Excel 側で名前が変わったとき（同じコード名の行を使い回して取り直したとき）に、画面の表示
+    /// （<see cref="Title"/>・読み上げの名前）が古いままにならないよう、変更を通知する。
+    /// </summary>
+    public string Name
+    {
+        get => _name;
+        internal set
+        {
+            if (!SetProperty(ref _name, value)) return;
+            OnPropertyChanged(nameof(Title));
+            RaiseAutomationNames();
+        }
+    }
 
     /// <summary>シートのコード名（見せ方の記憶の鍵。表示名を変えても外れない）。</summary>
     public string CodeName { get; }
 
     /// <summary>「表示名（コード名）」。</summary>
     public string Title => Name == CodeName ? Name : $"{Name}（{CodeName}）";
+
+    /// <summary>
+    /// 見せ方を選べるか。コード名が空（鍵が無い）・重なっているシートは false（常に構成だけで扱う）。
+    /// </summary>
+    public bool IsSelectable
+    {
+        get => _isSelectable;
+        internal set => SetProperty(ref _isSelectable, value);
+    }
 
     /// <summary>使用範囲の文字（空のシートは「空」）。</summary>
     public string UsedRangeText
@@ -246,18 +279,34 @@ public sealed class VbaSheetViewRowViewModel : ObservableObject
         }
     }
 
-    /// <summary>「見出し＋N 行」の N（入力欄の文字）。</summary>
+    /// <summary>
+    /// 「見出し＋N 行」の N（確定済みの入力欄の文字）。ここへ書き込むと確定として扱い、持ち主へ頼んで検証・保存・取り直しをする
+    /// （画面の入力欄は、打っている途中の文字を <see cref="RowsDraft"/> へ書き、確定の契機で <see cref="CommitDraftsAsync"/> が呼ぶ）。
+    /// </summary>
     public string RowsText
     {
         get => _rowsText;
         set
         {
-            if (!SetProperty(ref _rowsText, value ?? string.Empty) || _applying) return;
-            _ = SafeHandler.RunAsync("見出しの下の行数の変更", async () =>
+            var text = value ?? string.Empty;
+            var changed = SetProperty(ref _rowsText, text);
+            SetDraft(ref _rowsDraft, text, nameof(RowsDraft));
+            if (_applying)
             {
-                RowsError = await _owner.SetSheetHeaderRowsAsync(CodeName, _rowsText).ConfigureAwait(true) ?? string.Empty;
-            });
+                _rowsCommitted = text;
+                return;
+            }
+
+            if (!changed) return;
+            _ = SafeHandler.RunAsync("見出しの下の行数の変更", CommitDraftsAsync);
         }
+    }
+
+    /// <summary>行数の入力欄に打っている途中の文字（画面の入力欄と結ぶ。確定は <see cref="CommitDraftsAsync"/>）。</summary>
+    public string RowsDraft
+    {
+        get => _rowsDraft;
+        set => SetProperty(ref _rowsDraft, value ?? string.Empty);
     }
 
     /// <summary>N の入力の誤り（空なら誤りなし）。</summary>
@@ -273,18 +322,78 @@ public sealed class VbaSheetViewRowViewModel : ObservableObject
 
     public bool HasRowsError => _rowsError.Length > 0;
 
-    /// <summary>範囲の入力欄の文字（例 <c>A1:F30</c>）。</summary>
+    /// <summary>範囲の入力欄の文字（確定済み。例 <c>A1:F30</c>）。書き込むと確定として扱う（<see cref="RowsText"/> と同じ）。</summary>
     public string RangeText
     {
         get => _rangeText;
         set
         {
-            if (!SetProperty(ref _rangeText, value ?? string.Empty) || _applying) return;
-            _ = SafeHandler.RunAsync("シートの範囲の変更", async () =>
+            var text = value ?? string.Empty;
+            var changed = SetProperty(ref _rangeText, text);
+            SetDraft(ref _rangeDraft, text, nameof(RangeDraft));
+            if (_applying)
             {
-                RangeError = await _owner.SetSheetRangeAsync(CodeName, _rangeText).ConfigureAwait(true) ?? string.Empty;
-            });
+                _rangeCommitted = text;
+                return;
+            }
+
+            if (!changed) return;
+            _ = SafeHandler.RunAsync("シートの範囲の変更", CommitDraftsAsync);
         }
+    }
+
+    /// <summary>範囲の入力欄に打っている途中の文字（画面の入力欄と結ぶ。確定は <see cref="CommitDraftsAsync"/>）。</summary>
+    public string RangeDraft
+    {
+        get => _rangeDraft;
+        set => SetProperty(ref _rangeDraft, value ?? string.Empty);
+    }
+
+    private void SetDraft(ref string field, string text, string propertyName)
+    {
+        if (field == text) return;
+        field = text;
+        OnPropertyChanged(propertyName);
+    }
+
+    /// <summary>
+    /// 打っている途中の文字（行数・範囲）を、確定していなければ確定して、持ち主へ反映する。<b>フォーカスを外したとき・Enter だけでなく、
+    /// コピー・ファイル保存・窓を閉じる直前にも</b>、持ち主（<see cref="ContextCollectViewModel.CommitPendingInputsAsync"/>）が呼ぶ。
+    /// 続けて呼ばれても順番に 1 つずつ処理する（前の確定が終わるのを待つ）ので、呼び出しが返ったときは、それまでの確定がすべて済んでいる。
+    /// </summary>
+    public Task CommitDraftsAsync() => _commitChain = RunCommitAsync(_commitChain);
+
+    private async Task RunCommitAsync(Task previous)
+    {
+        try
+        {
+            await previous.ConfigureAwait(true);
+        }
+        catch (Exception)
+        {
+            // 前の確定の失敗は、その呼び出しが報告済み。ここでは続きを行う。
+        }
+
+        if (_rowsDraft != _rowsCommitted)
+        {
+            _rowsCommitted = _rowsDraft;
+            SetCommitted(ref _rowsText, _rowsDraft, nameof(RowsText));
+            RowsError = await _owner.SetSheetHeaderRowsAsync(CodeName, _rowsDraft).ConfigureAwait(true) ?? string.Empty;
+        }
+
+        if (_rangeDraft != _rangeCommitted)
+        {
+            _rangeCommitted = _rangeDraft;
+            SetCommitted(ref _rangeText, _rangeDraft, nameof(RangeText));
+            RangeError = await _owner.SetSheetRangeAsync(CodeName, _rangeDraft).ConfigureAwait(true) ?? string.Empty;
+        }
+    }
+
+    private void SetCommitted(ref string field, string text, string propertyName)
+    {
+        if (field == text) return;
+        field = text;
+        OnPropertyChanged(propertyName);
     }
 
     /// <summary>範囲の入力の誤り（空なら誤りなし）。誤りがあるうちは、そのシートの値は依頼文に入らない。</summary>
@@ -342,6 +451,31 @@ public sealed class VbaSheetViewRowViewModel : ObservableObject
 
     /// <summary>読み上げ用の名前。</summary>
     public string AutomationLabel => $"シート {Title} の見せ方（{_selectedMode.Label}）";
+
+    // 【操作部品の読み上げの名前に、シート名を入れる】 シートの行は同じ部品（見せ方の選択・行数・範囲・数式）が並ぶので、
+    // 部品の名前が全行で同じだと、スクリーンリーダーで「どのシートの部品か」を区別できない（行ごとの名前は行の枠にしか付いていなかった）。
+    public string ModeAutomationName => $"シート {Title} の見せ方";
+
+    public string RowsAutomationName => $"シート {Title} の見出しに続く行数";
+
+    public string RangeAutomationName => $"シート {Title} の読む範囲（A1 形式）";
+
+    public string RangeErrorAutomationName => $"シート {Title} の範囲の入力の誤り";
+
+    public string FormulasAutomationName => $"シート {Title} の値に数式も含める";
+
+    public string NoteAutomationName => $"シート {Title} の取得結果の注記";
+
+    private void RaiseAutomationNames()
+    {
+        OnPropertyChanged(nameof(AutomationLabel));
+        OnPropertyChanged(nameof(ModeAutomationName));
+        OnPropertyChanged(nameof(RowsAutomationName));
+        OnPropertyChanged(nameof(RangeAutomationName));
+        OnPropertyChanged(nameof(RangeErrorAutomationName));
+        OnPropertyChanged(nameof(FormulasAutomationName));
+        OnPropertyChanged(nameof(NoteAutomationName));
+    }
 
     /// <summary>
     /// 持ち主が決めた見せ方を画面の値へ反映する（保存済みの見せ方・断られたときの巻き戻し・取り直し後）。

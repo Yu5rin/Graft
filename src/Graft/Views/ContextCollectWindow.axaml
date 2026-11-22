@@ -135,8 +135,9 @@
                                                         <ComboBox DockPanel.Dock="Right" Width="140" MinHeight="26"
                                                                   ItemsSource="{Binding ModeOptions}"
                                                                   SelectedItem="{Binding SelectedMode}"
+                                                                  IsEnabled="{Binding IsSelectable}"
                                                                   FontSize="{DynamicResource CaptionFontSize}"
-                                                                  AutomationProperties.Name="シートの見せ方" />
+                                                                  AutomationProperties.Name="{Binding ModeAutomationName}" />
                                                         <TextBlock Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                                    ToolTip.Tip="{Binding UsedRangeText, StringFormat='使用範囲: {0}'}" />
                                                     </DockPanel>
@@ -144,9 +145,9 @@
                                                         <TextBlock Text="見出しに続く行数" VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource TextSecondary}"
                                                                    FontSize="{DynamicResource CaptionFontSize}" />
-                                                        <TextBox Width="64" Text="{Binding RowsText, UpdateSourceTrigger=LostFocus}"
-                                                                 local:TextBoxCommitBehavior.CommitOnEnter="True"
-                                                                 AutomationProperties.Name="見出しに続く行数" />
+                                                        <TextBox Width="64" Text="{Binding RowsDraft, UpdateSourceTrigger=PropertyChanged}"
+                                                                 local:SheetViewDraftBehavior.CommitDrafts="True"
+                                                                 AutomationProperties.Name="{Binding RowsAutomationName}" />
                                                     </StackPanel>
                                                     <TextBlock Text="{Binding RowsError}" IsVisible="{Binding HasRowsError}" TextWrapping="Wrap"
                                                                Foreground="{DynamicResource StateError}"
@@ -155,26 +156,27 @@
                                                         <TextBlock Text="範囲" VerticalAlignment="Center"
                                                                    Foreground="{DynamicResource TextSecondary}"
                                                                    FontSize="{DynamicResource CaptionFontSize}" />
-                                                        <TextBox Width="160" Watermark="例 A1:F30" Text="{Binding RangeText, UpdateSourceTrigger=LostFocus}"
-                                                                 local:TextBoxCommitBehavior.CommitOnEnter="True"
-                                                                 AutomationProperties.Name="読む範囲（A1 形式）"
+                                                        <TextBox Width="160" Watermark="例 A1:F30" Text="{Binding RangeDraft, UpdateSourceTrigger=PropertyChanged}"
+                                                                 local:SheetViewDraftBehavior.CommitDrafts="True"
+                                                                 AutomationProperties.Name="{Binding RangeAutomationName}"
                                                                  local:HelpTip.Standard="このシートで AI に渡す範囲を A1 形式で入力します（例 A1:F30、列だけの A:F、行だけの 3:10）。"
                                                                  local:HelpTip.Detailed="シート名は付けません。名前付き範囲は指定できません（A1:F30 のようにセルの範囲で入力してください）。使用範囲の外は読まず、上限（1 シートあたりの行数・列数）を超える分は切ります。入力が正しくないあいだは、そのシートの値は渡しません。" />
                                                     </StackPanel>
                                                     <TextBlock Text="{Binding RangeError}" IsVisible="{Binding HasRangeError}" TextWrapping="Wrap"
                                                                Foreground="{DynamicResource StateError}"
                                                                FontSize="{DynamicResource CaptionFontSize}"
-                                                               AutomationProperties.Name="範囲の入力の誤り" />
+                                                               AutomationProperties.Name="{Binding RangeErrorAutomationName}" />
                                                     <CheckBox Content="数式も含める" IsVisible="{Binding ShowFormulas}"
                                                               IsChecked="{Binding IncludeFormulas}"
                                                               FontSize="{DynamicResource CaptionFontSize}"
-                                                              AutomationProperties.Name="このシートの値に数式も含める"
+                                                              IsEnabled="{Binding IsSelectable}"
+                                                              AutomationProperties.Name="{Binding FormulasAutomationName}"
                                                               local:HelpTip.Standard="このシートの値に、セルの数式（=式 → 値）も含めます。既定はオフです。"
                                                               local:HelpTip.Detailed="数式を含めると、AI は参照先のシート名やセルの構造まで分かりますが、値と同じく中身（他のシートの名前など）が渡ります。" />
                                                     <TextBlock Text="{Binding NoteText}" IsVisible="{Binding HasNote}" TextWrapping="Wrap"
                                                                Foreground="{DynamicResource StateWarn}"
                                                                FontSize="{DynamicResource CaptionFontSize}"
-                                                               AutomationProperties.Name="このシートの取得結果の注記" />
+                                                               AutomationProperties.Name="{Binding NoteAutomationName}" />
                                                 </StackPanel>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>

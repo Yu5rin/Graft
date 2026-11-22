@@ -567,6 +567,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
 
     private async Task<ContextResult?> CollectAsync()
     {
+        // 入力欄に打っている途中の範囲・行数を、出力の前に確定する（LostFocus に頼らない。ブックの情報の入力欄の説明参照）。
+        await CommitPendingInputsAsync().ConfigureAwait(true);
+
         // Files先頭の「すべて」行（RootNode）はIsDirectory=trueのため、下の2つの
         // Where(f => f is { IsDirectory: false, ... })で自動的に対象外になる。ルートを
         // Filesへ混ぜるにあたってここは変更不要（Files.RootNodeのコメント参照）。

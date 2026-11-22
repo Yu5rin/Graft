@@ -34,6 +34,8 @@ public sealed partial class MainViewModel
             AllMaxRows = () => _settings.Vba.WorkbookInfoAllMaxRows,
             AllMaxColumns = () => _settings.Vba.WorkbookInfoAllMaxColumns,
             FetchAsync = (views, ct) => FetchVbaWorkbookInfoAsync(project, views, ct),
+            // いま紐付いているブック（一覧の最新）。収集のモデルが、取得と出力の直前に、取得に使ったブックと突き合わせる。
+            CurrentWorkbookFullName = () => CurrentVbaProject(project).Vba?.WorkbookFullName,
             // 値が渡る見せ方を選ぶ確認は、ボタンの文言と既定を指定できる選択ダイアログ（VbaChoiceWindow）で出す。
             ChooseAsync = ChooseVbaOptionAsync,
         };

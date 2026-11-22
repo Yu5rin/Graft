@@ -305,9 +305,14 @@ public class WorkbookInfoSheetViewTests
         r.Bridge.InfoRequests.Last().AllMaxRows.Should().Be(500);
         r.Bridge.InfoRequests.Last().AllMaxColumns.Should().Be(50);
         var text = await CollectedTextAsync(r).ConfigureAwait(true);
-        text.Should().Contain("対象は 1200 行・60 列ありますが、先頭の 500 行・50 列（A1:AX500）だけを出しています");
-        text.Should().Contain("「範囲を指定」").And.Contain("例 A501:AX1000");
-        text.Should().NotContain("| 501 | r501-1 |").And.NotContain("r1-51 ", "上限を超える行・列は読まない");
+        // 読む行数の上限（500 行）と、依頼文の文字数の上限が重なっても、注記は実際に出した行数とアドレスで言う（不具合 9）。
+        var shown = System.Text.RegularExpressions.Regex.Match(text, @"対象は 1200 行・60 列ありますが、先頭の (\d+) 行・50 列（A1:AX(\d+)）だけを出しています");
+        shown.Success.Should().BeTrue("読んだ行数ではなく、出した行数で書く");
+        shown.Groups[1].Value.Should().Be(shown.Groups[2].Value);
+        var shownRows = int.Parse(shown.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        shownRows.Should().BeInRange(1, 500);
+        text.Should().Contain("「範囲を指定」").And.Contain($"例 A{shownRows + 1}:AX{shownRows * 2}");
+        text.Should().NotContain($"| {shownRows + 1} | r{shownRows + 1}-1 |").And.NotContain("r1-51 ", "上限を超える行・列は読まない");
         Row(context, "Sheet1").NoteText.Should().Contain("1200 行・60 列のうち、500 行・50 列だけを渡しています").And.Contain("範囲を指定");
     }
 
@@ -656,8 +661,8 @@ public class WorkbookInfoSheetViewTests
         text.Should().Contain("SECRET-甲社").And.NotContain("SECRET-乙社").And.NotContain("| 設定 |");
     }
 
-    [AvaloniaFact(DisplayName = "記憶はシートのコード名に結び付く: 表示名を変えても外れない。消えたシートの記録は残るが画面には出ない")]
-    public async Task 表示名を変えても外れない()
+    [AvaloniaFact(DisplayName = "記憶はシートのコード名に結び付く: 表示名を変えると、値が渡る見せ方は構成だけに戻って再確認を求める（不具合 4）。「出さない」の記録は、消えたシートの分も残るが画面には出ない")]
+    public async Task 表示名を変えたら値の見せ方は戻る()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
@@ -676,12 +681,20 @@ public class WorkbookInfoSheetViewTests
         };
         await context.FetchWorkbookInfoAsync().ConfigureAwait(true);
 
+        // 表示名を変えただけなのか、別のシートが同じコード名になったのかは、記録からは区別できない。安全側（再確認）に倒す。
         Row(context, "Sheet1").Name.Should().Be("集計 2027");
-        Row(context, "Sheet1").SelectedMode.Mode.Should().Be(VbaSheetViewMode.HeaderRows, "表示名が変わっても、コード名で結び付いている");
-        context.BuildWorkbookInfoText().Should().Contain("### 集計 2027（Sheet1）: 見出し＋2 行");
+        Row(context, "Sheet1").SelectedMode.Mode.Should().Be(VbaSheetViewMode.StructureOnly, "表示名が食い違うので、値は確認なしでは渡さない");
+        context.BuildWorkbookInfoText().Should().NotContain("SECRET-甲社").And.NotContain("見出し＋");
+        context.WorkbookInfoWarning.Should().Contain("集計 2027").And.Contain("選び直してください");
         context.WorkbookInfo.Sheets.Select(s => s.CodeName).Should().Equal("Sheet1");
         (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSheetViews!.Select(v => v.CodeName)
-            .Should().BeEquivalentTo(new[] { "Sheet1", "Sheet2" }, "消えたシートの記録は残す");
+            .Should().Equal(new[] { "Sheet2" }, "値が渡る記録（Sheet1）は落とし、消えたシートの「出さない」の記録は残す");
+
+        // 選び直せば（確認のうえ）また渡せる。記録には新しい表示名が添えられる。
+        (await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true)).Should().BeTrue();
+        r.Choices.Should().HaveCount(2, "最初の選択と、選び直しの 2 回、確認が出た");
+        context.BuildWorkbookInfoText().Should().Contain("### 集計 2027（Sheet1）: 見出し＋2 行");
+        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSheetViews!.Single(v => v.CodeName == "Sheet1").SheetName.Should().Be("集計 2027");
     }
 
     [AvaloniaFact(DisplayName = "別のブックへ結び直したとき（実際の追加の経路）、値が渡る見せ方も出さないも戻り、確認をやり直す")]
