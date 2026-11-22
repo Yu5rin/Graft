@@ -153,6 +153,7 @@
                     文言は通常の文字色、押せる操作（「元に戻す」等）だけをリンクの見た目にする。
                 -->
                 <TextBlock Text="{Binding Graft.Notice.Text}"
+                           ToolTip.Tip="{Binding Graft.Notice.Text}"
                            Margin="12,0,0,0"
                            MaxWidth="460"
                            VerticalAlignment="Center"

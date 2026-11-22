@@ -143,4 +143,32 @@ public class ProjectVbaLinkTests
         reloaded.WorkbookInfoIncludeFormulas.Should().BeTrue();
         Graft.Core.Vba.VbaWorkbookInfoLevels.Parse("壊れた値").Should().Be(Graft.Core.Vba.VbaWorkbookInfoLevel.Full);
     }
+
+    [Fact(DisplayName = "保存時の自動反映（autoPushOnSave）を持たない既存の vba は、オフで読める。オンにすると往復する")]
+    public async Task 保存時の自動反映は既定オフで往復する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var root = ws.CreateDirectory("proj");
+        await File.WriteAllTextAsync(paths.ProjectsFilePath, $$"""
+            {
+              "projects": [
+                { "id": "p_000003", "name": "旧VBA", "root": "{{root.Replace("\\", "\\\\")}}",
+                  "vba": { "workbookFullName": "C:\\Work\\計画.xlsm" } }
+              ]
+            }
+            """);
+        var store = new ProjectStore(paths);
+
+        var old = (await store.LoadAsync()).Value.Should().ContainSingle().Subject;
+        old.Vba!.AutoPushOnSave.Should().BeFalse("既定はオフ（キーが無い既存の projects.json を、勝手にオンにしない）");
+
+        await store.SaveAsync(new[] { old with { Vba = old.Vba with { AutoPushOnSave = true } } });
+        var json = await File.ReadAllTextAsync(paths.ProjectsFilePath);
+        var reloaded = (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Subject.Vba!;
+
+        json.Should().Contain("\"autoPushOnSave\": true");
+        reloaded.AutoPushOnSave.Should().BeTrue();
+        reloaded.AutoPushAfterApply.Should().BeTrue("ほかの項目の既定は変わらない");
+    }
 }

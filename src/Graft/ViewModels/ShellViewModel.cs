@@ -72,6 +72,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // Excel VBA 連携（仕様書_VBA連携 7.6）: エディタ本文の右クリック「VBE でこの行を開く」。
         Editor.CanShowInVbe = Graft.ProjectPane.CanShowInVbe;
         Editor.ShowInVbeAsync = Graft.ProjectPane.ShowInVbeAsync;
+        // Excel VBA 連携の保存時の自動反映（仕様書_ブックの情報と依頼の観点 8.2）: 保存の通知（TabSaved）を購読するだけで、
+        // 保存の経路・DocumentSession には触れない。VBA でない・オフのプロジェクトでは、ハンドラは最初の判定で戻る。
+        Graft.AttachVbaSaveSync(Editor);
         QuickOpen = new QuickOpenViewModel();
         QuickOpen.FileOpenRequested += OnQuickOpenFileRequested;
         _settings = settings;
@@ -154,7 +157,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public IUiServices Ui => _ui;
 
     /// <summary>保持している破棄が必要な資源（ファイル監視）を解放する。</summary>
-    public void Dispose() => Explorer.Dispose();
+    public void Dispose()
+    {
+        Graft.DetachVbaSaveSync(Editor);
+        Explorer.Dispose();
+    }
 
     /// <summary>既存機能一式（プロジェクト・履歴・接ぎ木・キュー・プロンプト等）。</summary>
     public MainViewModel Graft { get; }

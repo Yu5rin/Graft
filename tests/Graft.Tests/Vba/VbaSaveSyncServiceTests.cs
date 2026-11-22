@@ -172,4 +172,26 @@ public class VbaSaveSyncServiceTests : VbaServiceFixture
         observed.Should().BeTrue();
         Service.IsWritingToExcel.Should().BeFalse();
     }
+
+    [Fact(DisplayName = "控えの掃除: 保存時の自動反映では間引く（30 秒に 1 回）。手動の反映は従来どおり毎回掃除する")]
+    public async Task 掃除は保存時だけ間引く()
+    {
+        var project = await ThreeModulesAsync();
+        Service.Rescue.MaxGenerations = 1;
+
+        // 保存時の自動反映を 3 回（時計は固定で、同じ 30 秒の中）。最初の 1 回だけ掃除が走るので、世代は上限を超えて残る。
+        for (var i = 1; i <= 3; i++)
+        {
+            File.WriteAllText(MirrorFile(Module1), $"Sub A()\r\n  x = {i}\r\nEnd Sub\r\n");
+            (await Service.PushSavedAsync(project, new[] { Module1 })).IsSuccess.Should().BeTrue();
+        }
+
+        RescueFileNames().Should().HaveCount(3, "掃除を間引いているので、上限（1 世代）を一時的に超えて残る");
+
+        // 手動の反映は毎回掃除するので、上限の 1 世代に収まる。
+        File.WriteAllText(MirrorFile(Module1), "Sub A()\r\n  x = 4\r\nEnd Sub\r\n");
+        (await Service.PushAsync(project, new[] { Module1 })).IsSuccess.Should().BeTrue();
+
+        RescueFileNames().Should().HaveCount(1);
+    }
 }

@@ -83,6 +83,14 @@ public sealed record VbaLink
     public bool SaveWorkbookAfterPush { get; init; }
 
     /// <summary>
+    /// 保存時の自動反映（機能 D。仕様書_ブックの情報と依頼の観点 8章）。オンのとき、エディタで VBA のミラー内の同期対象の
+    /// モジュールを保存すると、そのモジュールだけを Excel へ送る。<b>既定はオフ</b>: 保存のたびに Excel のコードが変わると、
+    /// VBE で同じモジュールを開いている利用者や、実行中のマクロに思わぬ影響が出うるため、利用者が選んでオンにする。
+    /// この項目が無い既存の projects.json は、オフで読める。
+    /// </summary>
+    public bool AutoPushOnSave { get; init; }
+
+    /// <summary>
     /// ブックの情報（仕様書_ブックの情報と依頼の観点 5章）の出し方。<c>"Full"</c>（内容も出す。既定）・
     /// <c>"StructureOnly"</c>（構成だけ）・<c>"Hidden"</c>（出さない）。<c>ProjectOverrides.ContextFileStates</c> と
     /// 同じく、列挙型ではなく名前の文字列で持つ。不明な文字列は <c>Full</c> として読む

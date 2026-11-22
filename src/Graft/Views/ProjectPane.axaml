@@ -182,6 +182,14 @@
                                   IsEnabled="{Binding IsVbaFeatureAvailable}"
                                   local:HelpTip.Standard="オンにすると、AI の回答を適用したあと、変わったモジュールを自動で Excel へ反映します。オフのときは、右クリックの「Excel へ反映」で手動で送ります。"
                                   AutomationProperties.Name="適用後に Excel へ自動反映する" />
+                        <!-- 機能 D（仕様書_ブックの情報と依頼の観点 8.1）: 保存時の自動反映。既定はオフ。 -->
+                        <MenuItem Header="保存したらそのモジュールを Excel へ反映する"
+                                  ToggleType="CheckBox"
+                                  IsChecked="{Binding IsAutoPushOnSaveChecked, Mode=TwoWay}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  IsEnabled="{Binding IsVbaFeatureAvailable}"
+                                  local:HelpTip.Standard="オンにすると、エディタで VBA のモジュールを保存したとき、そのモジュールだけを Excel へ反映します（続けて保存したときは 1 回にまとめます）。Excel 側と両方が変わっているとき（衝突）は送らず、プロジェクトの横に「衝突」と出します。既定はオフです。"
+                                  AutomationProperties.Name="保存したらそのモジュールを Excel へ反映する" />
                         <MenuItem Header="反映後にブックを保存する"
                                   ToggleType="CheckBox"
                                   IsChecked="{Binding IsSaveAfterPushChecked, Mode=TwoWay}"

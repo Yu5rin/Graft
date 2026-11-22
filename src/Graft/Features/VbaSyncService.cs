@@ -731,7 +731,7 @@ public sealed class VbaSyncService
         // だけで作業を止めるのは釣り合わないため。衝突の上書きだけは上で、書けなければ上書きしない。
         if (writes.Count > 0 && autoCopies.Count > 0)
         {
-            await KeepAutoCopiesAsync(project, autoCopies, writeSources, issues).ConfigureAwait(true);
+            await KeepAutoCopiesAsync(project, autoCopies, writeSources, issues, throttlePrune: narrowRead).ConfigureAwait(true);
         }
 
         if (writes.Count > 0)
@@ -822,14 +822,29 @@ public sealed class VbaSyncService
         return saved.Status == VbaRescueSaveStatus.Failed ? "!" + saved.Failure : saved.Path!;
     }
 
+    /// <summary>保存時の自動反映での、控えの掃除の最小の間隔。</summary>
+    private static readonly TimeSpan AutoPrunePeriod = TimeSpan.FromSeconds(30);
+
+    // プロジェクト Id → 最後に掃除した時刻（保存時の自動反映の間引き用。メモリだけ。ゲートの中でしか触らない）。
+    private readonly Dictionary<string, DateTimeOffset> _lastAutoPrune = new(StringComparer.Ordinal);
+
     /// <summary>
     /// 反映前の自動控えを書く（仕様書_ブックの情報と依頼の観点 7.2）。同じモジュールの最新の自動控えと本文が同じなら書かない。
     /// 書けなかったモジュールは、E816（警告）にして反映は続ける。書いたあとに、世代数・容量の掃除をする
     /// （掃除の失敗は反映の結果に影響させず、ログに残すだけ）。
     /// </summary>
+    /// <param name="throttlePrune">
+    /// true なら、掃除（控えのフォルダの走査と削除）を <see cref="AutoPrunePeriod"/> に 1 回までに間引く（保存時の自動反映用）。
+    /// <para>
+    /// 【間引く理由】 保存時の自動反映は、保存のたびに反映するので、反映のたびに控えのフォルダ全体を走査すると、
+    /// 控えが数百件溜まったフォルダで、保存のたびにディレクトリ走査とファイルサイズの取得が走る。控えの世代数・容量の上限は
+    /// 「溜まりすぎない」ための目安で、数十秒のあいだ少し超えても実害が無い（超過分は次の掃除でまとめて消える）。
+    /// 一方で手動の反映は、頻度が低く、上限どおりに保たれることを優先して毎回掃除する（従来どおり）。
+    /// </para>
+    /// </param>
     private async Task KeepAutoCopiesAsync(
         Project project, List<(VbaModulePlan Plan, string ExcelCode)> copies,
-        Dictionary<string, (VbaModulePlan Plan, string Text)> writeSources, List<GraftIssue> issues)
+        Dictionary<string, (VbaModulePlan Plan, string Text)> writeSources, List<GraftIssue> issues, bool throttlePrune = false)
     {
         var wroteAny = false;
         foreach (var (plan, excelCode) in copies)
@@ -850,6 +865,13 @@ public sealed class VbaSyncService
         }
 
         if (!wroteAny) return;
+        if (throttlePrune)
+        {
+            var now = _clock();
+            if (_lastAutoPrune.TryGetValue(project.Id, out var last) && now - last < AutoPrunePeriod) return;
+            _lastAutoPrune[project.Id] = now;
+        }
+
         try
         {
             await Rescue.PruneCoreAsync(project).ConfigureAwait(true);
