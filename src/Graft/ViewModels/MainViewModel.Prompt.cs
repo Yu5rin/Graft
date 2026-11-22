@@ -152,6 +152,10 @@ public sealed partial class MainViewModel
             _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings, _ui);
         PromptCopy.AppendSelectedFilesChangeCommitted += OnAppendSelectedFilesChangeCommitted;
         PromptCopy.Notify = text => Notice.Show(text);
+        // 依頼の観点: プロジェクトを開いた時点で、保存済みの選択（と自作の観点）を読み込んでおく。
+        // ドロップダウンや窓を開くたびにも読み直すが、開く前にチップの状態を確定させておけば、
+        // 最初の描画で「前回の選択」が見える。失敗しても依頼文の作成は止めない（ReloadFocusAsync内で記録のみ）。
+        _ = ContextCollect.ReloadFocusAsync();
         OnPropertyChanged(nameof(ContextCollect));
         OnPropertyChanged(nameof(PromptCopy));
     }

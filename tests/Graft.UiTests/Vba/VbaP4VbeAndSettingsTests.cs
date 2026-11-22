@@ -209,7 +209,7 @@ public class VbaP4VbeAndSettingsTests : IDisposable
         }
     }
 
-    [AvaloniaFact(DisplayName = "設定パネル: 使える環境では中身が出て案内は出ない。設定画面のタブは13個目に「VBA 連携」がある")]
+    [AvaloniaFact(DisplayName = "設定パネル: 使える環境では中身が出て案内は出ない。設定画面のタブは14個（依頼の観点のタブを足した）あり、「VBA 連携」もある")]
     public async Task 使える環境ではパネルの中身が出る()
     {
         var vm = new SettingsViewModel(NewAppPaths(), new NullDialogService(), new AvaloniaUiServices()) { VbaSupportProbe = () => true };
@@ -235,8 +235,9 @@ public class VbaP4VbeAndSettingsTests : IDisposable
         {
             Dispatcher.UIThread.RunJobs();
             var tabs = settings.GetVisualDescendants().OfType<TabControl>().First(t => t.Name == "CategoryTabControl");
-            tabs.Items.OfType<TabItem>().Should().HaveCount(13);
-            tabs.Items.OfType<TabItem>().Select(t => t.Header).Should().Contain("VBA 連携");
+            // 13個だったところへ、依頼の観点のタブ（仕様書_ブックの情報と依頼の観点 6.6。14個目）が加わった。
+            tabs.Items.OfType<TabItem>().Should().HaveCount(14);
+            tabs.Items.OfType<TabItem>().Select(t => t.Header).Should().Contain("VBA 連携").And.Contain("依頼の観点");
         }
         finally
         {

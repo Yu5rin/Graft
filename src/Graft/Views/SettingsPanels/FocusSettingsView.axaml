@@ -1,0 +1,138 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:views="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.SettingsPanels.FocusSettingsView"
+             x:Name="Root"
+             AutomationProperties.Name="依頼の観点の設定">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://Graft/Views/SettingsPanels/SettingsPanelStyles.axaml" />
+    </UserControl.Styles>
+    <!--
+        「依頼の観点」タブ（仕様書_ブックの情報と依頼の観点 6.6）。依頼文のテンプレートのタブ
+        （TemplateSettingsView）と同じ作り: 左に一覧、右に編集欄、下にボタン。
+        このUserControl自身のDataContextは（TabItem経由で）SettingsViewModelを継承するため、
+        内側のGridで {Binding Focuses}（PromptFocusSettingsViewModel）へ明示的に設定し直す。
+
+        ・組み込みの観点は編集も削除もできない（編集欄は読み取り専用、保存・削除は押せない）。
+          手を加えたいときは「複製」で自分用の観点に写してから編集する。
+        ・指示文に {{ が含まれているときは、変数は使えない旨を編集欄の下に出す。
+    -->
+    <Grid DataContext="{Binding Focuses}" Margin="16,8" RowDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="依頼の観点" Classes="sectionHeading first" />
+            <TextBlock Classes="settingHint"
+                       Text="依頼文のコピーと「AIに渡すファイルを選ぶ」画面に並ぶチップ（観点）の一覧です。選んだ観点の指示文が依頼文に入ります。組み込みの観点は編集できません。「複製」で自分用の観点にしてから編集してください。" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" MinHeight="300" ColumnDefinitions="260,Auto,*">
+
+            <ListBox Grid.Column="0" ItemsSource="{Binding Focuses}" SelectedItem="{Binding SelectedFocus}"
+                     AutomationProperties.Name="観点一覧"
+                     views:HelpTip.Standard="登録されている依頼の観点の一覧です。選ぶと右側に内容が表示されます。組み込みの観点は編集できません。"
+                     views:HelpTip.Detailed="Graftが最初から用意している観点（組み込み）と、自分で足した観点の一覧です。選ぶと右側に名前・見出し・指示文などが表示されます。組み込みの観点は読み取り専用で、編集も削除もできません。手を加えたいときは下の「複製」で自分用の観点を作ってから編集してください。">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="vm:FocusEntry">
+                        <Grid AutomationProperties.Name="{Binding Name}" ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Foreground="{DynamicResource TextSecondary}"
+                                       FontSize="{DynamicResource CaptionFontSize}" Margin="8,0,0,0"
+                                       Text="{Binding GroupLabel}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" Background="Transparent" />
+
+            <ScrollViewer Grid.Column="2" Margin="8,0,0,0" VerticalScrollBarVisibility="Auto"
+                          DataContext="{Binding SelectedFocus}"
+                          IsVisible="{Binding Converter={x:Static views:Converters.NotNull}}">
+                <StackPanel Spacing="8" Margin="0,0,8,0">
+                    <TextBox Text="{Binding Name}" IsReadOnly="{Binding !IsEditable}"
+                             Watermark="観点の名前（チップに出る短い名前）"
+                             AutomationProperties.Name="観点の名前"
+                             views:HelpTip.Standard="チップに出る短い名前です。組み込みの観点は変更できません。"
+                             views:HelpTip.Detailed="依頼文のコピーや「AIに渡すファイルを選ぶ」画面のチップに出る、短い名前です。自分で足した観点は自由に変えられます。組み込みの観点は読み取り専用です。変更後は下の「保存」を押すまで確定しません。" />
+
+                    <Grid ColumnDefinitions="Auto,*" >
+                        <TextBlock Grid.Column="0" Text="見出し" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <ComboBox Grid.Column="1" Classes="medium" HorizontalAlignment="Left"
+                                  ItemsSource="{Binding DataContext.Focuses.GroupChoices, ElementName=Root}"
+                                  SelectedItem="{Binding Group}"
+                                  IsEnabled="{Binding IsEditable}"
+                                  AutomationProperties.Name="観点の見出し"
+                                  views:HelpTip.Standard="チップをまとめる見出しです。「自分用」は一覧の末尾に出ます。「VBA」は VBA 専用の観点でだけ選べます。"
+                                  views:HelpTip.Detailed="チップを並べるときの見出し（きれいに・正しく・品質・デザイン・VBA・自分用）を選びます。見出しの並び順が、そのまま依頼文に観点を並べるときの優先順位になります。「VBA」は VBA プロジェクトのときだけ表示される見出しで、下の「VBA プロジェクトのときだけ出す」にチェックを入れた観点でだけ選べます。" />
+                    </Grid>
+
+                    <TextBox Text="{Binding Tooltip}" IsReadOnly="{Binding !IsEditable}"
+                             Watermark="一言の説明（マウスを乗せたときに出る文）"
+                             AutomationProperties.Name="観点のツールチップ"
+                             views:HelpTip.Standard="チップにマウスを乗せたときに出る一言の説明です。"
+                             views:HelpTip.Detailed="チップにマウスを乗せたときに出る、一言の説明です。AIへ渡す文ではなく、利用者がチップの意味を思い出すための文です。空のときはチップの名前が出ます。" />
+
+                    <TextBlock Text="指示文（AIへ渡す文）" FontSize="{DynamicResource CaptionFontSize}"
+                               Foreground="{DynamicResource TextSecondary}" />
+                    <TextBox Text="{Binding Body}" IsReadOnly="{Binding !IsEditable}"
+                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="150" MaxHeight="260"
+                             FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             AutomationProperties.Name="観点の指示文"
+                             views:HelpTip.Standard="この観点を選んだとき依頼文に入る指示文です。先頭は「## 名前」の見出しにします（無ければ保存時に補います）。"
+                             views:HelpTip.Detailed="チップを選ぶと、依頼文の「# 依頼の観点」の中にこの文が入ります。先頭は「## 名前」の見出しから始めてください（見出しが無いときは、保存時に名前から補います）。組み込みの観点は読み取り専用です。この文の中では変数（{{files}} など）は展開されません。" />
+                    <TextBlock Text="この文では変数（{{files}} など）は使えません。書いたまま依頼文に入ります。"
+                               Classes="settingHint"
+                               Foreground="{DynamicResource StateWarn}"
+                               IsVisible="{Binding HasVariableWarning}"
+                               AutomationProperties.Name="変数が使えない旨の注意" />
+
+                    <TextBlock Text="VBA プロジェクトのときだけ足す追記（箇条書き）" FontSize="{DynamicResource CaptionFontSize}"
+                               Foreground="{DynamicResource TextSecondary}" />
+                    <TextBox Text="{Binding VbaAddendum}" IsReadOnly="{Binding !IsEditable}"
+                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="140"
+                             FontFamily="{DynamicResource CodeFontFamily}" FontSize="{DynamicResource CodeFontSize}"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             AutomationProperties.Name="観点のVBA追記"
+                             views:HelpTip.Standard="VBA プロジェクトで選んだときだけ、指示文の末尾に続けて入る箇条書きです。"
+                             views:HelpTip.Detailed="VBA プロジェクトでこの観点を選んだときだけ、上の指示文の末尾に見出しなしの箇条書きとして続けて入る文です。VBA 特有の注意（Option Explicit、Select に頼らないなど）を足したいときに使います。VBA でないプロジェクトでは入りません。" />
+
+                    <CheckBox Content="VBA プロジェクトのときだけ出す" IsChecked="{Binding VbaOnly}"
+                              IsEnabled="{Binding IsEditable}"
+                              AutomationProperties.Name="VBAプロジェクトのときだけ出す"
+                              views:HelpTip.Standard="オンにすると、この観点のチップは VBA プロジェクトでだけ表示されます。"
+                              views:HelpTip.Detailed="オンにすると、この観点のチップは Excel VBA のプロジェクトを開いているときだけ表示され、依頼文にも入ります。VBA 以外のプロジェクトには出しません。見出しに「VBA」を選ぶときはオンにしてください。" />
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="保存"
+                                Command="{Binding DataContext.Focuses.SaveEditCommand, ElementName=Root}"
+                                IsEnabled="{Binding IsEditable}"
+                                Margin="0,0,8,0" AutomationProperties.Name="観点を保存"
+                                views:HelpTip.Standard="上で編集した内容をこの観点へ保存します。"
+                                views:HelpTip.Detailed="名前・見出し・ツールチップ・指示文・VBA追記の変更を確定して focus.json に保存します。押すまでは編集中の内容です。組み込みの観点は編集できないため、このボタンは押せません。" />
+                        <Button Content="削除"
+                                Command="{Binding DataContext.Focuses.DeleteCommand, ElementName=Root}"
+                                IsEnabled="{Binding IsEditable}"
+                                Margin="0,0,8,0" AutomationProperties.Name="観点を削除"
+                                views:HelpTip.Standard="この観点を一覧から削除します。元に戻せません。"
+                                views:HelpTip.Detailed="選んでいる自作の観点を一覧から削除します。確認のダイアログが出ます。この観点を選んでいたプロジェクトでは、次に開いたときに選択から黙って外れます。組み込みの観点は削除できないため、このボタンは押せません。" />
+                    </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+            <Button Content="観点を追加" Command="{Binding AddCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="観点を追加"
+                    views:HelpTip.Standard="名前だけを決めて、自分用の観点を新しく1件作ります。"
+                    views:HelpTip.Detailed="観点の名前を入力すると、見出し「自分用」の新しい観点が一覧の末尾に加わります。右側で指示文を書いて「保存」を押すと使えるようになります。既存の観点を土台にしたいときは「複製」が便利です。" />
+            <Button Content="複製" Command="{Binding DuplicateCommand}" Margin="0,0,8,0"
+                    AutomationProperties.Name="観点を複製"
+                    views:HelpTip.Standard="選んでいる観点を、自分用の観点としてコピーします。組み込みの観点もコピーできます。"
+                    views:HelpTip.Detailed="選んでいる観点（組み込みでも自作でも）を、名前に「（複製）」を足した自作の観点としてコピーします。組み込みの観点は編集できないので、指示文を自分の言い回しへ直したいときは、複製してから編集します。" />
+            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondary}" Margin="8,0,0,0" />
+        </StackPanel>
+    </Grid>
+</UserControl>

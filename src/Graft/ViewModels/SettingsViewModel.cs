@@ -214,6 +214,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         InitializeUpdateFeature(appPaths, externalLinks, releaseFeed, updateDownloader, checksumFileSource);
 
         Templates = new PromptTemplateViewModel(appPaths, projectStore, dialogService, _settings, ui);
+        Focuses = new PromptFocusSettingsViewModel(appPaths, dialogService);
         TokenStats = new TokenStatisticsViewModel(appPaths, projectStore);
         Hooks = new HookSettingsViewModel(projectStore, dialogService);
         ValidationIssues = new ObservableCollection<GraftIssue>();
@@ -255,6 +256,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     public Logger? Logger { get; set; }
 
     public PromptTemplateViewModel Templates { get; }
+
+    /// <summary>「依頼の観点」タブ（仕様書_ブックの情報と依頼の観点 6.6）。</summary>
+    public PromptFocusSettingsViewModel Focuses { get; }
     public TokenStatisticsViewModel TokenStats { get; }
     public HookSettingsViewModel Hooks { get; }
     public ObservableCollection<GraftIssue> ValidationIssues { get; }
@@ -628,6 +632,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         await LoadAsync(ct).ConfigureAwait(true);
         await Templates.InitializeAsync(ct).ConfigureAwait(true);
+        await Focuses.InitializeAsync(ct).ConfigureAwait(true);
         await TokenStats.LoadProjectsAsync(ct).ConfigureAwait(true);
         await Hooks.InitializeAsync(ct).ConfigureAwait(true);
         // 機能追加（v1.0.11）: 「バージョン情報」タブの「最終確認」表示の初期値。

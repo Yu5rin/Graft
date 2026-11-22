@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Graft.ViewModels"
+             xmlns:local="clr-namespace:Graft.Views"
+             x:Class="Graft.Views.PromptFocusPanel"
+             AutomationProperties.Name="依頼の観点">
+    <!--
+        依頼の観点（チップ）のパネル。仕様書_ブックの情報と依頼の観点 6.2。
+        依頼文コピーのドロップダウン（ShellWindow）とコンテキスト収集の窓（ContextCollectWindow）の
+        両方に、同じ部品を置く。DataContextは ContextCollectViewModel.Focus（両者で同じインスタンス）なので、
+        片方で選べばもう片方にも反映される。
+
+        ・見出し（きれいに／正しく／品質／デザイン／VBA）ごとに、チップを折り返しで最初からすべて並べる
+          （折りたたまない）。VBA の見出しは VBA プロジェクトのときだけ ViewModel が含める。
+        ・チップは ToggleButton（複数選べる）。選択中は枠をアクセント色にして、色だけに頼らず
+          「枠の色＋塗り」で区別する（Themes/Controls.axaml の ToggleButton と同じ）。
+        ・AIへ渡す指示文は画面に出さない。マウスを乗せると一言の説明（HelpTip）だけが出る。
+        ・既定は何も選ばない。
+    -->
+    <StackPanel Spacing="6">
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="{Binding HeaderText}"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" Content="すべて解除"
+                    Classes="subtle"
+                    Padding="8,0" MinHeight="22"
+                    FontSize="{DynamicResource CaptionFontSize}"
+                    Command="{Binding ClearAllCommand}"
+                    AutomationProperties.Name="依頼の観点をすべて解除"
+                    local:HelpTip.Standard="選んでいる依頼の観点をすべて外します。何も選ばない状態では、依頼文に観点は入りません。"
+                    local:HelpTip.Detailed="選んでいる依頼の観点をまとめて外し、依頼文を従来どおり（観点なし）に戻します。選び直したいときや、今回は観点を付けずに頼みたいときに使います。何も選んでいないときは押せません。" />
+        </Grid>
+
+        <ItemsControl ItemsSource="{Binding Groups}" AutomationProperties.Name="依頼の観点の一覧">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:PromptFocusGroupViewModel">
+                    <Grid ColumnDefinitions="64,*" Margin="0,0,0,4">
+                        <TextBlock Grid.Column="0" Text="{Binding Title}"
+                                   FontSize="{DynamicResource CaptionFontSize}"
+                                   Foreground="{DynamicResource TextSecondary}"
+                                   VerticalAlignment="Top" Margin="0,4,0,0" />
+                        <ItemsControl Grid.Column="1" ItemsSource="{Binding Chips}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="vm:PromptFocusChipViewModel">
+                                    <ToggleButton Content="{Binding Name}"
+                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                  Padding="8,0" MinHeight="22" Margin="0,0,4,4"
+                                                  FontSize="{DynamicResource CaptionFontSize}"
+                                                  AutomationProperties.Name="{Binding AutomationName}"
+                                                  local:HelpTip.Standard="{Binding TooltipOrName}"
+                                                  local:HelpTip.Detailed="{Binding TooltipOrName}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>
