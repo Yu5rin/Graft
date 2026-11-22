@@ -177,8 +177,8 @@ public static class VbaRibbonPackageReader
             return new VbaRibbonReadResult(VbaRibbonReadStatus.Ok, null, parts, modified);
         }
 
-        var reasons = string.Join(" ", parts.Select(p => $"{p.PartName}: {p.Problem}"));
-        return new VbaRibbonReadResult(VbaRibbonReadStatus.PartsUnreadable, $"リボン（customUI）の部品を読めません。{reasons}", parts, modified);
+        var reasons = string.Join("、", parts.Select(p => $"{p.PartName}: {(p.Problem ?? string.Empty).TrimEnd('。')}"));
+        return new VbaRibbonReadResult(VbaRibbonReadStatus.PartsUnreadable, $"部品を読めません（{reasons}）", parts, modified);
     }
 
     /// <summary>

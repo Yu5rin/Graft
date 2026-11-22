@@ -32,7 +32,8 @@ public static class VbaRibbonCollector
         string workbookPath, string mirrorRoot, VbaRibbonLimits? limits = null, CancellationToken ct = default)
     {
         limits ??= new VbaRibbonLimits();
-        var name = Path.GetFileName(workbookPath);
+        // Windows のパス（\ 区切り）が来ても、ファイル名だけにする（区切りを先にそろえるので、Linux のテストでも同じ結果になる）。
+        var name = Path.GetFileName(workbookPath.Replace('\\', '/'));
 
         // ファイルの読み取りと zip の展開は、ブックが大きいと時間がかかりうる。UI スレッドを塞がないよう、スレッドプールへ逃がす。
         var read = await Task.Run(() => VbaRibbonPackageReader.Read(workbookPath, limits), ct).ConfigureAwait(false);
@@ -48,10 +49,10 @@ public static class VbaRibbonCollector
         var usable = parts.Where(p => p.IsUsable).ToArray();
         if (usable.Length == 0)
         {
-            var reasons = string.Join(" ", parts.Select(p => $"{p.Raw.PartName}: {p.Problem}"));
+            var reasons = string.Join("、", parts.Select(p => $"{p.Raw.PartName}: {(p.Problem ?? string.Empty).TrimEnd('。')}"));
             return new VbaRibbonSnapshot(
                 name, workbookPath, now, read.FileModified, VbaRibbonReadStatus.PartsUnreadable,
-                $"リボン（customUI）の部品を読めません。{reasons}",
+                $"部品を読めません（{reasons}）",
                 parts, Array.Empty<VbaRibbonCallbackCheck>());
         }
 
@@ -62,7 +63,7 @@ public static class VbaRibbonCollector
         var unusable = parts.Where(p => !p.IsUsable).ToArray();
         var reason = unusable.Length == 0
             ? null
-            : "一部の部品は読めませんでした（" + string.Join(" ", unusable.Select(p => $"{p.Raw.PartName}: {p.Problem}")) + "）";
+            : "一部の部品は読めませんでした（" + string.Join("、", unusable.Select(p => $"{p.Raw.PartName}: {(p.Problem ?? string.Empty).TrimEnd('。')}")) + "）";
         return new VbaRibbonSnapshot(
             name, workbookPath, now, read.FileModified, VbaRibbonReadStatus.Ok, reason, parts, checks);
     }

@@ -66,6 +66,11 @@ public sealed class PromptTemplateRenderer
     /// 仕様書6.3の「<c>{{workbook}}</c> があるときは、その直前に置く」は、括弧内の並び（ブックの情報 → 観点）と
     /// 文面が食い違う。並びを優先して、<c>{{workbook}}</c> と <c>{{focus}}</c> が無いテンプレートで観点を置く位置を
     /// <c>{{workbook}}</c> の直後にした。
+    ///
+    /// 【リボン（<see cref="ContextRequest.RibbonText"/>・<c>{{ribbon}}</c>）】仕様書15.6。並びは
+    /// 「前提 → ブックの情報 → リボン → 観点 → 対象ファイル」。3つ目が増えたので、片方だけ変数があるときの寄せ方を
+    /// 場合分けにせず1つの規則にした（変数の無い文は、並びの上で最も近い手前の変数の文の後ろ、無ければ最も近い後ろの
+    /// 変数の文の前へ寄せる）。リボンが空のときの結果は、この規則を足す前と同じ（1バイトも変わらない）。
     /// </summary>
     public async Task<GraftResult<string>> RenderAsync(
         PromptTemplate template, ContextRequest request, string? lastRevisionSummary, CancellationToken ct = default,

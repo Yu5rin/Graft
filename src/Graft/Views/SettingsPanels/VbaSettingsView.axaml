@@ -216,7 +216,7 @@
                 </Grid>
 
                 <TextBlock Text="プロジェクトごとの設定" Classes="sectionHeading" />
-                <TextBlock Text="「適用後に Excel へ自動反映する」と「反映後にブックを保存する」は、プロジェクト一覧で VBA プロジェクトを右クリックして切り替えます。ブックの情報の出し方と値の見本は、「ファイルを選ぶ」画面の「ブックの情報」の行で切り替えます。"
+                <TextBlock Text="「適用後に Excel へ自動反映する」と「反映後にブックを保存する」は、プロジェクト一覧で VBA プロジェクトを右クリックして切り替えます。ブックの情報・リボン（customUI）の出し方と、シートの値の見せ方は、「ファイルを選ぶ」画面の「ブックの情報」「リボン（customUI）」の行で切り替えます。"
                            Classes="settingHint" TextWrapping="Wrap" />
             </StackPanel>
         </StackPanel>
