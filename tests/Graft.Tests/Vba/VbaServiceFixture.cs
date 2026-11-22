@@ -73,11 +73,26 @@ public abstract class VbaServiceFixture : IDisposable
     protected async Task<VbaSyncState> StateAsync()
         => (await States.LoadAsync(NewProject().Id, Book)).Value;
 
-    protected IReadOnlyList<string> RescueTexts()
+    /// <summary>控えのファイル名の一覧（<c>-auto</c> などの種別つきの名前のまま）。</summary>
+    protected IReadOnlyList<string> RescueFileNames()
     {
         var directory = Paths.GetVbaRescueDirectory(NewProject().Id);
         return Directory.Exists(directory)
-            ? Directory.GetFiles(directory).Select(File.ReadAllText).ToList()
+            ? Directory.GetFiles(directory).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToList()!
+            : Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// 控えの本文の一覧。反映前の自動控え（<c>-auto</c>）は通常の反映のたびに残るので、従来の控え（衝突の上書き前・書き戻し失敗）
+    /// だけを見たいテストのために、<paramref name="includeAuto"/> が false なら自動控えを除く。
+    /// </summary>
+    protected IReadOnlyList<string> RescueTexts(bool includeAuto = false)
+    {
+        var directory = Paths.GetVbaRescueDirectory(NewProject().Id);
+        return Directory.Exists(directory)
+            ? Directory.GetFiles(directory)
+                .Where(f => includeAuto || VbaRescueNaming.Parse(Path.GetFileName(f))?.Kind != VbaRescueKind.Auto)
+                .Select(File.ReadAllText).ToList()
             : Array.Empty<string>();
     }
 }

@@ -55,6 +55,8 @@ public class VbaSettingsPreservationTests : IDisposable
         WorkbookInfoMaxColumns = 50,
         WorkbookInfoMaxCellChars = 120,
         WorkbookInfoMaxChars = 40000,
+        RescueMaxGenerations = 42,
+        RescueMaxTotalMB = 90,
     };
 
     [AvaloniaFact(DisplayName = "設定画面で別の項目を保存しても、Vba の値は保たれる（BuildSettingsFromFields の往復）")]

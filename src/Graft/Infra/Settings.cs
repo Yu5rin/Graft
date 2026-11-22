@@ -182,6 +182,16 @@ public sealed record VbaSettings
 
     /// <summary>ブックの情報の出力全体の最大文字数（超えたら見本から順に落とす）。範囲 2000〜100000。</summary>
     public int WorkbookInfoMaxChars { get; init; } = 20000;
+
+    /// <summary>
+    /// 1 モジュールあたりの自動控え（反映前の控えと、戻す前のミラーの控え）の世代数。範囲 1〜200。
+    /// 超えた古い方から自動で消す。衝突の上書き前などの従来の控え（<c>Legacy</c>）は数えず、消さない
+    /// （仕様書_ブックの情報と依頼の観点 7.3）。
+    /// </summary>
+    public int RescueMaxGenerations { get; init; } = 20;
+
+    /// <summary>控え全体（従来の控えを含む）の容量（MB）。範囲 5〜1000。超えたら自動控えを古い順に消す（同 7.3）。</summary>
+    public int RescueMaxTotalMB { get; init; } = 50;
 }
 
 /// <summary>

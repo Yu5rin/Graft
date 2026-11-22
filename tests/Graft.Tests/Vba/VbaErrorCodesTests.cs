@@ -5,7 +5,7 @@ using Xunit;
 namespace Graft.Tests.Vba;
 
 /// <summary>
-/// E801〜E815（Excel VBA 連携。docs/仕様書_VBA連携.md 9章）の登録の確認。
+/// E801〜E816（Excel VBA 連携。docs/仕様書_VBA連携.md 9章）の登録の確認。
 /// 全コードの登録漏れ検出そのものは <see cref="ErrorCatalogTests"/> が担う。ここでは「仕様の14件が
 /// 揃っていること」と、見出し・対処の中身が仕様の意図どおりであることを固定する。
 /// </summary>
@@ -14,11 +14,11 @@ public class VbaErrorCodesTests
     private static readonly ErrorCode[] VbaCodes =
     {
         ErrorCode.E801, ErrorCode.E802, ErrorCode.E803, ErrorCode.E804, ErrorCode.E805, ErrorCode.E806, ErrorCode.E807,
-        ErrorCode.E808, ErrorCode.E809, ErrorCode.E810, ErrorCode.E811, ErrorCode.E812, ErrorCode.E813, ErrorCode.E814, ErrorCode.E815,
+        ErrorCode.E808, ErrorCode.E809, ErrorCode.E810, ErrorCode.E811, ErrorCode.E812, ErrorCode.E813, ErrorCode.E814, ErrorCode.E815, ErrorCode.E816,
     };
 
-    [Fact(DisplayName = "E8xx は E801〜E815 の 15 件ちょうどで、すべて見出しと対処が空でない")]
-    public void 十五件が揃っている()
+    [Fact(DisplayName = "E8xx は E801〜E816 の 16 件ちょうどで、すべて見出しと対処が空でない")]
+    public void 十六件が揃っている()
     {
         var all = Enum.GetValues<ErrorCode>().Where(c => c.ToString().StartsWith("E8", StringComparison.Ordinal)).ToArray();
 
@@ -44,6 +44,7 @@ public class VbaErrorCodesTests
     [InlineData(ErrorCode.E813, "マクロの実行中または中断中です")]
     [InlineData(ErrorCode.E814, "VBA プロジェクトでは、ファイルの削除・名前変更を適用できません")]
     [InlineData(ErrorCode.E815, "ブックの情報を一部読めませんでした")]
+    [InlineData(ErrorCode.E816, "控えを保存できませんでした")]
     public void 見出し(ErrorCode code, string summary)
     {
         ErrorCatalog.SummaryOf(code).Should().Be(summary);
@@ -82,6 +83,15 @@ public class VbaErrorCodesTests
 
         remedy.Should().Contain("トラストセンター").And.Contain("VBA プロジェクト オブジェクト モデルへのアクセスを信頼する");
         remedy.Should().Contain("書き換えること");
+    }
+
+    [Fact(DisplayName = "E816（控えを保存できなかった）の対処は、空き容量と権限の確認、反映は続けたこと・戻していないことを伝える")]
+    public void E816の案内()
+    {
+        var remedy = ErrorCatalog.RemedyOf(ErrorCode.E816);
+
+        remedy.Should().Contain("空き容量").And.Contain("権限");
+        remedy.Should().Contain("反映はそのまま続けました").And.Contain("戻していません");
     }
 
     [Fact(DisplayName = "E706 の実際の文言（「この環境では使えない機能です」）が NullVbaBridge の失敗で使われる前提と一致する")]

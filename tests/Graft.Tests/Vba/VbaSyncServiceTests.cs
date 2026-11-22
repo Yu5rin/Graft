@@ -460,7 +460,9 @@ public class VbaSyncServiceTests : IDisposable
         var push = await _service.PushAsync(project);
 
         var issue = push.Issues.Single(i => i.Code == ErrorCode.E809);
-        var rescue = Directory.GetFiles(_paths.GetVbaRescueDirectory(project.Id));
+        // 反映前の自動控え（-auto）とは別に、書き戻し失敗の控え（従来の控え。自動では消さない）が残る。
+        var rescue = Directory.GetFiles(_paths.GetVbaRescueDirectory(project.Id))
+            .Where(f => VbaRescueNaming.Parse(Path.GetFileName(f))?.Kind == VbaRescueKind.Legacy).ToArray();
         rescue.Should().ContainSingle().Which.Should().Contain("Module1-20261121-100000");
         File.ReadAllText(rescue[0]).Should().Be("orig body");
         issue.Detail.Should().Contain(rescue[0]);

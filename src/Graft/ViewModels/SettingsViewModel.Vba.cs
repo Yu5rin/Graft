@@ -26,6 +26,8 @@ public sealed partial class SettingsViewModel
     private string _vbaWorkbookInfoMaxColumnsText = "30";
     private string _vbaWorkbookInfoMaxCellCharsText = "60";
     private string _vbaWorkbookInfoMaxCharsText = "20000";
+    private string _vbaRescueMaxGenerationsText = "20";
+    private string _vbaRescueMaxTotalMBText = "50";
 
     /// <summary>
     /// この環境で VBA 連携が使えるかを調べる窓口。既定は <c>PlatformServices.Current.Vba</c>（Windows 以外では Null 実装で false）。
@@ -75,6 +77,12 @@ public sealed partial class SettingsViewModel
     /// <summary>ブックの情報の出力全体の最大文字数（<c>Vba.WorkbookInfoMaxChars</c>）。範囲 2000〜100000。</summary>
     public string VbaWorkbookInfoMaxCharsText { get => _vbaWorkbookInfoMaxCharsText; set => SetEditableProperty(ref _vbaWorkbookInfoMaxCharsText, value); }
 
+    /// <summary>1 モジュールあたりの自動控えの世代数（<c>Vba.RescueMaxGenerations</c>）。範囲 1〜200。</summary>
+    public string VbaRescueMaxGenerationsText { get => _vbaRescueMaxGenerationsText; set => SetEditableProperty(ref _vbaRescueMaxGenerationsText, value); }
+
+    /// <summary>控え全体の容量（MB。<c>Vba.RescueMaxTotalMB</c>）。範囲 5〜1000。</summary>
+    public string VbaRescueMaxTotalMBText { get => _vbaRescueMaxTotalMBText; set => SetEditableProperty(ref _vbaRescueMaxTotalMBText, value); }
+
     /// <summary>読み込んだ設定を編集用プロパティへ映す（<c>PopulateEditableFields</c> から呼ぶ）。</summary>
     private void PopulateVbaFields(Settings s)
     {
@@ -89,6 +97,8 @@ public sealed partial class SettingsViewModel
         VbaWorkbookInfoMaxColumnsText = vba.WorkbookInfoMaxColumns.ToString(CultureInfo.InvariantCulture);
         VbaWorkbookInfoMaxCellCharsText = vba.WorkbookInfoMaxCellChars.ToString(CultureInfo.InvariantCulture);
         VbaWorkbookInfoMaxCharsText = vba.WorkbookInfoMaxChars.ToString(CultureInfo.InvariantCulture);
+        VbaRescueMaxGenerationsText = vba.RescueMaxGenerations.ToString(CultureInfo.InvariantCulture);
+        VbaRescueMaxTotalMBText = vba.RescueMaxTotalMB.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>編集用プロパティから <see cref="VbaSettings"/> を組み立てる（<c>BuildSettingsFromFields</c> から呼ぶ）。</summary>
@@ -104,5 +114,7 @@ public sealed partial class SettingsViewModel
         WorkbookInfoMaxColumns = ParseInt(_vbaWorkbookInfoMaxColumnsText),
         WorkbookInfoMaxCellChars = ParseInt(_vbaWorkbookInfoMaxCellCharsText),
         WorkbookInfoMaxChars = ParseInt(_vbaWorkbookInfoMaxCharsText),
+        RescueMaxGenerations = ParseInt(_vbaRescueMaxGenerationsText),
+        RescueMaxTotalMB = ParseInt(_vbaRescueMaxTotalMBText),
     };
 }

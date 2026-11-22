@@ -142,6 +142,36 @@
                              views:HelpTip.Detailed="シートや名前が多いブックで、依頼文が大きくなりすぎないようにする上限です。超えるときは、値の見本、先頭行の見出し、参照設定、名前付き範囲、テーブルの列名、テーブル、シートの順に（構成ほど後まで残して）省き、末尾に「（長いため一部を省略しました）」と添えます。既定は20000文字、範囲は2000〜100000です（範囲外は既定値に戻ります）。" />
                 </Grid>
 
+                <TextBlock Text="Excel 側の控え" Classes="sectionHeading" />
+                <TextBlock Text="「Excel へ反映」で Excel 側が上書きされる直前の本文を、毎回控えとして残します。プロジェクトの右クリック「Excel 側の控えを見る…」で、一覧・差分の確認と、ミラーへの取り込み（戻す）ができます。控えは履歴には記録されません。"
+                           Classes="settingHint indented" TextWrapping="Wrap" />
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="控えの世代数（1〜200）" Classes="settingLabel" />
+                        <TextBlock Text="1 つのモジュールについて残す、反映前の自動控えと戻す前のミラーの控えの数です。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaRescueMaxGenerationsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="控えの世代数"
+                             views:HelpTip.Minimal="{Binding VbaRescueMaxGenerationsText, StringFormat='控えの世代数: {0}'}"
+                             views:HelpTip.Standard="1 つのモジュールについて残す自動控えの数です。既定は20世代です。"
+                             views:HelpTip.Detailed="反映のたびに、上書きされる前の Excel 側の本文を残します（前回と同じ内容なら増やしません）。この数を超えた古いものから自動で消します。衝突で「Graft 側で上書き」を選んだ直前などの控えは、利用者の VBE での編集を救う最後の控えなので、自動では消しません。既定は20、範囲は1〜200です（範囲外は既定値に戻ります）。" />
+                </Grid>
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="控え全体の容量（MB。5〜1000）" Classes="settingLabel" />
+                        <TextBlock Text="超えたら、自動控えを古い順に消します。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaRescueMaxTotalMBText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="控え全体の容量"
+                             views:HelpTip.Minimal="{Binding VbaRescueMaxTotalMBText, StringFormat='控え全体の容量: {0} MB'}"
+                             views:HelpTip.Standard="1 つのプロジェクトの控え全体の容量の上限です。既定は50MBです。"
+                             views:HelpTip.Detailed="プロジェクトごとの控えのフォルダ全体の大きさの上限です。超えたら、自動控えを古い順に消します（各モジュールの最新の自動控えは残します）。従来の控え（衝突の上書き前など）は自動では消しませんが、容量には数えます。既定は50、範囲は5〜1000です（範囲外は既定値に戻ります）。" />
+                </Grid>
+
                 <TextBlock Text="プロジェクトごとの設定" Classes="sectionHeading" />
                 <TextBlock Text="「適用後に Excel へ自動反映する」と「反映後にブックを保存する」は、プロジェクト一覧で VBA プロジェクトを右クリックして切り替えます。ブックの情報の出し方と値の見本は、「ファイルを選ぶ」画面の「ブックの情報」の行で切り替えます。"
                            Classes="settingHint" TextWrapping="Wrap" />

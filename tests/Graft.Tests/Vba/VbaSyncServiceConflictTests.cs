@@ -137,7 +137,7 @@ public class VbaSyncServiceConflictTests : IDisposable
         _bridge.Calls.Should().NotContain(c => c.StartsWith("Write:") && c.Contains("Conf"));
     }
 
-    [Fact(DisplayName = "Graft 側で上書き: 衝突でないモジュールを名指ししても、通常の Push と同じ（控えは作らない）")]
+    [Fact(DisplayName = "Graft 側で上書き: 衝突でないモジュールを名指ししても、通常の Push と同じ（従来の控えは作らず、反映前の自動控えだけが残る）")]
     public async Task 衝突でなければ控えを作らない()
     {
         var project = await ConflictingProjectAsync();
@@ -146,7 +146,8 @@ public class VbaSyncServiceConflictTests : IDisposable
         var push = await _service.PushAsync(project, new[] { "Modules/Fine.bas" }, overwriteConflicts: new[] { "Modules/Fine.bas" });
 
         push.Value.Pushed.Should().Equal("Modules/Fine.bas");
-        Directory.Exists(_paths.GetVbaRescueDirectory(project.Id)).Should().BeFalse();
+        Directory.GetFiles(_paths.GetVbaRescueDirectory(project.Id)).Select(Path.GetFileName)
+            .Should().Equal("Fine-20261121-100000-auto.txt");
     }
 
     [Fact(DisplayName = "検査: 何も書かずに、取り込むもの・反映するもの・衝突を分けて返す")]

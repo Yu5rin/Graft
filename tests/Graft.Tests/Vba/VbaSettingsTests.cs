@@ -40,6 +40,61 @@ public class VbaSettingsTests
         vba.WorkbookInfoMaxChars.Should().Be(20000);
     }
 
+    [Fact(DisplayName = "控えの既定値: 1 モジュール 20 世代・全体 50MB")]
+    public void 控えの既定値()
+    {
+        var vba = new Settings().Vba;
+
+        vba.RescueMaxGenerations.Should().Be(20);
+        vba.RescueMaxTotalMB.Should().Be(50);
+    }
+
+    [Fact(DisplayName = "控えの 2 項目は JSON の往復で保たれる（camelCase）。このキーの無い旧形式は既定値で読める")]
+    public async Task 控えの往復()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        var store = new SettingsStore(paths);
+        var custom = new VbaSettings { RescueMaxGenerations = 50, RescueMaxTotalMB = 200 };
+
+        await store.SaveAsync(new Settings { Vba = custom });
+        var json = await File.ReadAllTextAsync(paths.SettingsFilePath);
+        var loaded = await store.LoadAsync();
+
+        json.Should().Contain("\"rescueMaxGenerations\": 50").And.Contain("\"rescueMaxTotalMB\": 200");
+        loaded.Value.Vba.Should().Be(custom);
+        loaded.Issues.Should().BeEmpty();
+
+        await File.WriteAllTextAsync(paths.SettingsFilePath, "{ \"vba\": { \"comTimeoutMs\": 7000 } }");
+        var old = await store.LoadAsync();
+        old.Value.Vba.RescueMaxGenerations.Should().Be(20);
+        old.Value.Vba.RescueMaxTotalMB.Should().Be(50);
+        old.Issues.Should().BeEmpty();
+    }
+
+    [Theory(DisplayName = "控えの数値は範囲外なら既定値に戻り、E404 の警告が付く（世代 1〜200・容量 5〜1000）。境界は有効")]
+    [InlineData("rescueMaxGenerations", 0, 20, true)]
+    [InlineData("rescueMaxGenerations", 201, 20, true)]
+    [InlineData("rescueMaxGenerations", 1, 1, false)]
+    [InlineData("rescueMaxGenerations", 200, 200, false)]
+    [InlineData("rescueMaxTotalMB", 4, 50, true)]
+    [InlineData("rescueMaxTotalMB", 1001, 50, true)]
+    [InlineData("rescueMaxTotalMB", 5, 5, false)]
+    [InlineData("rescueMaxTotalMB", 1000, 1000, false)]
+    public async Task 控えの範囲(string key, int value, int expected, bool warns)
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        await File.WriteAllTextAsync(paths.SettingsFilePath, $"{{ \"vba\": {{ \"{key}\": {value} }} }}");
+
+        var loaded = await new SettingsStore(paths).LoadAsync();
+
+        var actual = key == "rescueMaxGenerations" ? loaded.Value.Vba.RescueMaxGenerations : loaded.Value.Vba.RescueMaxTotalMB;
+        actual.Should().Be(expected);
+        if (warns) loaded.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail!.Contains("vba." + key));
+        else loaded.Issues.Should().BeEmpty();
+    }
+
     [Fact(DisplayName = "ブックの情報の項目は JSON の往復で保たれる（camelCase）。このキーの無い旧形式は既定値で読める")]
     public async Task ブックの情報の往復()
     {
@@ -49,7 +104,7 @@ public class VbaSettingsTests
         var custom = new VbaSettings
         {
             CollectWorkbookInfo = false, WorkbookInfoSampleRows = 12, WorkbookInfoMaxColumns = 50,
-            WorkbookInfoMaxCellChars = 120, WorkbookInfoMaxChars = 40000,
+            WorkbookInfoMaxCellChars = 120, WorkbookInfoMaxChars = 40000, RescueMaxGenerations = 33, RescueMaxTotalMB = 77,
         };
 
         await store.SaveAsync(new Settings { Vba = custom });

@@ -123,10 +123,30 @@ public sealed class VbaSyncService
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _trash = trash;
         _clock = clock ?? (() => DateTimeOffset.Now);
+        // 控え（仕様書_ブックの情報と依頼の観点 7章）。ミラーへ書くときに Push・Pull と同じゲートで直列にするため、
+        // このサービスのゲートを渡す。
+        Rescue = new VbaRescueService(paths, states, _clock, _gate);
     }
 
+    /// <summary>
+    /// Excel 側の控え（<c>.rescue/</c>）の窓口。反映前の自動控え（<see cref="PushAsync"/> が自動で残す）の一覧・差分・
+    /// ミラーへの取り込み・掃除を担う。世代数・容量の設定（<c>Vba.RescueMaxGenerations</c>・<c>Vba.RescueMaxTotalMB</c>）は
+    /// <c>MainViewModel</c> がここへ渡す。
+    /// </summary>
+    public VbaRescueService Rescue { get; }
+
+    private Logger? _logger;
+
     /// <summary>Pull や Push を記録する窓口（<c>MainViewModel</c> が渡す）。</summary>
-    public Logger? Logger { get; set; }
+    public Logger? Logger
+    {
+        get => _logger;
+        set
+        {
+            _logger = value;
+            Rescue.Logger = value;
+        }
+    }
 
     /// <summary>この環境で機能が使えるか（<see cref="IVbaBridge.IsSupported"/>）。</summary>
     public bool IsSupported => _bridge.IsSupported;
@@ -565,6 +585,8 @@ public sealed class VbaSyncService
         var failed = new List<string>();
         var writes = new List<VbaComponentWrite>();
         var writeSources = new Dictionary<string, (VbaModulePlan Plan, string Text)>(StringComparer.OrdinalIgnoreCase);
+        // 反映前の自動控え（7.2）。上書きされる各モジュールの、いま Excel にある本文。
+        var autoCopies = new List<(VbaModulePlan Plan, string ExcelCode)>();
 
         foreach (var module in work.Plan.Modules.Where(m => m.Action is VbaSyncAction.Push or VbaSyncAction.PushCreate
                      || (m.Action == VbaSyncAction.Conflict && overwrite is not null && overwrite.Contains(m.RelativePath))))
@@ -627,6 +649,13 @@ public sealed class VbaSyncService
                 Logger?.Info("vba-push", $"Excel 側の本文が前回の同期から変わっているため、上書きの前に控えを残しました（{kept}）: {module.RelativePath}",
                     targetPath: Path.Combine(project.Root, module.RelativePath));
             }
+            else if (module.Action == VbaSyncAction.Push && work.Excel.TryGetValue(module.RelativePath, out var overwritten))
+            {
+                // 通常の反映: 上書きされる前の Excel 側の本文を、毎回自動控えにする。本文は計画のために既に読んである
+                // ものを使う（追加の COM 呼び出しはしない）。上の 2 つの分岐は従来の控え（Legacy）をすでに残しているので、
+                // 同じ内容を重ねて作らない。PushCreate は残す本文が無いので対象外。
+                autoCopies.Add((module, overwritten.Code));
+            }
 
             writes.Add(new VbaComponentWrite(
                 module.Component, module.Kind,
@@ -655,6 +684,15 @@ public sealed class VbaSyncService
         var created = new List<string>();
         var mayBeBroken = new List<string>();
         var saved = false;
+
+        // 【全モジュールの控えを書き終えてから Excel へ書く】 書き始めたあとに控えを書くと、途中の失敗で
+        // 上書き済みのモジュールだけ控えが無くなる。控えを書けなくても反映は止めない（E816 は警告）: 通常の反映では
+        // Excel 側の本文は直前の同期と同じことがほとんどで（変わっていれば衝突として別に止まる）、控えを書けない
+        // だけで作業を止めるのは釣り合わないため。衝突の上書きだけは上で、書けなければ上書きしない。
+        if (writes.Count > 0 && autoCopies.Count > 0)
+        {
+            await KeepAutoCopiesAsync(project, autoCopies, writeSources, issues).ConfigureAwait(true);
+        }
 
         if (writes.Count > 0)
         {
@@ -740,23 +778,45 @@ public sealed class VbaSyncService
     /// </summary>
     private async Task<string> KeepRescueCopyAsync(Project project, string component, string code)
     {
+        var saved = await Rescue.SaveAsync(project, component, code, VbaRescueKind.Legacy).ConfigureAwait(true);
+        return saved.Status == VbaRescueSaveStatus.Failed ? "!" + saved.Failure : saved.Path!;
+    }
+
+    /// <summary>
+    /// 反映前の自動控えを書く（仕様書_ブックの情報と依頼の観点 7.2）。同じモジュールの最新の自動控えと本文が同じなら書かない。
+    /// 書けなかったモジュールは、E816（警告）にして反映は続ける。書いたあとに、世代数・容量の掃除をする
+    /// （掃除の失敗は反映の結果に影響させず、ログに残すだけ）。
+    /// </summary>
+    private async Task KeepAutoCopiesAsync(
+        Project project, List<(VbaModulePlan Plan, string ExcelCode)> copies,
+        Dictionary<string, (VbaModulePlan Plan, string Text)> writeSources, List<GraftIssue> issues)
+    {
+        var wroteAny = false;
+        foreach (var (plan, excelCode) in copies)
+        {
+            // E811 などで書かないモジュールは、上書きされないので控えも要らない。
+            if (!writeSources.ContainsKey(plan.Component)) continue;
+
+            var saved = await Rescue.SaveAsync(project, plan.Component, excelCode, VbaRescueKind.Auto, skipIfSameAsLatestAuto: true)
+                .ConfigureAwait(true);
+            if (saved.Status == VbaRescueSaveStatus.Saved) wroteAny = true;
+            if (saved.Status != VbaRescueSaveStatus.Failed) continue;
+
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E816,
+                $"{plan.RelativePath}: 反映前の Excel 側の本文を控えに保存できませんでした（反映は続けました）。{saved.Failure} 控えの保存先: {Rescue.DirectoryOf(project)}",
+                path: plan.RelativePath,
+                severity: Severity.Warning));
+        }
+
+        if (!wroteAny) return;
         try
         {
-            var directory = _paths.GetVbaRescueDirectory(project.Id);
-            Directory.CreateDirectory(directory);
-            var fileName = VbaRescueNaming.BuildFileName(component, _clock());
-            var path = Path.Combine(directory, fileName);
-            for (var n = 2; File.Exists(path); n++)
-            {
-                path = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(fileName)}_{n}.txt");
-            }
-
-            await File.WriteAllTextAsync(path, code, Utf8NoBom).ConfigureAwait(true);
-            return path;
+            await Rescue.PruneCoreAsync(project).ConfigureAwait(true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return "!" + ExceptionMessages.Describe(ex);
+            Logger?.Warn("vba-rescue", $"控えの掃除に失敗しました: {ExceptionMessages.Describe(ex)}");
         }
     }
 
@@ -1079,7 +1139,7 @@ public sealed class VbaSyncService
     /// <see cref="TextShape"/> をそのまま渡す）。新規は <see cref="WriteNewMirrorFileAsync"/> の形。
     /// <c>NewFileEncoding</c> などの設定は使わない（Shift_JIS や BOM 付きになりうるため）。
     /// </summary>
-    private static async Task<GraftResult<bool>> WriteMirrorFileAsync(
+    internal static async Task<GraftResult<bool>> WriteMirrorFileAsync(
         string root, string relative, string code, CancellationToken ct)
     {
         var full = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
