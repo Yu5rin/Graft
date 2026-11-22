@@ -148,8 +148,14 @@ public static class VbaSyncPlanner
         var component = m?.Component ?? e?.Component ?? r!.Component;
 
         VbaModulePlan Make(VbaSyncAction action, VbaModuleState? baseline = null,
-            VbaSyncNotice notice = VbaSyncNotice.None, GraftIssue? issue = null)
-            => new(key, kind, component, action, baseline, notice, issue);
+            VbaSyncNotice notice = VbaSyncNotice.None, GraftIssue? issue = null,
+            VbaConflictReason reason = VbaConflictReason.BothChanged)
+            => new(key, kind, component, action, baseline, notice, issue, reason);
+
+        // 衝突の理由。Excel 側が空でミラー側が空でないなら、それを先に伝える（取り込むとミラーが 0 行になるため）。
+        VbaConflictReason ReasonOf() => e is { IsEmpty: true } && m is { IsEmpty: false }
+            ? VbaConflictReason.ExcelEmpty
+            : VbaConflictReason.BothChanged;
 
         VbaModulePlan NotCreatable() => Make(VbaSyncAction.NotCreatable, issue: GraftIssue.Of(
             ErrorCode.E808,
@@ -165,7 +171,7 @@ public static class VbaSyncPlanner
                 // 本文が同じなら基準を作るだけ。違えば初回の食い違いとして衝突にする。
                 return SameBody(m, e)
                     ? Make(VbaSyncAction.Rebaseline, NewBaseline(m, e, e.Caption, now))
-                    : Make(VbaSyncAction.Conflict);
+                    : Make(VbaSyncAction.Conflict, reason: ReasonOf());
             }
 
             if (m is not null)
@@ -189,6 +195,18 @@ public static class VbaSyncPlanner
         }
 
         var mirrorChanged = !string.Equals(m.Hash, r.MirrorHash, StringComparison.Ordinal);
+
+        // 【要確認のモジュールは、ハッシュを見ずに衝突にする】 書き戻しに失敗したモジュールは、Excel 側の本文が実態と
+        // 違うかもしれず、基準のハッシュで「どちらが変わったか」を決められない。自動で取り込むとミラーを壊れた本文で
+        // 上書きし、自動で反映すると Excel 側の壊れた状態を確かめないまま上書きする。どちらもせず、利用者に選んでもらう。
+        // ただし両側の本文が実質同じなら守るものが無いので、基準を作り直して要確認を外す。Excel 側にモジュールが
+        // 無いときは、書いて困る本文が Excel に無いので通常どおり（下の e is null の枝）。
+        if (r.NeedsReview && e is not null)
+        {
+            return SameBody(m, e)
+                ? Make(VbaSyncAction.Rebaseline, NewBaseline(m, e, e.Caption ?? r.Caption, now))
+                : Make(VbaSyncAction.Conflict, reason: VbaConflictReason.NeedsReview);
+        }
 
         if (e is null)
         {
@@ -236,12 +254,21 @@ public static class VbaSyncPlanner
         }
 
         if (mirrorChanged && !excelChanged) return Make(VbaSyncAction.Push);
-        if (!mirrorChanged) return Make(VbaSyncAction.Pull);
+        if (!mirrorChanged)
+        {
+            // 【空の Excel は黙って取り込まず、衝突にする】 取り込むとミラーが 0 行になる。実機で、書き込みに失敗した
+            // あとの自動取込がミラーを 0 行にした。Excel 側が本当に空だったのか、利用者が VBE で消したのかは分からない
+            // ので、どちらを残すかは利用者に選んでもらう（手動の取込でも同じ衝突画面で確認になる）。
+            // ミラーも空なら（ハッシュが同じはずで Pull にならないが）失うものが無いので、通常どおり。
+            return e.IsEmpty && !m.IsEmpty
+                ? Make(VbaSyncAction.Conflict, reason: VbaConflictReason.ExcelEmpty)
+                : Make(VbaSyncAction.Pull);
+        }
 
         // 両方変わっている。実質同じ本文なら基準だけ更新し、違えば衝突。
         return SameBody(m, e)
             ? Make(VbaSyncAction.Rebaseline, NewBaseline(m, e, e.Caption ?? r.Caption, now))
-            : Make(VbaSyncAction.Conflict);
+            : Make(VbaSyncAction.Conflict, reason: ReasonOf());
     }
 
     private static bool SameBody(VbaMirrorModule m, VbaExcelModule e)

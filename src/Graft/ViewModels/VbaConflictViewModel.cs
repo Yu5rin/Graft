@@ -115,9 +115,33 @@ public sealed class VbaConflictViewModel : ObservableObject
     };
 
     /// <summary>見出しの補足（選択肢の意味と、控えの場所）。</summary>
-    public string GuideText => _request.CanAdoptExcel
+    public string GuideText => (_request.CanAdoptExcel
         ? "「Graft 側で上書き」は、Excel 側の本文を控えに残してから Graft の内容で置き換えます。「Excel 側を採用」は、Graft 側のファイルを Excel の内容で置き換えます。"
-        : "「Graft 側で上書き」は、Excel 側の本文を控えに残してから Graft の内容で置き換えます。「反映しない」は、ファイルの変更を残し、Excel には未反映の印を付けます。";
+        : "「Graft 側で上書き」は、Excel 側の本文を控えに残してから Graft の内容で置き換えます。「反映しない」は、ファイルの変更を残し、Excel には未反映の印を付けます。")
+        + ReasonGuide;
+
+    /// <summary>
+    /// 両側の変更ではない理由（Excel 側が空・要確認）で衝突しているモジュールがあるときの補足。理由を伏せたまま
+    /// 「両方が変更されている」と読ませると、空の Excel を採用してミラーを空にする判断を、気付かずにさせてしまう。
+    /// </summary>
+    private string ReasonGuide
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (_request.Items.Any(i => i.Reason == VbaConflictReason.ExcelEmpty))
+            {
+                parts.Add("Excel 側が空（0 行）のモジュールがあります。「Excel 側を採用」を選ぶと、Graft 側のファイルも空になります。");
+            }
+
+            if (_request.Items.Any(i => i.Reason == VbaConflictReason.NeedsReview))
+            {
+                parts.Add("前回の書き込みで Excel 側を元に戻せなかった「要確認」のモジュールがあります。VBE で内容を確かめてから選んでください。");
+            }
+
+            return parts.Count == 0 ? string.Empty : " " + string.Join(" ", parts);
+        }
+    }
 
     /// <summary>差分の見方。</summary>
     public string DiffCaptionText => "左: Excel 側 / 右: Graft 側（ミラー）";

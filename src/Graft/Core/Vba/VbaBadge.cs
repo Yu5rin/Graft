@@ -44,15 +44,20 @@ public static class VbaBadgeLogic
     /// 起動をまたいで残さない（メモリだけの印。次に同じモジュールが衝突なしで反映できたら消える）。既定は 0 で、
     /// 既存の呼び出しと表示は変わらない。
     /// </param>
+    /// <param name="needsReviewCount">
+    /// 要確認（書き戻しに失敗したままの）モジュール数。同期状態に残るので、起動をまたいで出る。既定は 0 で、既存の表示は変わらない。
+    /// </param>
     public static VbaBadgeState Compute(
-        bool isSupported, bool isEnabled, bool? workbookOpen, int unpushedCount, int deletePendingCount, int saveConflictCount = 0)
+        bool isSupported, bool isEnabled, bool? workbookOpen, int unpushedCount, int deletePendingCount, int saveConflictCount = 0,
+        int needsReviewCount = 0)
     {
         if (!isSupported) return VbaBadgeState.Hidden;
 
         var unpushed = Math.Max(0, unpushedCount);
         var pending = Math.Max(0, deletePendingCount);
         var conflicts = Math.Max(0, saveConflictCount);
-        var status = BuildStatusText(unpushed, pending, conflicts);
+        var review = Math.Max(0, needsReviewCount);
+        var status = BuildStatusText(unpushed, pending, conflicts, review);
 
         if (!isEnabled)
         {
@@ -72,17 +77,24 @@ public static class VbaBadgeLogic
             // 衝突は、保存のたびにダイアログを出さない代わりに、ここへ印だけ残す。解決は手動の「Excel へ反映」の衝突画面で行う。
             lines.Add($"保存時の自動反映をしなかった衝突: {conflicts} 件（右クリックの「Excel へ反映」で、どちらを残すか選べます）");
         }
+        if (review > 0)
+        {
+            lines.Add(
+                $"要確認のモジュール: {review} 件（前回の書き込みで Excel 側を元に戻せませんでした。VBE で内容を確かめ、" +
+                "右クリックの「Excel から取込」「Excel へ反映」で、どちらを残すか選んでください。控えは .rescue/ にあります）");
+        }
         if (lines.Count == 0) lines.Add("Excel VBA プロジェクトです。");
 
         return new VbaBadgeState(true, "VBA", workbookOpen == false, status, string.Join(Environment.NewLine, lines));
     }
 
-    private static string BuildStatusText(int unpushed, int pending, int conflicts)
+    private static string BuildStatusText(int unpushed, int pending, int conflicts, int review)
     {
         var parts = new List<string>();
         if (unpushed > 0) parts.Add($"未反映 {unpushed}");
         if (pending > 0) parts.Add($"削除保留 {pending}");
         if (conflicts > 0) parts.Add($"衝突 {conflicts}");
+        if (review > 0) parts.Add($"要確認 {review}");
         return string.Join("・", parts);
     }
 }

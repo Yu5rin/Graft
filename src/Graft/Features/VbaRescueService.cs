@@ -502,6 +502,8 @@ public sealed class VbaRescueService
                 (backupPath is null ? "" : $"（戻す前のミラーの控え: {Path.GetFileName(backupPath)}）") + $": {relative}",
                 targetPath: full);
 
+            await ClearNeedsReviewAsync(project, relative, ct).ConfigureAwait(true);
+
             // 戻す前のミラーの控えが増えたので、世代数・容量を守る。失敗しても戻した結果には影響させない。
             try
             {
@@ -519,6 +521,31 @@ public sealed class VbaRescueService
         finally
         {
             _gate?.Release();
+        }
+    }
+
+    /// <summary>
+    /// 控えからミラーへ戻したモジュールの「要確認」の印を外す（<see cref="VbaModuleState.NeedsReview"/>）。
+    /// <para>
+    /// 【外す理由】 要確認は、書き戻しに失敗したモジュールの控え（<c>.rescue/</c>）が手元にある状態で付く。利用者がその控えを
+    /// ミラーへ戻したなら、失敗の前の本文を自分で選んで取り戻したことになり、これ以上守る必要が無い。ほかの項目（同期基準の
+    /// ハッシュ）は触らない（この操作は同期基準を変えない決まり）ので、戻した本文は次の計画で通常どおり比べられる。
+    /// 印を外せなくても戻した結果は変えない（印が残るだけで、安全側）。
+    /// </para>
+    /// </summary>
+    private async Task ClearNeedsReviewAsync(Project project, string relative, CancellationToken ct)
+    {
+        if (project.Vba is not { } link) return;
+        try
+        {
+            var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(true);
+            if (!loaded.IsSuccess || !loaded.Value.Modules.TryGetValue(relative, out var record) || !record.NeedsReview) return;
+            await _states.SaveAsync(project.Id, loaded.Value.WithModule(relative, record with { NeedsReview = false }), ct)
+                .ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.Warn("vba-rescue", $"「要確認」の印を外せませんでした: {ExceptionMessages.Describe(ex)}");
         }
     }
 

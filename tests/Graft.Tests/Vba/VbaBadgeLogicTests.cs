@@ -120,4 +120,15 @@ public class VbaBadgeLogicTests
             .Should().Be(VbaBadgeLogic.Compute(true, true, true, 3, 1));
         VbaBadgeLogic.Compute(true, true, true, 0, 0, saveConflictCount: -1).StatusText.Should().BeEmpty("負の値は 0 として扱う");
     }
+
+    [Fact(DisplayName = "要確認: 件数が 0 を超えると『要確認 N』が補足に出て、ツールチップに説明が付く。0 なら従来の表示のまま")]
+    public void 要確認の表示()
+    {
+        var badge = VbaBadgeLogic.Compute(true, true, true, 1, 0, 0, needsReviewCount: 2);
+
+        badge.StatusText.Should().Be("未反映 1・要確認 2");
+        badge.Tooltip.Should().Contain("要確認のモジュール: 2 件");
+
+        VbaBadgeLogic.Compute(true, true, true, 1, 0).StatusText.Should().Be("未反映 1");
+    }
 }

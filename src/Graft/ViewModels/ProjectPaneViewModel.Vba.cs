@@ -294,7 +294,7 @@ public sealed partial class ProjectPaneViewModel
     // 「VBA」バッジ（7.6）
     // ------------------------------------------------------------------
 
-    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen);
+    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen, int NeedsReview = 0);
 
     // プロジェクト Id → 最後に調べた結果。LoadAsync で一覧が作り直されても、ちらつかずに同じ見た目を保つため。
     private readonly Dictionary<string, VbaBadgeCacheEntry> _vbaBadgeCache = new(StringComparer.Ordinal);
@@ -358,7 +358,7 @@ public sealed partial class ProjectPaneViewModel
         _vbaBadgeCache.TryGetValue(project.Id, out var entry);
         return VbaBadgeLogic.Compute(
             true, _isVbaEnabled(), entry?.WorkbookOpen, entry?.Unpushed ?? 0, entry?.DeletePending ?? 0,
-            VbaSaveConflictCount(project.Id));
+            VbaSaveConflictCount(project.Id), entry?.NeedsReview ?? 0);
     }
 
     /// <summary>保持している結果から、すべての行のバッジを描き直す（Excel には触れない）。</summary>
@@ -423,7 +423,10 @@ public sealed partial class ProjectPaneViewModel
             foreach (var project in targets)
             {
                 _vbaBadgeCache.TryGetValue(project.Id, out var previous);
-                var status = new VbaLocalStatus(previous?.Unpushed ?? 0, previous?.DeletePending ?? 0);
+                var status = new VbaLocalStatus(previous?.Unpushed ?? 0, previous?.DeletePending ?? 0)
+                {
+                    NeedsReviewCount = previous?.NeedsReview ?? 0,
+                };
                 if (Directory.Exists(project.Root))
                 {
                     try
@@ -442,7 +445,7 @@ public sealed partial class ProjectPaneViewModel
                     isOpen = open.Any(w => VbaRotNames.SamePath(w.FullName, project.Vba!.WorkbookFullName));
                 }
 
-                _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(status.UnpushedCount, status.DeletePendingCount, isOpen);
+                _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(status.UnpushedCount, status.DeletePendingCount, isOpen, status.NeedsReviewCount);
 
                 // 【衝突の印は、未反映のモジュールにだけ残す】 衝突しているモジュールは、ミラーが同期基準と違う
                 // （＝未反映）ままである。「Excel 側を採用」「Graft 側で上書き」で解決する、別の手段で取り込む、
