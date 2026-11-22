@@ -244,6 +244,86 @@ public class ContextCollectLayoutTests : IDisposable
     }
 
     // ------------------------------------------------------------------
+    // 不具合 7: 幅の切り替えで、フォーカスと入力途中の値を失わない（1.2.2）
+    // ------------------------------------------------------------------
+
+    /// <summary>範囲の入力欄（行ごとに作られる。見せ方が「範囲を指定」でない行のものは隠れている）のうち、見えているもの。</summary>
+    private static TextBox VisibleRangeBox(ContextCollectWindow window)
+        => window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Watermark == "例 A1:F30" && t.IsEffectivelyVisible);
+
+    private static void AssertFocusOnRangeBox(ContextCollectWindow window, VbaSheetViewRowViewModel row)
+    {
+        var focused = window.FocusManager!.GetFocusedElement().Should().BeOfType<TextBox>("フォーカスが入力欄に戻っている").Subject;
+        focused.Watermark.Should().Be("例 A1:F30");
+        focused.DataContext.Should().BeSameAs(row, "同じシートの行の入力欄");
+        focused.IsEffectivelyVisible.Should().BeTrue("入力欄が窓の中に見えている");
+        focused.Text.Should().Be("B2:");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 7: 広い窓で範囲欄に「B2:」と打っている途中に窓を狭めても、フォーカスは同じ入力欄に残り、「ブックの情報」タブが選ばれ、途中の値は確定されない（修正前はフォーカスが消え、誤りとして確定された）")]
+    public async Task 入力中に狭めてもフォーカスと下書きが残る()
+    {
+        var (rig, context) = await VbaAsync().ConfigureAwait(true);
+        using var _ = rig;
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.Range).ConfigureAwait(true);
+        var window = await OpenAsync(_windows, context, 960, 720).ConfigureAwait(true);
+        var box = VisibleRangeBox(window);
+        var row = (VbaSheetViewRowViewModel)box.DataContext!;
+        box.Focus();
+        box.Text = "B2:";
+        Dispatcher.UIThread.RunJobs();
+        window.FocusManager!.GetFocusedElement().Should().BeSameAs(box, "前提: 入力欄にフォーカスがある");
+
+        await ResizeAsync(window, context, 760, 720).ConfigureAwait(true);
+
+        // 付け替えで行の部品は作り直される（元の入力欄は木に戻らない）。同じ行・同じ種類の入力欄にフォーカスが戻っていること。
+        AssertFocusOnRangeBox(window, row);
+        window.FindControl<TabControl>("MainTabs")!.SelectedItem.Should().BeSameAs(Tab(window, "ブックの情報"), "入力欄が見えるよう、「ブックの情報」タブを選ぶ");
+        row.RangeDraft.Should().Be("B2:", "下書きのまま残る");
+        row.HasRowsError.Should().BeFalse("入力途中の値を、誤りとして確定していない");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 7: 狭い窓の「ブックの情報」タブで入力している途中に窓を広げても、フォーカスは同じ入力欄に残り、途中の値は確定されない")]
+    public async Task 入力中に広げてもフォーカスと下書きが残る()
+    {
+        var (rig, context) = await VbaAsync().ConfigureAwait(true);
+        using var _ = rig;
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.Range).ConfigureAwait(true);
+        var window = await OpenAsync(_windows, context, 760, 720).ConfigureAwait(true);
+        window.FindControl<TabControl>("MainTabs")!.SelectedItem = Tab(window, "ブックの情報");
+        await SettleAsync(context).ConfigureAwait(true);
+        var box = VisibleRangeBox(window);
+        var row = (VbaSheetViewRowViewModel)box.DataContext!;
+        box.Focus();
+        box.Text = "B2:";
+        Dispatcher.UIThread.RunJobs();
+        window.FocusManager!.GetFocusedElement().Should().BeSameAs(box, "前提: 入力欄にフォーカスがある");
+
+        await ResizeAsync(window, context, 1000, 700).ConfigureAwait(true);
+
+        AssertFocusOnRangeBox(window, row);
+        window.FindControl<TabControl>("MainTabs")!.SelectedIndex.Should().Be(0, "ブックの情報の枠はファイル選択タブの右へ戻る");
+        row.RangeDraft.Should().Be("B2:");
+        row.HasRowsError.Should().BeFalse();
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 7: フォーカスが枠の外（ファイル一覧など）にあるときは、幅を切り替えてもフォーカスもタブも動かさない")]
+    public async Task 枠の外のフォーカスは動かさない()
+    {
+        var (rig, context) = await VbaAsync().ConfigureAwait(true);
+        using var _ = rig;
+        var window = await OpenAsync(_windows, context).ConfigureAwait(true);
+        var filter = window.FindControl<TextBox>("FileFilterBox")!;
+        filter.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        await ResizeAsync(window, context, 760, 720).ConfigureAwait(true);
+
+        window.FocusManager!.GetFocusedElement().Should().BeSameAs(filter);
+        window.FindControl<TabControl>("MainTabs")!.SelectedIndex.Should().Be(0, "枠の外にいた利用者を、勝手に別のタブへ連れて行かない");
+    }
+
+    // ------------------------------------------------------------------
     // 左右の端の揃え（共通テーマの TabControl の flush クラス）
     // ------------------------------------------------------------------
 

@@ -44,7 +44,18 @@ public static class SheetViewDraftBehavior
         }
     }
 
-    private static void OnLostFocus(object? sender, RoutedEventArgs e) => Commit(sender);
+    /// <summary>
+    /// true の間は、フォーカスが外れても入力を確定しない（下書きのまま残す）。窓が部品の親を付け替える間（幅の切り替え）だけ立てる。
+    /// その間のフォーカスの出入りは、利用者が入力を終えたのではなく、画面の都合なので、「B2:」のような途中の値を
+    /// 誤りとして確定してはならない。UI スレッドだけが触る。
+    /// </summary>
+    internal static bool SuppressCommit { get; set; }
+
+    private static void OnLostFocus(object? sender, RoutedEventArgs e)
+    {
+        if (SuppressCommit) return;
+        Commit(sender);
+    }
 
     private static void OnKeyDown(object? sender, KeyEventArgs e)
     {
