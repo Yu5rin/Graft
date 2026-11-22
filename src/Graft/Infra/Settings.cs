@@ -162,6 +162,26 @@ public sealed record VbaSettings
     /// 待つ側がこの時間で諦めて E805 にする。
     /// </summary>
     public int CallTimeoutMs { get; init; } = 30000;
+
+    /// <summary>
+    /// コンテキスト収集・依頼文コピーで、ブックの情報（シート・テーブル・名前・見出し・参照設定。
+    /// 仕様書_ブックの情報と依頼の観点 5章）を Excel から取るか。false のときは Excel を呼ばない。
+    /// <see cref="PullOnContextOpen"/> とは別の設定にしている（Pull を切ってもブックの情報だけ欲しい／
+    /// その逆の利用者がいるため。仕様書付録A-10）。
+    /// </summary>
+    public bool CollectWorkbookInfo { get; init; } = true;
+
+    /// <summary>値の見本の行数（見本をオンにしたプロジェクトのみ）。範囲 1〜20。</summary>
+    public int WorkbookInfoSampleRows { get; init; } = 5;
+
+    /// <summary>ブックの情報の見出し・見本の最大列数。範囲 5〜100。</summary>
+    public int WorkbookInfoMaxColumns { get; init; } = 30;
+
+    /// <summary>見本・見出しの 1 セルの最大文字数（超えたら「…」つきで切る）。範囲 10〜500。</summary>
+    public int WorkbookInfoMaxCellChars { get; init; } = 60;
+
+    /// <summary>ブックの情報の出力全体の最大文字数（超えたら見本から順に落とす）。範囲 2000〜100000。</summary>
+    public int WorkbookInfoMaxChars { get; init; } = 20000;
 }
 
 /// <summary>

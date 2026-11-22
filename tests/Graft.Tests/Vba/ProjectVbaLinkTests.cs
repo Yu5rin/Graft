@@ -91,4 +91,56 @@ public class ProjectVbaLinkTests
 
         (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Which.Vba.Should().BeNull();
     }
+
+    [Fact(DisplayName = "ブックの情報の項目（出し方・値の見本・数式）を持たない既存の vba は、既定値（内容も出す・見本オフ・数式オフ）で読める")]
+    public async Task ブックの情報の項目が無い旧形式は既定値()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var root = ws.CreateDirectory("proj");
+        await File.WriteAllTextAsync(paths.ProjectsFilePath, $$"""
+            {
+              "projects": [
+                { "id": "p_000002", "name": "旧VBA", "root": "{{root.Replace("\\", "\\\\")}}",
+                  "vba": { "workbookFullName": "C:\\Work\\計画.xlsm", "autoPushAfterApply": false } }
+              ]
+            }
+            """);
+
+        var vba = (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Subject.Vba!;
+
+        vba.WorkbookInfoState.Should().Be("Full");
+        vba.WorkbookInfoSampleValues.Should().BeFalse("値の見本は既定オフ");
+        vba.WorkbookInfoIncludeFormulas.Should().BeFalse();
+        vba.AutoPushAfterApply.Should().BeFalse("既存の項目は変わらない");
+        Graft.Core.Vba.VbaWorkbookInfoLevels.Parse(vba.WorkbookInfoState).Should().Be(Graft.Core.Vba.VbaWorkbookInfoLevel.Full);
+    }
+
+    [Fact(DisplayName = "ブックの情報の項目は、保存して読み直すと往復する。不明な出し方の文字列は Full として読まれる")]
+    public async Task ブックの情報の項目が往復する()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var root = ws.CreateDirectory("app/vba-mirrors/計画-1a2b3c4d");
+        var store = new ProjectStore(paths);
+        var registered = await store.RegisterAsync(root, null);
+        var withVba = registered.Value with
+        {
+            Vba = new VbaLink
+            {
+                WorkbookFullName = @"C:\Work\計画.xlsm", WorkbookInfoState = "StructureOnly",
+                WorkbookInfoSampleValues = true, WorkbookInfoIncludeFormulas = true,
+            },
+        };
+        await store.SaveAsync(new[] { withVba });
+
+        var json = await File.ReadAllTextAsync(paths.ProjectsFilePath);
+        var reloaded = (await new ProjectStore(paths).LoadAsync()).Value.Should().ContainSingle().Subject.Vba!;
+
+        json.Should().Contain("\"workbookInfoState\": \"StructureOnly\"").And.Contain("\"workbookInfoSampleValues\": true");
+        reloaded.WorkbookInfoState.Should().Be("StructureOnly");
+        reloaded.WorkbookInfoSampleValues.Should().BeTrue();
+        reloaded.WorkbookInfoIncludeFormulas.Should().BeTrue();
+        Graft.Core.Vba.VbaWorkbookInfoLevels.Parse("壊れた値").Should().Be(Graft.Core.Vba.VbaWorkbookInfoLevel.Full);
+    }
 }

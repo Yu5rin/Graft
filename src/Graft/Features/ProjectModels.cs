@@ -81,6 +81,24 @@ public sealed record VbaLink
 
     /// <summary>反映後にブックを保存するか。既定は false（保存は利用者が Excel で行う）。</summary>
     public bool SaveWorkbookAfterPush { get; init; }
+
+    /// <summary>
+    /// ブックの情報（仕様書_ブックの情報と依頼の観点 5章）の出し方。<c>"Full"</c>（内容も出す。既定）・
+    /// <c>"StructureOnly"</c>（構成だけ）・<c>"Hidden"</c>（出さない）。<c>ProjectOverrides.ContextFileStates</c> と
+    /// 同じく、列挙型ではなく名前の文字列で持つ。不明な文字列は <c>Full</c> として読む
+    /// （<see cref="Graft.Core.Vba.VbaWorkbookInfoLevels.Parse"/>）。この項目が無い既存の projects.json は既定値で読める。
+    /// </summary>
+    public string WorkbookInfoState { get; init; } = "Full";
+
+    /// <summary>
+    /// ブックの情報に「値の見本」（各シートの先頭の数行の中身）を含めるか。<b>既定はオフ</b>
+    /// （社外秘・個人情報が AI に渡りうるため。オンにするときは確認を出す）。
+    /// 保存するのはこの「出すか」の選択だけで、見本の値そのものはどこにも保存しない。
+    /// </summary>
+    public bool WorkbookInfoSampleValues { get; init; }
+
+    /// <summary>値の見本に数式も含めるか。既定オフ（数式は参照先のシート名・セル構造を AI に伝えるため）。</summary>
+    public bool WorkbookInfoIncludeFormulas { get; init; }
 }
 
 /// <summary>プロジェクト定義。projects.json の1要素。仕様書3.1。</summary>

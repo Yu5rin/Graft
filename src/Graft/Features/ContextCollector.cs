@@ -60,6 +60,16 @@ public sealed record ContextRequest
     /// 「# 対象ファイル」の直前に差し込む。
     /// </summary>
     public string FocusText { get; init; } = string.Empty;
+
+    /// <summary>
+    /// ブックの情報の文（<c>VbaWorkbookInfoFormatter.Format</c> の結果。見出し <c># ブックの情報</c> から。
+    /// 仕様書_ブックの情報と依頼の観点 5.3）。空（既定。VBA でない・「出さない」・取得できず前回の成功分も無い）
+    /// のときは何も差し込まず、出力は従来と1バイトも変わらない。
+    /// コンテキスト収集（<see cref="ContextCollector.CollectAsync"/>）は「# 前提」の直後（観点より前）に、
+    /// 依頼文のテンプレート展開（<see cref="PromptTemplateRenderer"/>）は <c>{{workbook}}</c> または
+    /// 観点の直前（前提 → ブックの情報 → 観点 → 対象ファイルの順）に差し込む。
+    /// </summary>
+    public string WorkbookInfoText { get; init; } = string.Empty;
 }
 
 /// <summary>選択用ツリーの1エントリ（ファイルまたはディレクトリ）。</summary>
@@ -281,10 +291,13 @@ public sealed class ContextCollector
         var sb = new StringBuilder();
         AppendOverview(sb, request, treeVisibleCount, contentTargets.Count);
         AppendStandingContext(sb, request.Project.StandingContext);
+        // ブックの情報は「# 前提」の直後・観点より前（仕様書5.3・6.3。前提 → ブックの情報 → 観点 → 構成の順）。
+        // 空のときは何も足さない。
+        AppendBlock(sb, request.WorkbookInfoText);
         // 依頼の観点は「# 前提」の直後（前提が無ければ概要の直後）に置く（仕様書6.3）。前提で
         // プロジェクトの事情を伝えたあと、ツリーやファイルより先に「今回の依頼の方向」を伝える並び。
         // 空のときは何も足さない（観点を選ばなければ出力は従来と同一）。
-        AppendFocus(sb, request.FocusText);
+        AppendBlock(sb, request.FocusText);
         if (IncludesTree(request.Mode)) AppendTree(sb, files, hiddenPaths, annotateContent);
 
         // ツリーを含まないモード（選択ファイル・差分のみ）では、除外により内容を出せなかった
@@ -404,11 +417,34 @@ public sealed class ContextCollector
         sb.AppendLine();
     }
 
-    private static void AppendFocus(StringBuilder sb, string? focusText)
+    /// <summary>
+    /// 観点・ブックの情報のように、<b>LF 固定で組み立てられた</b>文のブロックを、この出力へ足す。
+    /// 末尾の改行を落とし、環境の改行（<see cref="Environment.NewLine"/>）へそろえてから、空行を1つ挟んで続ける。
+    ///
+    /// 【改行をこの出力の側へそろえる理由（Q1 の申し送り）】 この出力は <c>AppendLine</c>（＝環境の改行。Windows では
+    /// CRLF）で組み立てており、概要・前提・ツリーの見出し・コードフェンスはすべてその改行。そこへ LF 固定の観点の文を
+    /// そのまま入れると、1つの出力の中で CRLF と LF が混ざる（メモ帳などで行末が不ぞろいになり、AI へ貼ったときの
+    /// 空行の数え方もずれうる）。そこで、差し込み先の出力の改行にブロックの側を合わせる。
+    /// 一方 <see cref="PromptTemplateRenderer"/>（依頼文）は逆に、<b>テンプレート本文の改行</b>へ合わせる
+    /// （組み込みテンプレートは LF）。どちらも「差し込み先の周囲の改行に従う」という同じ規則で、
+    /// 差し込む側（<c>PromptFocusComposer</c>・<c>VbaWorkbookInfoFormatter</c>）は改行を決め打ちしない。
+    /// 何も選んでいない（空）ときは何もしないので、従来の出力は1バイトも変わらない。
+    /// </summary>
+    private static void AppendBlock(StringBuilder sb, string? block)
     {
-        if (string.IsNullOrEmpty(focusText)) return;
-        // 観点の文は末尾の改行1つで終わる形で渡される。次の見出しとの間に空行を1つ入れる。
-        sb.Append(focusText.TrimEnd('\r', '\n')).AppendLine().AppendLine();
+        if (string.IsNullOrEmpty(block)) return;
+        sb.Append(NormalizeNewLines(block.TrimEnd('\r', '\n'), Environment.NewLine)).AppendLine().AppendLine();
+    }
+
+    /// <summary>
+    /// 文中の改行（LF・CRLF・CR の混在でもよい）を、指定の改行へそろえる。<see cref="AppendBlock"/> と
+    /// <see cref="PromptTemplateRenderer"/> が使う。
+    /// </summary>
+    internal static string NormalizeNewLines(string text, string newLine)
+    {
+        if (text.Length == 0) return text;
+        var unified = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        return newLine == "\n" ? unified : unified.Replace("\n", newLine, StringComparison.Ordinal);
     }
 
     private static void AppendTree(StringBuilder sb, IReadOnlyList<ContextFileNode> files, IReadOnlySet<string> hiddenPaths, IReadOnlySet<string>? contentPaths)

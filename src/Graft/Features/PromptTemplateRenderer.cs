@@ -26,6 +26,9 @@ public sealed class PromptTemplateRenderer
     /// <summary>依頼の観点を差し込む変数（仕様書_ブックの情報と依頼の観点 6.3）。</summary>
     internal const string FocusVariable = "{{focus}}";
 
+    /// <summary>ブックの情報を差し込む変数（仕様書_ブックの情報と依頼の観点 5.3）。展開結果は見出し「# ブックの情報」から。</summary>
+    internal const string WorkbookVariable = "{{workbook}}";
+
     /// <summary>
     /// テンプレート本文中の {{standingContext}} {{tree}} {{files}} {{projectName}} {{lastRevision}}
     /// を実際の値へ展開する。テンプレートが使わない変数の収集処理は呼び出さない
@@ -52,6 +55,14 @@ public sealed class PromptTemplateRenderer
     /// 決めた位置）を先に、本文に出てこない目印の文字列へ置き換えておき、最後に目印を観点の文へ戻す。理由は2つ:
     /// ファイルの中身に <c>{{focus}}</c> という文字列があっても置換されないこと、自作の観点の文に
     /// <c>{{files}}</c> などと書かれていても再展開されないこと。
+    ///
+    /// 【ブックの情報（<see cref="ContextRequest.WorkbookInfoText"/>・<c>{{workbook}}</c>）】仕様書5.3。観点と同じ規則
+    /// （変数があればそこへ、無ければ観点と同じ位置①〜④へ。空なら変数は痕跡なしで消え、無ければ出力は1バイトも
+    /// 変わらない）で、並びは「前提 → ブックの情報 → 観点 → 対象ファイル」。片方だけ変数があるときは、変数の無い方を
+    /// 変数のある方へ寄せて並びを守る（<c>{{focus}}</c> の直前にブックの情報、<c>{{workbook}}</c> の直後に観点）。
+    /// 仕様書6.3の「<c>{{workbook}}</c> があるときは、その直前に置く」は、括弧内の並び（ブックの情報 → 観点）と
+    /// 文面が食い違う。並びを優先して、<c>{{workbook}}</c> と <c>{{focus}}</c> が無いテンプレートで観点を置く位置を
+    /// <c>{{workbook}}</c> の直後にした。
     /// </summary>
     public async Task<GraftResult<string>> RenderAsync(
         PromptTemplate template, ContextRequest request, string? lastRevisionSummary, CancellationToken ct = default,
@@ -61,33 +72,56 @@ public sealed class PromptTemplateRenderer
         var issues = new List<GraftIssue>();
         var hasFilesVariable = body.Contains("{{files}}", StringComparison.Ordinal);
 
-        // ---- 依頼の観点: 他の変数を展開する前に、差し込み位置だけ目印にしておく ----
-        var focusText = request.FocusText;
-        var hasFocus = !string.IsNullOrEmpty(focusText);
-        var focusBlock = hasFocus ? focusText.TrimEnd('\r', '\n') : string.Empty;
-        var deferred = new List<(string Marker, string Text)>();
-        var focusPlacedInBody = false;
-        if (body.Contains(FocusVariable, StringComparison.Ordinal))
+        // ---- ブックの情報・依頼の観点: 他の変数を展開する前に、差し込み位置だけ目印にしておく ----
+        // 差し込む文は、テンプレート本文の改行へそろえる（組み込みテンプレートは LF。利用者が CRLF で保存した
+        // テンプレートなら CRLF）。コンテキスト収集の出力（ContextCollector.AppendBlock）は逆に出力側の環境の改行へ
+        // そろえる。どちらも「差し込み先の周囲の改行に従う」規則で、差し込む側は改行を決め打ちしない。
+        var newLine = body.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var paragraphBreak = newLine + newLine;
+        var workbookBlock = AsBlock(request.WorkbookInfoText, newLine);
+        var focusBlock = AsBlock(request.FocusText, newLine);
+        var hasFocus = focusBlock.Length > 0;
+        var hasWorkbook = workbookBlock.Length > 0;
+        var hasFocusVariable = body.Contains(FocusVariable, StringComparison.Ordinal);
+        var hasWorkbookVariable = body.Contains(WorkbookVariable, StringComparison.Ordinal);
+
+        // 変数の位置に入れる文（null は「その変数は空で消す」）と、変数が無くて位置を探す文。
+        string? workbookInVariable = hasWorkbookVariable && hasWorkbook ? workbookBlock : null;
+        string? focusInVariable = hasFocusVariable && hasFocus ? focusBlock : null;
+        string? workbookLoose = !hasWorkbookVariable && hasWorkbook ? workbookBlock : null;
+        string? focusLoose = !hasFocusVariable && hasFocus ? focusBlock : null;
+
+        // 並びは「前提 → ブックの情報 → 観点 → 対象ファイル」（仕様書5.3・6.3）。片方だけ変数があるときは、
+        // 変数が無い方の文を、変数の位置に寄せて順序を守る: 観点の変数の直前にブックの情報を、
+        // ブックの情報の変数の直後に観点を並べる。こうしないと、変数どうしの間に別の文が挟まって順序が入れ替わる。
+        if (workbookLoose is not null && focusInVariable is not null)
         {
-            if (hasFocus)
-            {
-                var marker = NewMarker();
-                body = body.Replace(FocusVariable, marker, StringComparison.Ordinal);
-                deferred.Add((marker, focusBlock));
-            }
-            else
-            {
-                body = RemoveEmptyFocusVariable(body);
-            }
-            focusPlacedInBody = true;
+            focusInVariable = workbookLoose + paragraphBreak + focusInVariable;
+            workbookLoose = null;
         }
-        else if (hasFocus && FindFocusInsertIndex(body) is var at and >= 0)
+
+        if (focusLoose is not null && workbookInVariable is not null)
+        {
+            workbookInVariable += paragraphBreak + focusLoose;
+            focusLoose = null;
+        }
+
+        var deferred = new List<(string Marker, string Text)>();
+        body = ReplaceVariable(body, FocusVariable, hasFocusVariable, focusInVariable, deferred);
+        body = ReplaceVariable(body, WorkbookVariable, hasWorkbookVariable, workbookInVariable, deferred);
+
+        // 変数が無いまま残った文（ブックの情報 → 観点の順）。
+        var looseBlock = workbookLoose is not null && focusLoose is not null
+            ? workbookLoose + paragraphBreak + focusLoose
+            : workbookLoose ?? focusLoose;
+        var loosePlacedInBody = false;
+        if (looseBlock is not null && FindFocusInsertIndex(body) is var at and >= 0)
         {
             var marker = NewMarker();
             body = body.Insert(at, marker);
-            // 差し込み位置は行頭。次の見出しと詰まらないよう、観点の後ろに空行を1つ入れる。
-            deferred.Add((marker, focusBlock + "\n\n"));
-            focusPlacedInBody = true;
+            // 差し込み位置は行頭。次の見出しと詰まらないよう、後ろに空行を1つ入れる。
+            deferred.Add((marker, looseBlock + paragraphBreak));
+            loosePlacedInBody = true;
         }
 
         if (body.Contains("{{tree}}", StringComparison.Ordinal))
@@ -122,21 +156,21 @@ public sealed class PromptTemplateRenderer
 
         // 足すのは変数の展開が済んだあと。ファイルの中身に "{{standingContext}}" のような文字列が
         // 含まれていても、置換の対象にならないようにするため。
-        // 観点を本文の中に置けなかったとき（③自動付加する見出しの直前・④末尾）。
-        var focusBeforeAppended = hasFocus && !focusPlacedInBody;
+        // ブックの情報・観点を本文の中に置けなかったとき（③自動付加する見出しの直前・④末尾）。
+        var looseBeforeAppended = looseBlock is not null && !loosePlacedInBody;
         if (appendedFiles is not null)
         {
-            var head = body.TrimEnd('\r', '\n') + "\n\n";
-            if (focusBeforeAppended) head += focusBlock + "\n\n";
+            var head = body.TrimEnd('\r', '\n') + paragraphBreak;
+            if (looseBeforeAppended) head += looseBlock + paragraphBreak;
             body = head + AppendedFilesHeading + "\n" + appendedFiles;
         }
-        else if (focusBeforeAppended)
+        else if (looseBeforeAppended)
         {
             var head = body.TrimEnd('\r', '\n');
-            body = (head.Length == 0 ? string.Empty : head + "\n\n") + focusBlock + "\n";
+            body = (head.Length == 0 ? string.Empty : head + paragraphBreak) + looseBlock + newLine;
         }
 
-        // 最後に目印を観点の文へ戻す。ここより後ろで置換をしないので、観点の文は再展開されない。
+        // 最後に目印を観点・ブックの情報の文へ戻す。ここより後ろで置換をしないので、これらの文は再展開されない。
         foreach (var (marker, text) in deferred)
         {
             body = body.Replace(marker, text, StringComparison.Ordinal);
@@ -169,22 +203,42 @@ public sealed class PromptTemplateRenderer
     }
 
     /// <summary>
-    /// 観点が空のとき、<c>{{focus}}</c> を痕跡なしで消す。変数だけの行は行ごと消し、その前後が
-    /// どちらも空行（または端）なら空行が2つ続かないよう1つ詰める。行の途中にあるものは文字だけ消す。
+    /// 変数 <paramref name="variable"/> を処理する。本文に無ければ何もしない。あって <paramref name="text"/> があれば
+    /// 目印に置き換え（あとで文へ戻す）、<paramref name="text"/> が null（空）なら痕跡なしで消す。
     /// </summary>
-    private static string RemoveEmptyFocusVariable(string body)
+    private static string ReplaceVariable(
+        string body, string variable, bool present, string? text, List<(string Marker, string Text)> deferred)
+    {
+        if (!present) return body;
+        if (text is null) return RemoveEmptyVariable(body, variable);
+
+        var marker = NewMarker();
+        deferred.Add((marker, text));
+        return body.Replace(variable, marker, StringComparison.Ordinal);
+    }
+
+    /// <summary>差し込む文の末尾の改行を落とし、テンプレート本文の改行へそろえる。空なら空文字。</summary>
+    private static string AsBlock(string? text, string newLine)
+        => string.IsNullOrEmpty(text) ? string.Empty : ContextCollector.NormalizeNewLines(text.TrimEnd('\r', '\n'), newLine);
+
+    /// <summary>
+    /// 変数が空のとき、<paramref name="variable"/> を痕跡なしで消す。変数だけの行は行ごと消し、その前後が
+    /// どちらも空行（または端）なら空行が2つ続かないよう1つ詰める。行の途中にあるものは文字だけ消す。
+    /// 改行は本文のものを保つ（行末の CR は <c>Trim</c> が空白として扱う）。
+    /// </summary>
+    private static string RemoveEmptyVariable(string body, string variable)
     {
         var lines = body.Split('\n').ToList();
         for (var i = 0; i < lines.Count; i++)
         {
-            if (lines[i].Trim() != FocusVariable) continue;
+            if (lines[i].Trim() != variable) continue;
 
             lines.RemoveAt(i);
             var previousBlank = i == 0 || lines[i - 1].Trim().Length == 0;
             if (previousBlank && i < lines.Count && lines[i].Trim().Length == 0) lines.RemoveAt(i);
             i--;
         }
-        return string.Join('\n', lines).Replace(FocusVariable, string.Empty, StringComparison.Ordinal);
+        return string.Join('\n', lines).Replace(variable, string.Empty, StringComparison.Ordinal);
     }
 
     /// <summary>
