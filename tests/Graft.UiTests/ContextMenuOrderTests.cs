@@ -70,7 +70,7 @@ public class ContextMenuOrderTests
             "---", MenuText.CopyPath, MenuText.RevealInFileManager,
             "---", "タグを編集…", "表示名を変更…", "場所を変更…",
             // Excel VBA 連携の項目（VBA プロジェクトのときだけ表示。ProjectPane.axaml）。削除より前の独立した区画。
-            "---", "Excel から取込", "Excel へ反映", "Excel から復元", "ブックを前面化",
+            "---", "Excel から取込", "Excel へ反映", "Excel から復元", "ブックを前面化", "Excel 側の控えを見る…",
             "適用後に Excel へ自動反映する", "反映後にブックを保存する",
             "---", "削除…");
         layout.Last().Should().Be("削除…");

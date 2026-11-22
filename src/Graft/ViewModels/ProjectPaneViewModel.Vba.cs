@@ -102,6 +102,21 @@ public sealed partial class ProjectPaneViewModel
     /// <summary>「ブックを前面化」。</summary>
     public ICommand ActivateWorkbookCommand { get; private set; } = null!;
 
+    /// <summary>「Excel 側の控えを見る…」（仕様書_ブックの情報と依頼の観点 7.4）。</summary>
+    public ICommand ShowRescueCommand { get; private set; } = null!;
+
+    /// <summary>
+    /// 控えの窓（<c>VbaRescueWindow</c>）を開く（View が配線する。ViewModel は Window の型を知らない）。
+    /// 未設定なら何もしない。
+    /// </summary>
+    public Func<VbaRescueViewModel, Task>? ShowRescueAsync { get; set; }
+
+    /// <summary>
+    /// 控えの窓の ViewModel を作る（<c>MainViewModel</c> が、設定と UI 機能を渡して配線する）。
+    /// 未設定なら控えの窓は開けない。
+    /// </summary>
+    public Func<Project, VbaRescueViewModel?>? CreateRescueViewModel { get; set; }
+
     private void InitializeVbaCommands()
     {
         AddFromWorkbookCommand = new AsyncRelayCommand(AddFromWorkbookAsync, () => IsVbaFeatureAvailable, context: "Excel ブックからの追加");
@@ -109,6 +124,9 @@ public sealed partial class ProjectPaneViewModel
         PushToExcelCommand = new AsyncRelayCommand(PushSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel への反映");
         RestoreFromExcelCommand = new AsyncRelayCommand(RestoreSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel からの復元");
         ActivateWorkbookCommand = new AsyncRelayCommand(ActivateSelectedAsync, CanActivateSelectedVbaWorkbook, context: "ブックの前面化");
+        // 控えはファイルを見るだけなので、Excel が開いていなくても、設定で VBA 連携を切っていても開ける（仕様書 7.4）。
+        // この環境で VBA 連携が使えること（控えが作られる環境）と、VBA プロジェクトであることだけを条件にする。
+        ShowRescueCommand = new AsyncRelayCommand(ShowRescueForSelectedAsync, CanShowRescue, context: "Excel 側の控えの表示");
     }
 
     /// <summary>
@@ -130,6 +148,9 @@ public sealed partial class ProjectPaneViewModel
         Notify?.Invoke("適用または Excel への反映の最中のため、終わってからやり直してください。");
         return true;
     }
+
+    private bool CanShowRescue()
+        => IsSelectedVbaProject && SelectedItem is { IsDisconnected: false } && CreateRescueViewModel is not null && ShowRescueAsync is not null;
 
     private bool CanOperateOnSelectedVbaProject()
         => IsVbaFeatureAvailable && SelectedItem is { IsDisconnected: false } item && item.Project.Vba is not null && !IsVbaBusy();
@@ -432,9 +453,45 @@ public sealed partial class ProjectPaneViewModel
     {
         if (_vbaSync is null || SelectedItem is not { } item) return;
         if (RejectWhileVbaBusy()) return;
-        var project = item.Project;
+        await PushProjectAsync(item.Project, only: null).ConfigureAwait(true);
+    }
 
-        var result = await _vbaSync.PushAsync(project).ConfigureAwait(true);
+    /// <summary>
+    /// 「Excel 側の控えを見る」窓で控えをミラーへ戻したあとの「今すぐ Excel へ反映」。戻した 1 モジュールだけを、
+    /// 手動の「Excel へ反映」と同じ流れ（衝突ダイアログ・失敗の案内を含む）で送る。
+    /// </summary>
+    private async Task PushRestoredFromRescueAsync(Project project, string relativePath)
+    {
+        if (_vbaSync is null) return;
+        if (!IsVbaFeatureAvailable)
+        {
+            Notify?.Invoke("VBA 連携が設定で無効のため、Excel へ反映できません。");
+            return;
+        }
+
+        if (RejectWhileVbaBusy()) return;
+        await PushProjectAsync(project, new[] { relativePath }).ConfigureAwait(true);
+    }
+
+    private async Task ShowRescueForSelectedAsync()
+    {
+        if (SelectedItem is not { } item || ShowRescueAsync is null || CreateRescueViewModel is null) return;
+        var project = item.Project;
+        var viewModel = CreateRescueViewModel(project);
+        if (viewModel is null) return;
+
+        viewModel.IsBusy = IsVbaBusy;
+        viewModel.PushModuleAsync = relative => PushRestoredFromRescueAsync(project, relative);
+        await ShowRescueAsync(viewModel).ConfigureAwait(true);
+        // 戻すと、ミラーが「未反映」になる。窓を閉じたあとにバッジへ反映する。
+        await RefreshVbaBadgesAsync(checkWorkbookOpen: false).ConfigureAwait(true);
+    }
+
+    private async Task PushProjectAsync(Project project, IReadOnlyCollection<string>? only)
+    {
+        if (_vbaSync is null) return;
+
+        var result = await _vbaSync.PushAsync(project, only).ConfigureAwait(true);
         if (!result.IsSuccess)
         {
             // 手動の Push は適用ではないので、取り消しは提案しない（仕様 7.2b）。未反映の印が残るので再試行できる。

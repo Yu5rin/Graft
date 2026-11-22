@@ -1,0 +1,172 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Graft.Views"
+        x:Class="Graft.Views.VbaRescueWindow"
+        x:Name="Root"
+        Title="Excel 側の控え"
+        Width="1120" Height="720"
+        MinWidth="720" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource TextPrimary}"
+        AutomationProperties.Name="Excel 側の控え">
+    <!--
+        仕様書_ブックの情報と依頼の観点 7.4・7.5（機能 C）。「Excel へ反映」で上書きされる前の Excel 側の本文の控えを、
+        モジュールごとに一覧し、選んだ控えと現在のミラーの差分を見せる。窓の骨組み（左に一覧、右に差分、下にボタン列。
+        primary ボタン・Enter 既定・Esc で閉じる）は衝突ダイアログ（VbaConflictWindow）に揃えた。
+        「ミラーへ戻す」は Excel へ直接書かず、Graft のファイル（ミラー）へ取り込む操作で、履歴（リビジョン）には記録されない。
+    -->
+    <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto,Auto">
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12" Spacing="4">
+            <TextBlock Text="{Binding HeadingText}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource PaneHeadingFontSize}"
+                       FontWeight="{DynamicResource PaneHeadingFontWeight}"
+                       Foreground="{DynamicResource TextPrimary}" />
+            <TextBlock Text="{Binding GuideText}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+        </StackPanel>
+
+        <!-- 従来の控えだけで容量の上限を超えているときの警告（自動では消さないため、利用者に伝える）。 -->
+        <Border Grid.Row="1"
+                IsVisible="{Binding HasWarning}"
+                Margin="0,0,0,8" Padding="10,6"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="1" CornerRadius="4">
+            <TextBlock Text="{Binding WarningText}"
+                       x:Name="WarningText"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextPrimary}"
+                       AutomationProperties.Name="控えの容量の警告" />
+        </Border>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300" MinWidth="200" MaxWidth="520" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" MinWidth="360" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 左: モジュールごとの控えの一覧（日時・種別・行数・サイズ）。選ぶと右側に差分が出る。 -->
+            <Grid Grid.Column="0">
+                <ListBox x:Name="ItemsListBox"
+                         ItemsSource="{Binding Items}"
+                         SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                         Background="{DynamicResource BgSurface}"
+                         AutomationProperties.Name="控えの一覧"
+                         views:HelpTip.Standard="Excel 側が上書きされる前の本文の控えの一覧です。選ぶと右側に、現在のミラーとの差分が表示されます。"
+                         views:HelpTip.Detailed="「Excel へ反映」のたびに、上書きされる前の Excel 側の本文が控えとして残ります（前回と同じ内容なら増やしません）。モジュールごとに新しい順に並びます。「反映前の自動控え」は反映の直前、「上書き前」は衝突で Graft 側で上書きした直前や書き戻しに失敗したとき、「戻す前のミラー」は控えをミラーへ戻す直前のミラーの内容です。">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,2">
+                                <TextBlock Text="{Binding ModuleName}"
+                                           IsVisible="{Binding ShowModuleHeader}"
+                                           Margin="0,6,0,4"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding TimeText}"
+                                           FontSize="{DynamicResource BodyFontSize}" />
+                                <TextBlock Text="{Binding KindText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                                <TextBlock Text="{Binding DetailText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock Text="{Binding EmptyText}"
+                           IsVisible="{Binding IsEmpty}"
+                           Margin="12"
+                           TextWrapping="Wrap"
+                           IsHitTestVisible="False"
+                           FontSize="{DynamicResource CaptionFontSize}"
+                           Foreground="{DynamicResource TextSecondary}" />
+            </Grid>
+
+            <GridSplitter Grid.Column="1"
+                          Width="6"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch"
+                          AutomationProperties.Name="一覧と差分の境界" />
+
+            <!-- 右: 選んだ控えと現在のミラーの差分（既存の DiffView／DiffViewModel をそのまま流用）。 -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,*">
+                <TextBlock Grid.Row="0"
+                           Text="{Binding DiffCaptionText}"
+                           Margin="0,0,0,4"
+                           FontSize="{DynamicResource CaptionFontSize}"
+                           Foreground="{DynamicResource TextSecondary}" />
+                <views:DiffView Grid.Row="1"
+                                DataContext="{Binding Diff}"
+                                AutomationProperties.Name="控えと現在のミラーの差分" />
+            </Grid>
+        </Grid>
+
+        <!-- 操作の結果（戻しました、など）。 -->
+        <TextBlock Grid.Row="3"
+                   x:Name="StatusText"
+                   Text="{Binding StatusText}"
+                   IsVisible="{Binding HasStatus}"
+                   Margin="0,10,0,0"
+                   TextWrapping="Wrap"
+                   FontSize="{DynamicResource CaptionFontSize}"
+                   Foreground="{DynamicResource TextPrimary}"
+                   AutomationProperties.Name="操作の結果" />
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+            <!--
+                並びは Windows の作法（肯定的な選択肢が左）に合わせる。戻した直後は「今すぐ Excel へ反映」を先頭に出し、
+                それが既定（Enter）になり、「ミラーへ戻す」は目立たない通常のボタンに戻る。戻す前は「ミラーへ戻す」が既定。どちらも、確認ダイアログを挟むか、
+                ミラーの内容を控えに残してから書くので、取り返しのつかない操作ではない。
+                「控えを削除」は控えを消すので既定にしない。
+            -->
+            <Button x:Name="PushNowButton"
+                    Classes="primary"
+                    Content="今すぐ Excel へ反映"
+                    Command="{Binding PushNowCommand}"
+                    IsVisible="{Binding ShowPushNow}"
+                    IsDefault="{Binding ShowPushNow}"
+                    views:HelpTip.Standard="戻したモジュールだけを、いま Excel へ反映します。"
+                    views:HelpTip.Detailed="戻したモジュール 1 件だけを Excel へ反映します。Excel 側が変わっていれば、衝突の確認が出ます。押さなくても、あとからプロジェクトの右クリック「Excel へ反映」で送れます。"
+                    AutomationProperties.Name="今すぐ Excel へ反映" />
+            <Button x:Name="RestoreButton"
+                    Classes.primary="{Binding !ShowPushNow}"
+                    IsDefault="{Binding !ShowPushNow}"
+                    Content="ミラーへ戻す"
+                    Command="{Binding RestoreCommand}"
+                    views:HelpTip.Standard="選んだ控えの内容を、Graft のファイル（ミラー）へ書きます。Excel にはまだ書きません。"
+                    views:HelpTip.Detailed="選んだ控えの内容で、ミラーのファイルを置き換えます。いまのミラーの内容は「戻す前のミラー」として控えに残ります。Excel にはまだ書かず、履歴にも記録されません。Excel に送るには、あとで「Excel へ反映」を押します。"
+                    AutomationProperties.Name="ミラーへ戻す" />
+            <Button x:Name="DeleteButton"
+                    Content="控えを削除"
+                    Command="{Binding DeleteCommand}"
+                    views:HelpTip.Standard="選んだ控えを削除します。元には戻せません。"
+                    AutomationProperties.Name="控えを削除" />
+            <Button x:Name="OpenFolderButton"
+                    Content="保存先を開く"
+                    Command="{Binding OpenFolderCommand}"
+                    views:HelpTip.Standard="控えを保存しているフォルダを、ファイルマネージャで開きます。"
+                    AutomationProperties.Name="保存先を開く" />
+            <Button x:Name="CloseButton"
+                    Content="閉じる"
+                    Command="{Binding CloseCommand}"
+                    IsCancel="True"
+                    views:HelpTip.Standard="この窓を閉じます（Esc）。"
+                    AutomationProperties.Name="閉じる" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -132,6 +132,8 @@ public partial class ShellWindow : Window
         // Excel VBA 連携（仕様書_VBA連携 7.1）: 「Excel ブックから追加」の選択画面。ViewModel は Window の型を知らないので、
         // 開く処理をここから渡す。
         viewModel.Graft.ProjectPane.ShowWorkbookPickerAsync = picker => new VbaWorkbookPickerWindow(picker).ShowAndConfirmAsync(this);
+        // 「Excel 側の控えを見る…」（仕様書_ブックの情報と依頼の観点 7.4）。
+        viewModel.Graft.ProjectPane.ShowRescueAsync = rescue => new VbaRescueWindow(rescue).ShowAndWaitAsync(this);
         // 衝突ダイアログと、ボタンの文言を指定する確認（Push 失敗など。仕様書_VBA連携 7.3・7.5）。
         viewModel.Graft.ShowVbaConflictAsync = async request =>
             await new VbaConflictWindow(viewModel.Graft.CreateVbaConflictViewModel(request)).ShowAndResolveAsync(this).ConfigureAwait(true);

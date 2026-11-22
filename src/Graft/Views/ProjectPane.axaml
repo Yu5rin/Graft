@@ -167,6 +167,11 @@
                                   IsVisible="{Binding IsSelectedVbaProject}"
                                   local:HelpTip.Standard="このプロジェクトに結び付けた Excel のブックを前面に出します。"
                                   AutomationProperties.Name="ブックを前面化" />
+                        <MenuItem Header="Excel 側の控えを見る…"
+                                  Command="{Binding ShowRescueCommand}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  local:HelpTip.Standard="「Excel へ反映」で上書きされる前の Excel 側の本文の控えを、一覧と差分で確認し、Graft のファイル（ミラー）へ戻します。Excel が開いていなくても見られます。"
+                                  AutomationProperties.Name="Excel 側の控えを見る" />
                         <!-- 仕様書_VBA連携 7.6: プロジェクトごとの設定（VbaLink）。チェック項目は押すと項目自身が表示を反転するので、
                              双方向に束縛して、保存に失敗したときも通知の投げ直しで見かけを実際の値へ戻す。
                              設定で VBA 連携を切っているとき（IsVbaFeatureAvailable が false）は無効にする。 -->
