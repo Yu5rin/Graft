@@ -162,4 +162,39 @@ public class VbaWorkbookInfoReadRulesTests
         VbaWorkbookInfoReadRules.OmittedByBudgetMessage("集計").Should().Contain("集計").And.Contain("読めていません");
         VbaWorkbookInfoReadRules.OmittedByMaxSheetsMessage(12, 100).Should().Contain("100").And.Contain("12");
     }
+    [Theory(DisplayName = "疑わしい 1: 名前の式が範囲参照だけでできているか（定数・数式は false に倒す）")]
+    [InlineData("=設定!$B$3", true)]
+    [InlineData("=Sheet1!$A$1:$B$9", true)]
+    [InlineData("='売上 2026'!$A:$A", true)]
+    [InlineData("='売上, 2026'!$A$1,Sheet1!$C$1", true)]
+    [InlineData("=(Sheet1!$A$1,Sheet1!$C$1)", true)]
+    [InlineData("=Sheet1!$1:$3", true)]
+    [InlineData("=売上テーブル[金額]", true)]
+    [InlineData("=#REF!", true)]
+    [InlineData("=\"パスワード\"", false)]
+    [InlineData("=0.08", false)]
+    [InlineData("={1,2,3}", false)]
+    [InlineData("=TRUE", false)]
+    [InlineData("=OFFSET(Sheet1!$A$1,0,0,10,1)", false)]
+    [InlineData("=Sheet1!$A$1+1", false)]
+    [InlineData("=\"Sheet1!$A$1\"", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void 範囲参照の判定(string? refersTo, bool expected)
+    {
+        VbaWorkbookInfoReadRules.IsRangeReference(refersTo).Should().Be(expected);
+    }
+
+    [Fact(DisplayName = "不具合 10: 読めなかった注記は、実際に読めなかったものだけを言う（シートは読めたがテーブルが読めない・名前が途中まで）")]
+    public void 読めなかった注記は正確()
+    {
+        VbaWorkbookInfoReadRules.OmittedSheetMessage("集計", sheetListed: false, unchecked((int)0x800A03EC))
+            .Should().Contain("シート「集計」は読めませんでした");
+        var tablesOnly = VbaWorkbookInfoReadRules.OmittedSheetMessage("集計", sheetListed: true, unchecked((int)0x800A03EC));
+        tablesOnly.Should().Contain("テーブルは読めませんでした").And.NotContain("シート「集計」は読めませんでした");
+
+        VbaWorkbookInfoReadRules.OmittedNamesMessage(0, unchecked((int)0x800A03EC)).Should().Contain("名前付き範囲は読めませんでした");
+        var partial = VbaWorkbookInfoReadRules.OmittedNamesMessage(7, unchecked((int)0x800A03EC));
+        partial.Should().Contain("途中までしか").And.Contain("7 件").And.NotContain("名前付き範囲は読めませんでした");
+    }
 }

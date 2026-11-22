@@ -35,6 +35,23 @@ public sealed class VbaWorkbookInfoSource
     public required VbaWorkbookInfoFetchAsync FetchAsync { get; init; }
 
     /// <summary>
+    /// 設定 <c>Vba.CollectWorkbookInfo</c> がいまオンか。<b>依頼文を作るたびに</b>読み直す。
+    /// 取得（<see cref="FetchAsync"/>）の契機は収集の窓を開いたときなどに限られ、依頼文のクイックコピーは一覧が残っていれば
+    /// 取り直さない。そのため設定でオフにした直後でも、直前に取った結果が依頼文へ出続けてしまった
+    /// （オフにしたのに社外秘かもしれない内容が出るのは意図に反する）。出力の直前にここを見て、オフなら空にする。
+    /// 未配線（null）のときは常にオンとして扱う（従来どおり）。
+    /// </summary>
+    public Func<bool>? IsCollecting { get; init; }
+
+    /// <summary>
+    /// 依頼文に載せるブックの情報の最大文字数（<c>Vba.WorkbookInfoMaxChars</c>）を、呼び出しのたびに返す。
+    /// <c>ContextCollectViewModel</c> が作成時に持った設定のコピーは、設定画面で変えても古いままなので
+    /// （行数は <see cref="SampleRows"/> で即時に効くのに、上限だけ選び直すまで効かなかった）、ここから読む。
+    /// 未配線（null）のときは作成時の設定を使う。
+    /// </summary>
+    public Func<int>? MaxChars { get; init; }
+
+    /// <summary>
     /// 選択肢つきの確認ダイアログ（<c>VbaChoiceWindow</c>）を出して、選ばれたボタンの識別子を返す
     /// （値の見本をオンにする確認に使う）。未配線の環境（テスト、画面なし）では null で、確認は「やめる」と同じ結果になる
     /// （社外秘が AI へ渡る操作を、確認なしでは通さない）。
@@ -216,11 +233,20 @@ public sealed partial class ContextCollectViewModel
             return string.Empty;
         }
 
+        // 【出力の直前に、設定と環境の「いま」を引き直す】 結果を捨てるのは次の取得のときだけなので、ここで見ないと
+        // 「設定で取得（または VBA 連携）をオフにしたのに、直前に取った内容が次のクイックコピーに出る」。
+        // 行の表示（IsVisible）は取得のたびにしか更新されないため、窓口に直接聞く。
+        var source = _workbookInfoSource;
+        if (source is null || !source.IsAvailable() || source.IsCollecting?.Invoke() == false)
+        {
+            return string.Empty;
+        }
+
         return VbaWorkbookInfoFormatter.Format(
             _workbookSnapshot,
             WorkbookInfo.Level,
             includeSamples: WorkbookInfo.SampleValues && WorkbookInfo.Level == VbaWorkbookInfoLevel.Full,
-            maxChars: _settings.Vba.WorkbookInfoMaxChars,
+            maxChars: source.MaxChars?.Invoke() ?? _settings.Vba.WorkbookInfoMaxChars,
             isStale: _workbookSnapshotIsStale);
     }
 
@@ -258,7 +284,8 @@ public sealed partial class ContextCollectViewModel
             // 何もせず閉じる側（Esc・×も同じ）を既定にする。
             var request = new VbaChoiceRequest(
                 "値の見本を AI に渡しますか",
-                $"各シートの先頭 {rows} 行の値が、依頼文に含まれ、AI に渡ります。" + Environment.NewLine
+                $"各シートの見出し行に続く {rows} 行の値が、依頼文に含まれ、AI に渡ります。" + Environment.NewLine
+                + "なお、各シートの 1 行目（見出し）は、値の見本がオフでも「内容も出す」のときは渡ります。" + Environment.NewLine
                 + "個人情報や社外秘が含まれていないか確認してください。",
                 new[]
                 {
@@ -289,7 +316,15 @@ public sealed partial class ContextCollectViewModel
         if (WorkbookInfo.IncludeFormulas == value) return;
         WorkbookInfo.IncludeFormulas = value;
         await PersistWorkbookInfoAsync(link => link with { WorkbookInfoIncludeFormulas = value }).ConfigureAwait(true);
+
+        // 【オフにしたら、数式入りの見本をメモリから直ちに捨てる】 見本のセルは「=式 → 値」の文字列に畳んで持っているので、
+        // 出力時に数式だけを取り除けない。取り直しが成功すれば数式の無い見本に置き換わるが、Excel を閉じた・応答しないなどで
+        // 失敗すると、前回の成功分（数式入り）が「最新を読めていません」の注記つきで使われ続け、オフにした数式が依頼文へ
+        // 出てしまう。値の見本のオフ（<see cref="ToggleWorkbookSampleValuesAsync"/>）と同じく、先に捨てる。
+        if (!value) DropSamplesFromMemory();
+
         if (WorkbookInfo.SampleValues) await RefreshWorkbookInfoOnDemandAsync().ConfigureAwait(true);
+        else AfterWorkbookInfoSelectionChanged();
     }
 
     /// <summary>オフにした見本を、メモリ上の取得結果からも消す（ディスクには元々書いていない）。</summary>
@@ -318,6 +353,11 @@ public sealed partial class ContextCollectViewModel
 
     private void AfterWorkbookInfoSelectionChanged()
     {
+        // 【プレビュー欄の古い出力を捨てる】 プレビュー（PreviewLines）は「プレビュー」を押したときの出力を持ち続ける。
+        // 値の見本・数式・出し方を切り替えたあとも残ると、「オフにしたら直ちに捨てる」と案内した見本が画面に出たままになる
+        // （コピーや保存の出力には入らないが、画面を共有する・撮るときに見えてしまう）。切り替えたら空にし、
+        // 見たければ押し直してもらう。
+        PreviewLines = Array.Empty<PreviewLine>();
         UpdateApproxTokenEstimate();
         WorkbookInfoChanged?.Invoke(this, EventArgs.Empty);
     }

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Graft.Core.Vba;
 
@@ -207,6 +208,60 @@ public static class VbaWorkbookInfoReadRules
         return bang > 0 ? (rawName[..bang], rawName[(bang + 1)..]) : (null, rawName);
     }
 
+    // セル参照 1 つ分: A1・$A$1・A1:B2・A:A・1:3。シート名の接頭辞（Sheet1!・'売上 2026'!）が付くこともある。
+    private const string CellPart = @"\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?|\$?[A-Za-z]{1,3}:\$?[A-Za-z]{1,3}|\$?\d+:\$?\d+";
+    private const string SheetPrefix = @"(?:'(?:[^']|'')+'|[^'!\[\],:=()\s]+)!";
+    private static readonly Regex RangeReferencePart = new(
+        $@"^(?:{SheetPrefix})?(?:{CellPart})$|^(?:{SheetPrefix})?#REF!$|^[\p{{L}}_\\][\p{{L}}\p{{N}}_.]*\[[^\]]*\](?:\[[^\]]*\])*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 名前付き範囲の <c>RefersTo</c>（<c>=Sheet1!$A$1:$B$9</c> など）が、セル範囲への<b>参照だけ</b>でできているか。
+    /// 参照なら、それは「どこを指すか」という構造の情報で、値そのものではない。
+    /// 参照でない（<c>="パスワード"</c>・<c>=0.08</c>・<c>={1,2,3}</c>・数式）ときは、式の中に<b>値そのもの</b>が書かれている。
+    /// 名前付き範囲に定数を入れる使い方は珍しくなく（税率・社名・接続文字列など）、見本がオフでも
+    /// 依頼文へ出てしまうと、見本のオプトイン（確認ダイアログ）を迂回して値が渡る。呼び出し側は、これが false の名前の式を
+    /// 値の見本がオンのときだけ出す。判定は「確実に参照と分かるものだけ true」に倒す（迷うものは値を伏せる側）。
+    /// <para>
+    /// 複数領域（<c>=Sheet1!$A$1,Sheet1!$C$1</c>）と、括弧でくくった形（<c>=(Sheet1!$A$1,Sheet1!$C$1)</c>）、
+    /// テーブルの構造化参照（<c>=Table1[列名]</c>）は参照として扱う。関数を含む式（<c>=OFFSET(...)</c> など）は、
+    /// 引数に定数を持ちうるので参照とは見ない（動的な範囲の式は、見本がオンのときだけ出る）。
+    /// </para>
+    /// </summary>
+    public static bool IsRangeReference(string? refersTo)
+    {
+        if (string.IsNullOrWhiteSpace(refersTo)) return false;
+        var text = refersTo.Trim();
+        if (text.StartsWith('=')) text = text[1..].Trim();
+        if (text.Length >= 2 && text[0] == '(' && text[^1] == ')') text = text[1..^1];
+        if (text.Length == 0) return false;
+
+        // カンマ（複数領域）で分ける。引用されたシート名の中のカンマは分けない。
+        foreach (var part in SplitTopLevel(text, ','))
+        {
+            if (!RangeReferencePart.IsMatch(part.Trim())) return false;
+        }
+
+        return true;
+    }
+
+    private static IEnumerable<string> SplitTopLevel(string text, char separator)
+    {
+        var start = 0;
+        var inQuote = false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\'') inQuote = !inQuote;
+            else if (text[i] == separator && !inQuote)
+            {
+                yield return text[start..i];
+                start = i + 1;
+            }
+        }
+
+        yield return text[start..];
+    }
+
     /// <summary>
     /// 利用者が作った名前ではなく、Excel が内部で持つ名前（印刷範囲・印刷タイトル・オートフィルターの
     /// <c>_xlnm.*</c>、<c>_FilterDatabase</c>）か。名前付き範囲の一覧から除く。
@@ -227,6 +282,25 @@ public static class VbaWorkbookInfoReadRules
     /// <summary>時間切れで読めなかったシートの説明（<see cref="VbaWorkbookInfoSnapshot.Omitted"/> に入れる文）。</summary>
     public static string OmittedByBudgetMessage(string firstUnreadSheetName)
         => $"時間がかかったため、シート「{firstUnreadSheetName}」以降は読めていません。";
+
+    /// <summary>
+    /// 1 枚のシートの読み取りが失敗したときの説明。<paramref name="sheetListed"/> は、見出し・見本を読めてシートを一覧に
+    /// 足したあとか。テーブルの読み取りだけが失敗したのに「シートは読めませんでした」と言うと、一覧にあるシートを
+    /// AI が「無い」と誤解しかねないので、何が読めなかったかを正確に言い分ける。
+    /// </summary>
+    public static string OmittedSheetMessage(string sheetName, bool sheetListed, int hresult)
+        => sheetListed
+            ? $"シート「{sheetName}」のテーブルは読めませんでした（0x{hresult:X8}。シートの見出しなどは読めています）。"
+            : $"シート「{sheetName}」は読めませんでした（0x{hresult:X8}）。";
+
+    /// <summary>
+    /// 名前付き範囲の読み取りが失敗したときの説明。<paramref name="readCount"/> が 1 以上なら、途中までは読めて
+    /// 一覧に載っている（全く読めなかったと言うと、載っている名前まで無いように聞こえる）。
+    /// </summary>
+    public static string OmittedNamesMessage(int readCount, int hresult)
+        => readCount > 0
+            ? $"名前付き範囲は途中までしか読めませんでした（読めたのは {readCount} 件。0x{hresult:X8}）。"
+            : $"名前付き範囲は読めませんでした（0x{hresult:X8}）。";
 
     /// <summary>シート数の上限で省いたときの説明。</summary>
     public static string OmittedByMaxSheetsMessage(int omittedCount, int maxSheets)

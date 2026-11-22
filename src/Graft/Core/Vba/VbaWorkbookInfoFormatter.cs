@@ -59,6 +59,9 @@ public static class VbaWorkbookInfoFormatter
             Sheets = snapshot.Sheets.Count,
         };
 
+        // 範囲参照でない式（定数など）を指す名前は、値の見本がオンのときだけ式を出す（IsRangeReference 参照）。
+        plan.IncludeConstantNames = includeSamples && full;
+
         var text = Render(snapshot, plan, isStale, truncated: false);
         if (maxChars <= 0 || text.Length <= maxChars) return text;
 
@@ -88,6 +91,9 @@ public static class VbaWorkbookInfoFormatter
 
         public int Tables { get; set; }
         public int Sheets { get; set; }
+
+        /// <summary>範囲参照でない名前の式（定数・数式）も出すか。値の見本と同じ鍵（オプトイン）で決める。</summary>
+        public bool IncludeConstantNames { get; set; }
 
         /// <summary>1 つ落とす。もう落とせるものが無ければ false。</summary>
         public bool CutOne()
@@ -154,8 +160,14 @@ public static class VbaWorkbookInfoFormatter
             sb.Append("\n## 名前付き範囲\n");
             foreach (var name in names)
             {
-                sb.Append("- ").Append(name.Name).Append(" = ").Append(name.RefersTo)
-                    .Append(name.Scope is null ? "（ブック全体）" : $"（シート「{name.Scope}」限定）")
+                sb.Append("- ").Append(name.Name);
+                // 式が範囲参照でないときは、値そのものが書かれていることがある。見本がオフなら名前だけにする。
+                if (plan.IncludeConstantNames || VbaWorkbookInfoReadRules.IsRangeReference(name.RefersTo))
+                {
+                    sb.Append(" = ").Append(name.RefersTo);
+                }
+
+                sb.Append(name.Scope is null ? "（ブック全体）" : $"（シート「{name.Scope}」限定）")
                     .Append('\n');
             }
         }
@@ -213,7 +225,8 @@ public static class VbaWorkbookInfoFormatter
         if (withSamples.Length == 0) return;
 
         var rowCount = withSamples.Max(s => s.SampleRows.Count);
-        sb.Append($"\n## 値の見本（各シートの先頭 {rowCount} 行。AI に渡ります）\n");
+        // 行数は「見出し行に続く」見本の数（見出しは表の見出し行として別に出る）。「先頭 N 行」と書くと実際より 1 行少なく読める。
+        sb.Append($"\n## 値の見本（各シートの見出し行に続く {rowCount} 行。AI に渡ります）\n");
         foreach (var sheet in withSamples)
         {
             sb.Append($"### {sheet.Name}（{sheet.CodeName}）\n");

@@ -92,14 +92,14 @@
                 <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
                     <StackPanel Classes="settingText">
                         <TextBlock Text="値の見本の行数（1〜20）" Classes="settingLabel" />
-                        <TextBlock Text="値の見本をオンにしたプロジェクトで、各シートの先頭から何行を渡すかです。" Classes="settingHint" />
+                        <TextBlock Text="値の見本をオンにしたプロジェクトで、各シートの見出し行に続けて何行を渡すかです。見出し行（1 行目）は別に渡ります。" Classes="settingHint" />
                     </StackPanel>
                     <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookInfoSampleRowsText, UpdateSourceTrigger=LostFocus}"
                              IsEnabled="{Binding VbaEnabled}"
                              views:TextBoxCommitBehavior.CommitOnEnter="True"
                              AutomationProperties.Name="値の見本の行数"
                              views:HelpTip.Minimal="{Binding VbaWorkbookInfoSampleRowsText, StringFormat='値の見本の行数: {0}'}"
-                             views:HelpTip.Standard="値の見本として渡す、各シートの先頭の行数です。既定は5行です。"
+                             views:HelpTip.Standard="値の見本として渡す、各シートの見出し行に続く行数です。既定は5行です。"
                              views:HelpTip.Detailed="「ブックの情報」の行で値の見本をオンにしたプロジェクトにだけ効きます。各シートの見出し行の次から、この行数だけを読んで AI に渡します。多いほど AI は中身を把握できますが、社外秘などが渡る量も増えます。既定は5行、範囲は1〜20です（範囲外は既定値に戻ります）。" />
                 </Grid>
                 <Grid Classes="settingItem" ColumnDefinitions="*,Auto">

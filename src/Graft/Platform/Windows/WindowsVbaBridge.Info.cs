@@ -104,6 +104,10 @@ public sealed partial class WindowsVbaBridge
             // 1 枚ごとに解放する（100 枚分の RCW を溜めない）。
             using var item = new ComScope();
             string sheetName = $"（{i} 枚目）";
+            // シート本体（見出し・見本）を一覧に足したあとで、テーブルの読み取りだけが失敗することがある。
+            // その場合に「シートは読めませんでした」と伝えると、AI は一覧にあるシートを「無い」と誤解しかねない
+            // （実際は読めている）。何が読めなかったかを正確に言うために、足したかどうかを覚えておく。
+            var sheetAdded = false;
             try
             {
                 var sheetObj = item.Own(s.Call(() => (object)worksheets.Item(i)));
@@ -112,6 +116,7 @@ public sealed partial class WindowsVbaBridge
                 dynamic sheet = sheetObj;
                 sheetName = s.Call(() => (string)sheet.Name);
                 sheets.Add(ReadSheet(s, item, sheetObj, sheetName, options));
+                sheetAdded = true;
                 ReadTables(s, item, sheetObj, sheetName, options, tables);
             }
             catch (ComBusyException) when (sheets.Count > 0)
@@ -123,7 +128,7 @@ public sealed partial class WindowsVbaBridge
             catch (COMException ex) when (VbaComHResult.Classify(ex.HResult) == VbaComFailure.Other)
             {
                 // この 1 枚だけ読めなかった（保護・破損など）。他のシートは続ける。
-                omitted.Add($"シート「{sheetName}」は読めませんでした（0x{ex.HResult:X8}）。");
+                omitted.Add(VbaWorkbookInfoReadRules.OmittedSheetMessage(sheetName, sheetAdded, ex.HResult));
             }
         }
 
@@ -317,7 +322,8 @@ public sealed partial class WindowsVbaBridge
         }
         catch (COMException ex) when (VbaComHResult.Classify(ex.HResult) == VbaComFailure.Other)
         {
-            omitted.Add($"名前付き範囲は読めませんでした（0x{ex.HResult:X8}）。");
+            // 途中で失敗したときは、読めた分を返している。「読めませんでした」と言うと、一覧にある名前まで無いように聞こえる。
+            omitted.Add(VbaWorkbookInfoReadRules.OmittedNamesMessage(result.Count, ex.HResult));
         }
 
         return result;

@@ -1,3 +1,5 @@
+using Graft.Core.Vba;
+
 namespace Graft.Features;
 
 /// <summary>適用後フックの定義。仕様書3.1・6.5。</summary>
@@ -107,6 +109,22 @@ public sealed record VbaLink
 
     /// <summary>値の見本に数式も含めるか。既定オフ（数式は参照先のシート名・セル構造を AI に伝えるため）。</summary>
     public bool WorkbookInfoIncludeFormulas { get; init; }
+
+    /// <summary>
+    /// 紐付けるブックを <paramref name="workbookFullName"/> に結び直した <see cref="VbaLink"/> を返す。
+    /// <para>
+    /// 【別のブックへ結び直したときは、値の見本のオンを解除する】 値の見本をオンにする確認ダイアログは、
+    /// 「<b>このブック</b>の値を AI へ渡してよいか」の確認だった。同じプロジェクトを別のブックへ結び直しても
+    /// オンのまま引き継ぐと、新しいブックの値（別の社外秘かもしれない）が確認なしで AI へ渡る。パスが変わるときだけ
+    /// オフに戻して、確認をやり直させる。同じブックの再追加（パスが同じ）では選択を保つ。
+    /// 数式を含めるか（<see cref="WorkbookInfoIncludeFormulas"/>）は見本がオンのときだけ意味を持つので、そのままにする。
+    /// </para>
+    /// </summary>
+    public VbaLink WithWorkbook(string workbookFullName) => this with
+    {
+        WorkbookFullName = workbookFullName,
+        WorkbookInfoSampleValues = WorkbookInfoSampleValues && VbaRotNames.SamePath(WorkbookFullName, workbookFullName),
+    };
 }
 
 /// <summary>プロジェクト定義。projects.json の1要素。仕様書3.1。</summary>

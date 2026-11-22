@@ -171,4 +171,21 @@ public class ProjectVbaLinkTests
         reloaded.AutoPushOnSave.Should().BeTrue();
         reloaded.AutoPushAfterApply.Should().BeTrue("ほかの項目の既定は変わらない");
     }
+    [Fact(DisplayName = "疑わしい 2: 別のブックへ結び直したら値の見本のオンは解除される。同じブック（大文字小文字違い）なら保つ")]
+    public void 結び直しで値の見本のオンを解除する()
+    {
+        var link = new VbaLink
+        {
+            WorkbookFullName = @"C:\Work\計画.xlsm", WorkbookInfoSampleValues = true, WorkbookInfoIncludeFormulas = true, AutoPushOnSave = true,
+        };
+
+        var other = link.WithWorkbook(@"C:\Other\別の本.xlsm");
+        other.WorkbookFullName.Should().Be(@"C:\Other\別の本.xlsm");
+        other.WorkbookInfoSampleValues.Should().BeFalse("確認は「このブックの値を渡してよいか」だった。新しいブックでは確認をやり直す");
+        other.AutoPushOnSave.Should().BeTrue("ほかの設定は引き継ぐ");
+
+        link.WithWorkbook(@"c:\work\計画.xlsm").WorkbookInfoSampleValues.Should().BeTrue("同じブックの再追加では選択を保つ");
+        new VbaLink { WorkbookFullName = @"C:\Work\計画.xlsm" }.WithWorkbook(@"C:\Other\別の本.xlsm")
+            .WorkbookInfoSampleValues.Should().BeFalse();
+    }
 }

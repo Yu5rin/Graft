@@ -53,6 +53,7 @@ public sealed class VbaWorkbookInfoRowViewModel : ObservableObject
             OnPropertyChanged(nameof(ToggleToolTip));
             OnPropertyChanged(nameof(AutomationLabel));
             OnPropertyChanged(nameof(ShowSampleControls));
+            OnPropertyChanged(nameof(IsSampleNoticeVisible));
         }
     }
 
@@ -117,12 +118,22 @@ public sealed class VbaWorkbookInfoRowViewModel : ObservableObject
     /// 値の見本がオンの間、<b>常時</b>出す注意（仕様書5.2）。依頼文コピーのドロップダウンにも同じ文を 1 行出す。
     /// オフのときは空。
     /// </summary>
+    /// <remarks>
+    /// 【行数の言い方】 設定の行数 N は「見出し行に続けて読む見本の行数」で、見出し（1 行目）は見本の外で別に渡る
+    /// （見本がオフでも「内容も出す」なら渡る）。「先頭 N 行」と書くと、実際に値が渡る行数（見出し＋N 行）より
+    /// 1 行少なく読めてしまうので、「見出し行に続く N 行」と言う。N に見出しを含める案は、設定値の意味が変わり、
+    /// すでに保存された行数の設定が 1 行少なく効くので取らなかった。
+    /// </remarks>
     public string SampleNoticeText => _sampleValues
-        ? $"値の見本: オン（各シートの先頭 {_sampleRows} 行が AI へ渡ります）"
+        ? $"値の見本: オン（各シートの見出し行に続く {_sampleRows} 行が AI へ渡ります）"
         : string.Empty;
 
-    /// <summary>注意文を出すか（オンのときだけ。見出し・行の非表示と関係なく、オンなら出す）。</summary>
-    public bool IsSampleNoticeVisible => _sampleValues && _isVisible;
+    /// <summary>
+    /// 注意文を出すか。オンのときだけ（見出し・行の非表示と関係なく、オンなら出す）。ただし出し方が「構成だけ」「出さない」の
+    /// ときは見本が実際には渡らない（フォーマッタは「内容も出す」のときだけ見本を出す）ので出さない。
+    /// 渡らないのに「AI へ渡ります」と出すと、利用者が不要な心配をする。
+    /// </summary>
+    public bool IsSampleNoticeVisible => _sampleValues && _isVisible && _level == VbaWorkbookInfoLevel.Full;
 
     /// <summary>値の見本・数式の操作を出すか。「構成だけ」「出さない」では見本は出ないので隠す。</summary>
     public bool ShowSampleControls => _level == VbaWorkbookInfoLevel.Full;

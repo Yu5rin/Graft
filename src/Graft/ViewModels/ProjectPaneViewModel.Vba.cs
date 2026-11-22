@@ -461,8 +461,9 @@ public sealed partial class ProjectPaneViewModel
         {
             // 同じ場所を再び追加したとき（既存のミラーを使う）、既に VBA の紐付けを持つプロジェクトの設定
             // （適用後の自動反映・反映後の保存）を黙って既定へ戻さない。変えるのはブックのパスだけ。
+            // 別のブックへ結び直したときは、値の見本のオンを解除する（VbaLink.WithWorkbook）。
             Vba = p.Vba is { } existing
-                ? existing with { WorkbookFullName = chosen.WorkbookFullName }
+                ? existing.WithWorkbook(chosen.WorkbookFullName)
                 : new VbaLink { WorkbookFullName = chosen.WorkbookFullName },
             // 同じブックの再追加で、利用者が編集した常設コンテキストを既定文で上書きしない。
             StandingContext = string.IsNullOrWhiteSpace(p.StandingContext) ? VbaStandingContext.Default : p.StandingContext,

@@ -134,7 +134,7 @@ public class VbaWorkbookInfoFormatterTests
     {
         var on = Format(Sample(), samples: true);
 
-        on.Should().Contain("## 値の見本（各シートの先頭 1 行。AI に渡ります）");
+        on.Should().Contain("## 値の見本（各シートの見出し行に続く 1 行。AI に渡ります）");
         on.Should().Contain("### 集計（Sheet1）");
         on.Should().Contain("| 日付 | 顧客 | 品目 | 数量 | 単価 | 金額 |");
         on.Should().Contain("| 46000 | 甲社 | A-100 | 10 | 250 | =D2*E2 → 2500 |");
@@ -249,5 +249,30 @@ public class VbaWorkbookInfoFormatterTests
         VbaWorkbookInfoLevels.Next(VbaWorkbookInfoLevel.Full).Should().Be(VbaWorkbookInfoLevel.StructureOnly);
         VbaWorkbookInfoLevels.Next(VbaWorkbookInfoLevel.StructureOnly).Should().Be(VbaWorkbookInfoLevel.Hidden);
         VbaWorkbookInfoLevels.Next(VbaWorkbookInfoLevel.Hidden).Should().Be(VbaWorkbookInfoLevel.Full);
+    }
+    [Fact(DisplayName = "疑わしい 1: 範囲参照でない名前（定数・数式）は、見本オフでは名前だけ。見本オンのときだけ式も出る")]
+    public void 定数の名前は見本オフでは式を出さない()
+    {
+        var snapshot = Sample() with
+        {
+            Names = new[]
+            {
+                new VbaNamedRangeInfo("税率", "=設定!$B$3", null),
+                new VbaNamedRangeInfo("合言葉", "=\"SECRET-pass\"", null),
+                new VbaNamedRangeInfo("掛率", "=0.08", "集計"),
+                new VbaNamedRangeInfo("動的", "=OFFSET(集計!$A$1,0,0,10,1)", null),
+            },
+        };
+
+        var off = Format(snapshot, samples: false);
+        off.Should().Contain("- 税率 = =設定!$B$3（ブック全体）");
+        off.Should().Contain("- 合言葉（ブック全体）").And.NotContain("SECRET-pass");
+        off.Should().Contain("- 掛率（シート「集計」限定）").And.NotContain("0.08");
+        off.Should().Contain("- 動的（ブック全体）").And.NotContain("OFFSET", "関数の引数に定数を持ちうるので、参照とは見ない");
+
+        var on = Format(snapshot, samples: true);
+        on.Should().Contain("- 合言葉 = =\"SECRET-pass\"（ブック全体）").And.Contain("- 掛率 = =0.08").And.Contain("OFFSET");
+
+        Format(snapshot, VbaWorkbookInfoLevel.StructureOnly, samples: true).Should().NotContain("SECRET-pass", "構成だけのときは見本の鍵が開かない");
     }
 }

@@ -173,7 +173,7 @@ public class WorkbookInfoTests
         await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
 
         var confirm = r.Choices.Should().ContainSingle().Subject;
-        confirm.Message.Should().Contain("先頭 5 行").And.Contain("AI に渡ります").And.Contain("社外秘");
+        confirm.Message.Should().Contain("見出し行に続く 5 行").And.Contain("AI に渡ります").And.Contain("社外秘");
         r.H.Dialogs.Confirms.Should().BeEmpty("OK／キャンセルの確認ではなく、動詞のボタンの選択ダイアログを使う");
         context.WorkbookInfo.SampleValues.Should().BeFalse();
         context.WorkbookInfo.SampleNoticeText.Should().BeEmpty();
@@ -247,7 +247,7 @@ public class WorkbookInfoTests
         await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
 
         context.WorkbookInfo.SampleValues.Should().BeTrue();
-        context.WorkbookInfo.SampleNoticeText.Should().Be("値の見本: オン（各シートの先頭 5 行が AI へ渡ります）");
+        context.WorkbookInfo.SampleNoticeText.Should().Be("値の見本: オン（各シートの見出し行に続く 5 行が AI へ渡ります）");
         context.WorkbookInfo.IsSampleNoticeVisible.Should().BeTrue();
         r.Bridge.InfoRequests.Last().SampleRows.Should().Be(5);
         r.Bridge.InfoRequests.Last().IncludeFormulas.Should().BeFalse("数式は別の選択で既定オフ");
