@@ -239,7 +239,7 @@ public sealed partial class WindowsVbaBridge
 
         var status = result.Status == VbaWriteStatus.Written && created ? VbaWriteStatus.Created : result.Status;
         shouldAbort = result.ShouldAbort;
-        return new VbaWriteOutcome(write.Name, status, result.ReadBack, issue, result.BackupCode);
+        return new VbaWriteOutcome(write.Name, status, result.ReadBack, issue, result.BackupCode, result.Reformatted, result.TrimmedLines);
     }
 
     /// <summary>遅延バインディングの <c>CodeModule</c> を <see cref="ICodeModuleAccess"/> に見せる。</summary>
@@ -255,7 +255,7 @@ public sealed partial class WindowsVbaBridge
 
         public void DeleteLines(int startLine, int count) => _cm.DeleteLines(startLine, count);
 
-        public void AddFromString(string code) => _cm.AddFromString(code);
+        public void InsertLines(int startLine, string code) => _cm.InsertLines(startLine, code);
     }
 
     /// <summary>モジュールを新規作成する。標準／クラス以外・不正な名前・VBE の拒否は E808。</summary>
