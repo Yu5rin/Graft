@@ -367,4 +367,148 @@ public class WorkbookRibbonTests : IDisposable
         context.BuildRibbonText().Should().BeEmpty();
         context.RibbonWarning.Should().BeNull();
     }
+
+    // ------------------------------------------------------------------
+    // 1.2.2 の不具合の回帰テスト（ViewModel を通して確かめるもの）
+    // ------------------------------------------------------------------
+
+    /// <summary>リボンの読み取りを、外から開けるまで待たせる。開けるまで読み取りは終わらない（取り消しには応える）。</summary>
+    private static TaskCompletionSource GateReader(VbaP3Rig r)
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inner = r.Graft.VbaRibbonReader;
+        r.Graft.VbaRibbonReader = async (path, root, ct) =>
+        {
+            await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+            return await inner(path, root, ct).ConfigureAwait(false);
+        };
+        return gate;
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 1: 25 万段の入れ子の customUI を持つブックでも、収集の窓の取得で落ちず、「入れ子が深すぎるため読みません」と知らせて、リボンなしで続ける")]
+    public async Task 不具合1_深い入れ子でも落ちない()
+    {
+        var deep = string.Concat(Enumerable.Repeat("<a>", 250_000)) + string.Concat(Enumerable.Repeat("</a>", 250_000));
+        using var r = await NewRigAsync(Book(customUi14: deep)).ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+
+        await context.InitializeAsync().ConfigureAwait(true);
+        var text = await CollectedTextAsync(r).ConfigureAwait(true);
+
+        context.Ribbon.StatusText.Should().Contain("入れ子が深すぎるため読みません");
+        context.RibbonWarning.Should().Contain("リボン（customUI）を読めませんでした");
+        text.Should().NotContain("# リボン（customUI）").And.Contain("# プロジェクト構成");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 2: id が 10 万文字・コールバック 200 個の button を持つブックでも、収集の出力は元の XML の数倍以内")]
+    public async Task 不具合2_巨大なidでも依頼文は膨らまない()
+    {
+        var sb = new System.Text.StringBuilder("<customUI><ribbon><tabs><tab id=\"t\"><group id=\"g\"><button id=\"");
+        sb.Append('x', 100_000).Append('"');
+        for (var i = 0; i < 200; i++) sb.Append(" getX").Append(i).Append("=\"Cb").Append(i).Append('"');
+        sb.Append("/></group></tab></tabs></ribbon></customUI>");
+        using var r = await NewRigAsync(Book(customUi14: sb.ToString())).ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+        await context.CycleRibbonLevelAsync().ConfigureAwait(true); // 構成だけ
+
+        var ribbon = context.BuildRibbonText();
+
+        ribbon.Should().NotBeEmpty();
+        ribbon.Length.Should().BeLessThan(150_000, "修正前は約 2000 万文字になった");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 2: 依頼文の文は取得結果ごとに作って使い回す（3 状態のクリックのたびに作り直さない）。出し方か取得結果が変わったときだけ作り直す")]
+    public async Task 不具合2_整形結果を使い回す()
+    {
+        using var r = await NewRigAsync(Book()).ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+
+        var first = context.BuildRibbonText();
+        var second = context.BuildRibbonText();
+
+        first.Should().NotBeEmpty();
+        ReferenceEquals(first, second).Should().BeTrue("同じ取得結果・同じ出し方なら、同じ文字列をそのまま返す");
+
+        await context.CycleRibbonLevelAsync().ConfigureAwait(true); // 構成だけ
+        var structure = context.BuildRibbonText();
+        structure.Should().NotBe(first).And.NotContain("## XML");
+        ReferenceEquals(structure, context.BuildRibbonText()).Should().BeTrue();
+
+        await context.FetchRibbonAsync().ConfigureAwait(true); // 読み直し（新しい取得結果）
+        context.BuildRibbonText().Should().Be(structure, "内容は同じ。取得結果が替わっても、文は正しく作り直される");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 6: 取得の最中に「出さない」へ切り替えたら、取得が戻っても、行に取得済みの表示・コールバック名・構成を残さない")]
+    public async Task 不具合6_取得中に出さないへ()
+    {
+        using var r = await NewRigAsync(Book()).ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+        var gate = GateReader(r);
+
+        var fetching = context.FetchRibbonAsync();
+        await context.CycleRibbonLevelAsync().ConfigureAwait(true); // 構成だけ
+        await context.CycleRibbonLevelAsync().ConfigureAwait(true); // 出さない
+        context.Ribbon.Level.Should().Be(VbaWorkbookInfoLevel.Hidden);
+        gate.SetResult();
+        await fetching.ConfigureAwait(true);
+
+        context.Ribbon.Level.Should().Be(VbaWorkbookInfoLevel.Hidden);
+        context.Ribbon.StatusText.Should().Contain("出さない").And.NotContain("取得: ");
+        context.Ribbon.CallbackText.Should().BeEmpty("「出さない」の行に、コールバック名を出さない");
+        context.Ribbon.MissingText.Should().BeEmpty();
+        context.BuildRibbonText().Should().BeEmpty();
+        (await CollectedTextAsync(r).ConfigureAwait(true)).Should().NotContain("リボン");
+    }
+
+    [AvaloniaFact(DisplayName = "疑わしい点: 取り消された取得のあとに、前回の取得結果を残さない（取り消した操作が古い内容を出力へ運ばない）")]
+    public async Task 取り消しで取得結果を残さない()
+    {
+        using var r = await NewRigAsync(Book()).ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+        context.BuildRibbonText().Should().NotBeEmpty("前提: 前回の取得結果がある");
+        GateReader(r);
+        using var cts = new CancellationTokenSource();
+
+        var fetching = context.FetchRibbonAsync(cts.Token);
+        cts.Cancel();
+        var act = async () => await fetching.ConfigureAwait(true);
+        await act.Should().ThrowAsync<OperationCanceledException>();
+
+        context.BuildRibbonText().Should().BeEmpty("取り消されたあとに、古い構成・XML の全文を残さない");
+        context.Ribbon.StatusText.Should().NotContain("取得: ");
+    }
+
+    [AvaloniaFact(DisplayName = "疑わしい点: 破棄（Dispose）のあとに終わった取得は、結果（XML の全文を含む）を書き戻さない")]
+    public async Task 破棄後に終わった取得は残さない()
+    {
+        using var r = await NewRigAsync(Book()).ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+        await context.InitializeAsync().ConfigureAwait(true);
+        var gate = GateReader(r);
+
+        var fetching = context.FetchRibbonAsync();
+        context.Dispose();
+        gate.SetResult();
+        await fetching.ConfigureAwait(true);
+
+        context.BuildRibbonText().Should().BeEmpty("破棄したあとに、取得結果が戻ってきて残らない");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 8: パスワードで暗号化されたブック（拡張子 .xlsm で OLE のしるし）は、「パスワードで暗号化されている（または古い形式の）ブックのため読めません」と知らせ、警告にする")]
+    public async Task 不具合8_暗号化されたブック()
+    {
+        var file = WriteBytes("暗号化.xlsm", new byte[] { 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0, 0, 0, 0 });
+        using var r = await NewRigAsync(file).ConfigureAwait(true);
+        var context = r.Graft.ContextCollect!;
+
+        await context.InitializeAsync().ConfigureAwait(true);
+
+        context.Ribbon.StatusText.Should().Contain("パスワードで暗号化されている（または古い形式の）ブックのため読めません").And.NotContain(".xls は");
+        context.RibbonWarning.Should().Contain("リボン（customUI）を読めませんでした");
+        context.BuildRibbonText().Should().BeEmpty();
+    }
 }

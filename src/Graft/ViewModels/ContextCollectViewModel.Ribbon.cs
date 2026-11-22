@@ -25,6 +25,14 @@ public sealed partial class ContextCollectViewModel
     // 【取得の世代】 ブックの情報の取得と同じ理由（待っている間に、利用者が出し方を変えて次の取得が走りうる）。
     private int _ribbonGeneration;
 
+    // 【依頼文の文のキャッシュ】 BuildRibbonText は、トークン概算（3 状態のクリックのたび、UI スレッド）・依頼文コピー・プレビューから
+    // 何度も呼ばれる。整形は取得結果が同じなら同じ文になるので、「取得結果・出し方・XML の上限」が前回と同じ間は作り直さない。
+    // 取得結果は変わるたびに別のオブジェクトになる（WithoutXml も新しく作る）ので、参照の一致で同じかを見分けられる。
+    private VbaRibbonSnapshot? _ribbonTextSnapshot;
+    private VbaWorkbookInfoLevel _ribbonTextLevel;
+    private int _ribbonTextMaxChars;
+    private string _ribbonTextCache = string.Empty;
+
     /// <summary>リボン（customUI）の行（コンテキスト収集の窓。VBA プロジェクトのときだけ表示される）。</summary>
     public VbaRibbonRowViewModel Ribbon { get; private set; } = null!;
 
@@ -77,6 +85,10 @@ public sealed partial class ContextCollectViewModel
         }
         catch (OperationCanceledException)
         {
+            // 【取り消されたら、取得結果を残さない】 取り消された取得のあとに古い結果（前回の構成・XML の全文）が残ると、
+            // 取り消した操作がそのまま出力へ進んだときに、古い内容が「今の」ものとして出てしまう。
+            // 新しい取得がもう始まっていれば（世代が違えば）、それが持つ結果を消さない。
+            if (generation == _ribbonGeneration) ClearRibbon("取得を中断しました。");
             throw;
         }
         catch (Exception ex)
@@ -91,6 +103,14 @@ public sealed partial class ContextCollectViewModel
 
         // 待っている間により新しい取得が始まっていたら、その結果に任せる。
         if (generation != _ribbonGeneration) return;
+
+        // 【待っている間に「出さない」へ切り替えられていたら、結果を捨てる】 「出さない」は「何も持たない」状態（仕様 15.5・15.7）。
+        // 世代は CycleRibbonLevelAsync でも進めているが、ここでも見る（どちらかが外れても、取得済みの内容が行に残らないように）。
+        if (Ribbon.Level == VbaWorkbookInfoLevel.Hidden)
+        {
+            ClearRibbon("出さない設定のため、ブックのファイルを読んでいません。");
+            return;
+        }
 
         // 待っている間に別のブックへ結び直されていたら、読んだ内容は前のブックのもの。格納しない。
         if (!IsSamePathOrUnknown(requestPath, source.CurrentWorkbookFullName?.Invoke()))
@@ -114,7 +134,7 @@ public sealed partial class ContextCollectViewModel
 
         // 読めなかったことだけ警告にする。customUI が無い・古い形式（.xls）は、読めなかったのではなく「対象が無い」ので警告にしない。
         if (snapshot.Status is VbaRibbonReadStatus.FileNotFound or VbaRibbonReadStatus.Locked
-            or VbaRibbonReadStatus.Corrupt or VbaRibbonReadStatus.PartsUnreadable)
+            or VbaRibbonReadStatus.Corrupt or VbaRibbonReadStatus.PartsUnreadable or VbaRibbonReadStatus.Encrypted)
         {
             RibbonWarning = $"リボン（customUI）を読めませんでした。リボンなしで続けます（{snapshot.Reason}）";
         }
@@ -129,6 +149,8 @@ public sealed partial class ContextCollectViewModel
     private void ClearRibbon(string status)
     {
         _ribbonSnapshot = null;
+        _ribbonTextSnapshot = null;
+        _ribbonTextCache = string.Empty;
         Ribbon.StatusText = status;
         Ribbon.ShowCallbacks(null);
     }
@@ -168,8 +190,28 @@ public sealed partial class ContextCollectViewModel
         var source = _workbookInfoSource;
         if (source is null || !source.IsAvailable() || source.IsCollecting?.Invoke() == false) return string.Empty;
 
-        return VbaRibbonFormatter.Format(
-            _ribbonSnapshot, Ribbon.Level, source.RibbonMaxChars?.Invoke() ?? _settings.Vba.RibbonMaxChars);
+        var maxChars = source.RibbonMaxChars?.Invoke() ?? _settings.Vba.RibbonMaxChars;
+        if (!ReferenceEquals(_ribbonTextSnapshot, _ribbonSnapshot) || _ribbonTextLevel != Ribbon.Level || _ribbonTextMaxChars != maxChars)
+        {
+            _ribbonTextCache = VbaRibbonFormatter.Format(_ribbonSnapshot, Ribbon.Level, maxChars);
+            _ribbonTextSnapshot = _ribbonSnapshot;
+            _ribbonTextLevel = Ribbon.Level;
+            _ribbonTextMaxChars = maxChars;
+        }
+
+        return _ribbonTextCache;
+    }
+
+    /// <summary>
+    /// 破棄のとき、リボンの取得結果を手放す（<see cref="Dispose"/> から呼ぶ）。世代も進めて、破棄のあとに終わった取得が
+    /// 結果（XML の全文を含みうる）を書き戻さないようにする。
+    /// </summary>
+    private void ReleaseRibbon()
+    {
+        _ribbonGeneration++;
+        _ribbonSnapshot = null;
+        _ribbonTextSnapshot = null;
+        _ribbonTextCache = string.Empty;
     }
 
     /// <summary>
@@ -192,6 +234,8 @@ public sealed partial class ContextCollectViewModel
 
         if (next == VbaWorkbookInfoLevel.Hidden)
         {
+            // 取得の最中なら、その結果は要らない。世代を進めて、戻ってきた取得が結果を入れないようにする。
+            _ribbonGeneration++;
             ClearRibbon("出さない設定のため、ブックのファイルを読んでいません。");
         }
         else if (next == VbaWorkbookInfoLevel.StructureOnly && _ribbonSnapshot is not null)

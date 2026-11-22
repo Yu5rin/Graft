@@ -141,15 +141,16 @@ public sealed class VbaRibbonRowViewModel : ObservableObject
             return;
         }
 
-        var problems = checks.Where(c => c.Status is VbaRibbonCallbackStatus.NotFound or VbaRibbonCallbackStatus.ModuleNotFound or VbaRibbonCallbackStatus.NotPublic).ToArray();
+        var problems = checks.Where(c => c.Status is VbaRibbonCallbackStatus.NotFound or VbaRibbonCallbackStatus.ModuleNotFound or VbaRibbonCallbackStatus.NotPublic
+                                          or VbaRibbonCallbackStatus.FoundOutsideStandardModule).ToArray();
         var notChecked = checks.Any(c => c.Status == VbaRibbonCallbackStatus.Unchecked);
         CallbackText = notChecked
             ? $"コールバック {checks.Count} 件（VBA のミラーを読めなかったため、照合できていません）"
             : problems.Length == 0
                 ? $"コールバック {checks.Count} 件（すべて VBA にあります）"
-                : $"コールバック {checks.Count} 件（VBA に見つからない・呼べないもの {problems.Length} 件）";
+                : $"コールバック {checks.Count} 件（VBA に見つからない・呼べない可能性があるもの {problems.Length} 件）";
         MissingText = problems.Length == 0
             ? string.Empty
-            : "VBA に見つからない・呼べないもの: " + string.Join("、", problems.Take(5).Select(p => p.Name)) + (problems.Length > 5 ? $" ほか {problems.Length - 5} 件" : string.Empty);
+            : "VBA に見つからない・呼べない可能性があるもの: " + string.Join("、", problems.Take(5).Select(p => p.Name)) + (problems.Length > 5 ? $" ほか {problems.Length - 5} 件" : string.Empty);
     }
 }

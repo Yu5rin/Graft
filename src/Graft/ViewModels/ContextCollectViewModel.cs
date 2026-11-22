@@ -409,7 +409,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         Focus.Changed -= OnFocusChanged;
         // ブックの情報（値の見本を含みうる）は、このインスタンスの寿命より長く持たない。ディスクには元々書いていない。
         _workbookSnapshot = null;
-        _ribbonSnapshot = null;
+        ReleaseRibbon();
         // 画面に残るプレビュー（見本を含みうる）も手放す。
         _previewLines = Array.Empty<PreviewLine>();
         if (_focusPersistPending)
