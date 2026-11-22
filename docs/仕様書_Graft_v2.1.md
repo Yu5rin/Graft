@@ -715,9 +715,9 @@ Windows 版に限り、起動中の Excel ブック（.xlsm / .xlsb / .xlam）�
 | `vba.comTimeoutMs` | 5000 | COM が断ったときの再試行の上限（1000〜30000） |
 | `vba.callTimeoutMs` | 30000 | COM 呼び出し全体の時間切れ（5000〜120000、`comTimeoutMs` 以上） |
 
-`vba` にはほかに、ブックの情報の `collectWorkbookInfo`（既定 true）・`workbookInfoSampleRows`（5）・`workbookInfoMaxColumns`（30）・`workbookInfoMaxCellChars`（60）・`workbookInfoMaxChars`（20000）と、控えの `rescueMaxGenerations`（20）・`rescueMaxTotalMB`（50）がある（22.8・22.9）。
+`vba` にはほかに、ブックの情報の `collectWorkbookInfo`（既定 true）・`workbookInfoSampleRows`（5）・`workbookInfoMaxColumns`（30）・`workbookInfoMaxCellChars`（60）・`workbookInfoMaxChars`（20000）・`workbookInfoAllMaxRows`（500）・`workbookInfoAllMaxColumns`（50）と、控えの `rescueMaxGenerations`（20）・`rescueMaxTotalMB`（50）がある（22.8・22.9）。
 
-プロジェクトごとの `AutoPushAfterApply`・`SaveWorkbookAfterPush`・`AutoPushOnSave`（保存時の自動反映。既定 false）と、ブックの情報の出し方（`WorkbookInfoState`）・値の見本（`WorkbookInfoSampleValues`・`WorkbookInfoIncludeFormulas`）は `projects.json` の `vba` に持つ（右クリックのチェック項目と、ファイルを選ぶ画面から変える）。
+プロジェクトごとの `AutoPushAfterApply`・`SaveWorkbookAfterPush`・`AutoPushOnSave`（保存時の自動反映。既定 false）と、ブックの情報の出し方（`WorkbookInfoState`）・シートごとの見せ方（`WorkbookInfoSheetViews`。旧 `WorkbookInfoSampleValues`・`WorkbookInfoIncludeFormulas` は移行のためだけに読む）は `projects.json` の `vba` に持つ（右クリックのチェック項目と、ファイルを選ぶ画面から変える）。
 
 ### 22.6 制限
 
@@ -729,9 +729,9 @@ Windows 版に限り、起動中の Excel ブック（.xlsm / .xlsb / .xlam）�
 
 ### 22.8 ブックの情報（機能 A。Windows 版・VBA プロジェクトのみ）
 
-AI が存在しないシート名・列を前提に VBA を書かないよう、ブックの構造を依頼文に含める。`IVbaBridge.ReadWorkbookInfoAsync` が、シート（名前・コード名・表示状態・使用範囲）・テーブルと列名・名前付き範囲・先頭行の見出し・参照設定（読み取りのみ）を読む。コンテキスト収集の画面の「ブックの情報」の行で、内容も出す（既定）・構成だけ・出さない、を選ぶ。依頼文では `{{workbook}}`（テンプレートに無ければ「# 対象ファイル」の直前）に入る。
+AI が存在しないシート名・列を前提に VBA を書かないよう、ブックの構造を依頼文に含める。`IVbaBridge.ReadWorkbookInfoAsync` が、シート（名前・コード名・表示状態・使用範囲）・テーブルと列名・名前付き範囲・参照設定（読み取りのみ）と、シートごとに選んだ値を読む。コンテキスト収集の画面の「ブックの情報」の行で、内容も出す（既定）・構成だけ・出さない、を選ぶ。依頼文では `{{workbook}}`（テンプレートに無ければ「# 対象ファイル」の直前）に入る。
 
-- **値の見本（各シートの先頭数行のセルの値）は既定オフのオプトイン**。オンにするときは確認（既定は「やめる」）を出し、オンの間は常に注意を出す。オフのときは、値を読む COM 呼び出しを一切行わない。
+- **シートごとの見せ方（出さない／構成だけ〔既定〕／見出し＋N 行／全部／範囲を指定）を選べる**。値が渡る見せ方（見出し＋N 行・全部・範囲を指定）を選ぶときは確認（既定は「やめる」）を出し、値が渡るシートがある間は常に注意を出す。値が要らないシートでは、値を読む COM 呼び出しを一切行わない。「全部」は 1 シート 500 行・50 列まで（設定で変更）で、切ったことは依頼文に明記する。旧「値の見本」がオンだった既存のプロジェクトは、全シート「見出し＋N 行」へ移行する。
 - 取得結果はメモリにだけ持つ（`projects.json`・ログ・一時ファイルに書かない）。Excel に繋がらなくても依頼文の作成は止めず、警告（E815）を出す。
 - 詳細は `docs/仕様書_ブックの情報と依頼の観点.md` の 5章。
 
