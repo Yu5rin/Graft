@@ -168,6 +168,23 @@
                              views:HelpTip.Detailed="横に長い表で、依頼文が大きくなりすぎないようにする上限です。超えた右側は読まず、切ったことを依頼文に書きます。既定は50列、範囲は5〜200です（範囲外は既定値に戻ります）。" />
                 </Grid>
 
+                <TextBlock Text="リボン（customUI）" Classes="sectionHeading" />
+                <TextBlock Text="保存済みのブックの customUI（リボンの XML）を、読み取り専用で読んで AI に渡します。読むのは最後に保存した内容で、Excel で編集中の未保存の変更は入りません。上の「ブックの情報を取る」をオフにしたときは、リボンも読みません。どこまで渡すかは、「ファイルを選ぶ」画面の「リボン（customUI）」の行で、プロジェクトごとに選べます。"
+                           Classes="settingHint indented" TextWrapping="Wrap" />
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="リボンの XML の最大文字数（2000〜200000）" Classes="settingLabel" />
+                        <TextBlock Text="「内容も出す」で載せる XML の全文の上限です。超えたら行の切れ目で切って、全体の文字数を添えます。構成とコールバックの一覧は、この上限とは別に出します。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaRibbonMaxCharsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="リボンの XML の最大文字数"
+                             views:HelpTip.Minimal="{Binding VbaRibbonMaxCharsText, StringFormat='リボンの XML の最大文字数: {0}'}"
+                             views:HelpTip.Standard="リボン（customUI）の XML の全文を依頼文に載せる文字数の上限です。既定は30000文字です。"
+                             views:HelpTip.Detailed="リボンの XML は大きなものだと数万文字になります。この上限を超えるときは、行の切れ目で切って、切ったことと全体の文字数を依頼文に書きます。タブ・グループ・コントロールの構成と、コールバックの一覧（VBA との照合つき）は、この上限とは別に常に出します。既定は30000文字、範囲は2000〜200000です（範囲外は既定値に戻ります）。" />
+                </Grid>
+
                 <TextBlock Text="Excel 側の控え" Classes="sectionHeading" />
                 <TextBlock Text="「Excel へ反映」で Excel 側が上書きされる直前の本文を、毎回控えとして残します。プロジェクトの右クリック「Excel 側の控えを見る…」で、一覧・差分の確認と、ミラーへの取り込み（戻す）ができます。控えは履歴には記録されません。"
                            Classes="settingHint indented" TextWrapping="Wrap" />

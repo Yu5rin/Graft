@@ -334,6 +334,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         // 1度だけ文にするので、一覧の全テンプレートが同じ選択で数えられる。
         FocusText = Context.BuildFocusText(),
         WorkbookInfoText = Context.BuildWorkbookInfoText(),
+        RibbonText = Context.BuildRibbonText(),
     };
 
     private async Task<string?> GetLastRevisionSummaryAsync()

@@ -101,6 +101,18 @@ public sealed record VbaLink
     public string WorkbookInfoState { get; init; } = "Full";
 
     /// <summary>
+    /// リボン（customUI。仕様書_ブックの情報と依頼の観点 15章）の出し方。値と意味は <see cref="WorkbookInfoState"/> と同じ
+    /// （<c>"Full"</c>＝内容も出す〔XML の全文〕・<c>"StructureOnly"</c>＝構成だけ・<c>"Hidden"</c>＝出さない）。
+    /// <para>
+    /// <b>既定は「内容も出す」</b>: customUI は VBA と同じ「コード」で、AI がリボンの修正を手伝うには XML の全文が要る。
+    /// 一方で <c>label</c> などに業務名・社内の部署名が入りうるので、構成だけ・出さないへ下げられるようにしてある。
+    /// 不明な文字列は <c>Full</c> として読む（<see cref="Graft.Core.Vba.VbaWorkbookInfoLevels.Parse"/>）。
+    /// この項目が無い既存の projects.json は既定値で読める。ブックを結び直しても変えない（出し方は利用者の好みで、ブックの中身ではない）。
+    /// </para>
+    /// </summary>
+    public string RibbonState { get; init; } = "Full";
+
+    /// <summary>
     /// 【v0.4 より前の項目。移行のためだけに読む】 ブック全体の「値の見本」のオン・オフ。<b>既定はオフ</b>。
     /// v0.4 で、値はシートごとの見せ方（<see cref="WorkbookInfoSheetViews"/>）に一本化した。
     /// <see cref="WorkbookInfoSheetViews"/> が null（シートごとの見せ方をまだ一度も触っていない）で、この項目がオンの

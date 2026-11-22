@@ -192,6 +192,51 @@
                                            AutomationProperties.Name="シートの値の注意" />
                             </StackPanel>
                         </Border>
+                        <!--
+                            リボン（customUI）の行（Excel VBA プロジェクトのときだけ表示。仕様書_ブックの情報と依頼の観点 15.5）。
+                            「ブックの情報」の行と同じ作り・同じ操作（クリックで 内容も出す → 構成だけ → 出さない と巡る）で、
+                            ブックの情報の行のすぐ下に並べる。保存済みのブックのファイルを読むので、最後に保存した内容であることを常に出す。
+                        -->
+                        <Border x:Name="RibbonRow" DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" CornerRadius="4"
+                                IsVisible="{Binding Ribbon.IsVisible}"
+                                AutomationProperties.Name="リボン（customUI）">
+                            <StackPanel Spacing="4" DataContext="{Binding Ribbon}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Classes="stateToggle"
+                                            Command="{Binding CycleCommand}"
+                                            ToolTip.Tip="{Binding ToggleToolTip}"
+                                            AutomationProperties.Name="{Binding AutomationLabel}">
+                                        <local:IconGlyph Width="14" Height="14"
+                                                         Classes.stateFull="{Binding IsFull}"
+                                                         Classes.stateStructureOnly="{Binding IsStructureOnly}"
+                                                         Classes.stateHidden="{Binding IsHidden}" />
+                                    </Button>
+                                    <TextBlock Text="リボン（customUI）" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               local:HelpTip.Standard="Excel のリボン（タブ・ボタンなど）を定義する customUI の XML を、AI に渡す内容へ加えます。アイコンのクリックで「内容も出す→構成だけ→出さない」を切り替えます。"
+                                               local:HelpTip.Detailed="リボンを直したい・足したいときに、AI が今のリボンの定義と、呼ばれるマクロの有無を知っていると、ずれた回答を防げます。保存済みのブックのファイルを読み取り専用で読み（Excel が開いていても読めます）、customUI の XML を「# リボン（customUI）」として、「ブックの情報」の直後に加えます。「内容も出す」は構成・コールバックと VBA の照合・XML の全文、「構成だけ」はタブ・グループ・コントロールの id・label・種類とコールバックの一覧だけ、「出さない」は何も渡さずファイルも読みません。読むのは最後に保存した内容で、Excel で編集中の未保存の変更は含まれません。選んだ状態はプロジェクトごとに記憶されます。" />
+                                    <TextBlock Text="{Binding LevelLabel}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               FontSize="{DynamicResource CaptionFontSize}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           AutomationProperties.Name="リボンの取得状況" />
+                                <TextBlock Text="{Binding CallbackText}" IsVisible="{Binding HasCallbackText}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           AutomationProperties.Name="リボンのコールバックの照合" />
+                                <TextBlock Text="{Binding MissingText}" IsVisible="{Binding HasMissingText}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource StateWarn}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           AutomationProperties.Name="VBA に見つからないコールバック" />
+                                <TextBlock Text="{Binding NoteText}" IsVisible="{Binding ShowNote}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           AutomationProperties.Name="リボンは最後に保存した内容" />
+                            </StackPanel>
+                        </Border>
                         <TextBlock DockPanel.Dock="Top" Text="ファイル" FontSize="{DynamicResource CaptionFontSize}"
                                    Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,4"
                                    local:HelpTip.Standard="行のアイコンをクリック（またはSpaceキー）すると「内容も出す→構成だけ→出さない」の3状態を切り替えられます。フォルダなら配下へまとめて適用されます。先頭の「すべて」行を使えば、プロジェクト直下のファイルも含めて全体を一括で切り替えられます。"

@@ -29,6 +29,9 @@ public sealed class PromptTemplateRenderer
     /// <summary>ブックの情報を差し込む変数（仕様書_ブックの情報と依頼の観点 5.3）。展開結果は見出し「# ブックの情報」から。</summary>
     internal const string WorkbookVariable = "{{workbook}}";
 
+    /// <summary>リボン（customUI）を差し込む変数（仕様書_ブックの情報と依頼の観点 15.6）。展開結果は見出し「# リボン（customUI）」から。</summary>
+    internal const string RibbonVariable = "{{ribbon}}";
+
     /// <summary>
     /// テンプレート本文中の {{standingContext}} {{tree}} {{files}} {{projectName}} {{lastRevision}}
     /// を実際の値へ展開する。テンプレートが使わない変数の収集処理は呼び出さない
@@ -79,41 +82,59 @@ public sealed class PromptTemplateRenderer
         var newLine = body.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
         var paragraphBreak = newLine + newLine;
         var workbookBlock = AsBlock(request.WorkbookInfoText, newLine);
+        var ribbonBlock = AsBlock(request.RibbonText, newLine);
         var focusBlock = AsBlock(request.FocusText, newLine);
-        var hasFocus = focusBlock.Length > 0;
-        var hasWorkbook = workbookBlock.Length > 0;
         var hasFocusVariable = body.Contains(FocusVariable, StringComparison.Ordinal);
         var hasWorkbookVariable = body.Contains(WorkbookVariable, StringComparison.Ordinal);
+        var hasRibbonVariable = body.Contains(RibbonVariable, StringComparison.Ordinal);
 
-        // 変数の位置に入れる文（null は「その変数は空で消す」）と、変数が無くて位置を探す文。
-        string? workbookInVariable = hasWorkbookVariable && hasWorkbook ? workbookBlock : null;
-        string? focusInVariable = hasFocusVariable && hasFocus ? focusBlock : null;
-        string? workbookLoose = !hasWorkbookVariable && hasWorkbook ? workbookBlock : null;
-        string? focusLoose = !hasFocusVariable && hasFocus ? focusBlock : null;
-
-        // 並びは「前提 → ブックの情報 → 観点 → 対象ファイル」（仕様書5.3・6.3）。片方だけ変数があるときは、
-        // 変数が無い方の文を、変数の位置に寄せて順序を守る: 観点の変数の直前にブックの情報を、
-        // ブックの情報の変数の直後に観点を並べる。こうしないと、変数どうしの間に別の文が挟まって順序が入れ替わる。
-        if (workbookLoose is not null && focusInVariable is not null)
+        // 並びは「前提 → ブックの情報 → リボン → 観点 → 対象ファイル」（仕様書5.3・6.3・15.6）。差し込む文を、この並びの番号つきで扱う。
+        // 変数の位置に入れる文（InVariable。空なら null＝その変数は痕跡なしで消す）と、変数が無くて位置を探す文（Loose）に分ける。
+        var slots = new[]
         {
-            focusInVariable = workbookLoose + paragraphBreak + focusInVariable;
-            workbookLoose = null;
+            new Slot(workbookBlock, hasWorkbookVariable),
+            new Slot(ribbonBlock, hasRibbonVariable),
+            new Slot(focusBlock, hasFocusVariable),
+        };
+
+        // 変数が無い方の文は、変数のある隣の文へ寄せて並びを守る。片方だけ変数があるとき、変数どうしの間に別の文が挟まって
+        // 順序が入れ替わるのを防ぐため:
+        //   ・自分より前（並びの上で手前）に変数のある文があれば、そのうち最も近いものの<b>後ろ</b>に続ける
+        //     （例: {{workbook}} だけがあるなら、リボンと観点はその直後に並べる）。
+        //   ・無ければ、自分より後ろに変数のある文のうち最も近いものの<b>前</b>に置く
+        //     （例: {{focus}} だけがあるなら、ブックの情報とリボンはその直前に並べる）。
+        // 既存の 2 つ（ブックの情報・観点）だけのときの結果は、従来の規則と同じ（リボンが空なら出力は1バイトも変わらない）。
+        for (var i = 0; i < slots.Length; i++)
+        {
+            if (!slots[i].IsLoose) continue;
+            var before = Enumerable.Range(0, i).Reverse().FirstOrDefault(j => slots[j].IsInVariable, -1);
+            if (before >= 0)
+            {
+                slots[before].After.Add(slots[i].Text);
+                slots[i].Attached = true;
+                continue;
+            }
+
+            var after = Enumerable.Range(i + 1, slots.Length - i - 1).FirstOrDefault(j => slots[j].IsInVariable, -1);
+            if (after >= 0)
+            {
+                slots[after].Before.Add(slots[i].Text);
+                slots[i].Attached = true;
+            }
         }
 
-        if (focusLoose is not null && workbookInVariable is not null)
-        {
-            workbookInVariable += paragraphBreak + focusLoose;
-            focusLoose = null;
-        }
+        string? InVariableText(Slot slot) => slot.IsInVariable
+            ? string.Join(paragraphBreak, slot.Before.Append(slot.Text).Concat(slot.After))
+            : null;
 
         var deferred = new List<(string Marker, string Text)>();
-        body = ReplaceVariable(body, FocusVariable, hasFocusVariable, focusInVariable, deferred);
-        body = ReplaceVariable(body, WorkbookVariable, hasWorkbookVariable, workbookInVariable, deferred);
+        body = ReplaceVariable(body, FocusVariable, hasFocusVariable, InVariableText(slots[2]), deferred);
+        body = ReplaceVariable(body, WorkbookVariable, hasWorkbookVariable, InVariableText(slots[0]), deferred);
+        body = ReplaceVariable(body, RibbonVariable, hasRibbonVariable, InVariableText(slots[1]), deferred);
 
-        // 変数が無いまま残った文（ブックの情報 → 観点の順）。
-        var looseBlock = workbookLoose is not null && focusLoose is not null
-            ? workbookLoose + paragraphBreak + focusLoose
-            : workbookLoose ?? focusLoose;
+        // 変数が無いまま残った文（ブックの情報 → リボン → 観点の順）。
+        var looseTexts = slots.Where(slot => slot.IsLoose && !slot.Attached).Select(slot => slot.Text).ToArray();
+        var looseBlock = looseTexts.Length == 0 ? null : string.Join(paragraphBreak, looseTexts);
         var loosePlacedInBody = false;
         if (looseBlock is not null && FindFocusInsertIndex(body) is var at and >= 0)
         {
@@ -246,6 +267,36 @@ public sealed class PromptTemplateRenderer
             i--;
         }
         return string.Join('\n', lines).Replace(variable, string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 差し込む文 1 つ（ブックの情報・リボン・観点のどれか）。変数が本文にあって文が空でないものを <see cref="IsInVariable"/>、
+    /// 変数が本文に無くて文が空でないものを <see cref="IsLoose"/>（位置を探す文）と呼ぶ。
+    /// </summary>
+    private sealed class Slot
+    {
+        public Slot(string text, bool hasVariable)
+        {
+            Text = text;
+            HasVariable = hasVariable;
+        }
+
+        public string Text { get; }
+
+        public bool HasVariable { get; }
+
+        public bool IsInVariable => HasVariable && Text.Length > 0;
+
+        public bool IsLoose => !HasVariable && Text.Length > 0;
+
+        /// <summary>隣の変数へ寄せた（<see cref="IsLoose"/> の文が、変数の位置に一緒に入る）。</summary>
+        public bool Attached { get; set; }
+
+        /// <summary>この変数の位置の、自分の文の前に並べる文（並びの上で後ろにある、変数の無い文）。</summary>
+        public List<string> Before { get; } = new();
+
+        /// <summary>この変数の位置の、自分の文の後ろに並べる文（並びの上で手前にある、変数の無い文）。</summary>
+        public List<string> After { get; } = new();
     }
 
     /// <summary>

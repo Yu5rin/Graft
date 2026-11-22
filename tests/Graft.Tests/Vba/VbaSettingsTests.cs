@@ -42,6 +42,12 @@ public class VbaSettingsTests
         vba.WorkbookInfoAllMaxColumns.Should().Be(50);
     }
 
+    [Fact(DisplayName = "リボン（customUI）の XML の最大文字数の既定は 30000")]
+    public void リボンの既定値()
+    {
+        new Settings().Vba.RibbonMaxChars.Should().Be(30000);
+    }
+
     [Fact(DisplayName = "控えの既定値: 1 モジュール 20 世代・全体 50MB")]
     public void 控えの既定値()
     {
@@ -107,6 +113,7 @@ public class VbaSettingsTests
         {
             CollectWorkbookInfo = false, WorkbookInfoSampleRows = 12, WorkbookInfoMaxColumns = 50,
             WorkbookInfoMaxCellChars = 120, WorkbookInfoMaxChars = 40000, WorkbookInfoAllMaxRows = 800, WorkbookInfoAllMaxColumns = 70,
+            RibbonMaxChars = 60000,
             RescueMaxGenerations = 33, RescueMaxTotalMB = 77,
         };
 
@@ -118,6 +125,7 @@ public class VbaSettingsTests
         json.Should().Contain("\"workbookInfoMaxColumns\": 50").And.Contain("\"workbookInfoMaxCellChars\": 120");
         json.Should().Contain("\"workbookInfoMaxChars\": 40000");
         json.Should().Contain("\"workbookInfoAllMaxRows\": 800").And.Contain("\"workbookInfoAllMaxColumns\": 70");
+        json.Should().Contain("\"ribbonMaxChars\": 60000");
         loaded.Value.Vba.Should().Be(custom);
         loaded.Issues.Should().BeEmpty();
 
@@ -128,6 +136,7 @@ public class VbaSettingsTests
         old.Value.Vba.WorkbookInfoSampleRows.Should().Be(5);
         old.Value.Vba.WorkbookInfoAllMaxRows.Should().Be(500, "このキーの無い旧形式は既定値で読める");
         old.Value.Vba.WorkbookInfoAllMaxColumns.Should().Be(50);
+        old.Value.Vba.RibbonMaxChars.Should().Be(30000, "このキーの無い旧形式は既定値で読める");
         old.Issues.Should().BeEmpty();
     }
 
@@ -144,6 +153,8 @@ public class VbaSettingsTests
     [InlineData("workbookInfoAllMaxRows", 5001, 500)]
     [InlineData("workbookInfoAllMaxColumns", 4, 50)]
     [InlineData("workbookInfoAllMaxColumns", 201, 50)]
+    [InlineData("ribbonMaxChars", 1999, 30000)]
+    [InlineData("ribbonMaxChars", 200001, 30000)]
     public async Task ブックの情報の範囲外(string key, int value, int fallback)
     {
         using var ws = new TempWorkspace();
@@ -160,6 +171,7 @@ public class VbaSettingsTests
             "workbookInfoMaxCellChars" => vba.WorkbookInfoMaxCellChars,
             "workbookInfoAllMaxRows" => vba.WorkbookInfoAllMaxRows,
             "workbookInfoAllMaxColumns" => vba.WorkbookInfoAllMaxColumns,
+            "ribbonMaxChars" => vba.RibbonMaxChars,
             _ => vba.WorkbookInfoMaxChars,
         };
         actual.Should().Be(fallback);
@@ -179,6 +191,8 @@ public class VbaSettingsTests
     [InlineData("workbookInfoAllMaxRows", 5000)]
     [InlineData("workbookInfoAllMaxColumns", 5)]
     [InlineData("workbookInfoAllMaxColumns", 200)]
+    [InlineData("ribbonMaxChars", 2000)]
+    [InlineData("ribbonMaxChars", 200000)]
     public async Task ブックの情報の境界は有効(string key, int value)
     {
         using var ws = new TempWorkspace();

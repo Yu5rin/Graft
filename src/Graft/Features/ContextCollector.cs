@@ -70,6 +70,16 @@ public sealed record ContextRequest
     /// 観点の直前（前提 → ブックの情報 → 観点 → 対象ファイルの順）に差し込む。
     /// </summary>
     public string WorkbookInfoText { get; init; } = string.Empty;
+
+    /// <summary>
+    /// リボン（customUI）の文（<c>VbaRibbonFormatter.Format</c> の結果。見出し <c># リボン（customUI）</c> から。
+    /// 仕様書_ブックの情報と依頼の観点 15.6）。空（既定。VBA でない・「出さない」・customUI が無い・読めない）のときは
+    /// 何も差し込まず、出力は従来と1バイトも変わらない。
+    /// 差し込み位置は<b>ブックの情報の直後・観点の直前</b>（前提 → ブックの情報 → リボン → 観点 → 構成の順）。
+    /// コンテキスト収集（<see cref="ContextCollector.CollectAsync"/>）は「# 前提」・ブックの情報の直後に、
+    /// 依頼文のテンプレート展開（<see cref="PromptTemplateRenderer"/>）は <c>{{ribbon}}</c> または観点の直前に差し込む。
+    /// </summary>
+    public string RibbonText { get; init; } = string.Empty;
 }
 
 /// <summary>選択用ツリーの1エントリ（ファイルまたはディレクトリ）。</summary>
@@ -294,6 +304,9 @@ public sealed class ContextCollector
         // ブックの情報は「# 前提」の直後・観点より前（仕様書5.3・6.3。前提 → ブックの情報 → 観点 → 構成の順）。
         // 空のときは何も足さない。
         AppendBlock(sb, request.WorkbookInfoText);
+        // リボン（customUI）はブックの情報の直後・観点より前（仕様書15.6。前提 → ブックの情報 → リボン → 観点 → 構成の順）。
+        // 空のときは何も足さない。
+        AppendBlock(sb, request.RibbonText);
         // 依頼の観点は「# 前提」の直後（前提が無ければ概要の直後）に置く（仕様書6.3）。前提で
         // プロジェクトの事情を伝えたあと、ツリーやファイルより先に「今回の依頼の方向」を伝える並び。
         // 空のときは何も足さない（観点を選ばなければ出力は従来と同一）。

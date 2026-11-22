@@ -28,6 +28,7 @@ public sealed partial class SettingsViewModel
     private string _vbaWorkbookInfoMaxCharsText = "20000";
     private string _vbaWorkbookInfoAllMaxRowsText = "500";
     private string _vbaWorkbookInfoAllMaxColumnsText = "50";
+    private string _vbaRibbonMaxCharsText = "30000";
     private string _vbaRescueMaxGenerationsText = "20";
     private string _vbaRescueMaxTotalMBText = "50";
 
@@ -88,6 +89,9 @@ public sealed partial class SettingsViewModel
     /// <summary>1 モジュールあたりの自動控えの世代数（<c>Vba.RescueMaxGenerations</c>）。範囲 1〜200。</summary>
     public string VbaRescueMaxGenerationsText { get => _vbaRescueMaxGenerationsText; set => SetEditableProperty(ref _vbaRescueMaxGenerationsText, value); }
 
+    /// <summary>リボン（customUI）の XML の全文を依頼文に載せる最大文字数（<c>Vba.RibbonMaxChars</c>）。範囲 2000〜200000。</summary>
+    public string VbaRibbonMaxCharsText { get => _vbaRibbonMaxCharsText; set => SetEditableProperty(ref _vbaRibbonMaxCharsText, value); }
+
     /// <summary>控え全体の容量（MB。<c>Vba.RescueMaxTotalMB</c>）。範囲 5〜1000。</summary>
     public string VbaRescueMaxTotalMBText { get => _vbaRescueMaxTotalMBText; set => SetEditableProperty(ref _vbaRescueMaxTotalMBText, value); }
 
@@ -107,6 +111,7 @@ public sealed partial class SettingsViewModel
         VbaWorkbookInfoMaxCharsText = vba.WorkbookInfoMaxChars.ToString(CultureInfo.InvariantCulture);
         VbaWorkbookInfoAllMaxRowsText = vba.WorkbookInfoAllMaxRows.ToString(CultureInfo.InvariantCulture);
         VbaWorkbookInfoAllMaxColumnsText = vba.WorkbookInfoAllMaxColumns.ToString(CultureInfo.InvariantCulture);
+        VbaRibbonMaxCharsText = vba.RibbonMaxChars.ToString(CultureInfo.InvariantCulture);
         VbaRescueMaxGenerationsText = vba.RescueMaxGenerations.ToString(CultureInfo.InvariantCulture);
         VbaRescueMaxTotalMBText = vba.RescueMaxTotalMB.ToString(CultureInfo.InvariantCulture);
     }
@@ -126,6 +131,7 @@ public sealed partial class SettingsViewModel
         WorkbookInfoMaxChars = ParseInt(_vbaWorkbookInfoMaxCharsText),
         WorkbookInfoAllMaxRows = ParseInt(_vbaWorkbookInfoAllMaxRowsText),
         WorkbookInfoAllMaxColumns = ParseInt(_vbaWorkbookInfoAllMaxColumnsText),
+        RibbonMaxChars = ParseInt(_vbaRibbonMaxCharsText),
         RescueMaxGenerations = ParseInt(_vbaRescueMaxGenerationsText),
         RescueMaxTotalMB = ParseInt(_vbaRescueMaxTotalMBText),
     };

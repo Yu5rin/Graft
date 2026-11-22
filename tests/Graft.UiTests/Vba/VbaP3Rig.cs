@@ -39,6 +39,30 @@ internal sealed class VbaP3Rig : IDisposable
     /// <summary>出た選択ダイアログ（<see cref="VbaChoiceRequest"/>）の記録。</summary>
     public List<VbaChoiceRequest> Choices { get; } = new();
 
+    /// <summary>
+    /// リボンの読み取りで実際に読む zip ファイル（一時ファイル）。null のあいだは、リボンの設定が無いブックを返す。
+    /// </summary>
+    public string? RibbonFile { get; set; }
+
+    /// <summary>リボンの読み取りの呼び出し回数（取得の契機を確かめる）。</summary>
+    public int RibbonReads { get; private set; }
+
+    private async Task<VbaRibbonSnapshot> ReadRibbonAsync(string workbookPath, string mirrorRoot, CancellationToken ct)
+    {
+        RibbonReads++;
+        if (RibbonFile is not null)
+        {
+            // 取得結果が持つブックのパスは、紐付いているブック（Fake のパス）にそろえる（一時ファイルのパスだと、
+            // 「別のブックのものなので捨てる」突き合わせに引っ掛かる）。
+            var read = await VbaRibbonCollector.CollectAsync(RibbonFile, mirrorRoot, null, ct).ConfigureAwait(false);
+            return read with { WorkbookPath = workbookPath, WorkbookName = Path.GetFileName(workbookPath) };
+        }
+
+        return new VbaRibbonSnapshot(
+            Path.GetFileName(workbookPath), workbookPath, DateTimeOffset.Now, null, VbaRibbonReadStatus.NoRibbon, null,
+            Array.Empty<VbaRibbonPart>(), Array.Empty<VbaRibbonCallbackCheck>());
+    }
+
     /// <summary>出た衝突ダイアログの記録。</summary>
     public List<VbaConflictRequest> Conflicts { get; } = new();
 
@@ -60,6 +84,11 @@ internal sealed class VbaP3Rig : IDisposable
         arrange?.Invoke(bridge);
         var rig = new VbaP3Rig(harness, bridge);
         harness.Shell.Graft.VbaBridge = bridge;
+
+        // Fake のブック（C:\Work\計画.xlsm）には実ファイルが無い。リボン（customUI）の読み取りは実ファイルを読むので、
+        // 既定では「リボンの設定が無いブック」を返す（ファイルが無い警告が、リボンと関係のないテストの状態表示に混ざらないように）。
+        // リボンを確かめるテストは、RibbonFile で一時ファイルの zip を指す。
+        harness.Shell.Graft.VbaRibbonReader = (path, root, ct) => rig.ReadRibbonAsync(path, root, ct);
 
         harness.Shell.Graft.ChooseVbaAsync = request =>
         {

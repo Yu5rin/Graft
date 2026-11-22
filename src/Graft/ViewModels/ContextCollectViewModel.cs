@@ -103,6 +103,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         _vbaPull = vbaPull;
         _workbookInfoSource = vbaWorkbookInfo;
         InitializeWorkbookInfo(project, vbaWorkbookInfo);
+        InitializeRibbon(project, vbaWorkbookInfo);
 
         Modes = new ObservableCollection<ModeOption>
         {
@@ -371,6 +372,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         Focus.Changed -= OnFocusChanged;
         // ブックの情報（値の見本を含みうる）は、このインスタンスの寿命より長く持たない。ディスクには元々書いていない。
         _workbookSnapshot = null;
+        _ribbonSnapshot = null;
         // 画面に残るプレビュー（見本を含みうる）も手放す。
         _previewLines = Array.Empty<PreviewLine>();
         if (_focusPersistPending)
@@ -588,6 +590,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             SinceRevision = _selectedRevision?.Revision,
             FocusText = BuildFocusText(),
             WorkbookInfoText = BuildWorkbookInfoText(),
+            RibbonText = BuildRibbonText(),
         };
 
         // 8.8: 収集本体（プレビュー・コピー・ファイル保存）にも待機表示を出す。従来は
@@ -887,7 +890,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         var treeChars = IncludesTreeInEstimate(_selectedMode) ? EstimateTreeSectionChars() : 0;
 
         // 依頼の観点（チップ）の文も出力の先頭近くに入るので、概算に含める（何も選んでいなければ0）。
-        var workbookChars = BuildWorkbookInfoText().Length;
+        var workbookChars = BuildWorkbookInfoText().Length + BuildRibbonText().Length;
         var focusChars = BuildFocusText().Length;
 
         EstimatedTokens = TokenEstimator.EstimateLength(totalBytes, _settings.Context.TokenRatio)

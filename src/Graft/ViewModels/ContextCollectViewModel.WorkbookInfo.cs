@@ -46,6 +46,16 @@ public sealed class VbaWorkbookInfoSource
     public Func<int>? AllMaxColumns { get; init; }
 
     /// <summary>
+    /// リボン（customUI）を読んで取得結果にする。<b>null は「取得しない」</b>（設定 <c>Vba.CollectWorkbookInfo</c> が false）。
+    /// このプロパティ自体が null（未配線）なら、リボンの行は出さない（リボンの読み取りを知らない呼び出し側・テスト）。
+    /// ブックのファイルを読むだけで Excel（COM）は呼ばない。失敗は結果の種類と理由で返し、例外にしない。
+    /// </summary>
+    public Func<CancellationToken, Task<VbaRibbonSnapshot?>>? FetchRibbonAsync { get; init; }
+
+    /// <summary>リボンの XML の全文を載せる最大文字数（<c>Vba.RibbonMaxChars</c>）を、呼び出しのたびに返す。未配線なら作成時の設定。</summary>
+    public Func<int>? RibbonMaxChars { get; init; }
+
+    /// <summary>
     /// 設定 <c>Vba.CollectWorkbookInfo</c> がいまオンか。<b>依頼文を作るたびに</b>読み直す。
     /// 取得（<see cref="FetchAsync"/>）の契機は収集の窓を開いたときなどに限られ、依頼文のクイックコピーは一覧が残っていれば
     /// 取り直さない。そのため設定でオフにした直後でも、直前に取った結果が依頼文へ出続けてしまった
@@ -125,7 +135,7 @@ public sealed partial class ContextCollectViewModel
     /// 窓を開かない経路（依頼文コピー）が自分の画面に出す、Excel 関連の警告（取り込みの警告とブックの情報の警告を
     /// 1 行に連結したもの。仕様書5.6）。無ければ null。
     /// </summary>
-    public string? VbaWarning => CombineWarnings(VbaPullWarning, WorkbookInfoWarning);
+    public string? VbaWarning => CombineWarnings(CombineWarnings(VbaPullWarning, WorkbookInfoWarning), RibbonWarning);
 
     private void InitializeWorkbookInfo(Project project, VbaWorkbookInfoSource? source)
     {
@@ -152,6 +162,15 @@ public sealed partial class ContextCollectViewModel
     /// </para>
     /// </summary>
     public async Task FetchWorkbookInfoAsync(CancellationToken ct = default)
+    {
+        await FetchWorkbookInfoCoreAsync(ct).ConfigureAwait(true);
+
+        // リボン（customUI）も同じ契機で読む（仕様書15.7）。ブックの情報が「出さない」でも、リボンは別の行なので読む。
+        // シートの見せ方の変更による取り直し（RefreshWorkbookInfoOnDemandAsync）では読まない（ブックのファイルは変わらない）。
+        await FetchRibbonAsync(ct).ConfigureAwait(true);
+    }
+
+    private async Task FetchWorkbookInfoCoreAsync(CancellationToken ct)
     {
         var generation = ++_fetchGeneration;
         WorkbookInfoWarning = null;
@@ -242,6 +261,9 @@ public sealed partial class ContextCollectViewModel
     {
         var current = _workbookInfoSource?.CurrentWorkbookFullName?.Invoke();
         if (string.IsNullOrEmpty(current)) return;
+
+        // リボン（customUI）の取得結果も、別のブックのものなら捨てる（label などに前のブックの業務名が残っているため）。
+        DropRibbonIfOtherWorkbook(current);
 
         var changed = false;
         if (_project.Vba is { } vba && !VbaRotNames.SamePath(vba.WorkbookFullName, current))
@@ -828,7 +850,7 @@ public sealed partial class ContextCollectViewModel
     {
         try
         {
-            await FetchWorkbookInfoAsync().ConfigureAwait(true);
+            await FetchWorkbookInfoCoreAsync(CancellationToken.None).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {

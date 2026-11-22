@@ -197,6 +197,14 @@ public sealed record VbaSettings
     public int WorkbookInfoAllMaxColumns { get; init; } = 50;
 
     /// <summary>
+    /// リボン（customUI）の XML の全文を依頼文に載せる最大文字数（仕様書_ブックの情報と依頼の観点 15.5）。範囲 2000〜200000。
+    /// 超えたら、行の切れ目で切って、切ったことと全体の文字数を添える。構成とコールバックの一覧は、この上限とは別に常に出す。
+    /// <see cref="WorkbookInfoMaxChars"/>（ブックの情報全体の上限）とは別にしているのは、リボンの XML が 1 つで数万文字になりうる一方、
+    /// 取得の契機や出し方（3 状態）がブックの情報とは独立しているため。
+    /// </summary>
+    public int RibbonMaxChars { get; init; } = 30000;
+
+    /// <summary>
     /// 1 モジュールあたりの自動控え（反映前の控えと、戻す前のミラーの控え）の世代数。範囲 1〜200。
     /// 超えた古い方から自動で消す。衝突の上書き前などの従来の控え（<c>Legacy</c>）は数えず、消さない
     /// （仕様書_ブックの情報と依頼の観点 7.3）。

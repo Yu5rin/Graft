@@ -124,6 +124,8 @@ public class SettingsRoundTripTests : IDisposable
             WorkbookInfoMaxCellChars = 80, WorkbookInfoMaxChars = 30000,
             // シートごとの見せ方の「全部」「範囲を指定」の上限（v0.4）。
             WorkbookInfoAllMaxRows = 700, WorkbookInfoAllMaxColumns = 60,
+            // リボン（customUI）の XML の全文の上限（v0.5）。
+            RibbonMaxChars = 45000,
             // 反映前の自動控え（同 7.3。段階 Q3）。
             RescueMaxGenerations = 35, RescueMaxTotalMB = 120,
         },
