@@ -58,6 +58,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     private bool _isEmpty;
     private GraftIssue? _errorIssue;
     private string? _statusMessage;
+    private Func<string?>? _sizeStatus;
     private string _newExcludePattern = string.Empty;
     private IReadOnlyList<PreviewLine> _previewLines = Array.Empty<PreviewLine>();
 
@@ -291,10 +292,46 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         private set => SetProperty(ref _errorIssue, value);
     }
 
+    /// <summary>
+    /// 画面下の状況の文。トークン数に触れる文（大きさの助言・コピー／保存／プレビューの結果）は
+    /// <see cref="SetSizeStatus"/> で入れる。ここへ直接代入した文は、別の文で上書きするまで変わらない。
+    /// </summary>
     public string? StatusMessage
     {
         get => _statusMessage;
-        private set => SetProperty(ref _statusMessage, value);
+        // 直接代入は「別の文に替わった」ことなので、数字に追従させる仕組みは外す
+        // （外さないと、gitの結果などの文を、あとから古い助言の文が上書きしてしまう）。
+        private set
+        {
+            _sizeStatus = null;
+            SetProperty(ref _statusMessage, value);
+        }
+    }
+
+    /// <summary>
+    /// トークン数を含む状況の文を、<paramref name="build"/> の結果として出し、以後はトークン数が変わるたびに作り直す。
+    ///
+    /// 【なぜ文字列を一度作って終わりにしないか（実機で報告された食い違いの原因）】
+    /// 以前は、走査の直後に「推定 約90427トークン」という文字列を作って <see cref="StatusMessage"/> へ入れ、
+    /// それきりだった。一方、ボタンの横の「推定トークン数」は <see cref="EstimatedTokens"/> のバインドなので、
+    /// そのあとの選択の変更・保存済みの選択の復元・ブックの情報やリボンの取得・依頼の観点の選択のたびに
+    /// 「約85365トークン」へ追従する。結果、上の文と下の行の数字が食い違った（利用者の画面で確認）。
+    /// 数字を含む文は、数字の元（<see cref="UpdateApproxTokenEstimate"/>）が変わるたびに、同じ書き方で
+    /// 作り直すようにして、構造的に食い違わせない。
+    ///
+    /// <paramref name="build"/> が null を返したとき（目安以下になり、助言が要らなくなったとき）は、文を消す。
+    /// </summary>
+    private void SetSizeStatus(Func<string?> build)
+    {
+        StatusMessage = build();
+        _sizeStatus = build;
+    }
+
+    /// <summary>数字に追従する文があれば、いまのトークン数で作り直す。</summary>
+    private void RefreshSizeStatus()
+    {
+        if (_sizeStatus is not { } build) return;
+        SetProperty(ref _statusMessage, build(), nameof(StatusMessage));
     }
 
     /// <summary>
@@ -475,9 +512,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     {
         var result = await CollectAsync().ConfigureAwait(true);
         if (result is null) return;
-        StatusMessage = ExceedsWarnThreshold
+        SetSizeStatus(() => ExceedsWarnThreshold
             ? $"推定: 約{EstimatedTokens}トークン。{BuildSizeAdvice()}"
-            : $"推定: 約{EstimatedTokens}トークン。";
+            : $"推定: 約{EstimatedTokens}トークン。");
     }
 
     /// <summary>
@@ -505,9 +542,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         if (result is null) return;
 
         _ui.Clipboard.SetText(result.Text);
-        StatusMessage = ExceedsWarnThreshold
+        SetSizeStatus(() => ExceedsWarnThreshold
             ? $"クリップボードにコピーしました。{BuildSizeAdvice()}"
-            : "クリップボードにコピーしました。";
+            : "クリップボードにコピーしました。");
     }
 
     /// <summary>
@@ -540,9 +577,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             return;
         }
 
-        StatusMessage = ExceedsWarnThreshold
+        SetSizeStatus(() => ExceedsWarnThreshold
             ? $"保存しました。{BuildSizeAdvice()}保存先: {path}"
-            : $"保存しました。保存先: {path}";
+            : $"保存しました。保存先: {path}");
     }
 
     /// <summary>
@@ -898,6 +935,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             + TokenEstimator.EstimateLength(workbookChars, _settings.Context.TokenRatio)
             + TokenEstimator.EstimateLength(focusChars, _settings.Context.TokenRatio);
         ExceedsWarnThreshold = EstimatedTokens > TokenWarnThreshold;
+
+        // 状況の文に出ているトークン数も、この値に合わせる（SetSizeStatus のコメント参照）。
+        RefreshSizeStatus();
     }
 
     /// <summary>ContextCollector.CollectAsync内のIncludesTreeと同じ判定（構成ツリーを出力に含むモードか）。</summary>
@@ -957,7 +997,10 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     private void WarnIfDefaultSelectionIsLarge()
     {
         if (!ExceedsWarnThreshold) return;
-        StatusMessage = $"既定ですべてのファイルの内容を含めています。{BuildSizeAdvice()}";
+        // 目安以下になったら（フォルダを「構成だけ」にした等）、助言は要らないので文ごと消す。
+        SetSizeStatus(() => ExceedsWarnThreshold
+            ? $"既定ですべてのファイルの内容を含めています。{BuildSizeAdvice()}"
+            : null);
     }
 
     // ---- 追加要件: プロジェクトごとのチェック状態（3状態）の永続化 ----
