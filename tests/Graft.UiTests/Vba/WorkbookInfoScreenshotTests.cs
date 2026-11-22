@@ -155,7 +155,7 @@ public class WorkbookInfoScreenshotTests : IDisposable
         // 窓が開いた直後の初期化（走査）が終わってからプレビューを作る（走査中はボタンが無効で、結果も作り直される）。
         await WaitForIdleAsync(context).ConfigureAwait(true);
         await ShellHarness.ExecuteAsync(context.PreviewCommand).ConfigureAwait(true);
-        window.FindControl<TabControl>("MainTabs")!.SelectedIndex = 1;
+        window.SelectPreviewTab();
         await Task.Delay(150).ConfigureAwait(true);
         Save(window, "q2-preview-workbook-info.png");
     }

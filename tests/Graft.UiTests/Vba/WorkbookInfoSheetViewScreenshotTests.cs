@@ -176,7 +176,7 @@ public class WorkbookInfoSheetViewScreenshotTests : IDisposable
         var window = await OpenWindowAsync(r).ConfigureAwait(true);
 
         await ShellHarness.ExecuteAsync(context.PreviewCommand).ConfigureAwait(true);
-        window.FindControl<TabControl>("MainTabs")!.SelectedIndex = 1;
+        window.SelectPreviewTab();
         await Task.Delay(150).ConfigureAwait(true);
         // シートの値の節まで、プレビューをスクロールする（先頭は前提・構成で、値の節は下にある）。
         var scroller = window.GetVisualDescendants().OfType<ScrollViewer>().Where(s => s.Extent.Height > s.Viewport.Height * 2).OrderByDescending(s => s.Extent.Height).First();

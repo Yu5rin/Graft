@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -22,6 +23,82 @@ public partial class ContextCollectWindow : Window
         // ここに置く（DataContextを持つコンストラクタ側にだけ置くと、テストで既定コンストラクタを
         // 直接使った場合にフォーカスが当たらなくなる）。
         Loaded += (_, _) => ModeComboBox.Focus();
+
+        // ファイル選択タブの割り付け（広い窓＝ファイル一覧の右にブックの情報／狭い窓＝「ブックの情報」タブ）は、
+        // 窓の幅と、ブックの情報の枠が出ているかで決まる。どちらが変わっても作り直す。
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == ClientSizeProperty) UpdateFileSelectLayout();
+        };
+        WorkbookInfoRow.PropertyChanged += OnWorkbookRowVisibilityChanged;
+        RibbonRow.PropertyChanged += OnWorkbookRowVisibilityChanged;
+        UpdateFileSelectLayout();
+    }
+
+    /// <summary>
+    /// ブックの情報の側を、ファイル一覧の右に並べる最小の窓の幅。
+    /// 860 = 左右の余白 32 + ファイル一覧の最小 280 + 仕切り 6 + ブックの情報の最小 320（シート名 180 + 見せ方の選択 140）に、
+    /// 余裕を持たせた値。これ未満では、1 つの縦の列にファイル一覧とシート一覧の 2 つを積むことになり、
+    /// 760×720 の試作でシートが 1〜2 行・最小の窓でファイル一覧が 0 行になって、どう高さを配ってもつぶれた。
+    /// そのため、狭い窓ではタブに分ける。
+    /// </summary>
+    private const double SideBySideMinWidth = 860;
+
+    /// <summary>いまの割り付け。-1 = まだ決めていない、0 = ブックの情報なし、1 = 左右に並べる、2 = 「ブックの情報」タブ。</summary>
+    private int _fileSelectLayout = -1;
+
+    private void OnWorkbookRowVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == IsVisibleProperty) UpdateFileSelectLayout();
+    }
+
+    /// <summary>
+    /// ファイル選択タブの割り付けを決め直す。
+    /// ・ブックの情報の枠もリボンの枠も出ていない（通常のプロジェクト）: ファイル一覧だけ（全幅）。
+    /// ・出ていて、窓が広い（<see cref="SideBySideMinWidth"/> 以上）: 左にファイル一覧、右にブックの情報。
+    /// ・出ていて、窓が狭い: ブックの情報の部品を「ブックの情報」タブへ移し、ファイル選択タブの先頭に、
+    ///   値が渡る注意などの要約を 1 行だけ残す（仕様書_ブックの情報と依頼の観点 5.3 の常に出す注意を、
+    ///   ファイル選択タブを見ているときも守る）。
+    /// 同じ部品を 2 つ作らず、親を付け替える（同じ見た目の部品が 2 つあることによる不具合を過去に踏んでいるため）。
+    /// </summary>
+    private void UpdateFileSelectLayout()
+    {
+        var hasWorkbook = WorkbookInfoRow.IsVisible || RibbonRow.IsVisible;
+        // 部品そのものの表示は、2 つの枠のどちらかが出ているとき（どちらも出ていなければ、余白だけが残らないよう隠す）。
+        WorkbookColumn.IsVisible = hasWorkbook;
+
+        var layout = !hasWorkbook ? 0 : ClientSize.Width >= SideBySideMinWidth ? 1 : 2;
+        if (_fileSelectLayout == layout) return;
+        _fileSelectLayout = layout;
+
+        var host = layout == 2 ? (Panel)WorkbookTabHost : FileSelectGrid;
+        if (!ReferenceEquals(WorkbookColumn.Parent, host))
+        {
+            (WorkbookColumn.Parent as Panel)?.Children.Remove(WorkbookColumn);
+            host.Children.Add(WorkbookColumn);
+        }
+
+        WorkbookTab.IsVisible = layout == 2;
+        WorkbookSummaryRow.IsVisible = layout == 2;
+        WorkbookSplitter.IsVisible = layout == 1;
+        // 見ていたタブが消えるときは、ファイル選択へ戻す（消えたタブを選んだままにしない）。
+        if (layout != 2 && ReferenceEquals(MainTabs.SelectedItem, WorkbookTab)) MainTabs.SelectedIndex = 0;
+
+        if (layout == 1)
+        {
+            // ファイル一覧 5 : ブックの情報 4（それより広げた分は両方へ配る）。仕切りで幅を変えられる。
+            FileSelectGrid.ColumnDefinitions = new ColumnDefinitions("5*,Auto,4*");
+            FileSelectGrid.ColumnDefinitions[0].MinWidth = 280;
+            FileSelectGrid.ColumnDefinitions[2].MinWidth = 320;
+            Grid.SetColumn(WorkbookSplitter, 1);
+            Grid.SetColumn(WorkbookColumn, 2);
+        }
+        else
+        {
+            FileSelectGrid.ColumnDefinitions = new ColumnDefinitions("*");
+            Grid.SetColumn(WorkbookSplitter, 0);
+            Grid.SetColumn(WorkbookColumn, 0);
+        }
     }
 
     /// <param name="viewModel">コンテキスト収集のViewModel。</param>
