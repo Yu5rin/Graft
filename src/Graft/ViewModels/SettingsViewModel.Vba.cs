@@ -10,7 +10,7 @@ namespace Graft.ViewModels;
 /// <para>
 /// 【P1 では持ち回りだけだった】 P1 の時点では、設定画面のパネルが無いので、読み込んだ <c>Vba</c> を
 /// そのまま保持して保存時に引き継ぐだけだった（<c>BuildSettingsFromFields</c> が <c>new Settings</c> で全項目を
-/// 組み立て直すため、引き継がないと別の項目の保存のたびに既定値へ戻る）。パネルを作った今は、5項目を
+/// 組み立て直すため、引き継がないと別の項目の保存のたびに既定値へ戻る）。パネルを作った今は、5項目（Q2 でブックの情報の5項目を追加）を
 /// 他のタブと同じ編集用プロパティ（<c>SetEditableProperty</c> で即時反映）にして、読み込みと組み立てを往復させる。
 /// </para>
 /// </summary>
@@ -21,6 +21,11 @@ public sealed partial class SettingsViewModel
     private bool _vbaPullBeforeDryRun = true;
     private string _vbaComTimeoutMsText = "5000";
     private string _vbaCallTimeoutMsText = "30000";
+    private bool _vbaCollectWorkbookInfo = true;
+    private string _vbaWorkbookInfoSampleRowsText = "5";
+    private string _vbaWorkbookInfoMaxColumnsText = "30";
+    private string _vbaWorkbookInfoMaxCellCharsText = "60";
+    private string _vbaWorkbookInfoMaxCharsText = "20000";
 
     /// <summary>
     /// この環境で VBA 連携が使えるかを調べる窓口。既定は <c>PlatformServices.Current.Vba</c>（Windows 以外では Null 実装で false）。
@@ -52,6 +57,24 @@ public sealed partial class SettingsViewModel
     /// <summary>COM 呼び出し全体の時間切れ（ミリ秒。<c>Vba.CallTimeoutMs</c>）。範囲 5000〜120000。</summary>
     public string VbaCallTimeoutMsText { get => _vbaCallTimeoutMsText; set => SetEditableProperty(ref _vbaCallTimeoutMsText, value); }
 
+    /// <summary>
+    /// コンテキスト収集・依頼文コピーでブックの情報（シート・テーブル・名前・見出し・参照設定）を取る
+    /// （<c>Vba.CollectWorkbookInfo</c>。仕様書_ブックの情報と依頼の観点 9章）。オフのときは Excel を呼ばない。
+    /// </summary>
+    public bool VbaCollectWorkbookInfo { get => _vbaCollectWorkbookInfo; set => SetEditableProperty(ref _vbaCollectWorkbookInfo, value); }
+
+    /// <summary>値の見本の行数（<c>Vba.WorkbookInfoSampleRows</c>）。範囲 1〜20。</summary>
+    public string VbaWorkbookInfoSampleRowsText { get => _vbaWorkbookInfoSampleRowsText; set => SetEditableProperty(ref _vbaWorkbookInfoSampleRowsText, value); }
+
+    /// <summary>見出し・見本の最大列数（<c>Vba.WorkbookInfoMaxColumns</c>）。範囲 5〜100。</summary>
+    public string VbaWorkbookInfoMaxColumnsText { get => _vbaWorkbookInfoMaxColumnsText; set => SetEditableProperty(ref _vbaWorkbookInfoMaxColumnsText, value); }
+
+    /// <summary>1 セルの最大文字数（<c>Vba.WorkbookInfoMaxCellChars</c>）。範囲 10〜500。</summary>
+    public string VbaWorkbookInfoMaxCellCharsText { get => _vbaWorkbookInfoMaxCellCharsText; set => SetEditableProperty(ref _vbaWorkbookInfoMaxCellCharsText, value); }
+
+    /// <summary>ブックの情報の出力全体の最大文字数（<c>Vba.WorkbookInfoMaxChars</c>）。範囲 2000〜100000。</summary>
+    public string VbaWorkbookInfoMaxCharsText { get => _vbaWorkbookInfoMaxCharsText; set => SetEditableProperty(ref _vbaWorkbookInfoMaxCharsText, value); }
+
     /// <summary>読み込んだ設定を編集用プロパティへ映す（<c>PopulateEditableFields</c> から呼ぶ）。</summary>
     private void PopulateVbaFields(Settings s)
     {
@@ -61,6 +84,11 @@ public sealed partial class SettingsViewModel
         VbaPullBeforeDryRun = vba.PullBeforeDryRun;
         VbaComTimeoutMsText = vba.ComTimeoutMs.ToString(CultureInfo.InvariantCulture);
         VbaCallTimeoutMsText = vba.CallTimeoutMs.ToString(CultureInfo.InvariantCulture);
+        VbaCollectWorkbookInfo = vba.CollectWorkbookInfo;
+        VbaWorkbookInfoSampleRowsText = vba.WorkbookInfoSampleRows.ToString(CultureInfo.InvariantCulture);
+        VbaWorkbookInfoMaxColumnsText = vba.WorkbookInfoMaxColumns.ToString(CultureInfo.InvariantCulture);
+        VbaWorkbookInfoMaxCellCharsText = vba.WorkbookInfoMaxCellChars.ToString(CultureInfo.InvariantCulture);
+        VbaWorkbookInfoMaxCharsText = vba.WorkbookInfoMaxChars.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>編集用プロパティから <see cref="VbaSettings"/> を組み立てる（<c>BuildSettingsFromFields</c> から呼ぶ）。</summary>
@@ -71,5 +99,10 @@ public sealed partial class SettingsViewModel
         PullBeforeDryRun = _vbaPullBeforeDryRun,
         ComTimeoutMs = ParseInt(_vbaComTimeoutMsText),
         CallTimeoutMs = ParseInt(_vbaCallTimeoutMsText),
+        CollectWorkbookInfo = _vbaCollectWorkbookInfo,
+        WorkbookInfoSampleRows = ParseInt(_vbaWorkbookInfoSampleRowsText),
+        WorkbookInfoMaxColumns = ParseInt(_vbaWorkbookInfoMaxColumnsText),
+        WorkbookInfoMaxCellChars = ParseInt(_vbaWorkbookInfoMaxCellCharsText),
+        WorkbookInfoMaxChars = ParseInt(_vbaWorkbookInfoMaxCharsText),
     };
 }

@@ -147,7 +147,8 @@ public sealed partial class MainViewModel
         // Excel VBA プロジェクトのときだけ、走査の前に Excel から最新を取り込む処理を渡す（仕様書_VBA連携 7.2。
         // 通常のファイルプロジェクトでは null で、従来どおり何も増えない）。
         ContextCollect = new ContextCollectViewModel(
-            _appPaths, _projectStore, project, _settings, _ui, _dialogs, vbaPull: CreateVbaContextPull(project));
+            _appPaths, _projectStore, project, _settings, _ui, _dialogs, vbaPull: CreateVbaContextPull(project),
+            vbaWorkbookInfo: CreateVbaWorkbookInfoSource(project));
         PromptCopy = new PromptCopyViewModel(
             _promptTemplateStore, _promptTemplateRenderer, _revisionStore, _dialogs, ContextCollect, project, _settings, _ui);
         PromptCopy.AppendSelectedFilesChangeCommitted += OnAppendSelectedFilesChangeCommitted;

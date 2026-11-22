@@ -119,6 +119,9 @@ public class SettingsRoundTripTests : IDisposable
         Vba = new VbaSettings
         {
             Enabled = false, PullOnContextOpen = false, PullBeforeDryRun = false, ComTimeoutMs = 7000, CallTimeoutMs = 40000,
+            // ブックの情報（仕様書_ブックの情報と依頼の観点 9章。段階 Q2）。すべて既定と異なる値にする。
+            CollectWorkbookInfo = false, WorkbookInfoSampleRows = 8, WorkbookInfoMaxColumns = 40,
+            WorkbookInfoMaxCellChars = 80, WorkbookInfoMaxChars = 30000,
         },
     };
 

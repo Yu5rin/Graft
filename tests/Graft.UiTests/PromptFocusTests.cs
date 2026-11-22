@@ -215,8 +215,11 @@ public class PromptFocusTests : IDisposable
         System.Text.RegularExpressions.Regex.Matches(text, "## VBA の前提").Count.Should().Be(1);
         text.Should().Contain("- 字下げは 4 スペースにそろえてください。");
         text.Should().Contain("## 利用者の操作ミスに備える");
-        text.Should().Contain("- シート名・テーブル名・列は、確かめられないものを推測で使わず、質問してください。",
-            "ブックの情報はまだ依頼文に入らないので、推測せず質問させる文になる");
+        // Q2 以降: ブックの情報（Excel から取得）が依頼文に実際に入るので、VBA の前提の最終行は
+        // 「ブックの情報に載っているものだけ」になる（入らないときの「質問してください」は WorkbookInfoTests が固定）。
+        text.Should().Contain("# ブックの情報");
+        text.Should().Contain("- シート名・テーブル名・列は、「ブックの情報」に載っているものだけを使ってください。");
+        text.Should().NotContain("確かめられないものを推測で使わず、質問してください。");
     }
 
     [AvaloniaFact(DisplayName = "コンテキスト収集のコピーでは、「# 前提」の直後に観点が入る。何も選ばなければ観点の見出しは出ない")]

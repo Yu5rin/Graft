@@ -76,6 +76,8 @@ public sealed class PromptCopyViewModel : ObservableObject
         // 切り替えと同じ経路（RefreshEstimatesIfListed → RefreshAsync(keepSelection: true)）に乗せ、
         // 選んでいるテンプレートは変えない。選択そのものは Context.Focus が持つ（収集の窓と共有）。
         Context.Focus.Changed += (_, _) => RefreshEstimatesIfListed();
+        // ブックの情報の出し方・値の見本を切り替えたときも、同じ経路で推定トークン数を計算し直す。
+        Context.WorkbookInfoChanged += (_, _) => RefreshEstimatesIfListed();
 
         CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null, context: "プロンプトのコピー");
     }
@@ -228,9 +230,13 @@ public sealed class PromptCopyViewModel : ObservableObject
             // ウィンドウを開かないこの経路（依頼文コピー・Ctrl+Shift+C）でも、古い本文が AI に渡らないようにするため。
             // VBA プロジェクトでなければ、何もせず即座に戻る。
             await Context.PullFromExcelAsync().ConfigureAwait(true);
+            // ブックの情報も、Pull の直後に取る（チップの切り替えによる再計算では取り直さず、前回の結果を使い回す。
+            // 取得は1回の契機につき1回。仕様書5.4）。
+            if (!keepSelection) await Context.FetchWorkbookInfoAsync().ConfigureAwait(true);
         }
 
-        var vbaWarning = Context.VbaPullWarning;
+        // 取り込みの警告とブックの情報の警告は、1行に連結して出す（仕様書5.6）。
+        var vbaWarning = Context.VbaWarning;
 
         var loaded = await _templateStore.LoadAsync().ConfigureAwait(true);
         if (!loaded.IsSuccess)
@@ -324,6 +330,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         // 依頼の観点（何も選んでいなければ空＝依頼文は従来と同じ）。要求を組み立てる1回の中で
         // 1度だけ文にするので、一覧の全テンプレートが同じ選択で数えられる。
         FocusText = Context.BuildFocusText(),
+        WorkbookInfoText = Context.BuildWorkbookInfoText(),
     };
 
     private async Task<string?> GetLastRevisionSummaryAsync()

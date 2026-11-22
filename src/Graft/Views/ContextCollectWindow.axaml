@@ -77,6 +77,62 @@
                 <Grid Margin="0,8,0,0" ColumnDefinitions="2*,Auto,1*">
 
                     <DockPanel Grid.Column="0">
+                        <!--
+                            ブックの情報の行（Excel VBA プロジェクトのときだけ表示。仕様書_ブックの情報と依頼の観点 5.3）。
+                            ミラーにはファイルを作らないので、ファイル一覧のノードにはせず、一覧の上に専用の行として置く
+                            （ファイルの選択集計・除外・差分方式の記憶と混ぜない）。3状態のアイコンと操作は、
+                            下のファイル行と同じ（クリックで 内容も出す → 構成だけ → 出さない と巡る）。
+                            値の見本（各シートの先頭数行の中身）は既定オフのオプトインで、オンの間は常に注意を出す。
+                        -->
+                        <Border x:Name="WorkbookInfoRow" DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
+                                BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" CornerRadius="4"
+                                IsVisible="{Binding WorkbookInfo.IsVisible}"
+                                AutomationProperties.Name="ブックの情報">
+                            <StackPanel Spacing="4" DataContext="{Binding WorkbookInfo}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Classes="stateToggle"
+                                            Command="{Binding CycleCommand}"
+                                            ToolTip.Tip="{Binding ToggleToolTip}"
+                                            AutomationProperties.Name="{Binding AutomationLabel}">
+                                        <local:IconGlyph Width="14" Height="14"
+                                                         Classes.stateFull="{Binding IsFull}"
+                                                         Classes.stateStructureOnly="{Binding IsStructureOnly}"
+                                                         Classes.stateHidden="{Binding IsHidden}" />
+                                    </Button>
+                                    <TextBlock Text="ブックの情報" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               local:HelpTip.Standard="Excel ブックの構造（シート・テーブル・名前付き範囲・先頭行の見出し・参照設定）を、AI に渡す内容へ加えます。アイコンのクリックで「内容も出す→構成だけ→出さない」を切り替えます。"
+                                               local:HelpTip.Detailed="AI は、どんなシートや表があるブックかを知らないと、存在しないシート名や列を前提にした VBA を書いてしまいます。この行は、Excel から読んだブックの構造を「# ブックの情報」として、出力の「# 前提」の直後に加えるかを決めます。「内容も出す」はシート・テーブル・名前付き範囲に加えて先頭行の見出しと参照設定、「構成だけ」はシート・テーブル・名前付き範囲だけ、「出さない」は何も渡さず Excel にも問い合わせません。選んだ状態はプロジェクトごとに記憶されます。ミラーのフォルダにファイルは作りません。" />
+                                    <TextBlock Text="{Binding LevelLabel}" Margin="8,0,0,0" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               FontSize="{DynamicResource CaptionFontSize}" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding StatusText}" IsVisible="{Binding HasStatus}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           AutomationProperties.Name="ブックの情報の取得状況" />
+                                <StackPanel Orientation="Horizontal" Spacing="12" IsVisible="{Binding ShowSampleControls}">
+                                    <Button Content="{Binding SampleToggleText}"
+                                            Command="{Binding ToggleSampleValuesCommand}"
+                                            Classes="subtle" Padding="8,0" MinHeight="22"
+                                            FontSize="{DynamicResource CaptionFontSize}"
+                                            AutomationProperties.Name="値の見本のオン・オフ"
+                                            local:HelpTip.Standard="各シートの先頭数行の値を、AI に渡すかを切り替えます。既定はオフです。オンにするときは確認が出ます。"
+                                            local:HelpTip.Detailed="値の見本は、各シートの見出し行の次から数行の中身で、個人情報や社外秘が含まれていることがあります。そのため既定はオフで、オンにするときは確認を出します。オンの間は、AI へ値が渡ることを常に表示します。オフにすると、値は読まれず、Graft のメモリからも消します。行数は設定の「VBA 連携」で変えられます。値の見本そのものはファイルに保存しません。" />
+                                    <CheckBox Content="数式も含める"
+                                              IsChecked="{Binding IncludeFormulas, Mode=OneWay}"
+                                              IsEnabled="{Binding SampleValues}"
+                                              Click="OnIncludeFormulasClick"
+                                              FontSize="{DynamicResource CaptionFontSize}"
+                                              AutomationProperties.Name="値の見本に数式も含める"
+                                              local:HelpTip.Standard="値の見本に、セルの数式（=式 → 値）も含めます。値の見本をオンにしているときだけ使えます。既定はオフです。"
+                                              local:HelpTip.Detailed="数式を含めると、AI は参照先のシート名やセルの構造まで分かりますが、値と同じく中身（他のシートの名前など）が渡ります。値の見本をオンにしているときだけ選べます。既定はオフです。" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding SampleNoticeText}" IsVisible="{Binding IsSampleNoticeVisible}"
+                                           TextWrapping="Wrap" Foreground="{DynamicResource StateWarn}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           AutomationProperties.Name="値の見本の注意" />
+                            </StackPanel>
+                        </Border>
                         <TextBlock DockPanel.Dock="Top" Text="ファイル" FontSize="{DynamicResource CaptionFontSize}"
                                    Foreground="{DynamicResource TextSecondary}" Margin="0,0,0,4"
                                    local:HelpTip.Standard="行のアイコンをクリック（またはSpaceキー）すると「内容も出す→構成だけ→出さない」の3状態を切り替えられます。フォルダなら配下へまとめて適用されます。先頭の「すべて」行を使えば、プロジェクト直下のファイルも含めて全体を一括で切り替えられます。"

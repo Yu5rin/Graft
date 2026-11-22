@@ -123,5 +123,10 @@ public sealed partial class ContextCollectViewModel
     /// 選択中の観点を依頼文用の文にする。何も選んでいなければ空（依頼文は従来と同じ）。
     /// 依頼文コピーとコンテキスト収集の出力が、この1か所を通る。
     /// </summary>
-    public string BuildFocusText() => Focus.ComposeText();
+    /// <remarks>
+    /// ブックの情報が<b>実際に</b>依頼文に入るとき（<see cref="BuildWorkbookInfoText"/> が空でないとき）だけ、
+    /// VBA の前提の最終行を「ブックの情報に載っているものだけを使う」へ切り替える。入らないのにそう書くと、
+    /// 存在しない「ブックの情報」を AI に指さしてしまう（Q1 の申し送り）。
+    /// </remarks>
+    public string BuildFocusText() => Focus.ComposeText(hasWorkbookInfo: BuildWorkbookInfoText().Length > 0);
 }

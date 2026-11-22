@@ -50,6 +50,11 @@ public class VbaSettingsPreservationTests : IDisposable
         PullBeforeDryRun = false,
         ComTimeoutMs = 8000,
         CallTimeoutMs = 45000,
+        CollectWorkbookInfo = false,
+        WorkbookInfoSampleRows = 12,
+        WorkbookInfoMaxColumns = 50,
+        WorkbookInfoMaxCellChars = 120,
+        WorkbookInfoMaxChars = 40000,
     };
 
     [AvaloniaFact(DisplayName = "設定画面で別の項目を保存しても、Vba の値は保たれる（BuildSettingsFromFields の往復）")]
