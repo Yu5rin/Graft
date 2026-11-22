@@ -266,4 +266,60 @@ public class PromptTemplateRendererFocusTests
             with.Value.Replace(Focus + "\n", string.Empty).Should().Be(without.Value, template.Name + "（観点の文を取り除くと観点なしと一致）");
         }
     }
+    [Fact(DisplayName = "不具合 4: CRLF のテンプレートでも、何も選ばなければ依頼文は従来とバイト単位で同一（{{files}} 無し・ファイル付けオン）")]
+    public async Task 不具合4_CRLFのテンプレートでも従来と同一()
+    {
+        using var ws = new TempWorkspace();
+        ws.WriteText("src/main.py", "SELECTED_MARKER = 1\n");
+        var (renderer, collector, request) = Build(ws, focusText: string.Empty, "src/main.py");
+
+        foreach (var body in new[] { "# 依頼\r\n直してください。\r\n", "# 依頼\r\n\r\n直してください。", "一行だけ\r\n\r\n\r\n" })
+        {
+            var template = Template(body);
+            var expected = await LegacyRender(template, collector, request, null, appendFilesIfAbsent: true);
+            var actual = await renderer.RenderAsync(template, request, null, appendFilesIfAbsent: true);
+
+            actual.IsSuccess.Should().BeTrue();
+            actual.Value.Should().Be(expected, "何も差し込まないときは、本文とファイルをつなぐ改行は従来どおり LF 2 つ");
+            actual.Value.Should().Contain("\n\n# 対象ファイル\n");
+        }
+    }
+
+    [Fact(DisplayName = "不具合 4: 観点を差し込むときは、CRLF のテンプレートでは本文の改行（CRLF）にそろえる（従来の挙動を保つ）")]
+    public async Task 不具合4_観点があればCRLFにそろえる()
+    {
+        using var ws = new TempWorkspace();
+        ws.WriteText("src/main.py", "SELECTED_MARKER = 1\n");
+        var (renderer, _, request) = Build(ws, Focus, "src/main.py");
+
+        var result = await renderer.RenderAsync(Template("# 依頼\r\n直してください。\r\n"), request, null, appendFilesIfAbsent: true);
+
+        result.Value.Should().Contain("直してください。\r\n\r\n# 依頼の観点\r\n\r\n");
+        result.Value.Should().Contain("\r\n\r\n# 対象ファイル\n");
+    }
+
+    [Fact(DisplayName = "不具合 10: {{focus}} が本文に 2 か所あっても、観点の文は 1 回だけ入る")]
+    public async Task 不具合10_focus変数が二つでも一回だけ()
+    {
+        using var ws = new TempWorkspace();
+        var (renderer, _, request) = Build(ws, Focus);
+
+        var result = await renderer.RenderAsync(Template("前置き\n\n{{focus}}\n\n途中\n\n{{focus}}\n\n後書き"), request, null);
+
+        System.Text.RegularExpressions.Regex.Matches(result.Value, "# 依頼の観点").Count.Should().Be(1);
+        result.Value.Should().Be("前置き\n\n" + Focus.TrimEnd('\n') + "\n\n途中\n\n後書き", "2 か所目は痕跡なしで消える");
+    }
+
+    [Fact(DisplayName = "不具合 10: {{workbook}} が本文に 2 か所あっても、ブックの情報は 1 回だけ入る")]
+    public async Task 不具合10_workbook変数が二つでも一回だけ()
+    {
+        using var ws = new TempWorkspace();
+        var (renderer, _, request) = Build(ws, Focus);
+        request = request with { WorkbookInfoText = "# ブックの情報\n（Excel から取得）\n" };
+
+        var result = await renderer.RenderAsync(Template("{{workbook}}\n\n本文\n\n{{workbook}}"), request, null);
+
+        System.Text.RegularExpressions.Regex.Matches(result.Value, "# ブックの情報").Count.Should().Be(1);
+        System.Text.RegularExpressions.Regex.Matches(result.Value, "# 依頼の観点").Count.Should().Be(1);
+    }
 }

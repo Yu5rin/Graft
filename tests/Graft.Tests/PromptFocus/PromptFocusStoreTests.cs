@@ -175,4 +175,67 @@ public class PromptFocusStoreTests
     {
         PromptFocusStore.EnsureHeading(name, body).Should().Be(expected);
     }
+    [Fact(DisplayName = "不具合 8: focus.json の null・空の値・重複 Id があっても読み込める（本文は見出しだけに、名前や Id が空の行は捨てる）")]
+    public async Task 不具合8_不正な値でも読み込める()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        await File.WriteAllTextAsync(paths.FocusFilePath, """
+            { "focuses": [
+              null,
+              { "id": "custom-1", "group": null, "name": "夜の観点", "body": null, "tooltip": null },
+              { "id": "custom-1", "group": "自分用", "name": "重複", "body": "## 重複" },
+              { "id": "", "group": "自分用", "name": "Id 無し", "body": "## x" },
+              { "id": "custom-3", "group": "自分用", "name": null, "body": "## y" },
+              { "id": "custom-4", "group": "自分用", "name": "普通", "body": "## 普通\n- 指示" }
+            ] }
+            """);
+        var store = new PromptFocusStore(paths);
+
+        var loaded = await store.LoadAsync();
+
+        loaded.IsSuccess.Should().BeTrue();
+        var custom = loaded.Value.Where(f => !f.IsBuiltIn).ToList();
+        custom.Select(f => f.Id).Should().Equal("custom-1", "custom-4");
+        custom[0].Name.Should().Be("夜の観点");
+        custom[0].Group.Should().Be(PromptFocusGroups.Mine);
+        custom[0].Body.Should().Be("## 夜の観点", "指示文が空なら「## 名前」だけの文にする");
+        custom[0].Tooltip.Should().BeEmpty();
+        // 依頼文の組み立てでも落ちない。
+        var selected = PromptFocusComposer.ResolveSelected(loaded.Value, new[] { "custom-1", "custom-4" }, isVba: false);
+        PromptFocusComposer.Compose(selected, isVba: true, hasWorkbookInfo: false).Should().Contain("## 夜の観点");
+    }
+
+    [Fact(DisplayName = "不具合 8: \"focuses\": null の focus.json でも、組み込みだけで読み込める（例外にならない）")]
+    public async Task 不具合8_focusesがnullでも読み込める()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        await File.WriteAllTextAsync(paths.FocusFilePath, "{ \"focuses\": null }");
+
+        var loaded = await new PromptFocusStore(paths).LoadAsync();
+
+        loaded.IsSuccess.Should().BeTrue();
+        loaded.Value.Should().HaveCount(PromptFocusStore.BuiltIns.Count);
+    }
+
+    [Fact(DisplayName = "不具合 7（疑わしい 7）: focus.json を読めずに保護中のとき、保存は失敗で返る（書かれないのに成功にならない）")]
+    public async Task 読めなかった保護中は保存が失敗で返る()
+    {
+        using var ws = new TempWorkspace();
+        var paths = new AppPaths(ws.CreateDirectory("app"));
+        var original = "{ \"focuses\": [ { \"id\": \"custom-1\", \"group\": \"自分用\", \"name\": \"既存\", \"body\": \"## 既存\" } ] }";
+        await File.WriteAllTextAsync(paths.FocusFilePath, original);
+        var store = new PromptFocusStore(paths);
+
+        // 他のアプリが掴んでいる状態を作る（.NET は Linux でも FileShare.None を排他ロックで再現する）。
+        await using var handle = new FileStream(paths.FocusFilePath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var loaded = await store.LoadAsync();
+        loaded.Issues.Should().Contain(i => i.Code == Graft.Core.ErrorCode.E402, "前提: 読めなかった（警告つきの成功＋組み込みだけ）");
+
+        var saved = await store.SaveAsync(loaded.Value);
+
+        saved.IsSuccess.Should().BeFalse("書かれていないのに成功を返してはならない");
+        saved.Errors.Should().Contain(i => i.Code == Graft.Core.ErrorCode.E402);
+    }
 }

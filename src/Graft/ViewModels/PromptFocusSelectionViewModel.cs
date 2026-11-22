@@ -155,6 +155,12 @@ public sealed class PromptFocusSelectionViewModel : ObservableObject
     public bool SetCatalog(IReadOnlyList<PromptFocus> catalog, bool isFinal)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+
+        // 一度確定した一覧を、確定していない一覧（読み込みに失敗して組み込みだけに倒したもの）で差し替えない。
+        // 差し替えると、自作の観点が一覧から消え、その Id が「記憶に保存する Id」（IdsToPersist）から落ちて、
+        // 次にチップを触ったときに自作の観点の選択が黙って外れて保存される。
+        if (!isFinal && _catalogIsFinal) return false;
+
         _catalog = catalog;
         var before = _selected.Count;
         if (isFinal)

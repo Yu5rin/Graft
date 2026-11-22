@@ -160,8 +160,11 @@ public sealed class PromptTemplateRenderer
         var looseBeforeAppended = looseBlock is not null && !loosePlacedInBody;
         if (appendedFiles is not null)
         {
-            var head = body.TrimEnd('\r', '\n') + paragraphBreak;
-            if (looseBeforeAppended) head += looseBlock + paragraphBreak;
+            // 【何も差し込まないときは、従来どおり「\n\n」】 本文が CRLF のとき paragraphBreak は「\r\n\r\n」になるが、
+            // ブックの情報・観点が空のとき、ここで本文と「# 対象ファイル」をつなぐ改行は、この機能を足す前から
+            // 「\n\n」だった。paragraphBreak を使うと、何も選ばなくても CRLF のテンプレートの依頼文が従来と変わってしまう
+            // （「何も選ばなければ従来とバイト単位で同一」の約束に反する）。差し込む文があるときだけ、本文の改行にそろえる。
+            var head = body.TrimEnd('\r', '\n') + (looseBeforeAppended ? paragraphBreak + looseBlock + paragraphBreak : "\n\n");
             body = head + AppendedFilesHeading + "\n" + appendedFiles;
         }
         else if (looseBeforeAppended)
@@ -212,9 +215,13 @@ public sealed class PromptTemplateRenderer
         if (!present) return body;
         if (text is null) return RemoveEmptyVariable(body, variable);
 
+        // 【最初の 1 か所にだけ入れ、2 か所目以降は痕跡なしで消す】 同じ変数が本文に 2 回あっても、観点・ブックの情報の文は
+        // 1 回だけ入れる（全部を置き換えると、同じ観点の指示が依頼文に 2 回入り、AI への指示が重複する）。
         var marker = NewMarker();
         deferred.Add((marker, text));
-        return body.Replace(variable, marker, StringComparison.Ordinal);
+        var first = body.IndexOf(variable, StringComparison.Ordinal);
+        body = string.Concat(body.AsSpan(0, first), marker, body.AsSpan(first + variable.Length));
+        return RemoveEmptyVariable(body, variable);
     }
 
     /// <summary>差し込む文の末尾の改行を落とし、テンプレート本文の改行へそろえる。空なら空文字。</summary>

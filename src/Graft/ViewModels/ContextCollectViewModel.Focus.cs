@@ -61,8 +61,16 @@ public sealed partial class ContextCollectViewModel
 
             // 読み込みに失敗したときは組み込みだけで並べ、一覧に無い Id の掃除はしない
             // （失敗を理由に、自作の観点を選んでいた記憶まで消さないため）。
+            //
+            // 【「成功」でも、読めていないことがある】 JsonFileStore.ReadWithRecoveryAsync は、他のアプリが掴んでいて読めない
+            // （E402）ときも、壊れていて退避した（E404）ときも、「警告つきの成功＋既定値（自作が 0 件）」を返す。
+            // これを確定した一覧として扱うと、自作の観点を選んでいたプロジェクトで、選択（Id）が一覧に無いものとして
+            // 捨てられ、projects.json に書かれてしまう（ウイルス対策ソフトが一瞬掴んだだけで、全プロジェクトの選択が外れる）。
+            // 警告に E402・E404 があるときは、確定していない一覧として扱う。
+            var readIncompletely = loaded.Issues.Any(i => i.Code is ErrorCode.E402 or ErrorCode.E404);
+            var isFinal = loaded.IsSuccess && !readIncompletely;
             var catalog = loaded.IsSuccess ? loaded.Value : PromptFocusStore.BuiltIns;
-            if (Focus.SetCatalog(catalog, isFinal: loaded.IsSuccess)) QueueFocusPersist();
+            if (Focus.SetCatalog(catalog, isFinal)) QueueFocusPersist();
             UpdateApproxTokenEstimate();
         }
         catch (OperationCanceledException)

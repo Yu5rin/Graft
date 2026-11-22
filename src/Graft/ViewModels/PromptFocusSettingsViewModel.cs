@@ -71,7 +71,18 @@ public sealed class PromptFocusSettingsViewModel : ObservableObject
     /// <summary>設定画面の表示時に一度呼ぶ。観点の一覧を読み込む。</summary>
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        var loaded = await _store.LoadAsync(ct).ConfigureAwait(true);
+        // 読めなくても、設定画面全体の初期化を止めない（組み込みの観点だけは必ず出す）。
+        GraftResult<IReadOnlyList<PromptFocus>> loaded;
+        try
+        {
+            loaded = await _store.LoadAsync(ct).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            SafeHandler.OnUnexpected?.Invoke("依頼の観点の読み込み", ex);
+            loaded = GraftResult<IReadOnlyList<PromptFocus>>.Ok(PromptFocusStore.BuiltIns);
+        }
+
         ErrorIssue = loaded.Errors.FirstOrDefault();
         Focuses.Clear();
         foreach (var focus in loaded.Value) Focuses.Add(new FocusEntry(focus));
@@ -93,7 +104,13 @@ public sealed class PromptFocusSettingsViewModel : ObservableObject
         };
         var entry = new FocusEntry(focus);
         Focuses.Add(entry);
-        await PersistCustomAsync().ConfigureAwait(true);
+        if (!await PersistCustomAsync("追加").ConfigureAwait(true))
+        {
+            // 書けなかった観点を一覧に残すと、「追加された」ように見えて、設定を閉じると消える。
+            Focuses.Remove(entry);
+            return;
+        }
+
         SelectedFocus = entry;
         StatusMessage = "観点を追加しました。指示文を書いて「保存」を押してください。";
     }
@@ -121,7 +138,12 @@ public sealed class PromptFocusSettingsViewModel : ObservableObject
         };
         var entry = new FocusEntry(focus);
         Focuses.Add(entry);
-        await PersistCustomAsync().ConfigureAwait(true);
+        if (!await PersistCustomAsync("複製").ConfigureAwait(true))
+        {
+            Focuses.Remove(entry);
+            return;
+        }
+
         SelectedFocus = entry;
         StatusMessage = $"「{source.Name}」を複製しました。";
     }
@@ -134,8 +156,16 @@ public sealed class PromptFocusSettingsViewModel : ObservableObject
             .ConfigureAwait(true);
         if (!confirmed) return;
 
+        var index = Focuses.IndexOf(entry);
         Focuses.Remove(entry);
-        await PersistCustomAsync().ConfigureAwait(true);
+        if (!await PersistCustomAsync("削除").ConfigureAwait(true))
+        {
+            // 消せていないので、一覧に戻す。
+            Focuses.Insert(Math.Min(index, Focuses.Count), entry);
+            SelectedFocus = entry;
+            return;
+        }
+
         SelectedFocus = Focuses.FirstOrDefault();
         StatusMessage = "観点を削除しました。";
     }
@@ -169,14 +199,28 @@ public sealed class PromptFocusSettingsViewModel : ObservableObject
             VbaAddendum = string.IsNullOrWhiteSpace(entry.VbaAddendum) ? null : entry.VbaAddendum.TrimEnd(),
             VbaOnly = entry.VbaOnly,
         });
-        await PersistCustomAsync().ConfigureAwait(true);
+        if (!await PersistCustomAsync("保存").ConfigureAwait(true)) return;
         StatusMessage = "観点を保存しました。";
     }
 
-    private async Task PersistCustomAsync()
+    /// <summary>
+    /// 自作の観点を focus.json へ保存する。<b>書けたときだけ true</b>。書けなかったとき（他のアプリが掴んでいて E402 で
+    /// 保護中・ディスクの問題など）は、失敗を <see cref="StatusMessage"/> と <see cref="ErrorIssue"/> で伝える。
+    /// 結果を見ないと、書かれていないのに「追加しました」と出てしまう（呼び出し側は、成功の文言を出す前にこの結果を見る）。
+    /// </summary>
+    private async Task<bool> PersistCustomAsync(string operation)
     {
         var all = Focuses.Select(e => e.Source).ToList();
-        await _store.SaveAsync(all).ConfigureAwait(true);
+        var saved = await _store.SaveAsync(all).ConfigureAwait(true);
+        if (saved.IsSuccess)
+        {
+            ErrorIssue = null;
+            return true;
+        }
+
+        ErrorIssue = saved.Errors.FirstOrDefault();
+        StatusMessage = $"観点の{operation}ができませんでした（{ErrorIssue?.Code}）。focus.json に書けなかったため、変更は保存されていません。";
+        return false;
     }
 
     private static string NewCustomId() => $"custom-{Guid.NewGuid():N}";
