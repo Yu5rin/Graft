@@ -76,7 +76,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         // 切り替えと同じ経路（RefreshEstimatesIfListed → RefreshAsync(keepSelection: true)）に乗せ、
         // 選んでいるテンプレートは変えない。選択そのものは Context.Focus が持つ（収集の窓と共有）。
         Context.Focus.Changed += (_, _) => RefreshEstimatesIfListed();
-        // ブックの情報の出し方・値の見本を切り替えたときも、同じ経路で推定トークン数を計算し直す。
+        // ブックの情報の出し方・シートごとの見せ方を切り替えたときも、同じ経路で推定トークン数を計算し直す。
         Context.WorkbookInfoChanged += (_, _) => RefreshEstimatesIfListed();
 
         CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null, context: "プロンプトのコピー");

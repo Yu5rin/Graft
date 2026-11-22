@@ -101,29 +101,128 @@ public sealed record VbaLink
     public string WorkbookInfoState { get; init; } = "Full";
 
     /// <summary>
-    /// ブックの情報に「値の見本」（各シートの先頭の数行の中身）を含めるか。<b>既定はオフ</b>
-    /// （社外秘・個人情報が AI に渡りうるため。オンにするときは確認を出す）。
-    /// 保存するのはこの「出すか」の選択だけで、見本の値そのものはどこにも保存しない。
+    /// 【v0.4 より前の項目。移行のためだけに読む】 ブック全体の「値の見本」のオン・オフ。<b>既定はオフ</b>。
+    /// v0.4 で、値はシートごとの見せ方（<see cref="WorkbookInfoSheetViews"/>）に一本化した。
+    /// <see cref="WorkbookInfoSheetViews"/> が null（シートごとの見せ方をまだ一度も触っていない）で、この項目がオンの
+    /// 既存のプロジェクトは、「全シート 見出し＋N 行（N は設定 <c>Vba.WorkbookInfoSampleRows</c>。数式は
+    /// <see cref="WorkbookInfoIncludeFormulas"/> のまま）」として読む（<see cref="ResolveSheetViews"/>）。
+    /// 利用者が最初にシートの見せ方を変えた時点で、シートごとの記録へ書き出し、この項目はオフに戻す
+    /// （<see cref="WithSheetViews"/>）。新しい版はこの項目をオンにしない。
     /// </summary>
     public bool WorkbookInfoSampleValues { get; init; }
 
-    /// <summary>値の見本に数式も含めるか。既定オフ（数式は参照先のシート名・セル構造を AI に伝えるため）。</summary>
+    /// <summary>【v0.4 より前の項目。移行のためだけに読む】 値の見本に数式も含めるか。<see cref="WorkbookInfoSampleValues"/> と同じ扱い。</summary>
     public bool WorkbookInfoIncludeFormulas { get; init; }
+
+    /// <summary>
+    /// シートごとの見せ方（仕様書_ブックの情報と依頼の観点 4.1・5.2。v0.4）。<b>シートのコード名</b>に結び付けて持つ
+    /// （表示名を変えても外れない）。記録の無いシートは「構成だけ」。消えたシートの記録は残すが、画面には出さない。
+    /// <para>
+    /// null は「まだ一度も触っていない」（この項目が無い既存の projects.json）で、<see cref="WorkbookInfoSampleValues"/> が
+    /// オンなら移行する。空の一覧は「触ったあと、全シート構成だけ」で、移行しない。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<VbaSheetViewSetting>? WorkbookInfoSheetViews { get; init; }
+
+    /// <summary>
+    /// シートごとの見せ方を、コード名で引ける一覧にする。<see cref="WorkbookInfoSheetViews"/> が null で
+    /// <see cref="WorkbookInfoSampleValues"/> がオンなら、移行として全シート「見出し＋<paramref name="legacySampleRows"/> 行」
+    /// （数式は <see cref="WorkbookInfoIncludeFormulas"/>）にする。値の見本をオンにする確認は、以前に済んでいる扱い。
+    /// </summary>
+    /// <param name="legacySampleRows">移行のときの N（設定 <c>Vba.WorkbookInfoSampleRows</c>）。</param>
+    public VbaSheetViewSet ResolveSheetViews(int legacySampleRows)
+    {
+        if (WorkbookInfoSheetViews is null)
+        {
+            return WorkbookInfoSampleValues
+                ? new VbaSheetViewSet(
+                    new VbaSheetView(VbaSheetViewMode.HeaderRows, VbaSheetViewLimits.ClampHeaderRows(legacySampleRows), WorkbookInfoIncludeFormulas),
+                    Array.Empty<KeyValuePair<string, VbaSheetView>>())
+                : VbaSheetViewSet.AllStructureOnly;
+        }
+
+        return new VbaSheetViewSet(
+            VbaSheetView.StructureOnly,
+            WorkbookInfoSheetViews.Select(v => new KeyValuePair<string, VbaSheetView>(v.CodeName, v.ToView())));
+    }
+
+    /// <summary>
+    /// シートごとの見せ方を書き込んだ <see cref="VbaLink"/> を返す。同時に、v0.4 より前の 2 項目
+    /// （<see cref="WorkbookInfoSampleValues"/>・<see cref="WorkbookInfoIncludeFormulas"/>）をオフに戻す
+    /// （移行は済んだので、以後は新しい項目だけを見る。残すと、利用者が全シートを構成だけに戻しても、
+    /// 古い項目から再び「全シート 見出し＋N 行」に移行してしまう）。
+    /// 「構成だけ」（既定）と同じ記録は書かない。一覧に載っている記録は、いま画面に無いシート（消えたシート）の分も残す。
+    /// </summary>
+    /// <param name="views">全シート分の見せ方（<see cref="ResolveSheetViews"/> と同じ一覧の更新後）。</param>
+    public VbaLink WithSheetViews(VbaSheetViewSet views)
+    {
+        ArgumentNullException.ThrowIfNull(views);
+        var records = views.Overrides
+            .Where(p => p.Value != VbaSheetView.StructureOnly)
+            .Select(p => VbaSheetViewSetting.From(p.Key, p.Value))
+            .OrderBy(r => r.CodeName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return this with { WorkbookInfoSheetViews = records, WorkbookInfoSampleValues = false, WorkbookInfoIncludeFormulas = false };
+    }
 
     /// <summary>
     /// 紐付けるブックを <paramref name="workbookFullName"/> に結び直した <see cref="VbaLink"/> を返す。
     /// <para>
-    /// 【別のブックへ結び直したときは、値の見本のオンを解除する】 値の見本をオンにする確認ダイアログは、
+    /// 【別のブックへ結び直したときは、値が渡る見せ方をすべて戻す】 値が渡る見せ方を選ぶ確認ダイアログは、
     /// 「<b>このブック</b>の値を AI へ渡してよいか」の確認だった。同じプロジェクトを別のブックへ結び直しても
-    /// オンのまま引き継ぐと、新しいブックの値（別の社外秘かもしれない）が確認なしで AI へ渡る。パスが変わるときだけ
-    /// オフに戻して、確認をやり直させる。同じブックの再追加（パスが同じ）では選択を保つ。
-    /// 数式を含めるか（<see cref="WorkbookInfoIncludeFormulas"/>）は見本がオンのときだけ意味を持つので、そのままにする。
+    /// 見せ方を引き継ぐと、新しいブックの値（別の社外秘かもしれない。コード名は <c>Sheet1</c> など別のブックでも重なる）が
+    /// 確認なしで AI へ渡る。パスが変わるときだけ、シートごとの見せ方を（「出さない」も含め）全部消して全シート構成だけに戻し、
+    /// v0.4 より前の値の見本の項目もオフにして、確認をやり直させる。同じブックの再追加（パスが同じ）では選択を保つ。
     /// </para>
     /// </summary>
-    public VbaLink WithWorkbook(string workbookFullName) => this with
+    public VbaLink WithWorkbook(string workbookFullName)
     {
-        WorkbookFullName = workbookFullName,
-        WorkbookInfoSampleValues = WorkbookInfoSampleValues && VbaRotNames.SamePath(WorkbookFullName, workbookFullName),
+        var same = VbaRotNames.SamePath(WorkbookFullName, workbookFullName);
+        return this with
+        {
+            WorkbookFullName = workbookFullName,
+            WorkbookInfoSampleValues = WorkbookInfoSampleValues && same,
+            WorkbookInfoSheetViews = same ? WorkbookInfoSheetViews : null,
+        };
+    }
+}
+
+/// <summary>
+/// シート 1 枚の見せ方の記録（<see cref="VbaLink.WorkbookInfoSheetViews"/> の 1 要素。projects.json）。
+/// 見せ方は名前の文字列で持つ（<c>ContextFileStates</c> と同じ作法。不明な文字列は構成だけ＝値を渡さない側に読む）。
+/// </summary>
+public sealed record VbaSheetViewSetting
+{
+    /// <summary>シートのコード名（<c>Sheet1</c> など。表示名ではない）。</summary>
+    public string CodeName { get; init; } = string.Empty;
+
+    /// <summary><see cref="VbaSheetViewMode"/> の名前（<c>None</c>・<c>StructureOnly</c>・<c>HeaderRows</c>・<c>All</c>・<c>Range</c>）。</summary>
+    public string Mode { get; init; } = "StructureOnly";
+
+    /// <summary>見出しに続ける行数（<c>HeaderRows</c> のとき）。</summary>
+    public int HeaderRows { get; init; } = VbaSheetViewLimits.DefaultHeaderRows;
+
+    /// <summary>数式も含めるか（値が渡る見せ方のとき）。</summary>
+    public bool IncludeFormulas { get; init; }
+
+    /// <summary>範囲（<c>Range</c> のとき。正規化した A1 形式）。</summary>
+    public string? Range { get; init; }
+
+    /// <summary>実行時の見せ方にする。範囲が壊れていれば捨てる（値を渡さない側）。</summary>
+    public VbaSheetView ToView() => new(
+        VbaSheetViewModes.Parse(Mode),
+        VbaSheetViewLimits.ClampHeaderRows(HeaderRows),
+        IncludeFormulas,
+        VbaSheetView.NormalizeRange(Range));
+
+    /// <summary>実行時の見せ方から記録にする。</summary>
+    public static VbaSheetViewSetting From(string codeName, VbaSheetView view) => new()
+    {
+        CodeName = codeName,
+        Mode = view.Mode.ToString(),
+        HeaderRows = view.HeaderRows,
+        IncludeFormulas = view.IncludeFormulas,
+        Range = view.Range,
     };
 }
 

@@ -73,7 +73,7 @@ public sealed partial class WindowsVbaBridge
     }
 
     // ------------------------------------------------------------------
-    // シート（見出し・値の見本・テーブル）
+    // シート（シートごとの見せ方に応じた値・テーブル）
     // ------------------------------------------------------------------
 
     private static void ReadSheets(
@@ -115,9 +115,14 @@ public sealed partial class WindowsVbaBridge
 
                 dynamic sheet = sheetObj;
                 sheetName = s.Call(() => (string)sheet.Name);
-                sheets.Add(ReadSheet(s, item, sheetObj, sheetName, options));
+                var info = ReadSheet(s, item, sheetObj, sheetName, options);
+                sheets.Add(info);
                 sheetAdded = true;
-                ReadTables(s, item, sheetObj, sheetName, options, tables);
+                // 「出さない」のシートは、テーブルも出力に出ない。読まない（Excel への問い合わせを増やさない）。
+                if (options.Views.For(info.CodeName).Mode != VbaSheetViewMode.None)
+                {
+                    ReadTables(s, item, sheetObj, sheetName, options, tables);
+                }
             }
             catch (ComBusyException) when (sheets.Count > 0)
             {
@@ -187,45 +192,45 @@ public sealed partial class WindowsVbaBridge
         }
 
         var address = s.Call(() => (string)used.Address(false, false));
+        var structure = new VbaSheetInfo(sheetName, codeName, visibility, address, Array.Empty<string>(), Array.Empty<IReadOnlyList<string>>());
 
-        // 見出し行: 使用範囲の先頭行を MaxColumns 列まで、Value2 を 1 回で読む（セルを 1 つずつ読まない）。
-        var readColumns = Math.Min(columnCount, Math.Max(1, options.MaxColumns));
-        var headerObj = item.Own(s.Call(() => (object)used.Resize(1, readColumns)));
-        IReadOnlyList<string> header = Array.Empty<string>();
-        if (headerObj is not null)
+        // 【セルの値を読むのは、値が渡る見せ方のシートだけ】 構成だけ・出さないのシートでは、ここから先の COM 呼び出しを
+        // 1 回も行わない（社外秘を Graft のメモリにも載せない。読む範囲の計画は Core の VbaSheetReadPlanner が立てる）。
+        var view = options.Views.For(codeName);
+        var plan = VbaSheetReadPlanner.Plan(
+            VbaA1Range.FromAddress(address), view, options.MaxColumns, options.AllMaxRows, options.AllMaxColumns);
+        if (plan.Mode is not (VbaSheetViewMode.HeaderRows or VbaSheetViewMode.All or VbaSheetViewMode.Range)) return structure;
+        if (!plan.ReadsCells) return VbaSheetReadPlanner.Assemble(structure, plan, Array.Empty<IReadOnlyList<string>>(), null);
+
+        // 計画の範囲（先頭のセルから行数×列数）を、セルの値 1 回（数式を含めるときは数式も 1 回）で受ける。
+        // 使用範囲そのものを Offset/Resize しないのは、使用範囲がシートの最終行まである場合に範囲外で失敗するのと、
+        // 「範囲を指定」で使用範囲の途中から読むため。Cells.Item(行, 列) から Resize する形に統一している。
+        var startRow = plan.StartRow;
+        var startColumn = plan.StartColumn;
+        var readRows = plan.RowCount;
+        var readColumns = plan.ColumnCount;
+        var cellsObj = item.Own(s.Call(() => (object)sheet.Cells));
+        if (cellsObj is null) return structure;
+
+        dynamic cells = cellsObj;
+        var topObj = item.Own(s.Call(() => (object)cells.Item(startRow, startColumn)));
+        if (topObj is null) return structure;
+
+        dynamic top = topObj;
+        var blockObj = item.Own(s.Call(() => (object)top.Resize(readRows, readColumns)));
+        if (blockObj is null) return structure;
+
+        dynamic block = blockObj;
+        var raw = s.Call(() => (object?)block.Value2);
+        var values = VbaWorkbookInfoReadRules.ToGrid(raw, options.MaxCellChars);
+        IReadOnlyList<IReadOnlyList<string>>? withFormulas = null;
+        if (view.IncludeFormulas)
         {
-            dynamic headerRange = headerObj;
-            var raw = s.Call(() => (object?)headerRange.Value2);
-            var grid = VbaWorkbookInfoReadRules.ToGrid(raw, options.MaxCellChars);
-            if (grid.Count > 0) header = grid[0];
+            var formulas = s.Call(() => (object?)block.Formula);
+            withFormulas = VbaWorkbookInfoReadRules.ToGrid(raw, formulas, options.MaxCellChars);
         }
 
-        // 値の見本: オプトインのときだけ（SampleRows が 0 なら、この中の COM 呼び出しは 1 回も行わない）。
-        var samples = new List<IReadOnlyList<string>>();
-        var sampleRows = Math.Min(options.SampleRows, rowCount - 1);
-        if (options.SampleRows > 0 && sampleRows > 0 && headerObj is not null)
-        {
-            dynamic headerRange = headerObj;
-            // 使用範囲全体ではなく、見出し行を 1 行下へずらしてから切り出す。使用範囲がシートの最終行まである場合に、
-            // 全体を Offset すると範囲外で失敗するため（見出し行は 1 行目なので、rowCount > 1 のとき 2 行目は必ずある）。
-            var belowObj = item.Own(s.Call(() => (object)headerRange.Offset(1, 0)));
-            if (belowObj is not null)
-            {
-                dynamic below = belowObj;
-                var sampleObj = item.Own(s.Call(() => (object)below.Resize(sampleRows, readColumns)));
-                if (sampleObj is not null)
-                {
-                    dynamic sampleRange = sampleObj;
-                    var values = s.Call(() => (object?)sampleRange.Value2);
-                    object? formulas = options.IncludeFormulas ? s.Call(() => (object?)sampleRange.Formula) : null;
-                    samples.AddRange(VbaWorkbookInfoReadRules.ToGrid(values, formulas, options.MaxCellChars));
-                }
-            }
-        }
-
-        return new VbaSheetInfo(
-            sheetName, codeName, visibility, address, header, samples,
-            OmittedColumns: columnCount - readColumns);
+        return VbaSheetReadPlanner.Assemble(structure, plan, values, withFormulas);
     }
 
     private static void ReadTables(

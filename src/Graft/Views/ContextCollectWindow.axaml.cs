@@ -60,19 +60,6 @@ public partial class ContextCollectWindow : Window
     }
 
     /// <summary>
-    /// 値の見本の「数式も含める」。ViewModel へ選択を渡して保存し、見本を取り直す。
-    /// （チェックボックスの <c>IsChecked</c> は OneWay にしてあり、ここで保存側へ流す。値の見本をオンにするときの
-    /// 確認ダイアログは「値の見本」のボタン側で出すので、ここでは出さない。）
-    /// </summary>
-    private async void OnIncludeFormulasClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (DataContext is not ContextCollectViewModel viewModel || sender is not CheckBox box) return;
-        var value = box.IsChecked == true;
-        await SafeHandler.RunAsync("数式を含める設定の切り替え", () => viewModel.SetWorkbookIncludeFormulasAsync(value))
-            .ConfigureAwait(true);
-    }
-
-    /// <summary>
     /// 窓全体のキー操作（トンネル＝子より先に受ける）。
     ///
     /// 【Esc】従来どおり窓を閉じる。ただしファイル名の絞り込み欄にフォーカスがあり、中身が

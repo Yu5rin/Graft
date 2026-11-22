@@ -8,18 +8,20 @@ namespace Graft.ViewModels;
 /// ブックの情報を Excel から取る処理（仕様書_ブックの情報と依頼の観点 5.4）。<c>MainViewModel</c> が VBA プロジェクトの
 /// ときだけ <see cref="ContextCollectViewModel"/> に渡す。
 /// </summary>
-/// <param name="sampleValues">値の見本を読むか（オプトイン。false なら見本を読む COM 呼び出しは 1 回も行われない）。</param>
-/// <param name="includeFormulas">見本に数式も含めるか。</param>
+/// <param name="views">
+/// シートごとの見せ方（全体の出し方を掛けた後のもの）。<b>セルの値を読むのは、値が渡る見せ方のシートだけ</b>
+/// （それ以外のシートでは、セルを読む COM 呼び出しは 1 回も行われない）。
+/// </param>
 /// <param name="ct">取り消し。</param>
 /// <returns>
 /// 取得結果。<b>null は「取得しない」</b>（設定 <c>Vba.CollectWorkbookInfo</c> が false で、Excel を呼んでいない）。
 /// 失敗は <see cref="GraftResult{T}"/> の失敗で返し、例外にしない（収集を止めないため）。
 /// </returns>
 public delegate Task<GraftResult<VbaWorkbookInfoSnapshot>?> VbaWorkbookInfoFetchAsync(
-    bool sampleValues, bool includeFormulas, CancellationToken ct);
+    VbaSheetViewSet views, CancellationToken ct);
 
 /// <summary>
-/// ブックの情報の窓口。取得そのもの（<see cref="FetchAsync"/>）に加えて、行を出すか・見本の行数といった
+/// ブックの情報の窓口。取得そのもの（<see cref="FetchAsync"/>）に加えて、行を出すか・行数の既定といった
 /// 「その時点の設定とプロジェクトの状態」を、呼び出しのたびに読める形で持つ
 /// （設定画面での変更を、プロジェクトを選び直さなくても反映するため。<c>CreateVbaContextPull</c> と同じ作法）。
 /// </summary>
@@ -28,11 +30,20 @@ public sealed class VbaWorkbookInfoSource
     /// <summary>VBA 連携が有効で、この環境で使え、VBA プロジェクトか。false なら行そのものを出さない。</summary>
     public required Func<bool> IsAvailable { get; init; }
 
-    /// <summary>確認ダイアログと注意文に出す、値の見本の行数（<c>Vba.WorkbookInfoSampleRows</c>）。</summary>
+    /// <summary>
+    /// 「見出し＋N 行」の N の既定（<c>Vba.WorkbookInfoSampleRows</c>）。見せ方を選んだときの最初の行数と、
+    /// v0.4 より前の「値の見本」がオンだったプロジェクトを「全シート 見出し＋N 行」へ移すときの N になる。
+    /// </summary>
     public required Func<int> SampleRows { get; init; }
 
     /// <summary>Excel から取得する。</summary>
     public required VbaWorkbookInfoFetchAsync FetchAsync { get; init; }
+
+    /// <summary>「全部」「範囲を指定」の最大行数（<c>Vba.WorkbookInfoAllMaxRows</c>）。確認ダイアログと案内文に出す。未配線なら既定。</summary>
+    public Func<int>? AllMaxRows { get; init; }
+
+    /// <summary>「全部」「範囲を指定」の最大列数（<c>Vba.WorkbookInfoAllMaxColumns</c>）。未配線なら既定。</summary>
+    public Func<int>? AllMaxColumns { get; init; }
 
     /// <summary>
     /// 設定 <c>Vba.CollectWorkbookInfo</c> がいまオンか。<b>依頼文を作るたびに</b>読み直す。
@@ -53,7 +64,7 @@ public sealed class VbaWorkbookInfoSource
 
     /// <summary>
     /// 選択肢つきの確認ダイアログ（<c>VbaChoiceWindow</c>）を出して、選ばれたボタンの識別子を返す
-    /// （値の見本をオンにする確認に使う）。未配線の環境（テスト、画面なし）では null で、確認は「やめる」と同じ結果になる
+    /// （値が渡る見せ方を選ぶ確認に使う）。未配線の環境（テスト、画面なし）では null で、確認は「やめる」と同じ結果になる
     /// （社外秘が AI へ渡る操作を、確認なしでは通さない）。
     /// </summary>
     public Func<VbaChoiceRequest, Task<string>>? ChooseAsync { get; init; }
@@ -62,13 +73,18 @@ public sealed class VbaWorkbookInfoSource
 /// <summary>
 /// コンテキスト収集ViewModelのうち、ブックの情報（機能 A）を持つ部分。本体が大きいため分割ファイルにしている。
 /// <para>
-/// 【取得結果はメモリにだけ持つ】 値の見本が社外秘を含みうるので、ディスクへは一切書かない
-/// （仕様書付録A-6。<c>projects.json</c> に保存するのは「出し方」と「見本を出すか」の選択だけ）。
+/// 【取得結果はメモリにだけ持つ】 セルの値が社外秘を含みうるので、ディスクへは一切書かない
+/// （仕様書付録A-6。<c>projects.json</c> に保存するのは「出し方」と「シートごとの見せ方」の選択だけ）。
 /// 破棄（<see cref="Dispose"/>）でも手放す。
 /// </para>
 /// <para>
 /// 【Excel に繋がらなくても止めない】 取得の失敗は警告にして続ける。前回成功した分が同じセッションにあれば
 /// 「取得日時つき・最新を読めていません」の注記つきで使い、無ければ何も出さない（見出しだけが残らない）。
+/// </para>
+/// <para>
+/// 【値を渡す選択は、確認して、変えたら直ちに反映する】 値が渡る見せ方（見出し＋N 行・全部・範囲を指定）を選ぶときは
+/// 確認ダイアログを出す（既定は「やめる」）。値が渡らない見せ方へ戻したとき、全体を構成だけ・出さないへ戻したときは、
+/// メモリ上の値を直ちに捨て、プレビュー欄も空にする（1.2.0 で直した不具合と同じ注意）。
 /// </para>
 /// </summary>
 public sealed partial class ContextCollectViewModel
@@ -81,7 +97,7 @@ public sealed partial class ContextCollectViewModel
     public VbaWorkbookInfoRowViewModel WorkbookInfo { get; private set; } = null!;
 
     /// <summary>
-    /// ブックの情報の状態・見本の選択・取得結果が変わったときに発火する（トークン推定・依頼文の再計算の契機）。
+    /// ブックの情報の状態・見せ方・取得結果が変わったときに発火する（トークン推定・依頼文の再計算の契機）。
     /// 依頼文コピーが購読する。
     /// </summary>
     public event EventHandler? WorkbookInfoChanged;
@@ -100,14 +116,16 @@ public sealed partial class ContextCollectViewModel
         // 行の初期値は、前回までに保存した選択（VbaLink）。VBA プロジェクトでなければ既定のまま、行は出さない。
         var link = project.Vba;
         var cycle = new AsyncRelayCommand(CycleWorkbookInfoLevelAsync, context: "ブックの情報の出し方の切り替え");
-        var toggle = new AsyncRelayCommand(ToggleWorkbookSampleValuesAsync, context: "値の見本の切り替え");
-        WorkbookInfo = new VbaWorkbookInfoRowViewModel(cycle, toggle);
+        WorkbookInfo = new VbaWorkbookInfoRowViewModel(cycle);
         WorkbookInfo.Level = VbaWorkbookInfoLevels.Parse(link?.WorkbookInfoState);
-        WorkbookInfo.SampleValues = link?.WorkbookInfoSampleValues ?? false;
-        WorkbookInfo.IncludeFormulas = link?.WorkbookInfoIncludeFormulas ?? false;
-        WorkbookInfo.SampleRows = source?.SampleRows() ?? 5;
+        WorkbookInfo.DefaultHeaderRows = DefaultHeaderRowsFromSource(source);
+        WorkbookInfo.AllMaxRows = source?.AllMaxRows?.Invoke() ?? VbaSheetViewLimits.DefaultAllMaxRows;
+        WorkbookInfo.AllMaxColumns = source?.AllMaxColumns?.Invoke() ?? VbaSheetViewLimits.DefaultAllMaxColumns;
         WorkbookInfo.IsVisible = source is not null && source.IsAvailable();
     }
+
+    private int DefaultHeaderRowsFromSource(VbaWorkbookInfoSource? source)
+        => VbaSheetViewLimits.ClampHeaderRows(source?.SampleRows() ?? VbaSheetViewLimits.DefaultHeaderRows);
 
     /// <summary>
     /// ブックの情報を Excel から取る。取る契機は Pull（<see cref="PullFromExcelAsync"/>）の直後と同じ
@@ -128,22 +146,24 @@ public sealed partial class ContextCollectViewModel
             _workbookSnapshot = null;
             _workbookSnapshotIsStale = false;
             WorkbookInfo.StatusText = string.Empty;
+            RebuildSheetRows();
             return;
         }
 
-        WorkbookInfo.SampleRows = source!.SampleRows();
+        WorkbookInfo.DefaultHeaderRows = DefaultHeaderRowsFromSource(source);
+        WorkbookInfo.AllMaxRows = source!.AllMaxRows?.Invoke() ?? VbaSheetViewLimits.DefaultAllMaxRows;
+        WorkbookInfo.AllMaxColumns = source.AllMaxColumns?.Invoke() ?? VbaSheetViewLimits.DefaultAllMaxColumns;
         if (WorkbookInfo.Level == VbaWorkbookInfoLevel.Hidden)
         {
             WorkbookInfo.StatusText = "出さない設定のため、Excel には問い合わせていません。";
             return;
         }
 
-        // 値の見本を読むのは「内容も出す」で、かつ見本をオンにしているときだけ。それ以外は 0 行（読まない）で呼ぶ。
-        var sampleValues = WorkbookInfo.SampleValues && WorkbookInfo.Level == VbaWorkbookInfoLevel.Full;
+        // 値を読むのは、「内容も出す」で、かつ値が渡る見せ方のシートだけ（全体が構成だけなら、見せ方は構成だけに落ちる）。
         GraftResult<VbaWorkbookInfoSnapshot>? result;
         try
         {
-            result = await source.FetchAsync(sampleValues, WorkbookInfo.IncludeFormulas, ct).ConfigureAwait(true);
+            result = await source.FetchAsync(EffectiveSheetViews(), ct).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -157,6 +177,7 @@ public sealed partial class ContextCollectViewModel
         }
 
         ApplyWorkbookInfoResult(result);
+        RebuildSheetRows();
         PublishVbaWarningToStatus();
         WorkbookInfoChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -221,6 +242,10 @@ public sealed partial class ContextCollectViewModel
     private static string? CombineWarnings(string? first, string? second)
         => first is null ? second : second is null ? first : first + " " + second;
 
+    // ------------------------------------------------------------------
+    // 出力
+    // ------------------------------------------------------------------
+
     /// <summary>
     /// 依頼文・収集の出力に載せる、ブックの情報の文。載せないときは空。
     /// 載せない条件: 行が出ていない（VBA でない・機能が無効・環境が非対応）、「出さない」、
@@ -245,10 +270,21 @@ public sealed partial class ContextCollectViewModel
         return VbaWorkbookInfoFormatter.Format(
             _workbookSnapshot,
             WorkbookInfo.Level,
-            includeSamples: WorkbookInfo.SampleValues && WorkbookInfo.Level == VbaWorkbookInfoLevel.Full,
+            SavedSheetViews(),
             maxChars: source.MaxChars?.Invoke() ?? _settings.Vba.WorkbookInfoMaxChars,
             isStale: _workbookSnapshotIsStale);
     }
+
+    /// <summary>保存されているシートごとの見せ方（移行つき。全体の出し方は掛けない）。</summary>
+    private VbaSheetViewSet SavedSheetViews()
+        => (_project.Vba ?? new VbaLink()).ResolveSheetViews(DefaultHeaderRowsFromSource(_workbookInfoSource));
+
+    /// <summary>全体の出し方を掛けた、読み取りに使う見せ方。全体が構成だけなら、値は読まない。</summary>
+    private VbaSheetViewSet EffectiveSheetViews() => SavedSheetViews().ForLevel(WorkbookInfo.Level);
+
+    // ------------------------------------------------------------------
+    // 全体の 3 状態
+    // ------------------------------------------------------------------
 
     /// <summary>行のクリック: 内容も出す → 構成だけ → 出さない → 内容も出す、と巡る。選んだ状態は保存する。</summary>
     public async Task CycleWorkbookInfoLevelAsync()
@@ -258,6 +294,10 @@ public sealed partial class ContextCollectViewModel
         WorkbookInfo.Level = next;
         await PersistWorkbookInfoAsync(link => link with { WorkbookInfoState = next.ToString() }).ConfigureAwait(true);
 
+        // 【構成だけ・出さないへ戻したら、メモリ上の値を直ちに捨てる】 全体が構成だけでも値は渡らないが、
+        // 取得済みの値をメモリに持ち続けない（オフにしたら直ちに捨てる、という約束を、全体の切り替えにも守る）。
+        if (next != VbaWorkbookInfoLevel.Full) DropValuesFromMemory();
+
         // 「出さない」から戻したときは、取得結果が無い（問い合わせていなかった）ので取り直す。
         // 取り直しは次の収集の契機を待たずに、ここで済ませる（行の状態が変わったその場で出力に反映するため）。
         if (before == VbaWorkbookInfoLevel.Hidden && next != VbaWorkbookInfoLevel.Hidden)
@@ -266,78 +306,293 @@ public sealed partial class ContextCollectViewModel
         }
         else
         {
+            RebuildSheetRows();
             AfterWorkbookInfoSelectionChanged();
         }
     }
 
-    /// <summary>
-    /// 値の見本のオン・オフ。<b>オンにするときは確認ダイアログを出す</b>（仕様書5.2。個人情報・社外秘が AI へ渡りうるため）。
-    /// 断られたら何も変えない。オフにしたら、メモリ上の見本も直ちに捨てる。
-    /// </summary>
-    public async Task ToggleWorkbookSampleValuesAsync()
-    {
-        if (!WorkbookInfo.SampleValues)
-        {
-            var rows = WorkbookInfo.SampleRows;
-            // 【ボタンを動詞にし、既定（Enter）を「やめる」にする】 OK／キャンセルで既定が OK だと、文面を読まずに
-            // Enter を押しただけで、社外秘かもしれない値が AI に渡る設定になってしまう。何が起きるかが分かるボタンの文言にし、
-            // 何もせず閉じる側（Esc・×も同じ）を既定にする。
-            var request = new VbaChoiceRequest(
-                "値の見本を AI に渡しますか",
-                $"各シートの見出し行に続く {rows} 行の値が、依頼文に含まれ、AI に渡ります。" + Environment.NewLine
-                + "なお、各シートの 1 行目（見出し）は、値の見本がオフでも「内容も出す」のときは渡ります。" + Environment.NewLine
-                + "個人情報や社外秘が含まれていないか確認してください。",
-                new[]
-                {
-                    new VbaChoiceOption("give", "値の見本を渡す"),
-                    new VbaChoiceOption("cancel", "やめる", IsDefault: true),
-                });
-            var choice = _workbookInfoSource?.ChooseAsync is { } choose
-                ? await choose(request).ConfigureAwait(true)
-                : request.Default.Id;
-            if (choice != "give") return;
+    // ------------------------------------------------------------------
+    // シートごとの見せ方（仕様書 5.2）
+    // ------------------------------------------------------------------
 
-            WorkbookInfo.SampleValues = true;
-            await PersistWorkbookInfoAsync(link => link with { WorkbookInfoSampleValues = true }).ConfigureAwait(true);
-            // 見本を読むため、取り直す（オフの間は見本を読んでいない）。
-            await RefreshWorkbookInfoOnDemandAsync().ConfigureAwait(true);
-            return;
+    /// <summary>
+    /// シートの見せ方を変える。<b>値が渡る見せ方（見出し＋N 行・全部・範囲を指定）を新しく選ぶときは確認ダイアログを出す</b>
+    /// （個人情報・社外秘が AI へ渡りうるため）。断られたら何も変えず false。
+    /// 値が渡らない見せ方へ戻したら、そのシートの値をメモリから直ちに捨てる。
+    /// </summary>
+    /// <returns>変えた（または同じだった）なら true。確認を断られた・シートが無いなら false。</returns>
+    public async Task<bool> SetSheetViewModeAsync(string codeName, VbaSheetViewMode mode)
+    {
+        var sheet = FindSheet(codeName);
+        if (sheet is null) return false;
+
+        var views = SavedSheetViews();
+        var old = views.For(sheet.CodeName);
+        if (old.Mode == mode) return true;
+
+        // 前に選んだ行数・範囲の記録があれば引き継ぐ（見せ方を切り替えて戻しても入力が消えない）。
+        // 値が渡る見せ方から来たのでなく、行数が既定の定数のままなら、設定の既定の N から始める。
+        // 数式を含める選択は、値が渡る見せ方どうしの切り替えでだけ引き継ぐ（値が渡らない見せ方へ戻したら外す。
+        // 次に値を渡す見せ方を選ぶときの確認で、利用者が知らないまま数式まで渡ることがないように）。
+        var rows = old.HeaderRows == VbaSheetViewLimits.DefaultHeaderRows && !VbaSheetViewModes.IsValueMode(old.Mode)
+            ? DefaultHeaderRowsFromSource(_workbookInfoSource)
+            : old.HeaderRows;
+        var next = old with
+        {
+            Mode = mode,
+            HeaderRows = rows,
+            IncludeFormulas = VbaSheetViewModes.IsValueMode(mode) && old.IncludeFormulas,
+        };
+
+        if (VbaSheetViewModes.IsValueMode(mode) && !await ConfirmSheetValuesAsync(sheet, next).ConfigureAwait(true))
+        {
+            RebuildSheetRows();
+            return false;
         }
 
-        WorkbookInfo.SampleValues = false;
-        await PersistWorkbookInfoAsync(link => link with { WorkbookInfoSampleValues = false }).ConfigureAwait(true);
-        DropSamplesFromMemory();
-        AfterWorkbookInfoSelectionChanged();
+        await ApplySheetViewAsync(sheet, old, next).ConfigureAwait(true);
+        return true;
     }
 
-    /// <summary>値の見本に数式も含めるか（既定オフ）。切り替えたら保存して、見本を取り直す。</summary>
-    public async Task SetWorkbookIncludeFormulasAsync(bool value)
+    /// <summary>「見出し＋N 行」の N を変える（入力欄の文字）。誤りなら、その理由を返す（保存も取り直しもしない）。</summary>
+    public async Task<string?> SetSheetHeaderRowsAsync(string codeName, string text)
     {
-        if (WorkbookInfo.IncludeFormulas == value) return;
-        WorkbookInfo.IncludeFormulas = value;
-        await PersistWorkbookInfoAsync(link => link with { WorkbookInfoIncludeFormulas = value }).ConfigureAwait(true);
+        if (!int.TryParse(text?.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var rows)
+            || rows > VbaSheetViewLimits.MaxHeaderRows)
+        {
+            return $"0〜{VbaSheetViewLimits.MaxHeaderRows} の整数で入力してください（もっと多く見せたいときは「全部」か「範囲を指定」を使います）。";
+        }
 
-        // 【オフにしたら、数式入りの見本をメモリから直ちに捨てる】 見本のセルは「=式 → 値」の文字列に畳んで持っているので、
-        // 出力時に数式だけを取り除けない。取り直しが成功すれば数式の無い見本に置き換わるが、Excel を閉じた・応答しないなどで
-        // 失敗すると、前回の成功分（数式入り）が「最新を読めていません」の注記つきで使われ続け、オフにした数式が依頼文へ
-        // 出てしまう。値の見本のオフ（<see cref="ToggleWorkbookSampleValuesAsync"/>）と同じく、先に捨てる。
-        if (!value) DropSamplesFromMemory();
-
-        if (WorkbookInfo.SampleValues) await RefreshWorkbookInfoOnDemandAsync().ConfigureAwait(true);
-        else AfterWorkbookInfoSelectionChanged();
+        await SetSheetHeaderRowsAsync(codeName, rows).ConfigureAwait(true);
+        return null;
     }
 
-    /// <summary>オフにした見本を、メモリ上の取得結果からも消す（ディスクには元々書いていない）。</summary>
-    private void DropSamplesFromMemory()
+    /// <summary>「見出し＋N 行」の N を変える。</summary>
+    public async Task SetSheetHeaderRowsAsync(string codeName, int rows)
+    {
+        var sheet = FindSheet(codeName);
+        if (sheet is null) return;
+
+        var old = SavedSheetViews().For(sheet.CodeName);
+        var next = old with { HeaderRows = VbaSheetViewLimits.ClampHeaderRows(rows) };
+        if (next == old) return;
+        await ApplySheetViewAsync(sheet, old, next).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 「範囲を指定」の範囲を入れる。<b>検証に通らなければ、誤りの理由を返し、依頼文には入れない</b>
+    /// （それまでの範囲も取り消し、そのシートの値は渡さない。画面に見えている入力と、実際に渡るものを食い違わせないため）。
+    /// 通れば正規化して保存し、取り直す。
+    /// </summary>
+    /// <returns>誤りの理由。誤りが無ければ null。</returns>
+    public async Task<string?> SetSheetRangeAsync(string codeName, string text)
+    {
+        var sheet = FindSheet(codeName);
+        if (sheet is null) return null;
+
+        var old = SavedSheetViews().For(sheet.CodeName);
+        if (!VbaA1Range.TryParse(text, out var range, out var error))
+        {
+            if (old.Range is not null) await ApplySheetViewAsync(sheet, old, old with { Range = null }, keepDraft: true).ConfigureAwait(true);
+            return error;
+        }
+
+        await ApplySheetViewAsync(sheet, old, old with { Range = range.ToA1() }, keepDraft: true).ConfigureAwait(true);
+        return null;
+    }
+
+    /// <summary>数式も含めるか。オフにしたら、数式入りの値をメモリから直ちに捨てる。</summary>
+    public async Task SetSheetIncludeFormulasAsync(string codeName, bool value)
+    {
+        var sheet = FindSheet(codeName);
+        if (sheet is null) return;
+
+        var old = SavedSheetViews().For(sheet.CodeName);
+        var next = old with { IncludeFormulas = value };
+        if (next == old) return;
+        await ApplySheetViewAsync(sheet, old, next).ConfigureAwait(true);
+    }
+
+    private VbaSheetInfo? FindSheet(string codeName)
+        => _workbookSnapshot?.Sheets.FirstOrDefault(s => string.Equals(s.CodeName, codeName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// 見せ方を保存して反映する。値が渡らなくなったシートの値はメモリから捨て、読み直しが要るときだけ取り直す
+    /// （値が渡る見せ方で、読む内容が変わったとき。「出さない」から戻したときは、テーブルを読んでいないので取り直す）。
+    /// </summary>
+    private async Task ApplySheetViewAsync(VbaSheetInfo sheet, VbaSheetView old, VbaSheetView next, bool keepDraft = false)
+    {
+        var views = MaterializeSheetViews(SavedSheetViews()).With(sheet.CodeName, next);
+        await PersistWorkbookInfoAsync(link => link.WithSheetViews(views)).ConfigureAwait(true);
+
+        // 値が渡らなくなった（構成だけ・出さない・範囲が空）なら、そのシートの値を直ちに捨てる。
+        // 数式をオフにしたときも捨てる（値は「=式 → 値」の文字列に畳んで持っているので、あとから数式だけを取り除けない）。
+        var formulasTurnedOff = old.IncludeFormulas && !next.IncludeFormulas;
+        if (!next.PassesValues || formulasTurnedOff)
+        {
+            DropValuesFromMemory(s => string.Equals(s.CodeName, sheet.CodeName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var needsRead = (next.PassesValues && ReadsDifferently(old, next))
+                        || (old.Mode == VbaSheetViewMode.None && next.Mode != VbaSheetViewMode.None);
+        if (needsRead && WorkbookInfo.Level != VbaWorkbookInfoLevel.Hidden)
+        {
+            await RefreshWorkbookInfoOnDemandAsync(keepDraft).ConfigureAwait(true);
+        }
+        else
+        {
+            RebuildSheetRows(keepDraft);
+            AfterWorkbookInfoSelectionChanged();
+        }
+    }
+
+    /// <summary>読む内容が変わるか（同じなら取り直さない）。</summary>
+    private static bool ReadsDifferently(VbaSheetView old, VbaSheetView next)
+    {
+        if (!old.PassesValues || old.Mode != next.Mode) return true;
+        if (old.IncludeFormulas != next.IncludeFormulas) return true;
+        return next.Mode switch
+        {
+            VbaSheetViewMode.HeaderRows => old.HeaderRows != next.HeaderRows,
+            VbaSheetViewMode.Range => !string.Equals(old.Range, next.Range, StringComparison.Ordinal),
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// 見せ方の記録を、取得済みの全シート分の明示的な記録にする。<b>v0.4 より前の「値の見本」からの移行</b>の要:
+    /// 記録がまだ無い（<see cref="VbaLink.WorkbookInfoSheetViews"/> が null）プロジェクトで、全シートが
+    /// 「見出し＋N 行（既存の N）」として読まれている間に、利用者が 1 枚だけ変えたとき、残りのシートの見せ方を
+    /// ここで確定して保存する（確定しないと、保存と同時に旧項目をオフにするため、残りが構成だけに変わってしまう）。
+    /// </summary>
+    private VbaSheetViewSet MaterializeSheetViews(VbaSheetViewSet saved)
+    {
+        if (_project.Vba?.WorkbookInfoSheetViews is not null || _workbookSnapshot is null) return saved;
+
+        var records = saved.Overrides.ToList();
+        foreach (var sheet in _workbookSnapshot.Sheets)
+        {
+            if (!saved.CodeNames.Contains(sheet.CodeName, StringComparer.OrdinalIgnoreCase))
+            {
+                records.Add(new KeyValuePair<string, VbaSheetView>(sheet.CodeName, saved.For(sheet.CodeName)));
+            }
+        }
+
+        // 記録の無いシートの既定は、確定後は構成だけ（旧項目をオフにするので、既定が見出し＋N 行のままではなくなる）。
+        return new VbaSheetViewSet(VbaSheetView.StructureOnly, records);
+    }
+
+    /// <summary>
+    /// 値が渡る見せ方を選ぶときの確認。<b>ボタンを動詞にし、既定（Enter）を「やめる」にする</b>: OK／キャンセルで既定が OK だと、
+    /// 文面を読まずに Enter を押しただけで、社外秘かもしれない値が AI に渡る設定になってしまう。何が起きるかが分かる
+    /// ボタンの文言にし、何もせず閉じる側（Esc・×も同じ）を既定にする。
+    /// </summary>
+    private async Task<bool> ConfirmSheetValuesAsync(VbaSheetInfo sheet, VbaSheetView next)
+    {
+        var source = _workbookInfoSource;
+        var maxRows = source?.AllMaxRows?.Invoke() ?? VbaSheetViewLimits.DefaultAllMaxRows;
+        var maxColumns = source?.AllMaxColumns?.Invoke() ?? VbaSheetViewLimits.DefaultAllMaxColumns;
+        var what = next.Mode switch
+        {
+            VbaSheetViewMode.HeaderRows => $"使用範囲の見出し行（1 行目）と、続く {next.HeaderRows} 行の値が",
+            VbaSheetViewMode.All => $"使用範囲の値すべて（最大 {maxRows} 行・{maxColumns} 列）が",
+            _ => "このあと入力する範囲の値が",
+        };
+        var request = new VbaChoiceRequest(
+            $"シート「{sheet.Name}」の値を AI に渡しますか",
+            $"シート「{sheet.Name}」: {what}、依頼文に含まれ、AI に渡ります。" + Environment.NewLine
+            + "個人情報や社外秘が含まれていないか確認してください。" + Environment.NewLine
+            + "選んだ見せ方はプロジェクトごとに記憶されます（値そのものは保存しません）。",
+            new[]
+            {
+                new VbaChoiceOption("give", "値を渡す"),
+                new VbaChoiceOption("cancel", "やめる", IsDefault: true),
+            });
+        var choice = source?.ChooseAsync is { } choose
+            ? await choose(request).ConfigureAwait(true)
+            : request.Default.Id;
+        return choice == "give";
+    }
+
+    // ------------------------------------------------------------------
+    // メモリ上の値・画面の一覧
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 値をメモリ上の取得結果から捨てる（ディスクには元々書いていない）。<paramref name="only"/> が null なら全シート。
+    /// 構成（シート・テーブル・名前）は残す。
+    /// </summary>
+    private void DropValuesFromMemory(Func<VbaSheetInfo, bool>? only = null)
     {
         if (_workbookSnapshot is null) return;
         _workbookSnapshot = _workbookSnapshot with
         {
-            Sheets = _workbookSnapshot.Sheets.Select(s => s with { SampleRows = Array.Empty<IReadOnlyList<string>>() }).ToArray(),
+            Sheets = _workbookSnapshot.Sheets
+                .Select(s => only is null || only(s)
+                    ? s with
+                    {
+                        HeaderRow = Array.Empty<string>(),
+                        SampleRows = Array.Empty<IReadOnlyList<string>>(),
+                        OmittedColumns = 0,
+                        Block = null,
+                    }
+                    : s)
+                .ToArray(),
         };
     }
 
-    private async Task RefreshWorkbookInfoOnDemandAsync()
+    /// <summary>
+    /// 取得したシートの一覧を、画面の行（<see cref="VbaWorkbookInfoRowViewModel.Sheets"/>）へ映す。
+    /// シートが消えた記録は保存には残るが、ここには出さない。同じコード名の行は使い回す（入力途中の欄を壊さない）。
+    /// </summary>
+    private void RebuildSheetRows(bool keepDraft = false)
+    {
+        var sheets = _workbookSnapshot?.Sheets ?? Array.Empty<VbaSheetInfo>();
+        var views = SavedSheetViews();
+        var existing = WorkbookInfo.Sheets.ToDictionary(r => r.CodeName, StringComparer.OrdinalIgnoreCase);
+        var rows = new List<VbaSheetViewRowViewModel>();
+        foreach (var sheet in sheets)
+        {
+            if (!existing.TryGetValue(sheet.CodeName, out var row)) row = new VbaSheetViewRowViewModel(this, sheet.Name, sheet.CodeName);
+            row.Name = sheet.Name;
+            row.UsedRangeText = sheet.UsedRange ?? "（空）";
+            var view = views.For(sheet.CodeName);
+            row.Apply(view, keepDraft);
+            if (view.Mode == VbaSheetViewMode.Range && view.Range is null) row.ShowRangeRequired();
+            row.NoteText = DescribeSheetNote(sheet, view);
+            rows.Add(row);
+        }
+
+        // 行の並びと中身が同じなら、コレクションを触らない（選択中の ComboBox などを再構築しない）。
+        if (!rows.SequenceEqual(WorkbookInfo.Sheets))
+        {
+            WorkbookInfo.Sheets.Clear();
+            foreach (var row in rows) WorkbookInfo.Sheets.Add(row);
+        }
+
+        WorkbookInfo.RaiseSheetStateChanged();
+    }
+
+    /// <summary>取得結果についての、シートごとの注記（切った行・列、範囲の外）。依頼文の注記と同じ事実を、画面にも出す。</summary>
+    private static string DescribeSheetNote(VbaSheetInfo sheet, VbaSheetView view)
+    {
+        if (!view.PassesValues) return string.Empty;
+        if (view.Mode == VbaSheetViewMode.HeaderRows)
+        {
+            return sheet.OmittedColumns > 0 ? $"右の {sheet.OmittedColumns} 列は、最大列数の設定で省いています。" : string.Empty;
+        }
+
+        if (sheet.Block is not { } block || block.Mode != view.Mode) return string.Empty;
+        if (block.OutsideUsedRange) return $"指定の範囲は、このシートの使用範囲（{sheet.UsedRange ?? "空"}）の外です。値はありません。";
+        if (block.RowsCut || block.ColumnsCut)
+        {
+            return $"{block.TotalRows} 行・{block.TotalColumns} 列のうち、{block.Rows.Count} 行・{block.ColumnCount} 列だけを渡しています。続きは「範囲を指定」で選べます。";
+        }
+
+        return string.Empty;
+    }
+
+    private async Task RefreshWorkbookInfoOnDemandAsync(bool keepDraft = false)
     {
         try
         {
@@ -348,13 +603,14 @@ public sealed partial class ContextCollectViewModel
             // 窓を閉じるなどで中断された。
         }
 
+        RebuildSheetRows(keepDraft);
         AfterWorkbookInfoSelectionChanged();
     }
 
     private void AfterWorkbookInfoSelectionChanged()
     {
         // 【プレビュー欄の古い出力を捨てる】 プレビュー（PreviewLines）は「プレビュー」を押したときの出力を持ち続ける。
-        // 値の見本・数式・出し方を切り替えたあとも残ると、「オフにしたら直ちに捨てる」と案内した見本が画面に出たままになる
+        // 見せ方・数式・出し方を切り替えたあとも残ると、「オフにしたら直ちに捨てる」と案内した値が画面に出たままになる
         // （コピーや保存の出力には入らないが、画面を共有する・撮るときに見えてしまう）。切り替えたら空にし、
         // 見たければ押し直してもらう。
         PreviewLines = Array.Empty<PreviewLine>();

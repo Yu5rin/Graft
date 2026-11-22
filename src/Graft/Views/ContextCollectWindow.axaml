@@ -82,7 +82,7 @@
                             ミラーにはファイルを作らないので、ファイル一覧のノードにはせず、一覧の上に専用の行として置く
                             （ファイルの選択集計・除外・差分方式の記憶と混ぜない）。3状態のアイコンと操作は、
                             下のファイル行と同じ（クリックで 内容も出す → 構成だけ → 出さない と巡る）。
-                            値の見本（各シートの先頭数行の中身）は既定オフのオプトインで、オンの間は常に注意を出す。
+                            シートごとの見せ方で値が渡るシートがあるあいだは、常に注意を出す。
                         -->
                         <Border x:Name="WorkbookInfoRow" DockPanel.Dock="Top" Margin="0,0,0,8" Padding="8,6"
                                 BorderBrush="{DynamicResource BorderSubtle}" BorderThickness="1" CornerRadius="4"
@@ -100,8 +100,8 @@
                                                          Classes.stateHidden="{Binding IsHidden}" />
                                     </Button>
                                     <TextBlock Text="ブックの情報" FontWeight="SemiBold" VerticalAlignment="Center"
-                                               local:HelpTip.Standard="Excel ブックの構造（シート・テーブル・名前付き範囲・先頭行の見出し・参照設定）を、AI に渡す内容へ加えます。アイコンのクリックで「内容も出す→構成だけ→出さない」を切り替えます。"
-                                               local:HelpTip.Detailed="AI は、どんなシートや表があるブックかを知らないと、存在しないシート名や列を前提にした VBA を書いてしまいます。この行は、Excel から読んだブックの構造を「# ブックの情報」として、出力の「# 前提」の直後に加えるかを決めます。「内容も出す」はシート・テーブル・名前付き範囲に加えて先頭行の見出しと参照設定、「構成だけ」はシート・テーブル・名前付き範囲だけ、「出さない」は何も渡さず Excel にも問い合わせません。選んだ状態はプロジェクトごとに記憶されます。ミラーのフォルダにファイルは作りません。" />
+                                               local:HelpTip.Standard="Excel ブックの構造（シート・テーブル・名前付き範囲・参照設定）と、選んだシートの値を、AI に渡す内容へ加えます。アイコンのクリックで「内容も出す→構成だけ→出さない」を切り替えます。"
+                                               local:HelpTip.Detailed="AI は、どんなシートや表があるブックかを知らないと、存在しないシート名や列を前提にした VBA を書いてしまいます。この行は、Excel から読んだブックの構造を「# ブックの情報」として、出力の「# 前提」の直後に加えるかを決めます。「内容も出す」はシート・テーブル・名前付き範囲・参照設定に加えて、下のシートごとの見せ方で選んだ値、「構成だけ」はシート・テーブル・名前付き範囲だけ（値は渡さない）、「出さない」は何も渡さず Excel にも問い合わせません。選んだ状態はプロジェクトごとに記憶されます。ミラーのフォルダにファイルは作りません。" />
                                     <TextBlock Text="{Binding LevelLabel}" Margin="8,0,0,0" VerticalAlignment="Center"
                                                Foreground="{DynamicResource TextSecondary}"
                                                FontSize="{DynamicResource CaptionFontSize}" />
@@ -110,27 +110,84 @@
                                            Foreground="{DynamicResource TextSecondary}"
                                            FontSize="{DynamicResource CaptionFontSize}"
                                            AutomationProperties.Name="ブックの情報の取得状況" />
-                                <StackPanel Orientation="Horizontal" Spacing="12" IsVisible="{Binding ShowSampleControls}">
-                                    <Button Content="{Binding SampleToggleText}"
-                                            Command="{Binding ToggleSampleValuesCommand}"
-                                            Classes="subtle" Padding="8,0" MinHeight="22"
-                                            FontSize="{DynamicResource CaptionFontSize}"
-                                            AutomationProperties.Name="値の見本のオン・オフ"
-                                            local:HelpTip.Standard="各シートの先頭数行の値を、AI に渡すかを切り替えます。既定はオフです。オンにするときは確認が出ます。"
-                                            local:HelpTip.Detailed="値の見本は、各シートの見出し行の次から数行の中身で、個人情報や社外秘が含まれていることがあります。そのため既定はオフで、オンにするときは確認を出します。オンの間は、AI へ値が渡ることを常に表示します。オフにすると、値は読まれず、Graft のメモリからも消します。行数は設定の「VBA 連携」で変えられます。値の見本そのものはファイルに保存しません。" />
-                                    <CheckBox Content="数式も含める"
-                                              IsChecked="{Binding IncludeFormulas, Mode=OneWay}"
-                                              IsEnabled="{Binding SampleValues}"
-                                              Click="OnIncludeFormulasClick"
-                                              FontSize="{DynamicResource CaptionFontSize}"
-                                              AutomationProperties.Name="値の見本に数式も含める"
-                                              local:HelpTip.Standard="値の見本に、セルの数式（=式 → 値）も含めます。値の見本をオンにしているときだけ使えます。既定はオフです。"
-                                              local:HelpTip.Detailed="数式を含めると、AI は参照先のシート名やセルの構造まで分かりますが、値と同じく中身（他のシートの名前など）が渡ります。値の見本をオンにしているときだけ選べます。既定はオフです。" />
+                                <!--
+                                    シートごとの見せ方（v0.4。仕様書_ブックの情報と依頼の観点 5.2）。「内容も出す」のときだけ出す。
+                                    既定は全シート「構成だけ」。値が渡る見せ方（見出し＋N 行・全部・範囲を指定）を選ぶと確認が出る。
+                                    選んだ見せ方は、シートのコード名に結び付けてプロジェクトごとに記憶される。
+                                -->
+                                <TextBlock Text="シートごとの見せ方（取得すると、ここにシートが並びます）"
+                                           IsVisible="{Binding ShowSheetViewsPlaceholder}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           FontSize="{DynamicResource CaptionFontSize}" />
+                                <StackPanel Spacing="2" IsVisible="{Binding ShowSheetViews}">
+                                    <TextBlock Text="シートごとの見せ方" FontSize="{DynamicResource CaptionFontSize}"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               local:HelpTip.Standard="シートごとに、AI へ渡す内容を選びます。既定は「構成だけ」（値は渡しません）。値が渡る見せ方を選ぶときは確認が出ます。"
+                                               local:HelpTip.Detailed="「出さない」はそのシートを何も渡さず、「構成だけ」はシート名・コード名・使用範囲・テーブル名と列名だけを渡します。「見出し＋N 行」は見出し行と続く N 行の値、「全部」は使用範囲の値すべて（上限あり）、「範囲を指定」は入力した範囲（例 A1:F30）の値を渡します。選んだ見せ方はシートのコード名に結び付けてプロジェクトごとに記憶するので、表示名を変えても外れません。値は Graft のメモリにだけ置き、ファイルには保存しません。" />
+                                    <!-- シートが多いブック（最大 100 枚）で、下のファイル一覧が押しつぶされないよう、一覧の高さに上限を置く。 -->
+                                    <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl ItemsSource="{Binding Sheets}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:VbaSheetViewRowViewModel">
+                                                <StackPanel Spacing="2" Margin="0,2,0,4"
+                                                            AutomationProperties.Name="{Binding AutomationLabel}">
+                                                    <DockPanel LastChildFill="True">
+                                                        <ComboBox DockPanel.Dock="Right" Width="140" MinHeight="26"
+                                                                  ItemsSource="{Binding ModeOptions}"
+                                                                  SelectedItem="{Binding SelectedMode}"
+                                                                  FontSize="{DynamicResource CaptionFontSize}"
+                                                                  AutomationProperties.Name="シートの見せ方" />
+                                                        <TextBlock Text="{Binding Title}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                                   ToolTip.Tip="{Binding UsedRangeText, StringFormat='使用範囲: {0}'}" />
+                                                    </DockPanel>
+                                                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowRows}">
+                                                        <TextBlock Text="見出しに続く行数" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextSecondary}"
+                                                                   FontSize="{DynamicResource CaptionFontSize}" />
+                                                        <TextBox Width="64" Text="{Binding RowsText, UpdateSourceTrigger=LostFocus}"
+                                                                 local:TextBoxCommitBehavior.CommitOnEnter="True"
+                                                                 AutomationProperties.Name="見出しに続く行数" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding RowsError}" IsVisible="{Binding HasRowsError}" TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource StateError}"
+                                                               FontSize="{DynamicResource CaptionFontSize}" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowRange}">
+                                                        <TextBlock Text="範囲" VerticalAlignment="Center"
+                                                                   Foreground="{DynamicResource TextSecondary}"
+                                                                   FontSize="{DynamicResource CaptionFontSize}" />
+                                                        <TextBox Width="160" Watermark="例 A1:F30" Text="{Binding RangeText, UpdateSourceTrigger=LostFocus}"
+                                                                 local:TextBoxCommitBehavior.CommitOnEnter="True"
+                                                                 AutomationProperties.Name="読む範囲（A1 形式）"
+                                                                 local:HelpTip.Standard="このシートで AI に渡す範囲を A1 形式で入力します（例 A1:F30、列だけの A:F、行だけの 3:10）。"
+                                                                 local:HelpTip.Detailed="シート名は付けません。名前付き範囲は指定できません（A1:F30 のようにセルの範囲で入力してください）。使用範囲の外は読まず、上限（1 シートあたりの行数・列数）を超える分は切ります。入力が正しくないあいだは、そのシートの値は渡しません。" />
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding RangeError}" IsVisible="{Binding HasRangeError}" TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource StateError}"
+                                                               FontSize="{DynamicResource CaptionFontSize}"
+                                                               AutomationProperties.Name="範囲の入力の誤り" />
+                                                    <CheckBox Content="数式も含める" IsVisible="{Binding ShowFormulas}"
+                                                              IsChecked="{Binding IncludeFormulas}"
+                                                              FontSize="{DynamicResource CaptionFontSize}"
+                                                              AutomationProperties.Name="このシートの値に数式も含める"
+                                                              local:HelpTip.Standard="このシートの値に、セルの数式（=式 → 値）も含めます。既定はオフです。"
+                                                              local:HelpTip.Detailed="数式を含めると、AI は参照先のシート名やセルの構造まで分かりますが、値と同じく中身（他のシートの名前など）が渡ります。" />
+                                                    <TextBlock Text="{Binding NoteText}" IsVisible="{Binding HasNote}" TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource StateWarn}"
+                                                               FontSize="{DynamicResource CaptionFontSize}"
+                                                               AutomationProperties.Name="このシートの取得結果の注記" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock Text="{Binding LimitsText}" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               FontSize="{DynamicResource CaptionFontSize}" />
                                 </StackPanel>
-                                <TextBlock Text="{Binding SampleNoticeText}" IsVisible="{Binding IsSampleNoticeVisible}"
+                                <TextBlock Text="{Binding ValueNoticeText}" IsVisible="{Binding IsValueNoticeVisible}"
                                            TextWrapping="Wrap" Foreground="{DynamicResource StateWarn}"
                                            FontSize="{DynamicResource CaptionFontSize}"
-                                           AutomationProperties.Name="値の見本の注意" />
+                                           AutomationProperties.Name="シートの値の注意" />
                             </StackPanel>
                         </Border>
                         <TextBlock DockPanel.Dock="Top" Text="ファイル" FontSize="{DynamicResource CaptionFontSize}"

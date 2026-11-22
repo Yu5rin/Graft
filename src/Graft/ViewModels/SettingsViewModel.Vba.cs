@@ -26,6 +26,8 @@ public sealed partial class SettingsViewModel
     private string _vbaWorkbookInfoMaxColumnsText = "30";
     private string _vbaWorkbookInfoMaxCellCharsText = "60";
     private string _vbaWorkbookInfoMaxCharsText = "20000";
+    private string _vbaWorkbookInfoAllMaxRowsText = "500";
+    private string _vbaWorkbookInfoAllMaxColumnsText = "50";
     private string _vbaRescueMaxGenerationsText = "20";
     private string _vbaRescueMaxTotalMBText = "50";
 
@@ -65,7 +67,7 @@ public sealed partial class SettingsViewModel
     /// </summary>
     public bool VbaCollectWorkbookInfo { get => _vbaCollectWorkbookInfo; set => SetEditableProperty(ref _vbaCollectWorkbookInfo, value); }
 
-    /// <summary>値の見本の行数（<c>Vba.WorkbookInfoSampleRows</c>）。範囲 1〜20。</summary>
+    /// <summary>「見出し＋N 行」の N の既定（<c>Vba.WorkbookInfoSampleRows</c>）。範囲 1〜20。</summary>
     public string VbaWorkbookInfoSampleRowsText { get => _vbaWorkbookInfoSampleRowsText; set => SetEditableProperty(ref _vbaWorkbookInfoSampleRowsText, value); }
 
     /// <summary>見出し・見本の最大列数（<c>Vba.WorkbookInfoMaxColumns</c>）。範囲 5〜100。</summary>
@@ -76,6 +78,12 @@ public sealed partial class SettingsViewModel
 
     /// <summary>ブックの情報の出力全体の最大文字数（<c>Vba.WorkbookInfoMaxChars</c>）。範囲 2000〜100000。</summary>
     public string VbaWorkbookInfoMaxCharsText { get => _vbaWorkbookInfoMaxCharsText; set => SetEditableProperty(ref _vbaWorkbookInfoMaxCharsText, value); }
+
+    /// <summary>シートの見せ方「全部」「範囲を指定」の最大行数（<c>Vba.WorkbookInfoAllMaxRows</c>）。範囲 10〜5000。</summary>
+    public string VbaWorkbookInfoAllMaxRowsText { get => _vbaWorkbookInfoAllMaxRowsText; set => SetEditableProperty(ref _vbaWorkbookInfoAllMaxRowsText, value); }
+
+    /// <summary>シートの見せ方「全部」「範囲を指定」の最大列数（<c>Vba.WorkbookInfoAllMaxColumns</c>）。範囲 5〜200。</summary>
+    public string VbaWorkbookInfoAllMaxColumnsText { get => _vbaWorkbookInfoAllMaxColumnsText; set => SetEditableProperty(ref _vbaWorkbookInfoAllMaxColumnsText, value); }
 
     /// <summary>1 モジュールあたりの自動控えの世代数（<c>Vba.RescueMaxGenerations</c>）。範囲 1〜200。</summary>
     public string VbaRescueMaxGenerationsText { get => _vbaRescueMaxGenerationsText; set => SetEditableProperty(ref _vbaRescueMaxGenerationsText, value); }
@@ -97,6 +105,8 @@ public sealed partial class SettingsViewModel
         VbaWorkbookInfoMaxColumnsText = vba.WorkbookInfoMaxColumns.ToString(CultureInfo.InvariantCulture);
         VbaWorkbookInfoMaxCellCharsText = vba.WorkbookInfoMaxCellChars.ToString(CultureInfo.InvariantCulture);
         VbaWorkbookInfoMaxCharsText = vba.WorkbookInfoMaxChars.ToString(CultureInfo.InvariantCulture);
+        VbaWorkbookInfoAllMaxRowsText = vba.WorkbookInfoAllMaxRows.ToString(CultureInfo.InvariantCulture);
+        VbaWorkbookInfoAllMaxColumnsText = vba.WorkbookInfoAllMaxColumns.ToString(CultureInfo.InvariantCulture);
         VbaRescueMaxGenerationsText = vba.RescueMaxGenerations.ToString(CultureInfo.InvariantCulture);
         VbaRescueMaxTotalMBText = vba.RescueMaxTotalMB.ToString(CultureInfo.InvariantCulture);
     }
@@ -114,6 +124,8 @@ public sealed partial class SettingsViewModel
         WorkbookInfoMaxColumns = ParseInt(_vbaWorkbookInfoMaxColumnsText),
         WorkbookInfoMaxCellChars = ParseInt(_vbaWorkbookInfoMaxCellCharsText),
         WorkbookInfoMaxChars = ParseInt(_vbaWorkbookInfoMaxCharsText),
+        WorkbookInfoAllMaxRows = ParseInt(_vbaWorkbookInfoAllMaxRowsText),
+        WorkbookInfoAllMaxColumns = ParseInt(_vbaWorkbookInfoAllMaxColumnsText),
         RescueMaxGenerations = ParseInt(_vbaRescueMaxGenerationsText),
         RescueMaxTotalMB = ParseInt(_vbaRescueMaxTotalMBText),
     };

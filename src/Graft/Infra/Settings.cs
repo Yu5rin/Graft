@@ -171,7 +171,11 @@ public sealed record VbaSettings
     /// </summary>
     public bool CollectWorkbookInfo { get; init; } = true;
 
-    /// <summary>値の見本の行数（見本をオンにしたプロジェクトのみ）。範囲 1〜20。</summary>
+    /// <summary>
+    /// 「見出し＋N 行」の N の既定（シートの見せ方でその見せ方を選んだときの最初の行数）。範囲 1〜20。
+    /// v0.4 より前は「値の見本の行数」で、見本がオンだった既存のプロジェクトを「全シート 見出し＋N 行」へ移すときの N にもなる
+    /// （仕様書_ブックの情報と依頼の観点 5.2 の移行）。
+    /// </summary>
     public int WorkbookInfoSampleRows { get; init; } = 5;
 
     /// <summary>ブックの情報の見出し・見本の最大列数。範囲 5〜100。</summary>
@@ -180,8 +184,17 @@ public sealed record VbaSettings
     /// <summary>見本・見出しの 1 セルの最大文字数（超えたら「…」つきで切る）。範囲 10〜500。</summary>
     public int WorkbookInfoMaxCellChars { get; init; } = 60;
 
-    /// <summary>ブックの情報の出力全体の最大文字数（超えたら見本から順に落とす）。範囲 2000〜100000。</summary>
+    /// <summary>ブックの情報の出力全体の最大文字数（超えたら値から順に落とす）。範囲 2000〜100000。</summary>
     public int WorkbookInfoMaxChars { get; init; } = 20000;
+
+    /// <summary>
+    /// シートの見せ方「全部」「範囲を指定」で、1 シートから読む最大の行数（超えた分は読まず、切ったことを依頼文に明記する）。
+    /// 範囲 10〜5000。
+    /// </summary>
+    public int WorkbookInfoAllMaxRows { get; init; } = 500;
+
+    /// <summary>シートの見せ方「全部」「範囲を指定」で、1 シートから読む最大の列数。範囲 5〜200。</summary>
+    public int WorkbookInfoAllMaxColumns { get; init; } = 50;
 
     /// <summary>
     /// 1 モジュールあたりの自動控え（反映前の控えと、戻す前のミラーの控え）の世代数。範囲 1〜200。

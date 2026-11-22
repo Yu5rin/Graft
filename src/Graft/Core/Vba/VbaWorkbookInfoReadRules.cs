@@ -219,9 +219,9 @@ public static class VbaWorkbookInfoReadRules
     /// 名前付き範囲の <c>RefersTo</c>（<c>=Sheet1!$A$1:$B$9</c> など）が、セル範囲への<b>参照だけ</b>でできているか。
     /// 参照なら、それは「どこを指すか」という構造の情報で、値そのものではない。
     /// 参照でない（<c>="パスワード"</c>・<c>=0.08</c>・<c>={1,2,3}</c>・数式）ときは、式の中に<b>値そのもの</b>が書かれている。
-    /// 名前付き範囲に定数を入れる使い方は珍しくなく（税率・社名・接続文字列など）、見本がオフでも
-    /// 依頼文へ出てしまうと、見本のオプトイン（確認ダイアログ）を迂回して値が渡る。呼び出し側は、これが false の名前の式を
-    /// 値の見本がオンのときだけ出す。判定は「確実に参照と分かるものだけ true」に倒す（迷うものは値を伏せる側）。
+    /// 名前付き範囲に定数を入れる使い方は珍しくなく（税率・社名・接続文字列など）、値を渡す選択をしていなくても
+    /// 依頼文へ出てしまうと、値を渡す選択のオプトイン（確認ダイアログ）を迂回して値が渡る。呼び出し側は、これが false の名前の式を
+    /// 値が渡るシートを 1 枚でも選んでいるときだけ出す。判定は「確実に参照と分かるものだけ true」に倒す（迷うものは値を伏せる側）。
     /// <para>
     /// 複数領域（<c>=Sheet1!$A$1,Sheet1!$C$1</c>）と、括弧でくくった形（<c>=(Sheet1!$A$1,Sheet1!$C$1)</c>）、
     /// テーブルの構造化参照（<c>=Table1[列名]</c>）は参照として扱う。関数を含む式（<c>=OFFSET(...)</c> など）は、
@@ -260,6 +260,19 @@ public static class VbaWorkbookInfoReadRules
         }
 
         yield return text[start..];
+    }
+
+    /// <summary>
+    /// 名前付き範囲の <c>RefersTo</c>（<c>=Sheet1!$A$1</c>・<c>='売上 2026'!$A$1:$B$9</c>）が、指定のシート名を指しているか。
+    /// 「出さない」にしたシートの存在が、ブック全体の名前の参照先から漏れないよう、名前を落とす判断に使う。
+    /// 迷うものは「指している」側に倒す（部分一致。<c>MySheet1!</c> を <c>Sheet1</c> と取り違えて名前を 1 つ余計に伏せるのは害が小さい）。
+    /// </summary>
+    public static bool RefersToSheet(string? refersTo, string sheetName)
+    {
+        if (string.IsNullOrEmpty(refersTo) || string.IsNullOrEmpty(sheetName)) return false;
+        var quoted = "'" + sheetName.Replace("'", "''", StringComparison.Ordinal) + "'!";
+        return refersTo.Contains(quoted, StringComparison.OrdinalIgnoreCase)
+               || refersTo.Contains(sheetName + "!", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
