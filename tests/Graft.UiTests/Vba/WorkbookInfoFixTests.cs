@@ -32,6 +32,17 @@ public class WorkbookInfoFixTests
         return r.H.Clipboard.Text ?? string.Empty;
     }
 
+    /// <summary>
+    /// 依頼文コピーの一覧を作っておく（1 回コピーする）。一覧が残っているクイックコピーは、収集を取り直さない。
+    /// 点検の不具合 2 は、この「一覧が残っている」経路で起きる（一覧が空なら、クイックコピーが先に取り直すので起きない）。
+    /// </summary>
+    private static async Task PrimeQuickCopyAsync(VbaP3Rig r)
+    {
+        await r.Graft.PromptCopy!.QuickCopyAsync().ConfigureAwait(true);
+        r.Graft.PromptCopy.Templates.Should().NotBeEmpty();
+        r.H.Clipboard.Text.Should().Contain("# ブックの情報", "前提: オフにする前は、取得した内容が入る");
+    }
+
     [AvaloniaFact(DisplayName = "不具合 1: 「数式も含める」をオフにしたあと取得に失敗しても、数式入りの見本は依頼文に出ない")]
     public async Task 不具合1_数式をオフにしたら取得失敗でも数式は出ない()
     {
@@ -59,6 +70,7 @@ public class WorkbookInfoFixTests
         using var r = await NewRigAsync().ConfigureAwait(true);
         await r.Graft.ContextCollect!.InitializeAsync().ConfigureAwait(true);
         await r.Graft.ContextCollect!.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await PrimeQuickCopyAsync(r).ConfigureAwait(true);
 
         r.Graft.UpdateSettings(r.Graft.CurrentSettings with { Vba = r.Graft.CurrentSettings.Vba with { CollectWorkbookInfo = false } });
         await r.Graft.PromptCopy!.QuickCopyAsync().ConfigureAwait(true);
@@ -73,6 +85,7 @@ public class WorkbookInfoFixTests
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         await r.Graft.ContextCollect!.InitializeAsync().ConfigureAwait(true);
+        await PrimeQuickCopyAsync(r).ConfigureAwait(true);
 
         r.Graft.UpdateSettings(r.Graft.CurrentSettings with { Vba = r.Graft.CurrentSettings.Vba with { Enabled = false } });
         await r.Graft.PromptCopy!.QuickCopyAsync().ConfigureAwait(true);
@@ -170,5 +183,22 @@ public class WorkbookInfoFixTests
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true); // 内容も出す
         context.WorkbookInfo.IsSampleNoticeVisible.Should().BeTrue();
         context.WorkbookInfo.SampleNoticeText.Should().Contain("見出し行に続く 5 行");
+    }
+
+    [AvaloniaFact(DisplayName = "疑わしい 2: 別のブックのパスで結ばれていたプロジェクトを、このブックで結び直すと、値の見本のオンは解除される（実際の追加の経路）")]
+    public async Task 疑わしい2_結び直しで見本のオンが解除される()
+    {
+        using var r = await NewRigAsync().ConfigureAwait(true);
+        var pane = r.Graft.ProjectPane;
+        // 古いブックのパス・見本オンで結ばれている状態にしておいて、同じミラーを、いまのブックでもう一度追加する。
+        await r.UpdateLinkAsync(l => l with { WorkbookFullName = @"C:\Old\計画.xlsm", WorkbookInfoSampleValues = true, AutoPushOnSave = true }).ConfigureAwait(true);
+        pane.Items.First(i => i.Project.Id == r.Project.Id).Project.Vba!.WorkbookInfoSampleValues.Should().BeTrue("前提");
+
+        await ShellHarness.ExecuteAsync(pane.AddFromWorkbookCommand).ConfigureAwait(true);
+
+        var vba = pane.Items.First(i => i.Project.Id == r.Project.Id).Project.Vba!;
+        vba.WorkbookFullName.Should().Be(VbaP3Rig.Book);
+        vba.WorkbookInfoSampleValues.Should().BeFalse("新しいブックでは、値の見本の確認をやり直す");
+        vba.AutoPushOnSave.Should().BeTrue("ほかの設定は引き継ぐ");
     }
 }

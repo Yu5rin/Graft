@@ -91,4 +91,19 @@ public class VbaCellTextTests
         VbaCellText.RenderWithFormula("=A1", null, 60).Should().Be("=A1", "値が空なら数式だけ");
         VbaCellText.RenderWithFormula("=SUM(A1:A9)", -2146826259, 60).Should().Be("=SUM(A1:A9) → #NAME?");
     }
+
+    [Theory(DisplayName = "不具合 10: 新しい版のエラー値（#SPILL!・#CALC! など）も名前になる。表に無いが範囲内の整数は #ERROR!（負の整数のまま出さない）")]
+    [InlineData(-2146826245, "#GETTING_DATA")]
+    [InlineData(-2146826243, "#SPILL!")]
+    [InlineData(-2146826242, "#CONNECT!")]
+    [InlineData(-2146826241, "#BLOCKED!")]
+    [InlineData(-2146826240, "#UNKNOWN!")]
+    [InlineData(-2146826239, "#FIELD!")]
+    [InlineData(-2146826238, "#CALC!")]
+    [InlineData(-2146826200, "#ERROR!")]
+    public void 新しいエラー値(int value, string expected)
+    {
+        VbaCellText.Render(value, 60).Should().Be(expected);
+        VbaCellText.Render(-2146826187, 60).Should().Be("-2146826187", "範囲の外の整数は、ふつうの数");
+    }
 }

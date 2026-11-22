@@ -162,16 +162,26 @@ public sealed class VbaRescueService
         try
         {
             var directory = DirectoryOf(project);
-            Directory.CreateDirectory(directory);
             var now = _clock();
             var fileName = VbaRescueNaming.BuildFileName(component, now, kind);
 
-            if (skipIfSameAsLatestAuto && await IsSameAsLatestAutoAsync(directory, fileName, code).ConfigureAwait(true))
+            // 【フォルダの列挙は、UI スレッドで同期的に行わない】 保存時の自動反映（機能 D）は、保存のたびにここを通る。
+            // 控え（Legacy は自動では消えない）が数千件になったフォルダを、await のあとの継続（UI スレッド）で
+            // 列挙して名前を解析すると、保存のたびに入力が止まる。列挙と名前の解析はスレッドプールで行い、
+            // 戻るのは結果の小さな値（最新の自動控えのパス・次のファイル名）だけにする。
+            var latestAutoPath = await Task.Run(() =>
+            {
+                Directory.CreateDirectory(directory);
+                return skipIfSameAsLatestAuto ? FindLatestAuto(directory, fileName) : null;
+            }).ConfigureAwait(true);
+
+            if (latestAutoPath is not null && await IsSameAsLatestAutoAsync(latestAutoPath, code).ConfigureAwait(true))
             {
                 return new VbaRescueSaveResult(VbaRescueSaveStatus.SkippedSame);
             }
 
-            var path = Path.Combine(directory, NextFileName(directory, fileName));
+            var nextName = await Task.Run(() => NextFileName(directory, fileName)).ConfigureAwait(true);
+            var path = Path.Combine(directory, nextName);
             await File.WriteAllTextAsync(path, code, Utf8NoBom).ConfigureAwait(true);
             return new VbaRescueSaveResult(VbaRescueSaveStatus.Saved, path);
         }
@@ -203,10 +213,11 @@ public sealed class VbaRescueService
         return highest == 0 ? fileName : VbaRescueNaming.WithSequence(fileName, highest + 1);
     }
 
-    private static async Task<bool> IsSameAsLatestAutoAsync(string directory, string newFileName, string code)
+    /// <summary>同じモジュールの最新の <c>Auto</c> のフルパス（無ければ null）。フォルダを列挙するので、呼び出し側はスレッドプールで呼ぶ。</summary>
+    private static string? FindLatestAuto(string directory, string newFileName)
     {
         var module = VbaRescueNaming.Parse(newFileName)?.Module;
-        if (module is null || !Directory.Exists(directory)) return false;
+        if (module is null || !Directory.Exists(directory)) return null;
 
         var latest = Directory.EnumerateFiles(directory)
             .Select(f => (Path: f, Name: VbaRescueNaming.Parse(Path.GetFileName(f))))
@@ -214,11 +225,14 @@ public sealed class VbaRescueService
             .OrderByDescending(x => x.Name!.At).ThenByDescending(x => x.Name!.Sequence)
             .ThenByDescending(x => Path.GetFileName(x.Path), StringComparer.Ordinal)
             .FirstOrDefault();
-        if (latest.Path is null) return false;
+        return latest.Path;
+    }
 
+    private static async Task<bool> IsSameAsLatestAutoAsync(string latestPath, string code)
+    {
         try
         {
-            var existing = await File.ReadAllTextAsync(latest.Path, Utf8NoBom).ConfigureAwait(true);
+            var existing = await File.ReadAllTextAsync(latestPath, Utf8NoBom).ConfigureAwait(true);
             return string.Equals(VbaTextNormalizer.Hash(existing), VbaTextNormalizer.Hash(code), StringComparison.Ordinal);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -255,7 +269,7 @@ public sealed class VbaRescueService
         var directory = DirectoryOf(project);
         if (!Directory.Exists(directory)) return VbaRescueListing.Empty;
 
-        var items = await Task.Run(() => ScanItems(directory), ct).ConfigureAwait(true);
+        var items = await Task.Run(() => ScanItems(directory, countLines: true), ct).ConfigureAwait(true);
         var total = items.Sum(i => i.Size);
         return new VbaRescueListing(
             items.OrderByDescending(i => i.Name.At).ThenByDescending(i => i.Name.Sequence)
@@ -267,7 +281,14 @@ public sealed class VbaRescueService
 
     private long MaxTotalBytes => (long)Math.Max(1, MaxTotalMB) * 1024 * 1024;
 
-    private static List<VbaRescueItem> ScanItems(string directory)
+    /// <param name="directory">控えのフォルダ。</param>
+    /// <param name="countLines">
+    /// 行数を数えるか。数えるには全ファイルの中身を読む（最大 50MB）。<b>掃除（<see cref="PruneCoreAsync"/>）は
+    /// ファイル名と大きさだけを使う</b>ので、読まずに 0 とする。保存時の自動反映は 30 秒に 1 回掃除に入るため、
+    /// 掃除のたびに全控えを読み直すと、保存のたびに数十 MB の読み取りが走りうる（<c>FileInfo.Length</c> はディレクトリの
+    /// 情報だけで済む）。行数は、一覧を開くとき（<see cref="ListAsync"/>）にだけ数える。
+    /// </param>
+    private static List<VbaRescueItem> ScanItems(string directory, bool countLines)
     {
         var items = new List<VbaRescueItem>();
         try
@@ -278,7 +299,8 @@ public sealed class VbaRescueService
                 if (name is null) continue;
                 try
                 {
-                    items.Add(new VbaRescueItem(Path.GetFileName(file), file, name, new FileInfo(file).Length, CountLines(file)));
+                    items.Add(new VbaRescueItem(
+                        Path.GetFileName(file), file, name, new FileInfo(file).Length, countLines ? CountLines(file) : 0));
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -348,7 +370,7 @@ public sealed class VbaRescueService
         var directory = DirectoryOf(project);
         if (!Directory.Exists(directory)) return (0, false);
 
-        var scanned = await Task.Run(() => ScanItems(directory)).ConfigureAwait(true);
+        var scanned = await Task.Run(() => ScanItems(directory, countLines: false)).ConfigureAwait(true);
         var plan = VbaRescuePruner.Plan(
             scanned.Select(i => new VbaRescueEntry(i.FileName, i.Name, i.Size)).ToList(), Math.Max(1, MaxGenerations), MaxTotalBytes);
 

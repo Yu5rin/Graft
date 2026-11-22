@@ -143,6 +143,6 @@ public sealed partial class MainViewModel
             targetPath: reason.Path ?? project.Root);
 
         if (!_vbaSaveNotices.TryShow(reason.Code, module)) return;
-        Notice.Show(VbaSaveNoticeThrottle.BuildText(reason.Code, module));
+        Notice.Show(VbaSaveNoticeThrottle.BuildText(reason.Code, module, reason.Detail));
     }
 }

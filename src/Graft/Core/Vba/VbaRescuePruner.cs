@@ -41,12 +41,24 @@ public static class VbaRescuePruner
 
         var delete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // 各モジュールの最新の Auto は、世代数でも容量でも消さない（手順 1・2 の両方で除く）。
+        // 「戻す」を押した直後の掃除で、戻し元の自動控えが消えると、利用者が取り戻そうとした内容そのものが無くなる。
+        // 世代数だけで数えると、Mirror（戻す前のミラー）が新しく何件も積まれたとき、同じ内容を書き直さない（SkippedSame）
+        // せいで古い日時のまま残った最新の Auto が押し出されて消える（世代数 1 なら Mirror が 1 件新しいだけで消える）。
+        // 保護したぶん、そのモジュールは世代数をちょうど 1 件超えうる（Auto は最新の 1 件だけなので、増えるのは最大 1）。
+        var protectedLatestAuto = entries
+            .Where(e => e.Kind == VbaRescueKind.Auto)
+            .GroupBy(e => e.Module, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(e => e, ByAge.Instance).First().FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         // 1. モジュールごとに、Auto と Mirror を新しい順に並べて、世代数を超えた古い方を消す。
         foreach (var group in entries.Where(e => e.Kind != VbaRescueKind.Legacy)
                      .GroupBy(e => e.Module, StringComparer.OrdinalIgnoreCase))
         {
             foreach (var old in group.OrderByDescending(e => e, ByAge.Instance).Skip(maxGenerations))
             {
+                if (protectedLatestAuto.Contains(old.FileName)) continue;
                 delete.Add(old.FileName);
             }
         }
@@ -56,12 +68,6 @@ public static class VbaRescuePruner
         var total = entries.Where(e => !delete.Contains(e.FileName)).Sum(e => e.Size);
         if (total > maxTotalBytes)
         {
-            var protectedLatestAuto = entries
-                .Where(e => e.Kind == VbaRescueKind.Auto)
-                .GroupBy(e => e.Module, StringComparer.OrdinalIgnoreCase)
-                .Select(g => g.OrderByDescending(e => e, ByAge.Instance).First().FileName)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
             foreach (var candidate in entries
                          .Where(e => e.Kind != VbaRescueKind.Legacy && !delete.Contains(e.FileName) && !protectedLatestAuto.Contains(e.FileName))
                          .OrderBy(e => e, ByAge.Instance))

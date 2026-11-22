@@ -215,4 +215,30 @@ public class VbaRescueNamingAndPrunerTests
         VbaRescuePruner.Plan(entries, 20, 1_000_000).Delete.Should().BeEmpty();
         VbaRescuePruner.Plan(Array.Empty<VbaRescueEntry>(), 20, 1).Should().Match<VbaRescuePrunePlan>(p => p.Delete.Count == 0 && !p.StillOverLimit);
     }
+
+    [Fact(DisplayName = "不具合 7: 世代数 1 でも、Mirror が新しければ最新の Auto が押し出されて消える、ということは起きない（各モジュールの最新の Auto は残る）")]
+    public void 不具合7_世代数1でも最新のAutoは残る()
+    {
+        var entries = new[] { Entry("A", 0, VbaRescueKind.Auto), Entry("A", 5, VbaRescueKind.Mirror) };
+
+        var plan = VbaRescuePruner.Plan(entries, maxGenerations: 1, maxTotalBytes: long.MaxValue);
+
+        plan.Delete.Should().BeEmpty("最新の Auto は、世代数を理由にも消さない（戻す直後に戻し元が消える）");
+    }
+
+    [Fact(DisplayName = "不具合 7: 古い Auto は消え、最新の Auto は残る。Mirror が世代数ぶん新しく積まれても同じ")]
+    public void 不具合7_古いAutoだけが消える()
+    {
+        var entries = new List<VbaRescueEntry>
+        {
+            Entry("A", 0, VbaRescueKind.Auto), Entry("A", 1, VbaRescueKind.Auto),
+        };
+        for (var i = 0; i < 20; i++) entries.Add(Entry("A", 10 + i, VbaRescueKind.Mirror));
+
+        var plan = VbaRescuePruner.Plan(entries, maxGenerations: 20, maxTotalBytes: long.MaxValue);
+
+        plan.Delete.Select(e => e.FileName).Should().Equal(
+            new[] { entries[0].FileName }, "最新の Auto（1 分）は残し、古い Auto（0 分）だけを消す");
+        plan.Delete.Should().NotContain(e => e.FileName == entries[1].FileName);
+    }
 }

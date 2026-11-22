@@ -75,7 +75,22 @@ public sealed record VbaMirrorCreation(string MirrorRoot, int ModuleCount);
 /// <summary>ミラーだけから分かる状態（Excel に接続せずに計算する）。メニューの出し分けなどに使う。</summary>
 /// <param name="UnpushedCount">Push 判定（ミラー側だけが変わった）のモジュール数。</param>
 /// <param name="DeletePendingCount">削除保留のモジュール数。</param>
-public sealed record VbaLocalStatus(int UnpushedCount, int DeletePendingCount);
+public sealed record VbaLocalStatus(int UnpushedCount, int DeletePendingCount)
+{
+    /// <summary>
+    /// 未反映のモジュールの相対パス（<see cref="UnpushedCount"/> の中身）。数えていないとき（読めなかったときの前回の値など）は null。
+    /// 保存時の自動反映が付けた「衝突 N」の印を、未反映でなくなったモジュールについて外すために使う。
+    /// 件数だけを比べる呼び出し側のために、<b>等価の比較には含めない</b>（<c>VbaLocalStatus(0, 0)</c> と比べられる）。
+    /// </summary>
+    public IReadOnlyList<string>? UnpushedPaths { get; init; }
+
+    /// <inheritdoc />
+    public bool Equals(VbaLocalStatus? other)
+        => other is not null && UnpushedCount == other.UnpushedCount && DeletePendingCount == other.DeletePendingCount;
+
+    /// <inheritdoc />
+    public override int GetHashCode() => HashCode.Combine(UnpushedCount, DeletePendingCount);
+}
 
 /// <summary>
 /// 三方比較（<see cref="VbaSyncPlanner"/>）と <see cref="IVbaBridge"/>・<see cref="VbaSyncStateStore"/>・
@@ -656,7 +671,7 @@ public sealed class VbaSyncService
                 {
                     issues.Add(GraftIssue.Of(
                         ErrorCode.E809,
-                        $"{module.RelativePath}: Excel 側の本文を控えに保存できなかったため、上書きしませんでした。{kept[1..]}",
+                        $"{module.RelativePath}: Excel 側の本文を控えに{VbaSaveNoticeThrottle.NotOverwrittenPhrase}。{kept[1..]}",
                         path: module.RelativePath));
                     failed.Add(module.RelativePath);
                     continue;
@@ -680,7 +695,7 @@ public sealed class VbaSyncService
                     issues.Add(GraftIssue.Of(
                         ErrorCode.E809,
                         $"{module.RelativePath}: Excel 側の本文が前回の同期から（整形の差だけだと判断できる範囲で）変わっていましたが、" +
-                        $"控えを保存できなかったため、上書きしませんでした。{kept[1..]}",
+                        $"控えを{VbaSaveNoticeThrottle.NotOverwrittenPhrase}。{kept[1..]}",
                         path: module.RelativePath));
                     failed.Add(module.RelativePath);
                     continue;
@@ -986,6 +1001,7 @@ public sealed class VbaSyncService
         var records = loaded.Value.Modules;
 
         var unpushed = 0;
+        var unpushedPaths = new List<string>();
         var pendingPaths = new List<string>();
         foreach (var (key, record) in records)
         {
@@ -998,12 +1014,21 @@ public sealed class VbaSyncService
                 continue;
             }
 
-            if (!string.Equals(module.Hash, record.MirrorHash, StringComparison.Ordinal)) unpushed++;
+            if (!string.Equals(module.Hash, record.MirrorHash, StringComparison.Ordinal))
+            {
+                unpushed++;
+                unpushedPaths.Add(key);
+            }
         }
 
         // 記録がなく、ミラーにだけあるモジュール（新規作成の Push 待ち）も未反映。
-        unpushed += mirror.Modules.Values.Count(m => !records.ContainsKey(m.RelativePath) && VbaModuleKinds.CanCreateOnExcel(m.Kind));
-        return (new VbaLocalStatus(unpushed, pendingPaths.Count), pendingPaths);
+        var created = mirror.Modules.Values
+            .Where(m => !records.ContainsKey(m.RelativePath) && VbaModuleKinds.CanCreateOnExcel(m.Kind))
+            .Select(m => m.RelativePath)
+            .ToList();
+        unpushed += created.Count;
+        unpushedPaths.AddRange(created);
+        return (new VbaLocalStatus(unpushed, pendingPaths.Count) { UnpushedPaths = unpushedPaths }, pendingPaths);
     }
 
     /// <summary>

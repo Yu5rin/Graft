@@ -30,7 +30,20 @@ public static class VbaCellText
         [-2146826259] = "#NAME?",
         [-2146826252] = "#NUM!",
         [-2146826288] = "#NULL!",
+        // 新しい版の Excel のエラー値（2007 以降に増えたもの）。
+        [-2146826245] = "#GETTING_DATA",
+        [-2146826243] = "#SPILL!",
+        [-2146826242] = "#CONNECT!",
+        [-2146826241] = "#BLOCKED!",
+        [-2146826240] = "#UNKNOWN!",
+        [-2146826239] = "#FIELD!",
+        [-2146826238] = "#CALC!",
     };
+
+    // エラー値は 0x800A07D0（-2146826288）から 100 ほどの範囲に並ぶ。表に無い値がこの範囲に来たら、
+    // 負の整数のまま出さず（AI がセルの値と取り違える）、エラー値だと分かる印にする。
+    private const int ErrorRangeLow = -2146826288;
+    private const int ErrorRangeHigh = -2146826188;
 
     /// <summary>
     /// 1 セルの値を文字列にする。
@@ -39,7 +52,7 @@ public static class VbaCellText
     /// <item>文字列 → 改行・タブを空白 1 つに畳み、<paramref name="maxChars"/> を超えたら <c>…</c> つきで切る。</item>
     /// <item>数値 → 不変カルチャ（桁区切りなし・小数点はピリオド）。</item>
     /// <item>真偽値 → <c>TRUE</c>／<c>FALSE</c>。</item>
-    /// <item>エラー値（上の 7 種の整数）→ <c>#N/A</c> など。</item>
+    /// <item>エラー値（上の表の整数）→ <c>#N/A</c> など。表に無いが、エラー値の範囲にある整数は <c>#ERROR!</c>。</item>
     /// </list>
     /// </summary>
     public static string Render(object? value2, int maxChars)
@@ -53,7 +66,8 @@ public static class VbaCellText
             case bool flag:
                 return flag ? "TRUE" : "FALSE";
             case int whole:
-                return ErrorNames.TryGetValue(whole, out var errorName) ? errorName : whole.ToString(CultureInfo.InvariantCulture);
+                if (ErrorNames.TryGetValue(whole, out var errorName)) return errorName;
+                return whole is >= ErrorRangeLow and <= ErrorRangeHigh ? "#ERROR!" : whole.ToString(CultureInfo.InvariantCulture);
             case double number:
                 return RenderDouble(number);
             case float single:

@@ -336,4 +336,47 @@ public class VbaAutoRescueTests : VbaServiceFixture
         failure.Should().BeNull();
         (await Service.Rescue.ListAsync(project)).Items.Should().BeEmpty();
     }
+
+    [Fact(DisplayName = "疑わしい 5: 掃除は控えの中身を読まない（行数を数えない）。読めない状態のファイルがあっても、世代数を超えた古いものは掃除される")]
+    public async Task 疑わしい5_掃除は中身を読まない()
+    {
+        if (OperatingSystem.IsWindows()) return; // 掴まれたファイルは Windows では消せない（消せなければ次回に回す仕様）。
+        var project = await CreatedProjectAsync(FakeVbaBridge.Std("Module1", "v0"));
+        Service.Rescue.MaxGenerations = 1;
+        Directory.CreateDirectory(RescueDir(project));
+        var oldest = Path.Combine(RescueDir(project), "Module1-20200101-000001-auto.txt");
+        File.WriteAllText(oldest, "古い");
+        File.WriteAllText(Path.Combine(RescueDir(project), "Module1-20200101-000002-auto.txt"), "新しい");
+
+        // 行数を数えるために全ファイルを開く実装だと、他のアプリが掴んでいて開けないこのファイルは、計画から外れて残る。
+        await using (new FileStream(oldest, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var listing = await Service.Rescue.ListAsync(project, prune: true);
+
+            listing.Pruned.Should().Be(1);
+        }
+
+        File.Exists(oldest).Should().BeFalse("掃除はファイル名と大きさだけで計画する（中身は読まない）");
+    }
+
+    [Fact(DisplayName = "疑わしい 5: 控えを書くとき、フォルダの列挙（数千件の解析）は呼び出し元のスレッドで同期的に行わない")]
+    public async Task 疑わしい5_書くときの列挙は呼び出し元で行わない()
+    {
+        var project = await CreatedProjectAsync(FakeVbaBridge.Std("Module1", "v0"));
+        Directory.CreateDirectory(RescueDir(project));
+        for (var i = 0; i < 6000; i++)
+        {
+            File.WriteAllText(Path.Combine(RescueDir(project), $"Other{i}-20200101-000000-auto.txt"), "x");
+        }
+
+        // await より前（呼び出し元のスレッドで走る部分）に、6000 件の列挙と名前の解析を含めない。
+        // 修正前は、ここだけで数十ミリ秒かかった（保存のたびに UI が止まる）。
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var task = Service.Rescue.SaveAsync(project, "Module1", "code", VbaRescueKind.Auto, skipIfSameAsLatestAuto: true);
+        watch.Stop();
+        var saved = await task;
+
+        saved.Status.Should().Be(VbaRescueSaveStatus.Saved);
+        watch.ElapsedMilliseconds.Should().BeLessThan(15, "列挙はスレッドプールで行い、呼び出し元は先へ進める");
+    }
 }

@@ -220,7 +220,7 @@ public class VbaSaveSyncTests
         r.Choices.Should().BeEmpty();
         r.Conflicts.Should().BeEmpty();
         r.Graft.Notice.IsVisible.Should().BeTrue();
-        r.Graft.Notice.Text.Should().Contain("保存しました").And.Contain("自動反映は行いませんでした").And.Contain("E813");
+        r.Graft.Notice.Text.Should().StartWith("E813").And.Contain("保存のみ").And.Contain("Excel へは未反映");
         r.Mirror(Module1).Should().Contain("編集 1", "ファイルは保存済み");
         r.Excel("Module1").Code.Should().Be(VbaP3Rig.Module1Original);
         r.Bridge.WriteRequests.Should().ContainSingle("書こうとしたが、1 件も書かずに全体が失敗した（自動の再試行はしない）");

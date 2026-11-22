@@ -152,10 +152,20 @@
                     MainViewModel.DiscardUndo.cs・StatusNoticeViewModel.cs）。数秒で自動的に消える。
                     文言は通常の文字色、押せる操作（「元に戻す」等）だけをリンクの見た目にする。
                 -->
+                <!--
+                    通知の幅（MaxWidth）について。保存時の自動反映をしなかったときの通知（VbaSaveNoticeThrottle.BuildText）は、
+                    「E813 マクロの実行中: 保存のみ。Excel へは未反映」のように理由とモジュール名を先頭に置き、定型の結果を
+                    後ろに回してある。上限を超えて省略されても、読みたい理由が残るようにするため。
+                    以前の上限 460px では、末尾にあった理由が 11 種類すべてで切れた（ヘッドレスの計測。文字は 12px）。
+                    文言を短くしたうえで、通常のモジュール名（Module1）の全文が 1 行に収まる 520px にした
+                    （全 11 種の全文が 400px 台前半まで。VBA のモジュール名の上限 31 文字でも、コード・理由・モジュール名までは
+                    収まる。テスト: VbaSaveSyncFixTests）。無制限にしないのは、窓の最小幅（960px）で右側の接ぎ木状態と
+                    重ならないようにするため。省略されたときも、ツールチップで全文が読める。
+                -->
                 <TextBlock Text="{Binding Graft.Notice.Text}"
                            ToolTip.Tip="{Binding Graft.Notice.Text}"
                            Margin="12,0,0,0"
-                           MaxWidth="460"
+                           MaxWidth="520"
                            VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"
                            FontSize="{DynamicResource StatusBarFontSize}"

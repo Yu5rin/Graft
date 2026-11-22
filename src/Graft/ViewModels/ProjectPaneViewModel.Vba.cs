@@ -234,8 +234,24 @@ public sealed partial class ProjectPaneViewModel
         => UpdateSelectedVbaLinkAsync(link => link with { AutoPushAfterApply = value });
 
     /// <summary>選択中のプロジェクトの「保存したら Excel へ反映」を変える。</summary>
-    public Task SetAutoPushOnSaveAsync(bool value)
-        => UpdateSelectedVbaLinkAsync(link => link with { AutoPushOnSave = value });
+    public async Task SetAutoPushOnSaveAsync(bool value)
+    {
+        var projectId = SelectedItem?.Project.Id;
+        await UpdateSelectedVbaLinkAsync(link => link with { AutoPushOnSave = value }).ConfigureAwait(true);
+
+        // 【オフにしたら、衝突の印も外す】 印は保存時の自動反映が付けたもの。機能をオフにしたあとも「衝突 N」と
+        // 「どちらを残すか選べます」の案内が残ると、もう自動では何も起きないのに衝突が続いているように見える。
+        // 手動の取込・反映は、印が無くても衝突を検査して知らせる。
+        if (!value && projectId is not null && !(SelectedItem?.Project.Vba?.AutoPushOnSave ?? false))
+        {
+            ClearAllVbaSaveConflicts(projectId);
+        }
+    }
+
+    private void ClearAllVbaSaveConflicts(string projectId)
+    {
+        if (_vbaSaveConflicts.Remove(projectId)) ReapplyVbaBadges();
+    }
 
     /// <summary>選択中のプロジェクトの「反映後にブックを保存」を変える。</summary>
     public Task SetSaveWorkbookAfterPushAsync(bool value)
@@ -427,6 +443,13 @@ public sealed partial class ProjectPaneViewModel
                 }
 
                 _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(status.UnpushedCount, status.DeletePendingCount, isOpen);
+
+                // 【衝突の印は、未反映のモジュールにだけ残す】 衝突しているモジュールは、ミラーが同期基準と違う
+                // （＝未反映）ままである。「Excel 側を採用」「Graft 側で上書き」で解決する、別の手段で取り込む、
+                // ミラーを Excel と同じに戻す、のいずれでも未反映でなくなる。解決の経路は、手動の取込・反映のほかに
+                // コンテキスト収集や依頼文コピーの自動取込・適用後や取り消し後の反映など多数あり、それぞれで印を外すのは
+                // 取りこぼしやすい。バッジを数え直すたびに、未反映でなくなったモジュールの印を外す（経路を問わない）。
+                if (status.UnpushedPaths is { } stillUnpushed) ReconcileVbaSaveConflicts(project.Id, null, stillUnpushed);
             }
 
             ReapplyVbaBadges();

@@ -48,35 +48,56 @@ public sealed class VbaSaveNoticeThrottle
     }
 
     /// <summary>
-    /// 通知の文言。「保存しました。Excel への自動反映は行いませんでした（E813: マクロの実行中です）」の形
-    /// （見出しは E817。理由のコードを併記する）。
+    /// 控えを保存できなかったために Excel の本文を上書きしなかった（E809）ときの、課題の文の共通部分。
+    /// <c>VbaSyncService</c> がこの句を E809 の説明に含め、通知（<see cref="ShortReason"/>）がこの句で
+    /// 「書き戻したあとの内容が一致しない」（同じ E809）と見分ける。
+    /// </summary>
+    public const string NotOverwrittenPhrase = "保存できなかったため、上書きしませんでした";
+
+    /// <summary>理由のあとに続く、結果の言い回し。ファイルは保存済みで、Excel には送っていない。</summary>
+    public const string ResultText = "保存のみ。Excel へは未反映";
+
+    /// <summary>
+    /// 通知の文言。<b>理由を文の先頭に置く</b>: 「E813 マクロの実行中: 保存のみ。Excel へは未反映」。
+    /// モジュール名が要るもの（E811 など）は、理由のすぐあとに添える:
+    /// 「E811 Shift_JIS で表せない文字（Module1）: 保存のみ。Excel へは未反映」。
     /// </summary>
     /// <remarks>
-    /// 【理由の言い回しを短くする理由】 ステータスバーの通知は、幅の上限（約 460px。全角で 40 文字ほど）で末尾が省略される。
-    /// エラーの見出し（<see cref="ErrorCatalog.SummaryOf"/>。例: 「マクロの実行中または中断中です」）をそのまま使うと、
-    /// 文の後ろにある理由のコードと見出しが省略されて、肝心の理由が読めない（実測: 見出しそのままの文は 50 文字を超えて省略された）。
-    /// そこで、通知では理由の見出しを短い言い回しにする（詳しい対処は、エラーコードの案内とログに残る）。
+    /// 【理由を先頭にする理由】 ステータスバーの通知は幅の上限（<c>StatusBarView.axaml</c> の <c>MaxWidth</c>）で、
+    /// 末尾が <c>…</c> に省略される。以前は「保存しました。Excel への自動反映は行いませんでした（E813: マクロの実行中です）」と、
+    /// 理由が文の<b>末尾</b>にあったため、省略されると肝心の理由とモジュール名から消えた（ヘッドレスの計測では 11 種類すべてが
+    /// 上限を超え、理由が丸ごと切れた）。理由とモジュール名を先に、定型の言い回し（結果）を後ろに回せば、省略されても
+    /// 読みたい部分が残る。詳しい対処は、エラーコードの案内・ログ・通知のツールチップ（全文）に残る。
     /// </remarks>
     /// <param name="reason">理由のコード（E813・E805・E811 など）。</param>
     /// <param name="module">モジュール名（E811 など、どのモジュールか分かると助かるとき）。</param>
-    public static string BuildText(ErrorCode reason, string? module = null)
+    /// <param name="detail">理由の補足（同じコードで意味が分かれるもの、E809 の見分けに使う）。</param>
+    public static string BuildText(ErrorCode reason, string? module = null, string? detail = null)
     {
-        var where = string.IsNullOrEmpty(module) ? string.Empty : $" — {module}";
-        return $"保存しました。Excel への自動反映は行いませんでした（{reason}: {ShortReason(reason)}{where}）";
+        var where = string.IsNullOrEmpty(module) ? string.Empty : $"（{module}）";
+        return $"{reason} {ShortReason(reason, detail)}{where}: {ResultText}";
     }
 
-    /// <summary>通知用の短い理由。ここに無いコードは、エラーの見出しをそのまま使う。</summary>
-    public static string ShortReason(ErrorCode reason) => reason switch
+    /// <summary>
+    /// 通知用の短い理由。ここに無いコードは、エラーの見出しをそのまま使う。
+    /// E809 は 2 つの意味がある（書き戻したあとの内容が違う／控えを残せないので上書きしなかった）ので、
+    /// <paramref name="detail"/>（E809 の説明）で言い分ける。
+    /// </summary>
+    public static string ShortReason(ErrorCode reason, string? detail = null) => reason switch
     {
         ErrorCode.E801 => "Excel と通信できません",
-        ErrorCode.E802 => "VBA プロジェクトへのアクセスが未許可です",
-        ErrorCode.E803 => "VBA プロジェクトがロック中です",
+        ErrorCode.E802 => "VBA へのアクセスが未許可",
+        ErrorCode.E803 => "VBA プロジェクトがロック中",
         ErrorCode.E804 => "ブックが開いていません",
         ErrorCode.E805 => "Excel が応答しません",
-        ErrorCode.E807 => "ブックが読み取り専用です",
-        ErrorCode.E809 => "反映後の内容が一致しません",
+        ErrorCode.E807 => "ブックが読み取り専用",
+        ErrorCode.E808 => "モジュールを作れません",
+        ErrorCode.E809 => detail is not null && detail.Contains(NotOverwrittenPhrase, StringComparison.Ordinal)
+            ? "控えを残せず上書きせず"
+            : "反映後の内容が不一致",
         ErrorCode.E811 => "Shift_JIS で表せない文字",
-        ErrorCode.E813 => "マクロの実行中です",
+        ErrorCode.E813 => "マクロの実行中",
+        ErrorCode.E816 => "控えを保存できません",
         _ => ErrorCatalog.SummaryOf(reason),
     };
 }
