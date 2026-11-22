@@ -35,6 +35,25 @@ public static class VbaRibbonFormatter
     public const int MaxLabelChars = 80;
 
     /// <summary>
+    /// 構成の最大文字数（全部品の合計）。超えたら、そこで切って、その旨を書く。
+    /// <para>
+    /// 【なぜ <c>Vba.RibbonMaxChars</c> を流用せず、別の上限か】 <c>Vba.RibbonMaxChars</c>（既定 30000、2000〜200000）は
+    /// 「XML の全文」を載せる量を利用者が決める設定で、仕様 15.5 は「構成とコールバックの一覧は、この上限とは別に常に出す」と定めている。
+    /// 流用すると、XML を絞るために 2000 文字へ下げた利用者の「構成だけ」まで切れてしまい、構成の役目（骨格を把握させる）を果たせない。
+    /// かといって上限なしだと、1 行ごとの長さを切っても、行数 × 行の長さの積が大きくなりうる
+    /// （1 行 400 行 × コールバック 200 個 × 文字列 120 文字なら数 MB）。
+    /// そこで、実物で足りる量（大きなリボンでも構成は 200 行 × 約 100 文字 = 2 万文字弱）に余裕を見た定数にする。
+    /// </para>
+    /// </summary>
+    public const int MaxStructureChars = 40000;
+
+    /// <summary>コールバックの照合表の最大文字数。理由は <see cref="MaxStructureChars"/> と同じ（200 行 × 約 150 文字 = 3 万文字弱の実物に余裕を見る）。</summary>
+    public const int MaxCallbackChars = 40000;
+
+    /// <summary>構成の 1 行に並べるコールバックの最大数（超えたら「ほか N 件」。全部は照合表に出る）。実物の 1 要素は多くても 10 個ほど。</summary>
+    public const int MaxCallbacksPerLine = 12;
+
+    /// <summary>
     /// 依頼文用の文にする。出すものが無いときは空の文字列。
     /// </summary>
     /// <param name="snapshot">取得結果。</param>
@@ -48,21 +67,29 @@ public static class VbaRibbonFormatter
         var usable = snapshot.Parts.Where(p => p.IsUsable).ToArray();
         var sb = new StringBuilder();
         sb.Append(Heading).Append('\n').Append('\n');
-        sb.Append("- ブック: ").Append(snapshot.WorkbookName).Append('\n');
+        sb.Append("- ブック: ").Append(VbaRibbonText.OneLine(snapshot.WorkbookName)).Append('\n');
         sb.Append("- 読んだもの: **最後に保存したときのファイルの内容**です（Excel で開いて編集中の、まだ保存していない変更は含まれません）。").Append('\n');
         sb.Append("- 取得: ").Append(Stamp(snapshot.ReadAt))
           .Append(" ／ ファイルの更新: ").Append(snapshot.FileModified is { } m ? Stamp(m) : "不明").Append('\n');
-        sb.Append("- 部品: ").Append(string.Join("、", usable.Select(p => $"{p.Raw.PartName}（{(p.Raw.IsOffice2010Format ? "新しい形式" : "古い形式")}）"))).Append('\n');
+        sb.Append("- 部品: ").Append(string.Join("、", usable.Select(p => $"{VbaRibbonText.OneLine(p.Raw.PartName)}（{(p.Raw.IsOffice2010Format ? "新しい形式" : "古い形式")}）"))).Append('\n');
         foreach (var bad in snapshot.Parts.Where(p => !p.IsUsable))
         {
-            sb.Append("- 読めなかった部品: ").Append(bad.Raw.PartName).Append("（").Append((bad.Problem ?? bad.Raw.Problem ?? "読めませんでした。").TrimEnd('。')).Append("）").Append('\n');
+            sb.Append("- 読めなかった部品: ").Append(VbaRibbonText.OneLine(bad.Raw.PartName)).Append("（")
+              .Append(VbaRibbonText.OneLine((bad.Problem ?? bad.Raw.Problem ?? "読めませんでした。").TrimEnd('。'), 300)).Append("）").Append('\n');
         }
 
         sb.Append('\n').Append("## 構成").Append('\n').Append('\n');
+        var structureStart = sb.Length;
         foreach (var part in usable)
         {
-            if (usable.Length > 1) sb.Append("### ").Append(part.Raw.PartName).Append('\n').Append('\n');
-            AppendStructure(sb, part);
+            if (sb.Length - structureStart >= MaxStructureChars)
+            {
+                sb.Append("（構成が長いため、以降の部品を省略しました）").Append('\n').Append('\n');
+                break;
+            }
+
+            if (usable.Length > 1) sb.Append("### ").Append(VbaRibbonText.OneLine(part.Raw.PartName)).Append('\n').Append('\n');
+            AppendStructure(sb, part, structureStart);
             sb.Append('\n');
         }
 
@@ -76,7 +103,7 @@ public static class VbaRibbonFormatter
     private static string Stamp(DateTimeOffset value)
         => value.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
 
-    private static void AppendStructure(StringBuilder sb, VbaRibbonPart part)
+    private static void AppendStructure(StringBuilder sb, VbaRibbonPart part, int structureStart)
     {
         if (part.Nodes.Count == 0)
         {
@@ -87,15 +114,21 @@ public static class VbaRibbonFormatter
         var shown = 0;
         foreach (var node in part.Nodes)
         {
-            if (shown >= MaxStructureLines)
+            if (shown >= MaxStructureLines || sb.Length - structureStart >= MaxStructureChars)
             {
                 sb.Append("（構成が長いため、以降の ").Append(part.Nodes.Count - shown).Append(" 要素を省略しました）").Append('\n');
                 break;
             }
 
-            sb.Append(' ', node.Depth * 2).Append("- ").Append(node.Display);
+            // 深さ（字下げ）も、細工した値で巨大にならないよう上限を掛ける（実物は十数段）。
+            // id・コールバック名などの 1 行化と長さの上限は <see cref="VbaRibbonText"/>。ここでも掛けるのは、取得結果を経由せず
+            // 直接組み立てた値（テスト・将来の呼び出し）が来ても、依頼文の行が偽装・肥大化しないようにするため（掛けても結果は同じ）。
+            sb.Append(' ', Math.Min(node.Depth, 32) * 2).Append("- ").Append(VbaRibbonText.OneLine(node.Display, VbaRibbonText.MaxFieldChars * 2));
             if (node.Label is not null) sb.Append(" label=\"").Append(OneLine(node.Label)).Append('"');
-            foreach (var callback in node.Callbacks) sb.Append(' ').Append(callback.Attribute).Append('=').Append(callback.Name);
+            foreach (var callback in node.Callbacks.Take(MaxCallbacksPerLine))
+                sb.Append(' ').Append(VbaRibbonText.OneLine(callback.Attribute)).Append('=').Append(VbaRibbonText.OneLine(callback.Name));
+            if (node.Callbacks.Count > MaxCallbacksPerLine)
+                sb.Append(" ほか ").Append(node.Callbacks.Count - MaxCallbacksPerLine).Append(" 件のコールバック");
             sb.Append('\n');
             shown++;
         }
@@ -109,16 +142,20 @@ public static class VbaRibbonFormatter
         sb.Append("リボンから呼ばれる VBA の手続きが、ミラー（このプロジェクトの VBA）にあるかを調べた結果です。").Append('\n').Append('\n');
         sb.Append("| コールバック | 使われている所 | VBA |").Append('\n');
         sb.Append("|---|---|---|").Append('\n');
+        var tableStart = sb.Length;
+        var written = 0;
         foreach (var check in callbacks.Take(MaxCallbackRows))
         {
+            if (sb.Length - tableStart >= MaxCallbackChars) break;
+            written++;
             var usages = check.Usages.Count <= 4
                 ? string.Join("、", check.Usages)
                 : string.Join("、", check.Usages.Take(4)) + $" ほか {check.Usages.Count - 4} 件";
-            sb.Append("| ").Append(Cell(check.Name)).Append(" | ").Append(Cell(usages)).Append(" | ").Append(Cell(check.Detail)).Append(" |").Append('\n');
+            sb.Append("| ").Append(Cell(check.Name, VbaRibbonText.MaxFieldChars)).Append(" | ").Append(Cell(usages, 400)).Append(" | ").Append(Cell(check.Detail, 400)).Append(" |").Append('\n');
         }
 
-        if (callbacks.Count > MaxCallbackRows)
-            sb.Append('\n').Append("（コールバックが多いため、以降の ").Append(callbacks.Count - MaxCallbackRows).Append(" 件を省略しました）").Append('\n');
+        if (written < callbacks.Count)
+            sb.Append('\n').Append("（コールバックが多いため、以降の ").Append(callbacks.Count - written).Append(" 件を省略しました）").Append('\n');
         sb.Append('\n');
     }
 
@@ -129,7 +166,7 @@ public static class VbaRibbonFormatter
         foreach (var part in parts.Where(p => p.Raw.Xml is not null))
         {
             var xml = (part.Raw.Xml ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n');
-            sb.Append("### ").Append(part.Raw.PartName).Append('\n').Append('\n');
+            sb.Append("### ").Append(VbaRibbonText.OneLine(part.Raw.PartName)).Append('\n').Append('\n');
             if (remaining <= 0)
             {
                 sb.Append("（長いため、この部品の XML は省略しました。全体は ").Append(xml.Length).Append(" 文字です）").Append('\n').Append('\n');
@@ -172,14 +209,11 @@ public static class VbaRibbonFormatter
         return longest;
     }
 
-    /// <summary>ラベルを 1 行・最大 <see cref="MaxLabelChars"/> 文字にする。</summary>
+    /// <summary>ラベルを 1 行・最大 <see cref="MaxLabelChars"/> 文字にする（ラベルは引用符で囲むので、中の <c>"</c> は <c>'</c> にする）。</summary>
     private static string OneLine(string text)
-    {
-        var flat = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace("\"", "'");
-        return flat.Length <= MaxLabelChars ? flat : flat[..MaxLabelChars] + "…";
-    }
+        => VbaRibbonText.OneLine(text.Replace("\"", "'"), MaxLabelChars);
 
     /// <summary>表のセル用。改行を空白にし、縦棒を逃がす。</summary>
-    private static string Cell(string text)
-        => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace("|", "\\|");
+    private static string Cell(string text, int max)
+        => VbaRibbonText.OneLine(text, max).Replace("|", "\\|");
 }

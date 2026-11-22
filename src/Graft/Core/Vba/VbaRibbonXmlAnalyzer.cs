@@ -26,6 +26,19 @@ namespace Graft.Core.Vba;
 /// </summary>
 public static class VbaRibbonXmlAnalyzer
 {
+    /// <summary>
+    /// 要素の入れ子の深さの上限（これ以上深い XML は読まない）。実物の customUI は、customUI → ribbon → tabs → tab → group →
+    /// control（menu の入れ子を足しても）で十数段。128 は、その 8 倍以上ある余裕を持たせつつ、細工した入れ子で
+    /// メモリと時間を使わせないための値。
+    /// <para>
+    /// 【なぜ必要か】 部品の上限 2 MB の中には約 25 万段の入れ子が収まる（zip にすると約 2.5 KB）。<c>XDocument.Load</c> は再帰しないので
+    /// 読み込みは通るが、再帰で要素をたどると 25 万段でスタックオーバーフローになり、<b>try/catch で拾えずプロセスごと落ちる</b>。
+    /// 収集画面を開くたびに読むので、そのブックを紐付けたプロジェクトでは毎回落ちていた。たどり方も反復にしてあるが
+    /// （<see cref="Walk"/>）、それとは別に、深さそのものを上限で切って「読まない」と伝える。
+    /// </para>
+    /// </summary>
+    public const int MaxElementDepth = 128;
+
     private static readonly Regex DoctypePattern = new("<!DOCTYPE", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex DeclaredEncodingPattern = new(
@@ -71,6 +84,14 @@ public static class VbaRibbonXmlAnalyzer
 
         try
         {
+            // 【木を作る前に、深さだけを先に調べる】 25 万段を木に組んでから断ると、その分のメモリと時間を無駄に使う。
+            // 字句を読み進めるだけなら軽い（部品は最大 2 MB）。深ければ、木を作らずにここで読むのをやめる。
+            if (ExceedsDepth(xml, settings))
+            {
+                problem = $"入れ子が深すぎるため読みません（上限 {MaxElementDepth} 段）。";
+                return false;
+            }
+
             using var reader = XmlReader.Create(new StringReader(xml), settings);
             document = XDocument.Load(reader, LoadOptions.PreserveWhitespace);
             return true;
@@ -82,6 +103,21 @@ public static class VbaRibbonXmlAnalyzer
                 : "XML として読めません。";
             return false;
         }
+    }
+
+    /// <summary>
+    /// 要素の入れ子が <see cref="MaxElementDepth"/> 段を超えるか。<see cref="XmlReader"/> の <c>Depth</c> は再帰せずに数えられる
+    /// （要素の深さ 0 = ルート）。XML として壊れていれば <see cref="XmlException"/> がそのまま出る（呼び出し側が理由にする）。
+    /// </summary>
+    internal static bool ExceedsDepth(string xml, XmlReaderSettings settings)
+    {
+        using var reader = XmlReader.Create(new StringReader(xml), settings);
+        while (reader.Read())
+        {
+            if (reader.NodeType == XmlNodeType.Element && reader.Depth >= MaxElementDepth) return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -109,9 +145,9 @@ public static class VbaRibbonXmlAnalyzer
                 {
                     return Encoding.GetEncoding(name).GetString(bytes);
                 }
-                catch (ArgumentException)
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
                 {
-                    // 知らない名前や、この環境で使えないコードページ。UTF-8 として読む（文字化けしうるが、読めないよりよい）。
+                    // 知らない名前や、この環境で使えないコードページ（<c>utf-7</c> は .NET 5 以降で NotSupportedException になる）。UTF-8 として読む（文字化けしうるが、読めないよりよい）。
                 }
             }
         }
@@ -130,21 +166,36 @@ public static class VbaRibbonXmlAnalyzer
             return new VbaRibbonPart(raw, Array.Empty<VbaRibbonNode>(), problem);
 
         var nodes = new List<VbaRibbonNode>();
-        if (document!.Root is { } root) Walk(root, depth: 0, nodes);
+        if (document!.Root is { } root) Walk(root, nodes);
         return new VbaRibbonPart(raw, nodes, null);
     }
 
-    private static void Walk(XElement element, int depth, List<VbaRibbonNode> nodes)
+    /// <summary>
+    /// 要素を文書の順（親 → 子 → 次の兄弟）にたどって、構成の要素を集める。
+    /// <para>
+    /// 【再帰ではなく、明示的なスタックによる反復】 要素の深さだけ再帰すると、深い入れ子でスタックオーバーフローになり、
+    /// プロセスごと落ちる（<see cref="MaxElementDepth"/> の説明）。深さの上限で先に切っているが、上限の定数が将来変わっても、
+    /// この関数の呼び出し深さは入れ子の深さに依存しないようにしておく。子は逆順に積んで、取り出す順を文書の順にそろえる。
+    /// </para>
+    /// </summary>
+    private static void Walk(XElement root, List<VbaRibbonNode> nodes)
     {
-        var node = ToNode(element, depth);
-        var childDepth = depth;
-        if (node is not null)
+        var stack = new Stack<(XElement Element, int Depth)>();
+        stack.Push((root, 0));
+        while (stack.Count > 0)
         {
-            nodes.Add(node);
-            childDepth = depth + 1;
-        }
+            var (element, depth) = stack.Pop();
+            var node = ToNode(element, depth);
+            var childDepth = depth;
+            if (node is not null)
+            {
+                nodes.Add(node);
+                childDepth = depth + 1;
+            }
 
-        foreach (var child in element.Elements()) Walk(child, childDepth, nodes);
+            var children = element.Elements().ToArray();
+            for (var i = children.Length - 1; i >= 0; i--) stack.Push((children[i], childDepth));
+        }
     }
 
     /// <summary>
@@ -154,7 +205,7 @@ public static class VbaRibbonXmlAnalyzer
     /// </summary>
     private static VbaRibbonNode? ToNode(XElement element, int depth)
     {
-        var kind = element.Name.LocalName;
+        var kind = VbaRibbonText.OneLine(element.Name.LocalName);
         string? id = null, idq = null, idMso = null, label = null;
         var attributes = element.Attributes().Where(a => !a.IsNamespaceDeclaration && a.Name.NamespaceName.Length == 0).ToArray();
         foreach (var a in attributes)
@@ -168,12 +219,15 @@ public static class VbaRibbonXmlAnalyzer
             }
         }
 
-        var shownId = !string.IsNullOrWhiteSpace(id) ? id : !string.IsNullOrWhiteSpace(idq) ? idq : null;
-        var shownMso = !string.IsNullOrWhiteSpace(idMso) ? idMso : null;
-        var owner = shownId is not null ? $"{kind} {shownId}" : shownMso is not null ? $"{kind} idMso={shownMso}" : kind;
+        // id・idMso は 1 行にして長さを切る（改行で依頼文の見出しを偽装されないよう、また巨大な値で依頼文が膨らまないよう。
+        // 理由は <see cref="VbaRibbonText"/>）。Owner と照合表にも使われるので、取り出した時点でそろえておく。
+        var shownId = !string.IsNullOrWhiteSpace(id) ? VbaRibbonText.OneLine(id) : !string.IsNullOrWhiteSpace(idq) ? VbaRibbonText.OneLine(idq) : null;
+        var shownMso = !string.IsNullOrWhiteSpace(idMso) ? VbaRibbonText.OneLine(idMso) : null;
+        var owner = VbaRibbonText.OneLine(
+            shownId is not null ? $"{kind} {shownId}" : shownMso is not null ? $"{kind} idMso={shownMso}" : kind);
         var callbacks = attributes
             .Where(a => IsCallbackAttribute(a.Name.LocalName) && !string.IsNullOrWhiteSpace(a.Value))
-            .Select(a => new VbaRibbonCallbackRef(a.Name.LocalName, a.Value.Trim(), owner))
+            .Select(a => new VbaRibbonCallbackRef(a.Name.LocalName, VbaRibbonText.OneLine(a.Value), owner))
             .ToArray();
 
         var skeleton = kind is "tab" or "group" or "ribbon" or "backstage" or "qat";

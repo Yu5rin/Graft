@@ -65,8 +65,12 @@ public static class VbaRibbonPackageReader
                 workbookPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
                 bufferSize: 4096, FileOptions.None);
         }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException
+                                       or ArgumentException or NotSupportedException or PathTooLongException)
         {
+            // 【パスそのものが不正なものも「見つかりません」に丸める】 NUL 文字を含むパス（ArgumentException）、
+            // 「C:foo:bar」のような書式の不正なパス（NotSupportedException）は、ファイルとして存在しえない。
+            // 「例外は投げず結果の種類で返す」という約束を守るため、想定外の問題として外へ漏らさない。
             return Fail(VbaRibbonReadStatus.FileNotFound, "ブックのファイルが見つかりません（移動・削除・名前の変更をしていないか確認してください）。");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -79,7 +83,7 @@ public static class VbaRibbonPackageReader
             try
             {
                 var modified = new DateTimeOffset(File.GetLastWriteTime(workbookPath));
-                return ReadFromStream(stream, limits, modified);
+                return ReadFromStream(stream, limits, modified, extension);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -91,7 +95,15 @@ public static class VbaRibbonPackageReader
     /// <summary>
     /// 開いたストリーム（先頭から読める・シークできるもの）からリボンの部品を読む。テストはメモリ上の zip をここへ渡す。
     /// </summary>
-    public static VbaRibbonReadResult ReadFromStream(Stream stream, VbaRibbonLimits? limits = null, DateTimeOffset? modified = null)
+    /// <param name="stream">ブックの内容。</param>
+    /// <param name="limits">読む大きさの上限（null なら既定）。</param>
+    /// <param name="modified">ファイルの最終更新日時。</param>
+    /// <param name="extension">
+    /// ファイルの拡張子（<c>.xlsm</c>）。OLE の複合ファイルだったときの文言を分けるために使う（15.2）。
+    /// 分からない（null）ときは、従来どおり古い形式（.xls）として扱う。
+    /// </param>
+    public static VbaRibbonReadResult ReadFromStream(
+        Stream stream, VbaRibbonLimits? limits = null, DateTimeOffset? modified = null, string? extension = null)
     {
         limits ??= new VbaRibbonLimits();
 
@@ -99,7 +111,13 @@ public static class VbaRibbonPackageReader
         var read = stream.Read(signature, 0, signature.Length);
         if (read == signature.Length && signature.AsSpan().SequenceEqual(OleSignature))
         {
-            return Fail(VbaRibbonReadStatus.LegacyFormat, "古い形式（.xls）のブックは、リボン（customUI）の読み取りの対象外です。");
+            // 【拡張子が .xls／.xla／.xlt 以外の OLE は、暗号化されたブック】 パスワードで暗号化した .xlsx／.xlsm／.xlsb は、
+            // 中身の zip ごと OLE の複合ファイルに包まれる。拡張子が .xlsm なのに「.xls は対象外」と出ると原因が伝わらないので、
+            // 暗号化（または古い形式を別の拡張子にしたもの）と分けて伝える。Read は .xls 系の拡張子をここへ来る前に返すので、
+            // 拡張子が分かっていてここへ来るのは、必ず .xls 系以外。
+            return extension is not null
+                ? Fail(VbaRibbonReadStatus.Encrypted, "パスワードで暗号化されている（または古い形式の）ブックのため読めません。")
+                : Fail(VbaRibbonReadStatus.LegacyFormat, "古い形式（.xls）のブックは、リボン（customUI）の読み取りの対象外です。");
         }
 
         stream.Seek(0, SeekOrigin.Begin);
@@ -119,8 +137,9 @@ public static class VbaRibbonPackageReader
             {
                 return ReadArchive(archive, limits, modified);
             }
-            catch (InvalidDataException)
+            catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or ArgumentException)
             {
+                // zip の中身の読み出しで出うる例外（壊れた圧縮・未対応の圧縮方式・不正な部品名）をまとめて「壊れている」にする。
                 return Fail(VbaRibbonReadStatus.Corrupt, "ブックのファイルが壊れているため、読めません。");
             }
         }

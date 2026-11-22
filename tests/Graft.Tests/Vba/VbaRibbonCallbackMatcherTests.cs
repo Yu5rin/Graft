@@ -110,15 +110,15 @@ public class VbaRibbonCallbackMatcherTests
         Status("OnlyInTwo", other, Module2).Should().Be(VbaRibbonCallbackStatus.Found);
     }
 
-    [Fact(DisplayName = "クラスモジュールにある場合は、種類つきで場所を示す")]
+    [Fact(DisplayName = "クラスモジュールにしか無い場合は、「あります」と断言せず、標準モジュール以外にある旨を、種類つきで場所を示して伝える")]
     public void クラスモジュール()
     {
         var cls = new VbaRibbonSourceModule("Handler", VbaModuleKind.Class, "Public Sub OnClassOnly()\r\nEnd Sub\r\n");
 
         var (status, detail) = VbaRibbonCallbackMatcher.Resolve("OnClassOnly", new[] { cls });
 
-        status.Should().Be(VbaRibbonCallbackStatus.Found);
-        detail.Should().Contain("クラス").And.Contain("Handler");
+        status.Should().Be(VbaRibbonCallbackStatus.FoundOutsideStandardModule);
+        detail.Should().Contain("標準モジュール以外").And.Contain("クラス").And.Contain("Handler");
     }
 
     [Fact(DisplayName = "照合: 名前ごとにまとめ、使われている所を集める（大文字小文字違いは同じ名前）。最初に出た順")]

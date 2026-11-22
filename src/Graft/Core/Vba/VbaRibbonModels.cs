@@ -34,6 +34,12 @@ public enum VbaRibbonReadStatus
     /// <summary>古い形式（.xls。OLE の複合ファイル）。対象外。</summary>
     LegacyFormat,
 
+    /// <summary>
+    /// 拡張子は .xls 系ではないのに OLE の複合ファイルだった。パスワードで暗号化されたブック（または古い形式を別の拡張子にしたもの）。
+    /// 読めない（警告にする）。
+    /// </summary>
+    Encrypted,
+
     /// <summary>ファイルが無い（移動・削除・名前の変更）。</summary>
     FileNotFound,
 
@@ -114,6 +120,13 @@ public enum VbaRibbonCallbackStatus
 
     /// <summary>Public（または修飾なし）の <c>Sub</c>／<c>Function</c> が見つかった。</summary>
     Found,
+
+    /// <summary>
+    /// Public の <c>Sub</c>／<c>Function</c> は、クラス・フォーム・ドキュメントモジュールにしか無い。
+    /// リボンのコールバックは標準モジュールに置くのが前提で、修飾なしの名前でこれらの手続きを呼べるとは限らない
+    /// （<b>実機で要確認</b>。仕様書 15.4）。「あります」と断言せず、呼べない可能性を伝える。
+    /// </summary>
+    FoundOutsideStandardModule,
 
     /// <summary>同名はあるが <c>Private</c>／<c>Friend</c> で、リボンからは呼べない。</summary>
     NotPublic,
