@@ -20,8 +20,13 @@ jobs:
 
       - name: .NET SDK の準備
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        # ビルドに使う SDK はリポジトリ直下の global.json で 10.0 系に固定している
+        # （ランナーに入っている一番新しい SDK が黙って使われ、手元とコンパイラの版が食い違うのを防ぐため）。
+        # 実行環境（TargetFramework）は net8.0 のままなので、テストの実行に .NET 8 のランタイムも入れる。
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: 依存関係の復元
         run: dotnet restore
