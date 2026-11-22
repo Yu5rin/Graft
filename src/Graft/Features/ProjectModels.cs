@@ -47,6 +47,18 @@ public sealed record ProjectOverrides
     /// </summary>
     public IReadOnlyDictionary<string, string> ContextFileStates { get; init; } =
         new Dictionary<string, string>();
+
+    /// <summary>
+    /// 依頼の観点（<c>focus-readable</c> など）の、最後に選んだ Id（仕様書_ブックの情報と依頼の観点 4.1・6.2）。
+    /// 既定は空＝何も選ばない（依頼文は従来と同じ）。<see cref="ContextFileStates"/> と同じく、画面で選んだ
+    /// 状態の記憶なのでここに置く。キーを持たない既存の projects.json は空のまま読める。
+    /// <para>
+    /// 一覧に無い Id（削除された自作の観点）と、VBA でないプロジェクトでの VBA 専用の観点は、
+    /// 読み込み時に黙って捨てる（<c>PromptFocusSelectionViewModel</c>）。ここでは生の Id を保持するだけで、
+    /// 解釈しない。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> PromptFocusIds { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>

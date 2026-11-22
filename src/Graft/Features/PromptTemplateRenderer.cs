@@ -23,6 +23,9 @@ public sealed class PromptTemplateRenderer
     /// </summary>
     internal const string AppendedFilesHeading = "# 対象ファイル";
 
+    /// <summary>依頼の観点を差し込む変数（仕様書_ブックの情報と依頼の観点 6.3）。</summary>
+    internal const string FocusVariable = "{{focus}}";
+
     /// <summary>
     /// テンプレート本文中の {{standingContext}} {{tree}} {{files}} {{projectName}} {{lastRevision}}
     /// を実際の値へ展開する。テンプレートが使わない変数の収集処理は呼び出さない
@@ -36,6 +39,19 @@ public sealed class PromptTemplateRenderer
     /// （組み込み・利用者が編集したもの）は書き換えず**、展開結果にだけ足す。
     /// 選択ファイルが1つも無い・収集モードがファイルを出さない設定（ツリーのみ）のように
     /// 足す中身が空のときは、見出しだけが残らないよう何も足さない。
+    ///
+    /// 【依頼の観点（<see cref="ContextRequest.FocusText"/>）の差し込み】仕様書6.3。
+    /// <list type="bullet">
+    /// <item>観点が空（何も選んでいない）のとき、<c>{{focus}}</c> を含まないテンプレートの出力は従来と
+    /// <b>1バイトも変わらない</b>。<c>{{focus}}</c> を含むテンプレートでは、その変数が前後の空行ごと消える。</item>
+    /// <item>観点があり <c>{{focus}}</c> を含むなら、そこへ展開する。</item>
+    /// <item>含まないなら次の順で位置を決める: ①「# 対象ファイル」だけの行の直前 ②{{files}} を含む行の直前
+    /// ③自動付加する「# 対象ファイル」の直前 ④末尾。テンプレートの本文そのものは書き換えない。</item>
+    /// </list>
+    /// 【再展開を防ぐ約束】観点の文は、ほかの変数の展開が<b>済んだあと</b>に差し込む。<c>{{focus}}</c>（と①②で
+    /// 決めた位置）を先に、本文に出てこない目印の文字列へ置き換えておき、最後に目印を観点の文へ戻す。理由は2つ:
+    /// ファイルの中身に <c>{{focus}}</c> という文字列があっても置換されないこと、自作の観点の文に
+    /// <c>{{files}}</c> などと書かれていても再展開されないこと。
     /// </summary>
     public async Task<GraftResult<string>> RenderAsync(
         PromptTemplate template, ContextRequest request, string? lastRevisionSummary, CancellationToken ct = default,
@@ -44,6 +60,35 @@ public sealed class PromptTemplateRenderer
         var body = template.Body;
         var issues = new List<GraftIssue>();
         var hasFilesVariable = body.Contains("{{files}}", StringComparison.Ordinal);
+
+        // ---- 依頼の観点: 他の変数を展開する前に、差し込み位置だけ目印にしておく ----
+        var focusText = request.FocusText;
+        var hasFocus = !string.IsNullOrEmpty(focusText);
+        var focusBlock = hasFocus ? focusText.TrimEnd('\r', '\n') : string.Empty;
+        var deferred = new List<(string Marker, string Text)>();
+        var focusPlacedInBody = false;
+        if (body.Contains(FocusVariable, StringComparison.Ordinal))
+        {
+            if (hasFocus)
+            {
+                var marker = NewMarker();
+                body = body.Replace(FocusVariable, marker, StringComparison.Ordinal);
+                deferred.Add((marker, focusBlock));
+            }
+            else
+            {
+                body = RemoveEmptyFocusVariable(body);
+            }
+            focusPlacedInBody = true;
+        }
+        else if (hasFocus && FindFocusInsertIndex(body) is var at and >= 0)
+        {
+            var marker = NewMarker();
+            body = body.Insert(at, marker);
+            // 差し込み位置は行頭。次の見出しと詰まらないよう、観点の後ろに空行を1つ入れる。
+            deferred.Add((marker, focusBlock + "\n\n"));
+            focusPlacedInBody = true;
+        }
 
         if (body.Contains("{{tree}}", StringComparison.Ordinal))
         {
@@ -77,11 +122,74 @@ public sealed class PromptTemplateRenderer
 
         // 足すのは変数の展開が済んだあと。ファイルの中身に "{{standingContext}}" のような文字列が
         // 含まれていても、置換の対象にならないようにするため。
+        // 観点を本文の中に置けなかったとき（③自動付加する見出しの直前・④末尾）。
+        var focusBeforeAppended = hasFocus && !focusPlacedInBody;
         if (appendedFiles is not null)
         {
-            body = body.TrimEnd('\r', '\n') + "\n\n" + AppendedFilesHeading + "\n" + appendedFiles;
+            var head = body.TrimEnd('\r', '\n') + "\n\n";
+            if (focusBeforeAppended) head += focusBlock + "\n\n";
+            body = head + AppendedFilesHeading + "\n" + appendedFiles;
+        }
+        else if (focusBeforeAppended)
+        {
+            var head = body.TrimEnd('\r', '\n');
+            body = (head.Length == 0 ? string.Empty : head + "\n\n") + focusBlock + "\n";
+        }
+
+        // 最後に目印を観点の文へ戻す。ここより後ろで置換をしないので、観点の文は再展開されない。
+        foreach (var (marker, text) in deferred)
+        {
+            body = body.Replace(marker, text, StringComparison.Ordinal);
         }
 
         return GraftResult<string>.Ok(body, issues);
     }
+
+    /// <summary>
+    /// 観点を差し込む位置（本文の文字位置）を求める。①「# 対象ファイル」だけの行の行頭、
+    /// 無ければ ②{{files}} を含む最初の行の行頭。どちらも無ければ -1（③④は呼び出し側が末尾側で処理する）。
+    /// </summary>
+    private static int FindFocusInsertIndex(string body)
+    {
+        var filesLineStart = -1;
+        var lineStart = 0;
+        while (lineStart <= body.Length)
+        {
+            var lineEnd = body.IndexOf('\n', lineStart);
+            if (lineEnd < 0) lineEnd = body.Length;
+            var line = body.AsSpan(lineStart, lineEnd - lineStart).Trim();
+
+            if (line.SequenceEqual(AppendedFilesHeading)) return lineStart;
+            if (filesLineStart < 0 && line.Contains("{{files}}", StringComparison.Ordinal)) filesLineStart = lineStart;
+
+            if (lineEnd >= body.Length) break;
+            lineStart = lineEnd + 1;
+        }
+        return filesLineStart;
+    }
+
+    /// <summary>
+    /// 観点が空のとき、<c>{{focus}}</c> を痕跡なしで消す。変数だけの行は行ごと消し、その前後が
+    /// どちらも空行（または端）なら空行が2つ続かないよう1つ詰める。行の途中にあるものは文字だけ消す。
+    /// </summary>
+    private static string RemoveEmptyFocusVariable(string body)
+    {
+        var lines = body.Split('\n').ToList();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Trim() != FocusVariable) continue;
+
+            lines.RemoveAt(i);
+            var previousBlank = i == 0 || lines[i - 1].Trim().Length == 0;
+            if (previousBlank && i < lines.Count && lines[i].Trim().Length == 0) lines.RemoveAt(i);
+            i--;
+        }
+        return string.Join('\n', lines).Replace(FocusVariable, string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 本文・ファイルの中身・利用者の指示文のどこにも現れない目印。私用領域の文字で挟み、
+    /// 呼び出しごとに別の値にする（ファイルの中身に偶然同じ文字列があっても取り違えない）。
+    /// </summary>
+    private static string NewMarker() => "\uE000graft-focus-" + Guid.NewGuid().ToString("N") + "\uE001";
 }

@@ -51,6 +51,15 @@ public sealed record ContextRequest
     public int? SinceRevision { get; init; }
     /// <summary>適用する設定。</summary>
     public required Settings Settings { get; init; }
+
+    /// <summary>
+    /// 依頼の観点の文（<c>PromptFocusComposer.Compose</c> の結果。仕様書_ブックの情報と依頼の観点 6.3）。
+    /// 空（既定）のときは何も差し込まず、出力は従来と1バイトも変わらない。
+    /// コンテキスト収集（<see cref="ContextCollector.CollectAsync"/>）は「# 前提」の直後に、
+    /// 依頼文のテンプレート展開（<see cref="PromptTemplateRenderer"/>）は <c>{{focus}}</c> または
+    /// 「# 対象ファイル」の直前に差し込む。
+    /// </summary>
+    public string FocusText { get; init; } = string.Empty;
 }
 
 /// <summary>選択用ツリーの1エントリ（ファイルまたはディレクトリ）。</summary>
@@ -272,6 +281,10 @@ public sealed class ContextCollector
         var sb = new StringBuilder();
         AppendOverview(sb, request, treeVisibleCount, contentTargets.Count);
         AppendStandingContext(sb, request.Project.StandingContext);
+        // 依頼の観点は「# 前提」の直後（前提が無ければ概要の直後）に置く（仕様書6.3）。前提で
+        // プロジェクトの事情を伝えたあと、ツリーやファイルより先に「今回の依頼の方向」を伝える並び。
+        // 空のときは何も足さない（観点を選ばなければ出力は従来と同一）。
+        AppendFocus(sb, request.FocusText);
         if (IncludesTree(request.Mode)) AppendTree(sb, files, hiddenPaths, annotateContent);
 
         // ツリーを含まないモード（選択ファイル・差分のみ）では、除外により内容を出せなかった
@@ -389,6 +402,13 @@ public sealed class ContextCollector
         sb.AppendLine("# 前提");
         sb.AppendLine(standingContext.Trim());
         sb.AppendLine();
+    }
+
+    private static void AppendFocus(StringBuilder sb, string? focusText)
+    {
+        if (string.IsNullOrEmpty(focusText)) return;
+        // 観点の文は末尾の改行1つで終わる形で渡される。次の見出しとの間に空行を1つ入れる。
+        sb.Append(focusText.TrimEnd('\r', '\n')).AppendLine().AppendLine();
     }
 
     private static void AppendTree(StringBuilder sb, IReadOnlyList<ContextFileNode> files, IReadOnlySet<string> hiddenPaths, IReadOnlySet<string>? contentPaths)

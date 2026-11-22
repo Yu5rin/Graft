@@ -253,6 +253,9 @@ public static class DataDirectoryMigrator
         yield return paths.SettingsFilePath;
         yield return paths.ProjectsFilePath;
         yield return paths.TemplatesFilePath;
+        // 依頼の観点（自作分）。TemplatesFilePath と同じく Id を持つプロジェクト項目が無いので、
+        // VbaDataRelinker の変更は要らず、ここに挙げるだけで移行・旧保存先の掃除の対象になる。
+        yield return paths.FocusFilePath;
         yield return paths.QueueFilePath;
         yield return paths.OnboardingMarkerFilePath;
         yield return paths.WindowLayoutFilePath;

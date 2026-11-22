@@ -104,6 +104,14 @@ public sealed class AppPaths
     /// <summary>プロンプトテンプレート定義（仕様書4.8）の保存先。</summary>
     public string TemplatesFilePath => Path.Combine(BaseDirectory, "templates.json");
 
+    /// <summary>
+    /// 依頼の観点（仕様書_ブックの情報と依頼の観点 4.2）の自作分の保存先。組み込みの観点は
+    /// コード側で供給するためここには書かない（<see cref="Graft.Features.PromptFocusStore"/>）。
+    /// <see cref="TemplatesFilePath"/> と同じ階層に置き、保存先の移行の対象にも加える
+    /// （<c>DataDirectory.KnownFilePaths</c>。挙げ忘れると移行で自作の観点だけ取り残される）。
+    /// </summary>
+    public string FocusFilePath => Path.Combine(BaseDirectory, "focus.json");
+
     /// <summary>パッチキュー（仕様書4.10）の保存先。終了時に保持し次回起動時に復元する。</summary>
     public string QueueFilePath => Path.Combine(BaseDirectory, "queue.json");
 
