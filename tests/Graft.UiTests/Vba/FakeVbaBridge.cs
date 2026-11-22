@@ -97,6 +97,9 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     /// <summary>ブックの情報の読み取り（<c>Info</c>）の呼び出しごとに受け取った <c>options</c> の記録。</summary>
     public List<VbaWorkbookInfoOptions> InfoRequests { get; } = new();
 
+    /// <summary>ブックの情報の取得（<see cref="ReadWorkbookInfoAsync"/>）の頭で呼ばれる。通し番号を受け、返したタスクが終わるまで待たせる。</summary>
+    public Func<int, Task>? InfoHook { get; set; }
+
     /// <summary>
     /// ブックの情報の読み取りで、<b>セルの値を実際に読んだシート</b>の記録（呼び出しごとに 1 件ずつ追加）。
     /// 「値が要るシートだけ読む」（構成だけ・出さないのシートは読まない）ことを確かめるために使う。
@@ -284,6 +287,9 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     {
         Calls.Add($"Info:{workbookFullName}");
         InfoRequests.Add(options);
+        // テストが取得の進み具合を操れるようにする入口（取得の途中で利用者が操作したときの競合の再現用）。
+        // 呼び出しの通し番号（1 始まり）を渡し、返ったタスクが終わるまで、この呼び出しを待たせる。
+        if (InfoHook is { } hook) await hook(InfoRequests.Count).ConfigureAwait(false);
         var gate = await EnterAsync<VbaWorkbookInfoSnapshot>("Info", ct).ConfigureAwait(false);
         if (gate is not null) return gate;
 
@@ -340,8 +346,11 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
             if (options.IncludeReferences && referencesUnreadable) omitted.Add(VbaWorkbookInfoReadRules.OmittedReferencesMessage);
         }
 
+        // 本物のブリッジと同じく、全シートの名前（表示名とコード名）は、値を読まないシート・読めなかったシートも含めて返す。
+        // 取得結果の元（source）が AllSheets を持つなら、それを使う（シートの一部だけが載った取得結果の再現）。
+        var allSheets = source.AllSheets ?? source.Sheets.Select(sh => new VbaSheetIdentity(sh.Name, sh.CodeName)).ToArray();
         return GraftResult<VbaWorkbookInfoSnapshot>.Ok(
-            source with { Sheets = sheets, Tables = tables, References = references, Omitted = omitted });
+            source with { Sheets = sheets, Tables = tables, References = references, Omitted = omitted, AllSheets = allSheets });
     }
 
     /// <summary>
