@@ -185,6 +185,44 @@
                              views:HelpTip.Detailed="リボンの XML は大きなものだと数万文字になります。この上限を超えるときは、行の切れ目で切って、切ったことと全体の文字数を依頼文に書きます。タブ・グループ・コントロールの構成と、コールバックの一覧（VBA との照合つき）は、この上限とは別に常に出します。既定は30000文字、範囲は2000〜200000です（範囲外は既定値に戻ります）。" />
                 </Grid>
 
+                <!-- 仕様書_ブックの情報と依頼の観点 16.13: リボンの書き換え（機能 F）の設定。段階 F3 で「リボンをブックへ反映…」が使えるように
+                     なったので、使う 3 項目の欄を足した（保存・開き直しの時間切れは、開いているブックを扱う段階 F4 で足す）。 -->
+                <TextBlock Text="リボン（customUI）の書き換え" Classes="sectionHeading" />
+                <CheckBox Classes="settingRow hinted" Content="リボンを Graft のファイル（CustomUI/）として扱う"
+                          IsChecked="{Binding VbaRibbonEditEnabled}"
+                          IsEnabled="{Binding VbaEnabled}"
+                          AutomationProperties.Name="リボンを Graft のファイルとして扱う"
+                          views:HelpTip.Standard="ブックのリボンの XML を、ミラーの CustomUI/customUI14.xml として取り込み、直したものを「リボンをブックへ反映…」でブックへ書き戻します。既定はオンです。"
+                          views:HelpTip.Detailed="オンにすると、「Excel から取込」などでブックのリボンの XML をミラーの CustomUI/ へ取り込み、AI が直せるようにします。直したものは、プロジェクトの右クリック「リボンをブックへ反映…」で、確認のうえブックのファイルへ書き戻します（ブックは Excel で閉じておきます）。オフにすると、リボンは読み取りだけになり、CustomUI/ を作らず、あっても同期しません。" />
+                <TextBlock Text="ブックへ書き戻す前に、ブック全体の控えを残します。控えには、シートの値も含まれます（データ保存先が同期フォルダにあるときは、控えも同期されます）。"
+                           Classes="settingHint indented" TextWrapping="Wrap" />
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="ブックの控えの世代数（1〜50）" Classes="settingLabel" />
+                        <TextBlock Text="リボンを書き換える前に残す、ブック全体の控えの数です（プロジェクトごと）。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookBackupMaxGenerationsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="ブックの控えの世代数"
+                             views:HelpTip.Minimal="{Binding VbaWorkbookBackupMaxGenerationsText, StringFormat='ブックの控えの世代数: {0}'}"
+                             views:HelpTip.Standard="リボンを書き換える前に残す、ブック全体の控えの数です。既定は5世代です。"
+                             views:HelpTip.Detailed="リボンの書き換えが成功するたびに、数を超えた古い控えから消します。最新の 1 件は、容量の上限を超えていても消しません。書き換える前には消しません（新しい控えが無事に書けるまで、古い控えを減らさない）。既定は5、範囲は1〜50です（範囲外は既定値に戻ります）。" />
+                </Grid>
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="ブックの控え全体の容量（MB。50〜20000）" Classes="settingLabel" />
+                        <TextBlock Text="超えたら、古い控えから消します（最新の 1 件は残します）。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookBackupMaxTotalMBText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="ブックの控え全体の容量"
+                             views:HelpTip.Minimal="{Binding VbaWorkbookBackupMaxTotalMBText, StringFormat='ブックの控え全体の容量: {0} MB'}"
+                             views:HelpTip.Standard="1 つのプロジェクトのブックの控え全体の容量の上限です。既定は500MBです。"
+                             views:HelpTip.Detailed="ブックの控えは 1 件が数十 MB になることがあるので、Excel 側の控え（モジュールの本文）とは別のフォルダ・別の上限で数えます。既定は500、範囲は50〜20000です（範囲外は既定値に戻ります）。" />
+                </Grid>
+
                 <TextBlock Text="Excel 側の控え" Classes="sectionHeading" />
                 <TextBlock Text="「Excel へ反映」で Excel 側が上書きされる直前の本文を、毎回控えとして残します。プロジェクトの右クリック「Excel 側の控えを見る…」で、一覧・差分の確認と、ミラーへの取り込み（戻す）ができます。控えは履歴には記録されません。"
                            Classes="settingHint indented" TextWrapping="Wrap" />

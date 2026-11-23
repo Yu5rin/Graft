@@ -162,6 +162,19 @@
                                   IsVisible="{Binding IsSelectedVbaProject}"
                                   local:HelpTip.Standard="ファイルを消したために同期を保留しているモジュールを、Excel 側の内容で作り直します。"
                                   AutomationProperties.Name="Excel から復元" />
+                        <!-- 仕様書_ブックの情報と依頼の観点 16.13: リボン（customUI）の書き換えの手動の入口（段階 F3。Excel で開いていない
+                             ブックのファイルを書き換える）。「…」は確認ダイアログが出る印。未反映が無いときは無効。 -->
+                        <MenuItem Header="リボンをブックへ反映…"
+                                  Command="{Binding PushRibbonCommand}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  local:HelpTip.Standard="Graft のファイル（CustomUI/customUI14.xml など）で直したリボンを、ブックのファイルへ書き込みます。書く前に確認し、ブック全体の控えを残します。"
+                                  local:HelpTip.Detailed="ブックを Excel で閉じてから使います（開いているときは、閉じるよう案内して止めます）。XML を Office の定義（XSD）で検査し、エラーがあれば書きません。書く前にブック全体の控えをデータ保存先に残し、一時ファイルに書いて照合してから置き換えます。"
+                                  AutomationProperties.Name="リボンをブックへ反映" />
+                        <MenuItem Header="リボンの XML を検査"
+                                  Command="{Binding InspectRibbonCommand}"
+                                  IsVisible="{Binding IsSelectedVbaProject}"
+                                  local:HelpTip.Standard="CustomUI/ の XML を Office の定義（XSD）で検査し、エラーと警告を一覧にします。何も書き換えません。"
+                                  AutomationProperties.Name="リボンの XML を検査" />
                         <MenuItem Header="ブックを前面化"
                                   Command="{Binding ActivateWorkbookCommand}"
                                   IsVisible="{Binding IsSelectedVbaProject}"

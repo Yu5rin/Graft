@@ -127,6 +127,7 @@ public sealed partial class ProjectPaneViewModel
         // 控えはファイルを見るだけなので、Excel が開いていなくても、設定で VBA 連携を切っていても開ける（仕様書 7.4）。
         // この環境で VBA 連携が使えること（控えが作られる環境）と、VBA プロジェクトであることだけを条件にする。
         ShowRescueCommand = new AsyncRelayCommand(ShowRescueForSelectedAsync, CanShowRescue, context: "Excel 側の控えの表示");
+        InitializeVbaRibbonCommands(); // リボンの書き換えの入口（ProjectPaneViewModel.VbaRibbon.cs）。
     }
 
     /// <summary>
@@ -406,11 +407,16 @@ public sealed partial class ProjectPaneViewModel
             return;
         }
 
+        List<VbaRibbonRecovery>? recoveries = null;
         await _vbaBadgeGate.WaitAsync().ConfigureAwait(true);
         try
         {
             var targets = Items.Where(i => i.Project.Vba is not null).Select(i => i.Project).ToList();
             if (targets.Count == 0) return;
+
+            // 途中で終わったリボンの書き換えの後始末（16.11「次の起動」）。件数を数える前に片付ける（残った一時ファイル・記録を
+            // 片付けてから、いまの状態を数える）。知らせは錠を放してから出す。
+            recoveries = await RecoverInterruptedRibbonRewritesAsync(service, targets).ConfigureAwait(true);
 
             IReadOnlyList<VbaWorkbookInfo>? open = null;
             if (checkWorkbookOpen && _isVbaEnabled())
@@ -463,6 +469,10 @@ public sealed partial class ProjectPaneViewModel
         {
             _vbaBadgeGate.Release();
         }
+
+        // 「リボンをブックへ反映…」の有効・無効は、数え直した「リボン未反映」で決まる。
+        CommandRequery.Invalidate();
+        if (recoveries is { Count: > 0 }) await ShowRibbonRecoveriesAsync(recoveries).ConfigureAwait(true);
     }
 
     // ------------------------------------------------------------------

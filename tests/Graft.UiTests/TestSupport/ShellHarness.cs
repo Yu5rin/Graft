@@ -231,6 +231,23 @@ public sealed class ScriptedDialogs : IDialogService
     public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null)
         => Task.FromResult<string?>(null);
 
+    /// <summary>
+    /// ボタンつきの知らせ（<see cref="IDialogService.ShowActionMessageAsync"/>）の応答（title, message, actionLabel）。未指定なら、
+    /// 既定の実装と同じく true（ボタンを押した）。リボンの書き換えの「もう一度試す」のように、押し続けると同じ知らせが繰り返し出る
+    /// ものを確かめるテストは false を返す。
+    /// </summary>
+    public Func<string, string, string, bool>? ActionAnswer { get; set; }
+
+    /// <summary>出たボタンつきの知らせ（title, message, actionLabel）。<see cref="Messages"/> にも同じものが入る。</summary>
+    public List<(string Title, string Message, string Action)> Actions { get; } = new();
+
+    public Task<bool> ShowActionMessageAsync(string title, string message, string actionLabel)
+    {
+        Actions.Add((title, message, actionLabel));
+        Messages.Add((title, message));
+        return Task.FromResult(ActionAnswer?.Invoke(title, message, actionLabel) ?? true);
+    }
+
     public Task ShowMessageAsync(string title, string message)
     {
         Messages.Add((title, message));

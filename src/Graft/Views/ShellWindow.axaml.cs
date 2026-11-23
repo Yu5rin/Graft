@@ -134,6 +134,8 @@ public partial class ShellWindow : Window
         viewModel.Graft.ProjectPane.ShowWorkbookPickerAsync = picker => new VbaWorkbookPickerWindow(picker).ShowAndConfirmAsync(this);
         // 「Excel 側の控えを見る…」（仕様書_ブックの情報と依頼の観点 7.4）。
         viewModel.Graft.ProjectPane.ShowRescueAsync = rescue => new VbaRescueWindow(rescue).ShowAndWaitAsync(this);
+        // リボンの書き換えの確認（仕様書_ブックの情報と依頼の観点 16.9）。毎回出す。既定は「中止」。
+        viewModel.Graft.ProjectPane.ShowRibbonRewriteAsync = rewrite => new VbaRibbonRewriteWindow(rewrite).ShowAndConfirmAsync(this);
         // 衝突ダイアログと、ボタンの文言を指定する確認（Push 失敗など。仕様書_VBA連携 7.3・7.5）。
         viewModel.Graft.ShowVbaConflictAsync = async request =>
             await new VbaConflictWindow(viewModel.Graft.CreateVbaConflictViewModel(request)).ShowAndResolveAsync(this).ConfigureAwait(true);
