@@ -53,6 +53,12 @@
     最後に出る「ここから」と「ここまで」のあいだの表（Markdown）を、そのまま貼り付けて返してください。
     同じ内容を、クリップボードにもコピーします（コピーできない環境では、ファイルを開いてください）。
 
+■ 既知の問題と修正（VBA の書き込み）
+    VBE の「変数の宣言を強制する」が有効な環境では、VBComponents.Add で作ったモジュールに Option Explicit が
+    自動で入るため、Option Explicit で始まる本文を AddFromString で足すと「Option ステートメントは既に存在します」
+    のコンパイル エラー（モーダル）で止まっていました。現在は、作った直後に本文を空にし、InsertLines で書き込み、
+    読み戻して Option Explicit の数を確かめています（違えば例外にして片付けへ進みます）。
+
 ■ 重要: このスクリプトは「動作確認済み」ではありません
     開発・レビューは Linux 環境で行っており、Windows の PowerShell で実行して検証したことはありません。
     実行前に中身を読み、何をするか理解してから使ってください。エラーが出たら、そのメッセージを報告してください。
@@ -88,6 +94,29 @@ function Release-Com {
     param($Obj)
     if ($null -ne $Obj) {
         try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($Obj) } catch { }
+    }
+}
+
+# VBComponents.Add で作った直後のモジュールを空にしてから、本文を InsertLines で入れる。
+# 理由（実機で起きた不具合）: VBE の「変数の宣言を強制する」が有効な環境では、Add 直後のモジュールに
+#   Option Explicit が自動で1行入る。そこへ Option Explicit で始まる本文を AddFromString で足すと
+#   「コンパイル エラー: Option ステートメントは既に存在します。」のモーダル警告が出て、スクリプトが
+#   COM 呼び出しのまま止まり、利用者が Excel を手で閉じるはめになった。Graft 本体も、AddFromString が
+#   行継続の扱いで余分な行を足す不具合を実機で確かめて InsertLines に変えており、同じ方式にそろえる。
+# 書いたあとは Lines を読み戻し、Option Explicit の数が本文と同じかを確かめる（VBE には明示的にコンパイル
+#   させる手段が COM に無いため、モーダル警告の前に例外にして、呼び出し側の片付けへ進ませる防御）。
+function Set-VbaCode {
+    param($CodeModule, [string]$Code)
+    $count = $CodeModule.CountOfLines
+    if ($count -gt 0) { $CodeModule.DeleteLines(1, $count) }
+    $CodeModule.InsertLines(1, $Code)
+    $pattern = '(?im)^\s*Option\s+Explicit\s*$'
+    $expected = [regex]::Matches($Code, $pattern).Count
+    $total = $CodeModule.CountOfLines
+    $actual = 0
+    if ($total -gt 0) { $actual = [regex]::Matches([string]$CodeModule.Lines(1, $total), $pattern).Count }
+    if ($actual -ne $expected) {
+        throw ("VBA モジュールの Option Explicit の数が想定と違います（期待 {0}、実際 {1}）。VBE の自動挿入と重複した可能性があります。" -f $expected, $actual)
     }
 }
 
@@ -227,7 +256,7 @@ try {
                     $mod.Name = 'GraftProbeSaved'
                     $afterAdd = [string]$wb.Saved
                     $wb.Save()
-                    $mod.CodeModule.AddFromString("Public Sub GraftProbeSaved()`r`nEnd Sub")
+                    Set-VbaCode $mod.CodeModule "Public Sub GraftProbeSaved()`r`nEnd Sub"
                     $afterEdit = [string]$wb.Saved
                     Add-Result '1-d' 'VBE でモジュールを編集しただけのときの Saved' $afterEdit ("新しいモジュールを足した直後: {0}／保存後にコードを書き足した直後: {1}（保存前: {2}）。False なら、VBE の編集が Saved を False にする" -f $afterAdd, $afterEdit, $before)
                     $wb.Save()
@@ -324,11 +353,9 @@ End Sub
 "@
             $mod = $vbp.VBComponents.Add(1)
             $mod.Name = 'GraftProbe'
-            $mod.CodeModule.AddFromString($moduleCode)
+            Set-VbaCode $mod.CodeModule $moduleCode
             $thisComp = $vbp.VBComponents.Item($wb.CodeName)
-            $existing = $thisComp.CodeModule.CountOfLines
-            if ($existing -gt 0) { $thisComp.CodeModule.DeleteLines(1, $existing) }
-            $thisComp.CodeModule.AddFromString($thisCode)
+            Set-VbaCode $thisComp.CodeModule $thisCode
             Release-Com $mod
             Release-Com $thisComp
             Release-Com $vbp
