@@ -6,6 +6,7 @@ using System.Text.Json;
 using Graft.Core;
 using Graft.Core.Vba;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.Features;
 
@@ -18,9 +19,12 @@ public sealed record VbaRibbonInspection(string MirrorPath, VbaRibbonValidation?
 /// <summary>
 /// <see cref="VbaRibbonSyncService"/> の分割ファイル。ブックのファイルの書き換え（仕様書_ブックの情報と依頼の観点 16.5。段階 F3）。
 /// <para>
-/// 【段階 F3 の範囲】 COM を使わない経路だけ、つまり <b>Excel で開いていないブック</b>のファイルを書き換える。開いているブック
-/// （.xlam のアドインを含む）は書き換えず、「Excel でブックを閉じてから反映してください」と案内して止める（E819）。閉じ開きの
-/// 自動化（16.6）は段階 F4 で、この流れの前後に足す。
+/// 【経路は 2 つ】 Excel で開いていないブックは、COM を使わずにファイルだけを書き換える（段階 F3）。<b>開いているブック</b>は、
+/// 段階 5 と 7 のあいだに「保存して閉じる」（<see cref="IVbaBridge.SaveAndCloseWorkbookAsync"/>）、段階 14 の前に「同じ Excel で開き直す」
+/// （<see cref="IVbaBridge.ReopenWorkbookAsync"/>）を足す（段階 F4。16.6）。止めるブック（読み取り専用・保護ビュー・共有・自動保存・
+/// OneDrive・開いているアドイン・マクロの実行中）は、閉じる前に <see cref="VbaWorkbookRewriteGuard"/> で止める（E819・E813）。
+/// <b>閉じたあとで止まった場合は、どの段階でも、すべて開き直してから知らせる</b>（利用者の Excel の画面を、失敗したまま閉じて放置しない）。
+/// 例外は、控えから戻せなかった E823（壊れているかもしれないブックでマクロを動かさないため、開き直さずに券を捨てる）。
 /// </para>
 /// <para>
 /// 【流れ】 準備（<see cref="PrepareRewriteAsync"/>。段階 1〜3: 対象の確定・XML の検査・ブックの状態の検査とパッケージの予行）→
@@ -41,6 +45,12 @@ public sealed partial class VbaRibbonSyncService
 
     /// <summary>ファイルの操作の差し替え口（失敗の注入。本番は既定のまま）。</summary>
     internal VbaRibbonRewriteIo Io { get; set; } = new();
+
+    /// <summary>
+    /// 書き換えの段階の名前を知らせる口（16.5「ブックを保存して閉じています」「控えを残しています」「リボンを書き換えています」
+    /// 「ブックを開き直しています」。<see cref="VbaRibbonRewriteText"/> の定数）。画面は中央ペインの処理中の表示に出す。未設定なら何もしない。
+    /// </summary>
+    public Action<string>? Progress { get; set; }
 
     /// <summary>
     /// 紐付けたブック（Excel の <c>FullName</c>）から、書き換えるファイルのパスを決める。本番はそのまま（同じもの）。画面のテストは、
@@ -221,16 +231,17 @@ public sealed partial class VbaRibbonSyncService
             return GraftResult<VbaRibbonRewritePreparation>.Fail(errors);
         }
 
-        // 段階 3: ブックの状態の検査とパッケージの予行。
-        if (await CheckOpenAsync(link.WorkbookFullName, ct).ConfigureAwait(true) is { } openIssue)
-            return GraftResult<VbaRibbonRewritePreparation>.Fail(openIssue);
+        // 段階 3: ブックの状態の検査（開いているか・止めるブックか。16.6）とパッケージの予行。
+        // 開いていても止めるブックでなければ、閉じ開きの経路で書き換える（F4）。ここで止まるのは何も閉じる前なので、何も変えていない。
+        var open = await InspectOpenStateAsync(link.WorkbookFullName, ct).ConfigureAwait(true);
+        if (open.Stop is { } stop) return GraftResult<VbaRibbonRewritePreparation>.Fail(stop);
 
         var preflight = await Task.Run(() => Preflight(file, project.Id), ct).ConfigureAwait(true);
         if (!preflight.IsSuccess) return GraftResult<VbaRibbonRewritePreparation>.Fail(preflight.Issues);
 
         var plan = new VbaRibbonRewritePlan(
             project.Id, file, workbookName, targets, warnings, _paths.GetVbaWorkbookBackupDirectory(project.Id),
-            preflight.Value.Size, preflight.Value.ModifiedUtc);
+            preflight.Value.Size, preflight.Value.ModifiedUtc, open.State.IsOpen ? open.State : null);
         return GraftResult<VbaRibbonRewritePreparation>.Ok(
             new VbaRibbonRewritePreparation(VbaRibbonRewritePreparationKind.Ready, plan, notes, recovery));
     }
@@ -250,27 +261,29 @@ public sealed partial class VbaRibbonSyncService
     };
 
     /// <summary>
-    /// Excel で開いているか（16.6）。開いていれば、段階 F3 では書き換えずに止める（E819）。開いているかは既存の
-    /// <see cref="IVbaBridge.ListOpenWorkbooksAsync"/>（ROT）で調べる。調べられないとき（この環境で使えない・Excel が応答しない）は止めず、
-    /// 段階 7 の「排他で開く」に任せる（Excel が開いているブックは排他で開けないので、そこで E821 として止まる）。
+    /// ブックが Excel で開いているか・止めるブックか（16.6）を調べる（<see cref="IVbaBridge.InspectWorkbookForRewriteAsync"/>。何も変えない）。
+    /// <list type="bullet">
+    /// <item>開いていない・この環境で使えない: <see cref="VbaWorkbookRewriteState.NotOpen"/>（ファイルだけを書き換える経路）。</item>
+    /// <item>開いていて、止めるブック（<see cref="VbaWorkbookRewriteGuard"/>）: 止める問題（E819・E813）。何も閉じない。</item>
+    /// <item>開いていて応答しない（E805）: 止める。セル編集中・ダイアログ表示中の Excel を、閉じる方向へ進めない。</item>
+    /// <item>そのほかの失敗（Excel と通信できない E801 など）: 止めず、開いていないものとして進める。段階 7 の排他で開く検査が、
+    /// 本当に使われていれば E821 で止める（従来の F3 と同じ最後の砦）。</item>
+    /// </list>
     /// </summary>
-    private async Task<GraftIssue?> CheckOpenAsync(string workbookFullName, CancellationToken ct)
+    private async Task<(VbaWorkbookRewriteState State, IReadOnlyList<GraftIssue>? Stop)> InspectOpenStateAsync(string workbookFullName, CancellationToken ct)
     {
-        if (!_bridge.IsSupported) return null;
-        var listed = await _bridge.ListOpenWorkbooksAsync(ct).ConfigureAwait(true);
-        if (!listed.IsSuccess)
+        if (!_bridge.IsSupported) return (VbaWorkbookRewriteState.NotOpen, null);
+        var inspected = await _bridge.InspectWorkbookForRewriteAsync(workbookFullName, ct).ConfigureAwait(true);
+        if (!inspected.IsSuccess)
         {
-            Logger?.Info("vba-ribbon", "Excel で開いているブックの一覧を取れなかったため、排他で開けるかで確かめます。", targetPath: workbookFullName);
-            return null;
+            if (inspected.Issues.Any(i => i.Code == ErrorCode.E805)) return (VbaWorkbookRewriteState.NotOpen, inspected.Issues);
+            Logger?.Info("vba-ribbon", "ブックの Excel での状態を調べられなかったため、排他で開けるかで確かめます。", targetPath: workbookFullName);
+            return (VbaWorkbookRewriteState.NotOpen, null);
         }
 
-        var hit = listed.Value.FirstOrDefault(w => VbaRotNames.SamePath(w.FullName, workbookFullName));
-        if (hit is null) return null;
-        var name = VbaRibbonRewriteText.FileNameOf(workbookFullName);
-        var reason = VbaRibbonRewriteText.IsAddinPath(workbookFullName)
-            ? VbaRibbonRewriteText.OpenAddinReason(name)
-            : VbaRibbonRewriteText.OpenWorkbookReason(name);
-        return GraftIssue.Of(ErrorCode.E819, reason, path: workbookFullName);
+        var state = inspected.Value;
+        if (VbaWorkbookRewriteGuard.Check(state, workbookFullName) is { } stop) return (state, new[] { stop });
+        return (state, null);
     }
 
     private sealed record PreflightResult(long Size, DateTime ModifiedUtc);
@@ -408,33 +421,217 @@ public sealed partial class VbaRibbonSyncService
         }
 
         Logger?.Info("vba-ribbon",
-            $"リボンの書き換えを始めます（{name}・{Megabytes(plan.BookSize)}・{string.Join("、", plan.Targets.Select(t => $"{t.MirrorPath} {Short(t.MirrorHash)}"))}）。",
+            $"リボンの書き換えを始めます（{name}・{Megabytes(plan.BookSize)}・{(plan.IsOpen ? "Excel で開いている" : "開いていない")}・{string.Join("、", plan.Targets.Select(t => $"{t.MirrorPath} {Short(t.MirrorHash)}"))}）。",
             targetPath: file);
+
+        // 閉じたブックの券（段階 6 で受け取り、段階 13 か、失敗の後始末で必ず 1 回だけ使う）。
+        var held = new ReopenHolder(link.WorkbookFullName);
         try
         {
-            return await RewriteStagesAsync(project, link, plan, job, watch).ConfigureAwait(true);
+            GraftResult<VbaRibbonRewriteOutcome> result;
+            try
+            {
+                // 段階 6: 保存して閉じる（開いているときだけ）。
+                if (plan.IsOpen)
+                {
+                    var closed = await SaveAndCloseForRewriteAsync(project, plan, job, held, ct).ConfigureAwait(true);
+                    if (closed.Failure is not null) return closed.Failure;
+                    job = closed.Job!;
+                }
+
+                result = await RewriteStagesAsync(project, link, plan, job, watch, held).ConfigureAwait(true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 段階ごとに捕まえていない所での入出力の失敗（作業の記録の書き直しなど）。途中で落ちたときと同じ後始末をして、ブックの
+                // いまの状態を知らせる（元のまま／書き換え済み）。後始末も記録に従うので、ここで新しい判断はしない。
+                Logger?.Error("vba-ribbon", $"リボンの書き換えの途中で失敗しました（{ex.GetType().Name}）。", targetPath: file);
+                var recovered = await RecoverInterruptedCoreAsync(project.Id).ConfigureAwait(true);
+                var detail = recovered?.Message ?? "ブックの状態を確かめられませんでした。";
+                result = GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821,
+                    $"リボンの書き換えの途中で失敗しました（{ExceptionMessages.Describe(ex)}）。{detail}", path: file);
+            }
+
+            // 段階 13（失敗のとき）: 閉じていたら、すべて開き直してから知らせる。成功のときは RewriteStagesAsync の中で開き直し済み
+            // （段階 14 の前。16.5 の表の順）。
+            return result.IsSuccess ? result : await ReopenAfterFailureAsync(result, held).ConfigureAwait(true);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        finally
         {
-            // 段階ごとに捕まえていない所での入出力の失敗（作業の記録の書き直しなど）。途中で落ちたときと同じ後始末をして、ブックの
-            // いまの状態を知らせる（元のまま／書き換え済み）。後始末も記録に従うので、ここで新しい判断はしない。
-            Logger?.Error("vba-ribbon", $"リボンの書き換えの途中で失敗しました（{ex.GetType().Name}）。", targetPath: file);
-            var recovered = await RecoverInterruptedCoreAsync(project.Id).ConfigureAwait(true);
-            var detail = recovered?.Message ?? "ブックの状態を確かめられませんでした。";
-            return GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821,
-                $"リボンの書き換えの途中で失敗しました（{ExceptionMessages.Describe(ex)}）。{detail}", path: file);
+            // 想定外の例外（取り消しなど）で抜けたときに、Excel の参照を残さない（Excel のプロセスが Graft の終了まで残るのを防ぐ）。
+            await held.DiscardAsync(_bridge).ConfigureAwait(true);
         }
     }
 
+    /// <summary>
+    /// 閉じたブックの券の持ち主（1 回の書き換えにつき 1 つ）。券は「開き直す」か「捨てる」のどちらかで 1 回だけ使い、<see cref="Take"/> で
+    /// 取り出した側が責任を持つ（二重に開き直さない・捨て忘れない）。
+    /// </summary>
+    private sealed class ReopenHolder
+    {
+        private VbaWorkbookReopenTicket? _ticket;
+
+        public ReopenHolder(string workbookFullName) => WorkbookFullName = workbookFullName;
+
+        public string WorkbookFullName { get; }
+
+        /// <summary>券を持っているか（Excel でブックを閉じて、まだ開き直していない）。</summary>
+        public bool HasTicket => Volatile.Read(ref _ticket) is not null;
+
+        public void Hold(VbaWorkbookReopenTicket ticket) => Volatile.Write(ref _ticket, ticket);
+
+        public VbaWorkbookReopenTicket? Take() => Interlocked.Exchange(ref _ticket, null);
+
+        /// <summary>開き直さずに券を捨てる（持っていなければ何もしない）。</summary>
+        public async Task DiscardAsync(IVbaBridge bridge)
+        {
+            if (Take() is { } ticket) await bridge.DiscardReopenTicketAsync(ticket).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>開き直しの結果（<see cref="ReopenAsync"/>）。</summary>
+    /// <param name="Reopened">ブックが Excel で開いた（時間切れのあとで開いていたのを確かめた場合を含む）。</param>
+    /// <param name="Issues">開き直せなかったときの E822（警告）。</param>
+    private sealed record ReopenReport(bool Reopened, IReadOnlyList<GraftIssue> Issues);
+
+    /// <summary>
+    /// 段階 6: ブックを保存して閉じる（16.6）。成功すれば作業の記録に <c>ClosedWorkbook</c> を書いて返す。失敗は、ブックのファイルを
+    /// 変えていない問題（E820・E819・E813・E805）。時間切れ（E805）のときは、Excel 側で遅れて完了しうるので、状態を取り直して案内を決める。
+    /// </summary>
+    private async Task<(VbaRibbonRewriteJob? Job, GraftResult<VbaRibbonRewriteOutcome>? Failure)> SaveAndCloseForRewriteAsync(
+        Project project, VbaRibbonRewritePlan plan, VbaRibbonRewriteJob job, ReopenHolder held, CancellationToken ct)
+    {
+        Progress?.Invoke(VbaRibbonRewriteText.ProgressSaveAndClose);
+        var watch = Stopwatch.StartNew();
+        var saved = await _bridge.SaveAndCloseWorkbookAsync(held.WorkbookFullName, ct).ConfigureAwait(true);
+        if (!saved.IsSuccess)
+        {
+            DeleteJob(project.Id);
+            var issues = saved.Issues.ToList();
+            if (issues.Any(i => i.Code == ErrorCode.E805)) issues = await ReconcileAfterSaveCloseTimeoutAsync(plan, held.WorkbookFullName, issues).ConfigureAwait(true);
+            Logger?.Warn("vba-ribbon", $"ブックを保存して閉じられませんでした（{string.Join("・", issues.Select(i => i.Code.ToString()))}）。ファイルは変えていません。",
+                targetPath: plan.WorkbookPath, durationMs: watch.ElapsedMilliseconds);
+            return (null, GraftResult<VbaRibbonRewriteOutcome>.Fail(issues));
+        }
+
+        held.Hold(saved.Value);
+        Logger?.Info("vba-ribbon", $"ブックを保存して閉じました（{plan.WorkbookName}）。", targetPath: plan.WorkbookPath, durationMs: watch.ElapsedMilliseconds);
+
+        // 「Graft が Excel で閉じた」印を、閉じたあとで書く（閉じていないのに印があると、後始末の知らせが嘘になる）。
+        job = job with { ClosedWorkbook = true };
+        if (!await TryWriteJobAsync(job).ConfigureAwait(true))
+        {
+            // 記録に印を残せないと、途中で落ちたときに「Excel では閉じたまま」と伝えられない。ブックはまだ何も変えていないので、
+            // ここで止める（呼び出し側が開き直す）。
+            DeleteJob(project.Id);
+            return (null, GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821,
+                "作業の記録を更新できないため、書き換えを止めました。ブックのファイルは変えていません。", path: plan.WorkbookPath));
+        }
+
+        return (job, null);
+    }
+
+    /// <summary>
+    /// 保存して閉じるが時間切れ（E805）になったあと、Excel 側で遅れて完了していないかを取り直す（16.15 の申し送り。
+    /// 「時間切れ ＝ 行われなかった」と決めつけない）。閉じていたら、開き直す券はもう無いので、書き換えずに「Excel で開いてください」と
+    /// 案内する（利用者には時間切れと伝わっているので、ここから先へ黙って進めない）。まだ開いていれば、E805 に「開いたまま」を添える。
+    /// </summary>
+    private async Task<List<GraftIssue>> ReconcileAfterSaveCloseTimeoutAsync(
+        VbaRibbonRewritePlan plan, string workbookFullName, List<GraftIssue> timeoutIssues)
+    {
+        var state = await _bridge.InspectWorkbookForRewriteAsync(workbookFullName, CancellationToken.None).ConfigureAwait(true);
+        if (state.IsSuccess && !state.Value.IsOpen)
+        {
+            return new List<GraftIssue>
+            {
+                GraftIssue.Of(ErrorCode.E820,
+                    $"「{plan.WorkbookName}」の保存と閉じる処理が時間切れになりましたが、そのあと Excel 側でブックが閉じられていました（保存も済んだ見込みです）。" +
+                    "ブックのファイルは変えていません。リボンの書き換えは行っていません。" + VbaRibbonRewriteText.OpenInExcelSentence,
+                    path: plan.WorkbookPath),
+            };
+        }
+
+        var open = state.IsSuccess ? "ブックは Excel で開いたままです。" : "ブックの状態を確かめられませんでした。";
+        return timeoutIssues
+            .Select(i => i.Code == ErrorCode.E805
+                ? i with { Detail = (i.Detail ?? string.Empty) + " " + open + "ブックのファイルは変えていません。" }
+                : i)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 段階 13: 券の Excel でブックを開き直す（16.6）。成功・失敗・時間切れのどれでも券は捨てられる（ブリッジの責務）。開き直せなくても
+    /// 書き換えは済んでいる（またはブックは元のまま）ので、失敗は E822（警告）にして返す。時間切れ・失敗のあとに、Excel 側で遅れて
+    /// 開いていないかを取り直す（開いていれば成功として扱う）。券を持っていなければ何もしない（null）。
+    /// </summary>
+    private async Task<ReopenReport?> ReopenAsync(ReopenHolder held)
+    {
+        if (held.Take() is not { } ticket) return null;
+        Progress?.Invoke(VbaRibbonRewriteText.ProgressReopen);
+        var watch = Stopwatch.StartNew();
+        // 取り消しは渡さない（閉じたあとの開き直しは、呼び出し側が取り消しても最後まで行う。利用者の Excel を閉じたままにしない）。
+        var reopened = await _bridge.ReopenWorkbookAsync(ticket, CancellationToken.None).ConfigureAwait(true);
+        if (reopened.IsSuccess)
+        {
+            Logger?.Info("vba-ribbon",
+                reopened.Value.ViewRestored ? "ブックを開き直しました。" : $"ブックを開き直しました（見た目の一部は戻せませんでした: {string.Join(" / ", reopened.Value.Notes)}）。",
+                targetPath: held.WorkbookFullName, durationMs: watch.ElapsedMilliseconds);
+            return new ReopenReport(true, Array.Empty<GraftIssue>());
+        }
+
+        // 時間切れ・失敗のあとでも、Excel 側で開いているかもしれない（利用者がダイアログに答えた）。状態を取り直す。
+        var state = await _bridge.InspectWorkbookForRewriteAsync(held.WorkbookFullName, CancellationToken.None).ConfigureAwait(true);
+        if (state.IsSuccess && state.Value.IsOpen)
+        {
+            Logger?.Info("vba-ribbon", "開き直しは戻りませんでしたが、そのあとブックが開いていることを確かめました。", targetPath: held.WorkbookFullName);
+            return new ReopenReport(true, Array.Empty<GraftIssue>());
+        }
+
+        Logger?.Warn("vba-ribbon", "ブックを開き直せませんでした。", targetPath: held.WorkbookFullName, durationMs: watch.ElapsedMilliseconds);
+        return new ReopenReport(false, reopened.Issues.Select(i => i with { Severity = Severity.Warning }).ToList());
+    }
+
+    /// <summary>
+    /// 閉じたあとの失敗（段階 7〜12）の後始末。E823（控えから戻せなかった）のときは、壊れているかもしれないブックでマクロを動かさないよう
+    /// 開き直さずに券を捨て、「Excel では閉じたまま」を添える。それ以外は、開き直して「開き直しました」を添える（開き直せなければ E822 を足す）。
+    /// </summary>
+    private async Task<GraftResult<VbaRibbonRewriteOutcome>> ReopenAfterFailureAsync(
+        GraftResult<VbaRibbonRewriteOutcome> failure, ReopenHolder held)
+    {
+        if (!held.HasTicket) return failure;
+        var issues = failure.Issues.ToList();
+        if (issues.Any(i => i.Code == ErrorCode.E823))
+        {
+            await held.DiscardAsync(_bridge).ConfigureAwait(true);
+            return GraftResult<VbaRibbonRewriteOutcome>.Fail(issues.Select(i => i.Code == ErrorCode.E823
+                ? i with { Detail = (i.Detail ?? string.Empty) + " " + VbaRibbonRewriteText.ClosedLeftNote }
+                : i).ToList());
+        }
+
+        var report = await ReopenAsync(held).ConfigureAwait(true);
+        if (report is null) return failure;
+        if (report.Reopened)
+        {
+            issues = issues.Select((i, n) => n == 0 ? i with { Detail = (i.Detail ?? string.Empty) + " " + VbaRibbonRewriteText.ReopenedNote } : i).ToList();
+        }
+        else
+        {
+            issues.AddRange(report.Issues);
+        }
+
+        return GraftResult<VbaRibbonRewriteOutcome>.Fail(issues);
+    }
+
     private async Task<GraftResult<VbaRibbonRewriteOutcome>> RewriteStagesAsync(
-        Project project, VbaLink link, VbaRibbonRewritePlan plan, VbaRibbonRewriteJob job, Stopwatch watch)
+        Project project, VbaLink link, VbaRibbonRewritePlan plan, VbaRibbonRewriteJob job, Stopwatch watch, ReopenHolder held)
     {
         var file = plan.WorkbookPath;
         var name = plan.WorkbookName;
         var backupPath = job.BackupPath!;
 
         // 段階 7・8: 排他で開き、そのストリームから控えを写して照合する。
-        var backup = await BackupAsync(file, backupPath).ConfigureAwait(true);
+        Progress?.Invoke(VbaRibbonRewriteText.ProgressBackup);
+        var backup = await BackupAsync(file, backupPath, afterExcelClose: held.HasTicket).ConfigureAwait(true);
         if (!backup.IsSuccess)
         {
             DeleteJob(project.Id);
@@ -464,6 +661,7 @@ public sealed partial class VbaRibbonSyncService
         job = job with { Stage = VbaRibbonRewriteStage.Replacing };
         await WriteJobOrThrowAsync(job).ConfigureAwait(true);
 
+        Progress?.Invoke(VbaRibbonRewriteText.ProgressRewrite);
         var requests = plan.Targets.Select(t => new VbaRibbonWriteRequest(t.Format, t.Xml)).ToList();
         var tempPath = job.TempPath!;
         var replace = Io.Replace;
@@ -513,6 +711,11 @@ public sealed partial class VbaRibbonSyncService
                 path: file, severity: Severity.Warning));
         }
 
+        // 段階 13: 開き直す（閉じたときだけ。16.5 の表の順で、後始末の前）。開き直せなくても書き換えは済んでいるので、E822（警告）を
+        // 添えた成功にする（「Excel で開く」を案内する）。
+        var report = await ReopenAsync(held).ConfigureAwait(true);
+        if (report is { Reopened: false }) issues.AddRange(report.Issues);
+
         // 段階 14: 後始末（作業の記録を消す・控えの掃除）。掃除の失敗は警告だけ。
         DeleteJob(project.Id);
         if (PruneBackups(plan.BackupDirectory) is { } pruneIssue) issues.Add(pruneIssue);
@@ -520,12 +723,22 @@ public sealed partial class VbaRibbonSyncService
         Logger?.Info("vba-ribbon",
             $"リボンをブックへ書き換えました（{name}・{string.Join("、", written.Parts.Select(p => p.PartName + (p.AddedRelationship ? "（新規）" : string.Empty)))}・控え {VbaRibbonRewriteText.FileNameOf(backupPath)}）。",
             targetPath: file, durationMs: watch.ElapsedMilliseconds);
-        var outcome = new VbaRibbonRewriteOutcome(file, backupPath, plan.Targets.Select(t => t.MirrorPath).ToList(), written.Parts.Any(p => p.AddedRelationship));
+        var outcome = new VbaRibbonRewriteOutcome(
+            file, backupPath, plan.Targets.Select(t => t.MirrorPath).ToList(), written.Parts.Any(p => p.AddedRelationship),
+            WasOpen: plan.IsOpen, Reopened: report?.Reopened == true);
         return GraftResult<VbaRibbonRewriteOutcome>.Ok(outcome, issues);
     }
 
     /// <summary>
-    /// 確認のあいだに、ミラーのファイル・ブックが変わっていないか・Excel で開かれていないかを確かめる（変わっていれば止める問題）。
+    /// 確認のあいだに、ミラーのファイル・ブックが変わっていないか・Excel での状態が変わっていないかを確かめる（変わっていれば止める問題）。
+    /// <list type="bullet">
+    /// <item>Excel で開いている／いないが計画のときと違う（確認のあいだに開かれた・閉じられた）: 確認したのと違う経路になるので止める。</item>
+    /// <item>止めるブックになった（読み取り専用で開き直された・マクロが走り始めた、など）: 止める（E819・E813）。</item>
+    /// <item>計画のときは未保存なしだったのに、いまは未保存がある: 確認の文面に「未保存の変更も保存されます」が無かったので、
+    /// 確認し直す（利用者の決定「未保存の変更があれば止める」）。</item>
+    /// <item>開いているブックの大きさ・更新日時は見ない（このあと Graft が保存するので、変わって当然。控えを取る段階 9 で、控えを
+    /// 取ったときから変わっていないことを確かめる）。</item>
+    /// </list>
     /// </summary>
     private async Task<GraftIssue?> CheckUnchangedSincePlanAsync(Project project, VbaLink link, VbaRibbonRewritePlan plan, CancellationToken ct)
     {
@@ -541,7 +754,28 @@ public sealed partial class VbaRibbonSyncService
             }
         }
 
-        if (await CheckOpenAsync(link.WorkbookFullName, ct).ConfigureAwait(true) is { } openIssue) return openIssue;
+        var open = await InspectOpenStateAsync(link.WorkbookFullName, ct).ConfigureAwait(true);
+        if (open.Stop is { } stop) return stop[0];
+        if (open.State.IsOpen != plan.IsOpen)
+        {
+            return GraftIssue.Of(ErrorCode.E821,
+                $"確認のあいだに「{plan.WorkbookName}」が Excel で{(open.State.IsOpen ? "開かれた" : "閉じられた")}ため、確認した内容と変わってしまうので、書き換えませんでした。ブックは変えていません。もう一度「リボンをブックへ反映…」を選んでください。",
+                path: plan.WorkbookPath);
+        }
+
+        if (open.State.IsOpen)
+        {
+            if (!plan.HasUnsavedChanges && !open.State.Saved)
+            {
+                return GraftIssue.Of(ErrorCode.E821,
+                    $"確認のあいだに「{plan.WorkbookName}」に保存していない変更ができたため、書き換えませんでした（確認では「未保存の変更なし」でした）。ブックは変えていません。もう一度「リボンをブックへ反映…」を選んでください。",
+                    path: plan.WorkbookPath);
+            }
+
+            return File.Exists(plan.WorkbookPath)
+                ? null
+                : GraftIssue.Of(ErrorCode.E821, $"「{plan.WorkbookName}」のファイルが見つかりません。ブックは変えていません。", path: plan.WorkbookPath);
+        }
 
         var info = new FileInfo(plan.WorkbookPath);
         if (!info.Exists)
@@ -563,10 +797,10 @@ public sealed partial class VbaRibbonSyncService
     /// 写しながら元の SHA-256 を取り、書いた控えを読み直した SHA-256 と比べる。控えを書けない・照合が合わないときは、作りかけを消して
     /// E816（書き換えない）。
     /// </summary>
-    private async Task<GraftResult<BackupInfo>> BackupAsync(string file, string backupPath)
+    private async Task<GraftResult<BackupInfo>> BackupAsync(string file, string backupPath, bool afterExcelClose)
     {
         var name = VbaRibbonRewriteText.FileNameOf(file);
-        var source = await OpenExclusiveAsync(file).ConfigureAwait(true);
+        var source = await OpenExclusiveAsync(file, afterExcelClose).ConfigureAwait(true);
         if (!source.IsSuccess) return GraftResult<BackupInfo>.Fail(source.Issues);
 
         string sourceHash;
@@ -628,9 +862,11 @@ public sealed partial class VbaRibbonSyncService
     /// 段階 7: ブックを <see cref="FileShare.None"/> で開けるまで待つ（最大 <see cref="VbaRibbonRewriteIo.ExclusiveTimeout"/>、
     /// <see cref="VbaRibbonRewriteIo.ExclusiveInterval"/> 間隔）。開けなければ E821（使用中。<c>~$</c> の所有者ファイルがあれば添える）。
     /// </summary>
-    private async Task<GraftResult<FileStream>> OpenExclusiveAsync(string file)
+    private async Task<GraftResult<FileStream>> OpenExclusiveAsync(string file, bool afterExcelClose)
     {
         var name = VbaRibbonRewriteText.FileNameOf(file);
+        // Graft が Excel で閉じた直後は、別の上限（実機検証 12 で見直す。VbaRibbonRewriteTimings）。
+        var limit = afterExcelClose ? Io.ExclusiveTimeoutAfterExcelClose : Io.ExclusiveTimeout;
         var deadline = Stopwatch.StartNew();
         while (true)
         {
@@ -651,7 +887,7 @@ public sealed partial class VbaRibbonSyncService
                 return GraftResult<FileStream>.Fail(ErrorCode.E821,
                     $"「{name}」を開く権限がありません（{ExceptionMessages.Describe(ex)}）。ブックは変えていません。", path: file);
             }
-            catch (IOException) when (deadline.Elapsed < Io.ExclusiveTimeout)
+            catch (IOException) when (deadline.Elapsed < limit)
             {
                 await Task.Delay(Io.ExclusiveInterval).ConfigureAwait(true);
             }
@@ -660,7 +896,7 @@ public sealed partial class VbaRibbonSyncService
                 var owner = OwnerFileExists(file)
                     ? $"（同じフォルダに Excel の所有者ファイル「~${name}」があります。別の Excel や別の PC で開いていないか確かめてください）"
                     : string.Empty;
-                Logger?.Warn("vba-ribbon", $"ブックを排他で開けませんでした（{Io.ExclusiveTimeout.TotalSeconds:0} 秒待ちました）。", targetPath: file);
+                Logger?.Warn("vba-ribbon", $"ブックを排他で開けませんでした（{limit.TotalSeconds:0} 秒待ちました。{(afterExcelClose ? "Excel で閉じた直後" : "Excel では開いていなかったブック")}）。", targetPath: file);
                 return GraftResult<FileStream>.Fail(ErrorCode.E821,
                     $"「{name}」をほかのプログラムが使っているため、書き換えませんでした{owner}。使っているプログラム（別の Excel・同期ソフト・ウイルス対策ソフトなど）を閉じてから、もう一度お試しください。ブックは変えていません。",
                     path: file);

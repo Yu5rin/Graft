@@ -32,11 +32,17 @@ internal sealed class VbaRibbonRewriteIo
     /// <summary>一時ファイルでブックを置き換える（<see cref="VbaRibbonPackageWriter.ReplaceFile"/>）。控えから戻すときも使う。</summary>
     public Action<string, string> Replace { get; set; } = VbaRibbonPackageWriter.ReplaceFile;
 
-    /// <summary>排他で開けるまで待つ上限（16.5 の段階 7。Excel が閉じた直後はハンドルが残ることがある見込み。<b>実機で要確認</b>）。</summary>
-    public TimeSpan ExclusiveTimeout { get; set; } = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// 排他で開けるまで待つ上限（16.5 の段階 7。Excel で開いていなかったブック）。既定値は <see cref="VbaRibbonRewriteTimings"/>
+    /// （実機検証 12 で見直す値の置き場）。
+    /// </summary>
+    public TimeSpan ExclusiveTimeout { get; set; } = VbaRibbonRewriteTimings.ExclusiveTimeout;
+
+    /// <summary>Graft が Excel でブックを閉じた直後の、排他で開けるまで待つ上限（16.6。<b>実機で要確認</b>）。</summary>
+    public TimeSpan ExclusiveTimeoutAfterExcelClose { get; set; } = VbaRibbonRewriteTimings.ExclusiveTimeoutAfterExcelClose;
 
     /// <summary>排他で開き直す間隔。</summary>
-    public TimeSpan ExclusiveInterval { get; set; } = TimeSpan.FromMilliseconds(200);
+    public TimeSpan ExclusiveInterval { get; set; } = VbaRibbonRewriteTimings.ExclusiveInterval;
 
     private static long? DefaultFreeSpace(string directory)
     {

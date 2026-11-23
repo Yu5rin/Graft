@@ -20,7 +20,7 @@ namespace Graft.Tests.Vba;
 /// ブックを Excel の代役（<see cref="FakeVbaBridge"/>）で開いてミラーを作り、取り込んだあと、代役から閉じて「開いていないブック」にする。
 /// </para>
 /// </summary>
-public sealed class VbaRibbonRewriteServiceTests : IDisposable
+public sealed partial class VbaRibbonRewriteServiceTests : IDisposable
 {
     private const string Ribbon14 = "CustomUI/customUI14.xml";
     private const string Ribbon12 = "CustomUI/customUI.xml";
@@ -57,6 +57,7 @@ public sealed class VbaRibbonRewriteServiceTests : IDisposable
         service.Ribbon.PackageReader = path => VbaRibbonPackageReader.Read(path);
         // 排他で開く待ちは、テストでは短くする（本番は 10 秒）。
         service.Ribbon.Io.ExclusiveTimeout = TimeSpan.FromMilliseconds(150);
+        service.Ribbon.Io.ExclusiveTimeoutAfterExcelClose = TimeSpan.FromMilliseconds(150);
         service.Ribbon.Io.ExclusiveInterval = TimeSpan.FromMilliseconds(20);
         return service;
     }
@@ -283,24 +284,7 @@ public sealed class VbaRibbonRewriteServiceTests : IDisposable
         plan.Warnings.Should().OnlyContain(w => w.Finding.Severity == Severity.Warning);
     }
 
-    [Fact(DisplayName = "Excel で開いているブック: F3 では書き換えず「Excel でブックを閉じてから」と案内して止める（E819）")]
-    public async Task 開いているブックは止める()
-    {
-        var original = await ArrangeAsync(book14: XmlA);
-        WriteMirror(Ribbon14, XmlB);
-        _bridge.AddWorkbook(_book);
-
-        var prepared = await Ribbon.PrepareRewriteAsync(Project);
-
-        prepared.IsSuccess.Should().BeFalse();
-        var issue = prepared.Issues.Should().ContainSingle().Subject;
-        issue.Code.Should().Be(ErrorCode.E819);
-        issue.Detail.Should().Contain("Excel でブックを閉じてから").And.NotContain("F4");
-        BookShouldBeUnchanged(original, "開いているブックには触れない");
-        BackupFiles().Should().BeEmpty();
-    }
-
-    [Fact(DisplayName = "確認のあいだに Excel で開かれた: 書き換えの直前に止める（E819）")]
+    [Fact(DisplayName = "確認のあいだに Excel で開かれた: 確認した経路（開いていない）と違うので、書き換えの直前に止める（E821）")]
     public async Task 確認のあいだに開かれた()
     {
         var original = await ArrangeAsync(book14: XmlA);
@@ -310,8 +294,9 @@ public sealed class VbaRibbonRewriteServiceTests : IDisposable
 
         var result = await Ribbon.RewriteAsync(Project, plan);
 
-        result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E819);
-        BookShouldBeUnchanged(original, "開かれたら書かない");
+        result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E821 && i.Detail!.Contains("開かれた", StringComparison.Ordinal));
+        BookShouldBeUnchanged(original, "経路が変わったら書かない");
+        _bridge.Calls.Should().NotContain(c => c.StartsWith("SaveClose", StringComparison.Ordinal), "閉じない");
         BackupFiles().Should().BeEmpty();
         NothingLeftBehind();
     }
@@ -664,8 +649,8 @@ public sealed class VbaRibbonRewriteServiceTests : IDisposable
         release.SetResult();
         await push;
         var result = await rewrite;
-        // 反映のあいだブックは Excel で開いているので、書き換えは開いているブックとして止まる（順番が守られた証拠でもある）。
-        result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E819);
+        // 反映のあいだブックは Excel で開いているので、計画（開いていない）とは違う経路になり、止まる（順番が守られた証拠でもある）。
+        result.Issues.Should().ContainSingle(i => i.Code == ErrorCode.E821 && i.Detail!.Contains("開かれた", StringComparison.Ordinal));
     }
 
     [Fact(DisplayName = "手動の「リボンの XML を検査」: エラー・警告を一覧にするだけで、何も書かない")]
