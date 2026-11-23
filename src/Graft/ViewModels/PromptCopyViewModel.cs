@@ -335,6 +335,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         FocusText = Context.BuildFocusText(),
         WorkbookInfoText = Context.BuildWorkbookInfoText(),
         RibbonText = Context.BuildRibbonText(),
+        RibbonTextFor = Context.BuildRibbonTextFor(),
     };
 
     private async Task<string?> GetLastRevisionSummaryAsync()

@@ -87,7 +87,19 @@ public sealed class PromptTemplateRenderer
         var newLine = body.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
         var paragraphBreak = newLine + newLine;
         var workbookBlock = AsBlock(request.WorkbookInfoText, newLine);
-        var ribbonBlock = AsBlock(request.RibbonText, newLine);
+        // リボンの文（仕様書16.14）: ミラーの CustomUI/*.xml を読んだ文で、そのファイルが {{files}}（または自動付加の「# 対象ファイル」）に
+        // 内容つきで載るなら、XML の全文は対象ファイルの側にだけ出す。どのファイルが載るかを先に求める（RibbonTextFor が無い、つまり
+        // ブックから読んだリボン・リボンが無いときは何もしない。出力も走査の回数も従来と同じ）。
+        var ribbonText = request.RibbonText;
+        if (request.RibbonTextFor is not null)
+        {
+            var filesWithContent = hasFilesVariable || appendFilesIfAbsent
+                ? await _collector.ResolveContentPathsAsync(request, ct).ConfigureAwait(false)
+                : new HashSet<string>();
+            ribbonText = request.RibbonTextWith(filesWithContent);
+        }
+
+        var ribbonBlock = AsBlock(ribbonText, newLine);
         var focusBlock = AsBlock(request.FocusText, newLine);
         var hasFocusVariable = body.Contains(FocusVariable, StringComparison.Ordinal);
         var hasWorkbookVariable = body.Contains(WorkbookVariable, StringComparison.Ordinal);

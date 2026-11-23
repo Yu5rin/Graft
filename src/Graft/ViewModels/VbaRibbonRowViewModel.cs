@@ -21,7 +21,14 @@ public sealed class VbaRibbonRowViewModel : ObservableObject
     /// </summary>
     public const string SavedContentNote = "読むのは最後に保存した内容です（Excel で編集中の、まだ保存していない変更は含まれません）。";
 
+    /// <summary>
+    /// ミラーのリボンのファイルを読んでいるときの注意（仕様書_ブックの情報と依頼の観点 16.14。16.13 の UI の表の「行の出どころの表示」）。
+    /// AI がパッチを書く相手と、ここに出る内容が同じであることを伝える。ブックへの反映の状態は、行の 1 行（<see cref="StatusText"/>）に出す。
+    /// </summary>
+    public const string MirrorContentNote = "読むのは Graft のミラーのファイル（CustomUI/）です。AI が直すのも、このファイルです。";
+
     private VbaWorkbookInfoLevel _level = VbaWorkbookInfoLevel.Full;
+    private bool _isFromMirror;
     private bool _isVisible;
     private string _statusText = string.Empty;
     private string _callbackText = string.Empty;
@@ -86,8 +93,19 @@ public sealed class VbaRibbonRowViewModel : ObservableObject
     /// <summary>「最後に保存した内容」の注意を出すか（行が出ていて、「出さない」でないとき）。</summary>
     public bool ShowNote => _isVisible && _level != VbaWorkbookInfoLevel.Hidden;
 
-    /// <summary>注意の文（<see cref="SavedContentNote"/>）。</summary>
-    public string NoteText => SavedContentNote;
+    /// <summary>注意の文（ブックから読むときは <see cref="SavedContentNote"/>、ミラーから読むときは <see cref="MirrorContentNote"/>）。</summary>
+    public string NoteText => _isFromMirror ? MirrorContentNote : SavedContentNote;
+
+    /// <summary>直近の取得が、ミラーのファイルから読んだものか（16.14。注意の文を切り替える）。</summary>
+    public bool IsFromMirror
+    {
+        get => _isFromMirror;
+        internal set
+        {
+            if (!SetProperty(ref _isFromMirror, value)) return;
+            OnPropertyChanged(nameof(NoteText));
+        }
+    }
 
     /// <summary>取得日時・ファイルの更新日時・読めなかった理由（1 行）。</summary>
     public string StatusText

@@ -59,7 +59,14 @@ public static class VbaRibbonFormatter
     /// <param name="snapshot">取得結果。</param>
     /// <param name="level">出し方の 3 状態。</param>
     /// <param name="maxXmlChars">XML の全文を載せる最大文字数（<c>Vba.RibbonMaxChars</c>）。複数の部品があれば合計で数える。</param>
-    public static string Format(VbaRibbonSnapshot snapshot, VbaWorkbookInfoLevel level, int maxXmlChars)
+    /// <param name="filesWithContent">
+    /// 同じ依頼文の「# 対象ファイル」に、内容つきで載るファイルの相対パス（仕様書_ブックの情報と依頼の観点 16.14）。ミラーから読んだ
+    /// 取得結果で、部品（＝ミラーのファイル）がここに入っていれば、XML の全文は書かず「対象ファイルの … にあります。」の 1 行にする
+    /// （同じ XML を 2 回出すと、AI がどちらを直せばよいか迷い、パスの無い XML へパッチを書くため）。ブックから読んだ取得結果では
+    /// 見ない（ブックの部品は対象ファイルにならない）。null（既定）は「載らない」。
+    /// </param>
+    public static string Format(
+        VbaRibbonSnapshot snapshot, VbaWorkbookInfoLevel level, int maxXmlChars, IReadOnlySet<string>? filesWithContent = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (level == VbaWorkbookInfoLevel.Hidden || !snapshot.HasContent) return string.Empty;
@@ -68,7 +75,18 @@ public static class VbaRibbonFormatter
         var sb = new StringBuilder();
         sb.Append(Heading).Append('\n').Append('\n');
         sb.Append("- ブック: ").Append(VbaRibbonText.OneLine(snapshot.WorkbookName)).Append('\n');
-        sb.Append("- 読んだもの: **最後に保存したときのファイルの内容**です（Excel で開いて編集中の、まだ保存していない変更は含まれません）。").Append('\n');
+        if (snapshot.IsFromMirror)
+        {
+            // ミラーから読んだ（16.14）。AI がパッチを書く相手はこのファイルなので、そう明記し、ブックへの反映の状態を添える。
+            sb.Append("- 読んだもの: **Graft のミラーのファイル（")
+              .Append(string.Join("・", usable.Select(p => VbaRibbonText.OneLine(p.Raw.PartName))))
+              .Append("）の内容**です。").Append(snapshot.PushedSentence()).Append('\n');
+        }
+        else
+        {
+            sb.Append("- 読んだもの: **最後に保存したときのファイルの内容**です（Excel で開いて編集中の、まだ保存していない変更は含まれません）。").Append('\n');
+        }
+
         sb.Append("- 取得: ").Append(Stamp(snapshot.ReadAt))
           .Append(" ／ ファイルの更新: ").Append(snapshot.FileModified is { } m ? Stamp(m) : "不明").Append('\n');
         sb.Append("- 部品: ").Append(string.Join("、", usable.Select(p => $"{VbaRibbonText.OneLine(p.Raw.PartName)}（{(p.Raw.IsOffice2010Format ? "新しい形式" : "古い形式")}）"))).Append('\n');
@@ -95,7 +113,10 @@ public static class VbaRibbonFormatter
 
         AppendCallbacks(sb, snapshot.Callbacks);
 
-        if (level == VbaWorkbookInfoLevel.Full) AppendXml(sb, usable, maxXmlChars);
+        if (level == VbaWorkbookInfoLevel.Full)
+        {
+            AppendXml(sb, usable, maxXmlChars, snapshot.IsFromMirror ? filesWithContent : null);
+        }
 
         return sb.ToString().TrimEnd('\n') + "\n";
     }
@@ -159,12 +180,21 @@ public static class VbaRibbonFormatter
         sb.Append('\n');
     }
 
-    private static void AppendXml(StringBuilder sb, IReadOnlyList<VbaRibbonPart> parts, int maxChars)
+    private static void AppendXml(StringBuilder sb, IReadOnlyList<VbaRibbonPart> parts, int maxChars, IReadOnlySet<string>? filesWithContent)
     {
         sb.Append("## XML").Append('\n').Append('\n');
         var remaining = maxChars <= 0 ? int.MaxValue : maxChars;
         foreach (var part in parts.Where(p => p.Raw.Xml is not null))
         {
+            if (filesWithContent is not null && filesWithContent.Contains(part.Raw.PartName))
+            {
+                // 対象ファイルとして全文が載る（16.14）。ここには場所だけを書き、文字数の上限（Vba.RibbonMaxChars）も使わない
+                // （対象ファイルとして載るときは、ほかのファイルと同じ扱い）。
+                sb.Append("XML の全文は、対象ファイルの `").Append(VbaRibbonText.OneLine(part.Raw.PartName)).Append("` にあります。")
+                  .Append('\n').Append('\n');
+                continue;
+            }
+
             var xml = (part.Raw.Xml ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd('\n');
             sb.Append("### ").Append(VbaRibbonText.OneLine(part.Raw.PartName)).Append('\n').Append('\n');
             if (remaining <= 0)

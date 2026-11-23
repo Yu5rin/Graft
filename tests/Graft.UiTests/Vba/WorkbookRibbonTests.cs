@@ -15,6 +15,12 @@ namespace Graft.UiTests.Vba;
 /// 一時ファイルに組み立てた小さな .xlsm 相当の zip を、実際の起動と同じ依存グラフ（<see cref="ShellHarness"/>）で読み、
 /// 依頼文とコンテキスト収集の出力への差し込み・3 状態・記憶・取得の契機・読めないときの扱い・同一性を確かめる。
 /// Excel（COM）は <see cref="FakeVbaBridge"/>。ブックの「ファイル」だけは <see cref="VbaP3Rig.RibbonFile"/> で一時ファイルを指す。
+/// <para>
+/// 【リボンの書き換え（機能 F）はオフにして確かめる】 機能 F の段階 F2 から、取込でミラーに <c>CustomUI/*.xml</c> ができ、行はミラーの
+/// ファイルを読む（16.14）。この章（15 章）の動き（ブックのファイルを読む）は、ミラーにリボンのファイルが無いとき
+/// （customUI の無いブック・<c>Vba.RibbonEditEnabled</c> がオフ・まだ取り込んでいない）にそのまま残る。ここでは設定をオフにして、
+/// 15 章の動きが変わらないことを固定する。ミラーから読む動きは <see cref="WorkbookRibbonMirrorTests"/>。
+/// </para>
 /// </summary>
 public class WorkbookRibbonTests : IDisposable
 {
@@ -50,8 +56,9 @@ public class WorkbookRibbonTests : IDisposable
     /// <summary>Module1 に、リボンのコールバックの一部（OnRun は Public、GetEnabled は Private）を持つミラーを用意したリグ。</summary>
     private async Task<VbaP3Rig> NewRigAsync(string? ribbonFile, Settings? settings = null)
     {
+        settings ??= new Settings { ShowPreview = false };
         var rig = await VbaP3Rig.CreateAsync(
-            settings ?? new Settings { ShowPreview = false },
+            settings with { Vba = settings.Vba with { RibbonEditEnabled = false } },
             arrange: bridge =>
             {
                 var book = bridge.Get(VbaP3Rig.Book)!;

@@ -106,13 +106,19 @@ public sealed partial class MainViewModel
         var current = CurrentVbaProject(project);
         if (!IsVbaActive(current) || !_settings.Vba.CollectWorkbookInfo) return null;
 
-        var snapshot = await VbaRibbonReader(current.Vba!.WorkbookFullName, current.Root, ct).ConfigureAwait(true);
+        // 【ミラーにリボンのファイルがあれば、そちらを読む】 仕様書 16.14。機能 F でミラーに CustomUI/*.xml ができると、AI がパッチを
+        // 書く相手はミラーのファイルになる。依頼文に出す XML をブックから読むと、未反映のあいだ古い XML を見せてしまう。
+        // ミラーに無い（customUI の無いブック・設定 Vba.RibbonEditEnabled がオフ・まだ取り込んでいない）ときは、15 章のままブックを読む。
+        var mirrorFiles = await VbaSync.Ribbon.ReadForContextAsync(current, ct).ConfigureAwait(true);
+        var snapshot = mirrorFiles is { Count: > 0 }
+            ? await VbaRibbonCollector.CollectFromMirrorAsync(current.Vba!.WorkbookFullName, current.Root, mirrorFiles, null, ct).ConfigureAwait(true)
+            : await VbaRibbonReader(current.Vba!.WorkbookFullName, current.Root, ct).ConfigureAwait(true);
 
         // ログには事実だけを残す。XML の中身・label はログに書かない（業務名を含みうるため。仕様書14章）。
         Logger?.Info(
             "vba-ribbon",
             snapshot.Status == VbaRibbonReadStatus.Ok
-                ? $"リボン（customUI）を読みました（部品 {snapshot.Parts.Count} 件、コールバック {snapshot.Callbacks.Count} 件）。"
+                ? $"リボン（customUI）を{(snapshot.IsFromMirror ? "ミラーのファイルから" : string.Empty)}読みました（部品 {snapshot.Parts.Count} 件、コールバック {snapshot.Callbacks.Count} 件）。"
                 : $"リボン（customUI）は読んでいません（{snapshot.Status}）。",
             targetPath: current.Root);
         return snapshot;
