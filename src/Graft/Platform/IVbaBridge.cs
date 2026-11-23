@@ -55,6 +55,43 @@ public interface IVbaBridge : IPlatformService
     /// </summary>
     Task<GraftResult<VbaWorkbookInfoSnapshot>> ReadWorkbookInfoAsync(
         string workbookFullName, VbaWorkbookInfoOptions options, CancellationToken ct = default);
+
+    // ------------------------------------------------------------------
+    // リボンの書き換えのための閉じ開き（仕様書_ブックの情報と依頼の観点 16.6。段階 F4）
+    //
+    // 【1 つのメソッドにまとめず分ける理由】 あいだのファイルの書き換え（控え・差し替え・照合）を COM の専用スレッドの外で行い、
+    // COM の時間切れ（スレッドの作り直し）と切り離すため。閉じてから開き直すまでのあいだ、Excel の Application の参照は
+    // ブリッジの中に持ち、券（VbaWorkbookReopenTicket）で結ぶ。券は ReopenWorkbookAsync か DiscardReopenTicketAsync に
+    // 必ず 1 回渡す（渡し忘れると、Excel のプロセスが Graft の終了まで残る）。
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 書き換えの前に、ブックが Excel で開いているか・止めるブックか（<see cref="VbaWorkbookRewriteGuard"/> の材料）を読む。何も変えない。
+    /// 開いていなければ <see cref="VbaWorkbookRewriteState.NotOpen"/> を成功で返す（Excel が起動していないときも同じ）。
+    /// 開いていて応答しないときは E805、通信できないときは E801。
+    /// </summary>
+    Task<GraftResult<VbaWorkbookRewriteState>> InspectWorkbookForRewriteAsync(string workbookFullName, CancellationToken ct = default);
+
+    /// <summary>
+    /// 表示の状態を控え、<c>Workbook.Save()</c>（<c>Saved</c> に関係なく必ず）→ <c>Workbook.Close(SaveChanges: false)</c> → 閉じたことの確認、
+    /// を行う（16.6「保存して閉じる」）。閉じる直前にも止めるブックの判定と <c>VBProject.Mode</c> を見直す（E819・E813）。
+    /// 保存・閉じるに失敗した・<c>Workbook_BeforeClose</c> が取り消した・閉じたのに残っている、は E820（ファイルは変えていない）。
+    /// 時間切れの上限は <c>Vba.WorkbookSaveOpenTimeoutMs</c>（E805）。<b>時間切れのあとでも Excel 側で遅れて完了しうる</b>ので、呼び出し側は
+    /// <see cref="InspectWorkbookForRewriteAsync"/> で状態を取り直すこと（時間切れ ＝ 行われなかった、と決めつけない）。
+    /// </summary>
+    Task<GraftResult<VbaWorkbookReopenTicket>> SaveAndCloseWorkbookAsync(string workbookFullName, CancellationToken ct = default);
+
+    /// <summary>
+    /// 券の <c>Application</c>（閉じたのと同じ Excel）で <c>Workbooks.Open(Filename)</c> し、見た目を戻す（16.6「開き直す」）。
+    /// 券は成功・失敗・時間切れのどれでも捨てる。失敗は E822（Excel が終了していた・開けなかった・時間切れ）。
+    /// </summary>
+    Task<GraftResult<VbaWorkbookReopenOutcome>> ReopenWorkbookAsync(VbaWorkbookReopenTicket ticket, CancellationToken ct = default);
+
+    /// <summary>
+    /// 開き直さずに券を捨てる（控えから戻せなかった E823 のとき。壊れているかもしれないブックを開いてマクロを動かさないため）。
+    /// 知らない券・捨て済みの券は何もしない。
+    /// </summary>
+    Task DiscardReopenTicketAsync(VbaWorkbookReopenTicket ticket);
 }
 
 /// <summary>起動中のブック1件。選べない場合は <see cref="Availability"/> と <see cref="UnavailableReason"/> に理由が入る。</summary>
@@ -194,4 +231,10 @@ public interface IVbaBridgeTimeouts
 {
     /// <summary>設定を反映する。範囲の検証は <c>SettingsStore</c> が済ませている前提。</summary>
     void Configure(int comTimeoutMs, int callTimeoutMs);
+
+    /// <summary>
+    /// ブックの保存・開き直しだけに使う時間切れ（<c>Vba.WorkbookSaveOpenTimeoutMs</c>。仕様書_ブックの情報と依頼の観点 16.6）。
+    /// 大きなブックの保存・開き直しは、ほかの呼び出しの上限（<c>Vba.CallTimeoutMs</c>）を超えうるので別にする。
+    /// </summary>
+    void ConfigureWorkbookSaveOpen(int saveOpenTimeoutMs);
 }

@@ -42,4 +42,16 @@ public sealed class NullVbaBridge : IVbaBridge
     public Task<GraftResult<VbaWorkbookInfoSnapshot>> ReadWorkbookInfoAsync(
         string workbookFullName, VbaWorkbookInfoOptions options, CancellationToken ct = default)
         => Task.FromResult(GraftResult<VbaWorkbookInfoSnapshot>.Fail(ErrorCode.E706, Reason));
+
+    public Task<GraftResult<VbaWorkbookRewriteState>> InspectWorkbookForRewriteAsync(string workbookFullName, CancellationToken ct = default)
+        => Task.FromResult(GraftResult<VbaWorkbookRewriteState>.Fail(ErrorCode.E706, Reason));
+
+    public Task<GraftResult<VbaWorkbookReopenTicket>> SaveAndCloseWorkbookAsync(string workbookFullName, CancellationToken ct = default)
+        => Task.FromResult(GraftResult<VbaWorkbookReopenTicket>.Fail(ErrorCode.E706, Reason));
+
+    public Task<GraftResult<VbaWorkbookReopenOutcome>> ReopenWorkbookAsync(VbaWorkbookReopenTicket ticket, CancellationToken ct = default)
+        => Task.FromResult(GraftResult<VbaWorkbookReopenOutcome>.Fail(ErrorCode.E706, Reason));
+
+    // 券を出さない実装なので、捨てるものも無い。
+    public Task DiscardReopenTicketAsync(VbaWorkbookReopenTicket ticket) => Task.CompletedTask;
 }

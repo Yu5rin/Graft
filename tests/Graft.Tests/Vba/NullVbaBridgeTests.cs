@@ -47,6 +47,24 @@ public class NullVbaBridgeTests
             .Should().AllBeEquivalentTo(false);
     }
 
+    [Fact(DisplayName = "リボンの閉じ開きの 3 メソッド（段階 F4）も例外を投げず E706 で失敗し、券を捨てる操作は何もしない")]
+    public async Task 閉じ開きの3メソッドもE706で失敗する()
+    {
+        IVbaBridge bridge = new NullVbaBridge();
+
+        var inspect = await bridge.InspectWorkbookForRewriteAsync(@"C:.xlsm");
+        var saveClose = await bridge.SaveAndCloseWorkbookAsync(@"C:.xlsm");
+        var reopen = await bridge.ReopenWorkbookAsync(new VbaWorkbookReopenTicket("t", @"C:.xlsm", new VbaWorkbookViewState()));
+        await bridge.DiscardReopenTicketAsync(new VbaWorkbookReopenTicket("t", @"C:.xlsm", new VbaWorkbookViewState()));
+
+        foreach (var issues in new[] { inspect.Issues, saveClose.Issues, reopen.Issues })
+        {
+            issues.Should().ContainSingle().Which.Code.Should().Be(ErrorCode.E706);
+        }
+
+        new[] { inspect.IsSuccess, saveClose.IsSuccess, reopen.IsSuccess }.Should().AllBeEquivalentTo(false);
+    }
+
     [Fact(DisplayName = "NullPlatformServices.Vba は NullVbaBridge で、DescribeEnvironment に Excel VBA連携 が含まれる")]
     public void NullPlatformServicesの配線()
     {

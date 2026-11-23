@@ -44,6 +44,34 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
         public int SaveCount { get; set; }
 
+        /// <summary><c>Workbook.Saved</c>（リボンの書き換えの確認の文面を変える。仕様書_ブックの情報と依頼の観点 16.9）。</summary>
+        public bool Saved { get; set; } = true;
+
+        /// <summary><c>Workbook.IsAddin</c>（開いているアドイン。16.6 の止めるブック）。</summary>
+        public bool IsAddin { get; set; }
+
+        /// <summary><c>Workbook.MultiUserEditing</c>（共有ブック）。</summary>
+        public bool MultiUserEditing { get; set; }
+
+        /// <summary><c>Workbook.AutoSaveOn</c>（自動保存）。</summary>
+        public bool AutoSaveOn { get; set; }
+
+        /// <summary>
+        /// <c>VBProject.Mode</c> を読めない（トラストセンター・ロックの再現。null を返す）。既定は読める（<see cref="DesignMode"/> から 2 か 0）。
+        /// </summary>
+        public bool ModeUnreadable { get; set; }
+
+        /// <summary>閉じる前の見た目（保存して閉じるときに券へ写し、開き直したら <see cref="RestoredView"/> に入る）。</summary>
+        public VbaWorkbookViewState View { get; set; } = new("Sheet1", VbaWorkbookViewRestore.Normal, 10, 20, 800, 600);
+
+        /// <summary>開き直したときに戻された見た目（まだ開き直していなければ null）。</summary>
+        public VbaWorkbookViewState? RestoredView { get; set; }
+
+        /// <summary>閉じた回数・開き直した回数。</summary>
+        public int CloseCount { get; set; }
+
+        public int ReopenCount { get; set; }
+
         /// <summary>
         /// <see cref="IVbaBridge.ReadWorkbookInfoAsync"/> が返す内容の元（ブックの情報。仕様書_ブックの情報と依頼の観点 5.5）。
         /// null なら、モジュール名だけを持つ空の構造を返す。各シートの <c>HeaderRow</c>・<c>SampleRows</c> は「シートの先頭の
@@ -91,7 +119,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
     public string? UnsupportedReason => IsSupported ? null : "Excel VBA 連携は、この環境では使えません。";
 
-    /// <summary>呼び出しの記録（<c>List</c>／<c>Read:パス</c>／<c>Write:パス:名前,名前</c>／<c>Save</c>／<c>Show</c>／<c>Activate</c>）。</summary>
+    /// <summary>呼び出しの記録（<c>List</c>／<c>Read:パス</c>／<c>Write:パス:名前,名前</c>／<c>Save</c>／<c>Show</c>／<c>Activate</c>／リボンの閉じ開きの <c>Inspect:パス</c>・<c>SaveClose:パス</c>・<c>Reopen:パス</c>・<c>Discard:パス</c>）。</summary>
     public List<string> Calls { get; } = new();
 
     /// <summary>ブックの情報の読み取り（<c>Info</c>）の呼び出しごとに受け取った <c>options</c> の記録。</summary>
@@ -148,6 +176,36 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     /// （貼り付け・取り消し・プロジェクト切り替えを受け付けないこと）を確かめるために、テストが Push を止めておく。
     /// </summary>
     public Func<Task>? BeforeWrite { get; set; }
+
+    // ------------------------------------------------------------------
+    // リボンの書き換えの閉じ開き（仕様書_ブックの情報と依頼の観点 16.6。段階 F4）の注入
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 保存して閉じるときに、閉じたブックのファイルへ手を加える処理（Excel の保存がファイルを変える再現。引数はブックの <c>FullName</c>）。
+    /// 本物の Excel は保存のたびにファイルを書き直すので、テストでは更新日時を進めたり、リボンの部品を変えたりする。
+    /// </summary>
+    public Action<string>? OnSaveAndClose { get; set; }
+
+    /// <summary><c>Workbook_BeforeClose</c> が <c>Cancel = True</c> にする再現（保存はされ、ブックは開いたまま。E820）。</summary>
+    public bool CloseCancelledByMacro { get; set; }
+
+    /// <summary>
+    /// 時間切れ（<c>HangOperations</c> に <c>SaveClose</c>／<c>Reopen</c>）のあとで、Excel 側が遅れて完了したことにする（利用者がダイアログに
+    /// 答えたあと）。true なら、時間切れを返す前に、閉じる・開くを済ませておく。
+    /// </summary>
+    public bool CompleteLateAfterHang { get; set; }
+
+    /// <summary>券の Excel が終了していた（開き直しで E822）。</summary>
+    public bool ExcelQuitBeforeReopen { get; set; }
+
+    /// <summary>出した券のうち、まだ開き直しも捨てもしていないもの（Id → 閉じたブック）。解放漏れの検査に使う。</summary>
+    public Dictionary<string, Workbook> HeldTickets { get; } = new(StringComparer.Ordinal);
+
+    /// <summary><see cref="ConfigureWorkbookSaveOpen"/> で受け取った保存・開き直しの時間切れ（既定 120 秒）。</summary>
+    public int SaveOpenTimeoutMs { get; private set; } = 120000;
+
+    public void ConfigureWorkbookSaveOpen(int saveOpenTimeoutMs) => SaveOpenTimeoutMs = saveOpenTimeoutMs;
 
     /// <summary><see cref="Configure"/> で受け取った呼び出し全体の時間切れ（既定 30 秒）。</summary>
     public int CallTimeoutMs { get; private set; } = 30000;
@@ -351,6 +409,102 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         var allSheets = source.AllSheets ?? source.Sheets.Select(sh => new VbaSheetIdentity(sh.Name, sh.CodeName)).ToArray();
         return GraftResult<VbaWorkbookInfoSnapshot>.Ok(
             source with { Sheets = sheets, Tables = tables, References = references, Omitted = omitted, AllSheets = allSheets });
+    }
+
+    public async Task<GraftResult<VbaWorkbookRewriteState>> InspectWorkbookForRewriteAsync(string workbookFullName, CancellationToken ct = default)
+    {
+        Calls.Add($"Inspect:{workbookFullName}");
+        var gate = await EnterAsync<VbaWorkbookRewriteState>("Inspect", ct).ConfigureAwait(false);
+        if (gate is not null) return gate;
+        return GraftResult<VbaWorkbookRewriteState>.Ok(
+            _workbooks.TryGetValue(workbookFullName, out var workbook) ? StateOf(workbook) : VbaWorkbookRewriteState.NotOpen);
+    }
+
+    /// <summary>本物のブリッジの <c>ReadRewriteState</c> の写し。</summary>
+    private static VbaWorkbookRewriteState StateOf(Workbook w) => new(
+        IsOpen: true, Saved: w.Saved, ReadOnly: w.IsReadOnly, IsAddin: w.IsAddin, MultiUserEditing: w.MultiUserEditing, AutoSaveOn: w.AutoSaveOn,
+        IsProtectedView: w.Availability == VbaWorkbookAvailability.ProtectedView,
+        IsUrlLocation: w.Availability == VbaWorkbookAvailability.UrlLocation || VbaRotNames.IsUrlLocation(w.FullName),
+        ProjectMode: w.ModeUnreadable ? null : (w.DesignMode ? VbaProjectState.ModeDesign : 0));
+
+    public async Task<GraftResult<VbaWorkbookReopenTicket>> SaveAndCloseWorkbookAsync(string workbookFullName, CancellationToken ct = default)
+    {
+        Calls.Add($"SaveClose:{workbookFullName}");
+        if (HangOperations.Contains("SaveClose"))
+        {
+            // 戻ってこない保存（ダイアログで止まった Excel）。時間切れを返す。遅れて完了するなら、本物と同じく券は誰にも渡らない
+            // （本物のブリッジは遅れて作られた券を自分で外す）ので、閉じるだけ済ませておく。
+            if (CompleteLateAfterHang && _workbooks.Remove(workbookFullName, out var late))
+            {
+                late.SaveCount++;
+                late.CloseCount++;
+                OnSaveAndClose?.Invoke(workbookFullName);
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(SaveOpenTimeoutMs, 50)), ct).ConfigureAwait(false);
+            return GraftResult<VbaWorkbookReopenTicket>.Fail(ErrorCode.E805, "ブックの保存と閉じる処理が時間内に終わりませんでした。");
+        }
+
+        var gate = await EnterAsync<VbaWorkbookReopenTicket>("SaveClose", ct).ConfigureAwait(false);
+        if (gate is not null) return gate;
+        if (!_workbooks.TryGetValue(workbookFullName, out var workbook))
+        {
+            return GraftResult<VbaWorkbookReopenTicket>.Fail(ErrorCode.E820, "閉じる前に Excel で開いていませんでした。");
+        }
+
+        // 本物と同じ最後の検査（止めるブック・マクロの実行中）。
+        if (VbaWorkbookRewriteGuard.Check(StateOf(workbook), workbookFullName) is { } stop) return GraftResult<VbaWorkbookReopenTicket>.Fail(stop);
+
+        workbook.SaveCount++;
+        workbook.Saved = true;
+        if (CloseCancelledByMacro)
+        {
+            return GraftResult<VbaWorkbookReopenTicket>.Fail(ErrorCode.E820,
+                "保存して閉じようとしましたが、ブックが開いたままです（Workbook_BeforeClose が閉じるのを取り消した見込み）。ブックのファイルは変えていません。");
+        }
+
+        _workbooks.Remove(workbookFullName);
+        workbook.CloseCount++;
+        OnSaveAndClose?.Invoke(workbookFullName);
+        var ticket = new VbaWorkbookReopenTicket(Guid.NewGuid().ToString("N"), workbookFullName, workbook.View);
+        HeldTickets[ticket.Id] = workbook;
+        return GraftResult<VbaWorkbookReopenTicket>.Ok(ticket);
+    }
+
+    public async Task<GraftResult<VbaWorkbookReopenOutcome>> ReopenWorkbookAsync(VbaWorkbookReopenTicket ticket, CancellationToken ct = default)
+    {
+        Calls.Add($"Reopen:{ticket.WorkbookFullName}");
+        // 券は成功・失敗・時間切れのどれでも捨てる（本物と同じ）。
+        var known = HeldTickets.Remove(ticket.Id, out var workbook);
+        if (HangOperations.Contains("Reopen"))
+        {
+            if (CompleteLateAfterHang && workbook is not null) Reopen(workbook, ticket);
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(SaveOpenTimeoutMs, 50)), ct).ConfigureAwait(false);
+            return GraftResult<VbaWorkbookReopenOutcome>.Fail(ErrorCode.E822,
+                "ブックを開き直す処理が時間内に終わりませんでした。Excel にダイアログが出ていないか確かめてください。");
+        }
+
+        var gate = await EnterAsync<VbaWorkbookReopenOutcome>("Reopen", ct).ConfigureAwait(false);
+        if (gate is not null) return gate;
+        if (!known || workbook is null) return GraftResult<VbaWorkbookReopenOutcome>.Fail(ErrorCode.E822, "閉じた Excel を覚えていません。");
+        if (ExcelQuitBeforeReopen) return GraftResult<VbaWorkbookReopenOutcome>.Fail(ErrorCode.E822, "Excel が終了していた見込みです。");
+
+        Reopen(workbook, ticket);
+        return GraftResult<VbaWorkbookReopenOutcome>.Ok(new VbaWorkbookReopenOutcome(true, Array.Empty<string>()));
+    }
+
+    private void Reopen(Workbook workbook, VbaWorkbookReopenTicket ticket)
+    {
+        _workbooks[workbook.FullName] = workbook;
+        workbook.ReopenCount++;
+        workbook.RestoredView = ticket.View;
+    }
+
+    public Task DiscardReopenTicketAsync(VbaWorkbookReopenTicket ticket)
+    {
+        Calls.Add($"Discard:{ticket.WorkbookFullName}");
+        HeldTickets.Remove(ticket.Id);
+        return Task.CompletedTask;
     }
 
     /// <summary>
