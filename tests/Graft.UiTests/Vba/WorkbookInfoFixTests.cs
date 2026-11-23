@@ -43,19 +43,19 @@ public class WorkbookInfoFixTests
         r.H.Clipboard.Text.Should().Contain("# ブックの情報", "前提: オフにする前は、取得した内容が入る");
     }
 
-    [AvaloniaFact(DisplayName = "不具合 1: 「数式も含める」をオフにしたあと取得に失敗しても、数式入りの見本は依頼文に出ない")]
+    [AvaloniaFact(DisplayName = "不具合 1: 「数式も含める」をオフにしたあと取得に失敗しても、数式入りの値は依頼文に出ない")]
     public async Task 不具合1_数式をオフにしたら取得失敗でも数式は出ない()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-        await context.SetWorkbookIncludeFormulasAsync(true).ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
+        await context.SetSheetIncludeFormulasAsync("Sheet1", true).ConfigureAwait(true);
         (await CollectedTextAsync(r).ConfigureAwait(true)).Should().Contain("=B2*C2 → 2500", "前提: 数式をオンにしている間は出る");
 
         // Excel を閉じて、取り直しが失敗する状態にしてから、数式をオフにする。
         r.Bridge.CloseWorkbook(VbaP3Rig.Book);
-        await context.SetWorkbookIncludeFormulasAsync(false).ConfigureAwait(true);
+        await context.SetSheetIncludeFormulasAsync("Sheet1", false).ConfigureAwait(true);
 
         context.WorkbookInfoWarning.Should().Contain("E804", "取り直しは失敗している");
         var text = await CollectedTextAsync(r).ConfigureAwait(true);
@@ -69,7 +69,7 @@ public class WorkbookInfoFixTests
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         await r.Graft.ContextCollect!.InitializeAsync().ConfigureAwait(true);
-        await r.Graft.ContextCollect!.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await r.Graft.ContextCollect!.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
         await PrimeQuickCopyAsync(r).ConfigureAwait(true);
 
         r.Graft.UpdateSettings(r.Graft.CurrentSettings with { Vba = r.Graft.CurrentSettings.Vba with { CollectWorkbookInfo = false } });
@@ -77,7 +77,7 @@ public class WorkbookInfoFixTests
 
         var text = r.H.Clipboard.Text!;
         text.Should().NotContain("# ブックの情報", "オフにしたのに古い内容が出続けるのは意図に反する");
-        text.Should().NotContain("SECRET", "見本オンのときは見本も含まれていた");
+        text.Should().NotContain("SECRET", "値が渡るシートがあるときは値も含まれていた");
     }
 
     [AvaloniaFact(DisplayName = "不具合 2: 設定で VBA 連携そのものをオフにした直後のクイックコピーにも、直前の取得結果は出ない")]
@@ -105,28 +105,28 @@ public class WorkbookInfoFixTests
         r.Graft.ContextCollect!.BuildWorkbookInfoText().Should().Contain(VbaWorkbookInfoFormatter.TruncatedNote);
     }
 
-    [AvaloniaFact(DisplayName = "不具合 9: 値の見本をオフにすると、プレビュー欄の見本も消える（Dispose でも手放す）")]
-    public async Task 不具合9_見本オフでプレビューも消える()
+    [AvaloniaFact(DisplayName = "不具合 9: 値が渡る見せ方をやめると、プレビュー欄の値も消える（Dispose でも手放す）")]
+    public async Task 不具合9_見せ方を戻すとプレビューも消える()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
         await ShellHarness.ExecuteAsync(context.PreviewCommand).ConfigureAwait(true);
-        context.PreviewLines.Any(l => l.Text.Contains("SECRET")).Should().BeTrue("前提: オンの間はプレビューに見本が出る");
+        context.PreviewLines.Any(l => l.Text.Contains("SECRET")).Should().BeTrue("前提: 渡している間はプレビューに値が出る");
 
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.StructureOnly).ConfigureAwait(true);
 
-        context.PreviewLines.Should().BeEmpty("オフにしたら直ちに捨てる、と案内している");
+        context.PreviewLines.Should().BeEmpty("戻したら直ちに捨てる、と案内している");
 
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
         await ShellHarness.ExecuteAsync(context.PreviewCommand).ConfigureAwait(true);
         context.PreviewLines.Should().NotBeEmpty();
         context.Dispose();
         context.PreviewLines.Should().BeEmpty();
     }
 
-    [AvaloniaFact(DisplayName = "疑わしい 1: 定数を指す名前付き範囲は、見本オフでは式を出さず名前だけ。見本オンのときだけ式も出る")]
+    [AvaloniaFact(DisplayName = "疑わしい 1: 定数を指す名前付き範囲は、値を渡すシートが無ければ式を出さず名前だけ。値を渡すシートを選んだときだけ式も出る")]
     public async Task 疑わしい1_定数の名前は見本オフでは式を出さない()
     {
         static VbaWorkbookInfoSnapshot WithNames(VbaWorkbookInfoSnapshot s) => s with
@@ -145,15 +145,15 @@ public class WorkbookInfoFixTests
 
         var off = await CollectedTextAsync(r).ConfigureAwait(true);
         off.Should().Contain("- 税率 = =設定!$B$3", "範囲参照は構造の情報なので出す");
-        off.Should().Contain("- パスワード（ブック全体）").And.NotContain("SECRET-pass", "定数の値は見本のオプトインを迂回して出さない");
+        off.Should().Contain("- パスワード（ブック全体）").And.NotContain("SECRET-pass", "定数の値は値を渡す選択のオプトインを迂回して出さない");
         off.Should().Contain("- 消費税（シート「集計」限定）").And.NotContain("=0.1");
 
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
         var on = await CollectedTextAsync(r).ConfigureAwait(true);
-        on.Should().Contain("- パスワード = =\"SECRET-pass\"", "見本をオンにしたときだけ、式も出る");
+        on.Should().Contain("- パスワード = =\"SECRET-pass\"", "値を渡すシートを選んだときだけ、式も出る");
     }
 
-    [AvaloniaFact(DisplayName = "疑わしい 1: 値の見本の確認文に「1 行目（見出し）は見本オフでも渡る」と明記する。行数は「見出し行に続く N 行」")]
+    [AvaloniaFact(DisplayName = "疑わしい 1: 見出し＋N 行の確認文に、見出し行（1 行目）も値が渡ることを明記する。行数は「続く N 行」")]
     public async Task 疑わしい1_確認文に見出しが渡ることを書く()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
@@ -161,31 +161,32 @@ public class WorkbookInfoFixTests
         await context.InitializeAsync().ConfigureAwait(true);
         r.ChoiceAnswer = _ => "cancel";
 
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
 
         var message = r.Choices.Should().ContainSingle().Subject.Message;
-        message.Should().Contain("1 行目（見出し）").And.Contain("オフでも").And.Contain("見出し行に続く 5 行");
+        message.Should().Contain("見出し行（1 行目）").And.Contain("続く 5 行").And.Contain("社外秘");
     }
 
-    [AvaloniaFact(DisplayName = "不具合 10（見本の注意）: 見本の注意は、出し方が「構成だけ」「出さない」のとき（見本が渡らないとき）は出ない")]
-    public async Task 不具合10_見本の注意は渡るときだけ()
+    [AvaloniaFact(DisplayName = "不具合 10（値の注意）: 値の注意は、値が実際に渡るときだけ出る。全体が「構成だけ」「出さない」のときは出ない")]
+    public async Task 不具合10_値の注意は渡るときだけ()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-        context.WorkbookInfo.IsSampleNoticeVisible.Should().BeTrue();
+        context.WorkbookInfo.IsValueNoticeVisible.Should().BeFalse("既定は全シート構成だけ");
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
+        context.WorkbookInfo.IsValueNoticeVisible.Should().BeTrue();
 
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true); // 構成だけ
-        context.WorkbookInfo.IsSampleNoticeVisible.Should().BeFalse();
+        context.WorkbookInfo.IsValueNoticeVisible.Should().BeFalse();
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true); // 出さない
-        context.WorkbookInfo.IsSampleNoticeVisible.Should().BeFalse();
+        context.WorkbookInfo.IsValueNoticeVisible.Should().BeFalse();
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true); // 内容も出す
-        context.WorkbookInfo.IsSampleNoticeVisible.Should().BeTrue();
-        context.WorkbookInfo.SampleNoticeText.Should().Contain("見出し行に続く 5 行");
+        context.WorkbookInfo.IsValueNoticeVisible.Should().BeTrue();
+        context.WorkbookInfo.ValueNoticeText.Should().Contain("値が AI へ渡ります").And.Contain("集計");
     }
 
-    [AvaloniaFact(DisplayName = "疑わしい 2: 別のブックのパスで結ばれていたプロジェクトを、このブックで結び直すと、値の見本のオンは解除される（実際の追加の経路）")]
+    [AvaloniaFact(DisplayName = "疑わしい 2: 別のブックのパスで結ばれていたプロジェクトを、このブックで結び直すと、旧「値の見本」のオンは解除される（実際の追加の経路）")]
     public async Task 疑わしい2_結び直しで見本のオンが解除される()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
@@ -198,7 +199,7 @@ public class WorkbookInfoFixTests
 
         var vba = pane.Items.First(i => i.Project.Id == r.Project.Id).Project.Vba!;
         vba.WorkbookFullName.Should().Be(VbaP3Rig.Book);
-        vba.WorkbookInfoSampleValues.Should().BeFalse("新しいブックでは、値の見本の確認をやり直す");
+        vba.WorkbookInfoSampleValues.Should().BeFalse("新しいブックでは、値を渡す確認をやり直す");
         vba.AutoPushOnSave.Should().BeTrue("ほかの設定は引き継ぐ");
     }
 }

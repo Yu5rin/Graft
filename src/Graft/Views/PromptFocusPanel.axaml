@@ -3,6 +3,7 @@
              xmlns:vm="clr-namespace:Graft.ViewModels"
              xmlns:local="clr-namespace:Graft.Views"
              x:Class="Graft.Views.PromptFocusPanel"
+             x:Name="PanelHost"
              AutomationProperties.Name="依頼の観点">
     <!--
         依頼の観点（チップ）のパネル。仕様書_ブックの情報と依頼の観点 6.2。
@@ -11,37 +12,89 @@
         片方で選べばもう片方にも反映される。
 
         ・見出し（きれいに／正しく／品質／デザイン／VBA）ごとに、チップを折り返しで最初からすべて並べる
-          （折りたたまない）。VBA の見出しは VBA プロジェクトのときだけ ViewModel が含める。
+          （最初から隠さない。たためるのは、収集の窓で利用者がたたむボタンを押したときだけ）。
+          VBA の見出しは VBA プロジェクトのときだけ ViewModel が含める。
+        ・見出しのかたまり（見出し＋そのチップ）は、縦に積まず横へ流し、入りきらなければ折り返す
+          （収集の窓の既定 960px で、通常 5 行 → 2 行、VBA 6 行 → 3 行。幅が狭い場所では 1 行に 1 かたまりしか
+          入らないので、従来どおり縦に積まれる）。
+        ・IsCollapsible のとき（収集の窓だけ）、見出しの左に「たたむ」ボタンを出す。既定は開いた状態で、
+          たたんだ状態は記憶しない（窓を開くたびに開いた状態。IsCollapsed は画面の状態であり、ViewModel にも
+          設定にも持たない）。たたんでも選択は変わらず、選んでいる観点の名前を 1 行で見せ続ける。
         ・チップは ToggleButton（複数選べる）。選択中は枠をアクセント色にして、色だけに頼らず
           「枠の色＋塗り」で区別する（Themes/Controls.axaml の ToggleButton と同じ）。
         ・AIへ渡す指示文は画面に出さない。マウスを乗せると一言の説明（HelpTip）だけが出る。
         ・既定は何も選ばない。
     -->
-    <StackPanel Spacing="6">
-        <Grid ColumnDefinitions="*,Auto">
-            <TextBlock Grid.Column="0" Text="{Binding HeaderText}"
+    <UserControl.Styles>
+        <!--
+            見出し（きれいに／正しく…）の幅。
+            ・依頼文コピーのドロップダウン: 幅が狭く、かたまりは必ず縦に積まれるので、64px 固定でチップの左端を揃える（従来どおり）。
+            ・収集の窓（IsCollapsible）: かたまりを横に並べるので、見出しは文字の幅に詰める。64px 固定のままだと、
+              幅 760px の窓で「きれいに」＋「正しく」が 725px（入る幅は 728px）とぎりぎりになり、フォントが少し
+              違うだけで 1 行に 1 かたまりへ戻ってしまう（試作で実測）。
+        -->
+        <Style Selector="TextBlock.groupTitle">
+            <Setter Property="Width" Value="64" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style Selector="Grid.flow TextBlock.groupTitle">
+            <Setter Property="Width" Value="NaN" />
+            <Setter Property="Margin" Value="0,4,8,0" />
+        </Style>
+    </UserControl.Styles>
+    <!--
+        外側は Grid（行 0 = 見出しの行、行 1 = チップ）。「すべて解除」は、見た目は見出しの行の右端だが、Tab キーの順を
+        「たたむ → チップ → すべて解除」（画面の読み順）にするため、XAML ではチップの一覧のあとに置く
+        （同じ行・列に重ねて置き、右へ寄せている）。
+    -->
+    <Grid RowDefinitions="Auto,Auto" Classes.flow="{Binding IsCollapsible, ElementName=PanelHost}">
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,*,Auto">
+            <!--
+                たたむ／開くボタン。読み上げ名は状態で変える（コード側 UpdateCollapseButton）。「たたむ・開く」のような
+                両方を並べた名前だと、いま押すと何が起きるかが伝わらないため。
+            -->
+            <Button Grid.Column="0" x:Name="CollapseButton" Classes="subtle"
+                    Padding="4,0" MinHeight="22" Margin="0,0,4,0"
+                    Click="OnCollapseClicked"
+                    IsVisible="{Binding IsCollapsible, ElementName=PanelHost}"
+                    AutomationProperties.Name="依頼の観点の一覧をたたむ"
+                    local:HelpTip.Standard="依頼の観点のチップの一覧をたたんで、ファイルの一覧を広く使います。たたんでいる間は、選んでいる観点の名前だけを出します。"
+                    local:HelpTip.Detailed="依頼の観点のチップの一覧をたたんで、ファイルの一覧を広く使います。たたんでいる間は、選んでいる観点の名前だけを 1 行で出します。もう一度押すと、すべてのチップが並んだ状態に戻ります。選んでいる観点は、たたんでも変わりません。たたんだ状態は記憶しないので、この画面を開き直すと、いつも開いた状態から始まります。">
+                <Panel>
+                    <local:IconGlyph Width="12" Height="12" Data="{DynamicResource IconChevronDownGeometry}"
+                                     IsVisible="{Binding !IsCollapsed, ElementName=PanelHost}" />
+                    <local:IconGlyph Width="12" Height="12" Data="{DynamicResource IconChevronRightGeometry}"
+                                     IsVisible="{Binding IsCollapsed, ElementName=PanelHost}" />
+                </Panel>
+            </Button>
+            <TextBlock Grid.Column="1" Text="{Binding HeaderText}"
                        FontSize="{DynamicResource PaneHeadingFontSize}"
                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                        Foreground="{DynamicResource TextSecondary}"
                        VerticalAlignment="Center" />
-            <Button Grid.Column="1" Content="すべて解除"
-                    Classes="subtle"
-                    Padding="8,0" MinHeight="22"
-                    FontSize="{DynamicResource CaptionFontSize}"
-                    Command="{Binding ClearAllCommand}"
-                    AutomationProperties.Name="依頼の観点をすべて解除"
-                    local:HelpTip.Standard="選んでいる依頼の観点をすべて外します。何も選ばない状態では、依頼文に観点は入りません。"
-                    local:HelpTip.Detailed="選んでいる依頼の観点をまとめて外し、依頼文を従来どおり（観点なし）に戻します。選び直したいときや、今回は観点を付けずに頼みたいときに使います。何も選んでいないときは押せません。" />
+            <!-- たたんでいる間だけ: 選んでいる観点の名前（無ければ「選んでいません」）。 -->
+            <TextBlock Grid.Column="2" Text="{Binding SelectedSummary}" Margin="12,0,8,0"
+                       IsVisible="{Binding IsCollapsed, ElementName=PanelHost}"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                       ToolTip.Tip="{Binding SelectedSummary}"
+                       AutomationProperties.Name="選んでいる依頼の観点" />
         </Grid>
 
-        <ItemsControl ItemsSource="{Binding Groups}" AutomationProperties.Name="依頼の観点の一覧">
+        <ItemsControl Grid.Row="1" Margin="0,6,0,0" ItemsSource="{Binding Groups}" AutomationProperties.Name="依頼の観点の一覧"
+                      IsVisible="{Binding !IsCollapsed, ElementName=PanelHost}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
                 <DataTemplate DataType="vm:PromptFocusGroupViewModel">
-                    <Grid ColumnDefinitions="64,*" Margin="0,0,0,4">
-                        <TextBlock Grid.Column="0" Text="{Binding Title}"
+                    <!-- 右の 16px は、横に並んだ次のかたまりとの間（縦に積まれる場所では見えない）。 -->
+                    <Grid ColumnDefinitions="Auto,*" Margin="0,0,16,4">
+                        <TextBlock Grid.Column="0" Text="{Binding Title}" Classes="groupTitle"
                                    FontSize="{DynamicResource CaptionFontSize}"
                                    Foreground="{DynamicResource TextSecondary}"
-                                   VerticalAlignment="Top" Margin="0,4,0,0" />
+                                   VerticalAlignment="Top" />
                         <ItemsControl Grid.Column="1" ItemsSource="{Binding Chips}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -64,5 +117,14 @@
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>
-    </StackPanel>
+
+        <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Center" Content="すべて解除"
+                Classes="subtle"
+                Padding="8,0" MinHeight="22"
+                FontSize="{DynamicResource CaptionFontSize}"
+                Command="{Binding ClearAllCommand}"
+                AutomationProperties.Name="依頼の観点をすべて解除"
+                local:HelpTip.Standard="選んでいる依頼の観点をすべて外します。何も選ばない状態では、依頼文に観点は入りません。"
+                local:HelpTip.Detailed="選んでいる依頼の観点をまとめて外し、依頼文を従来どおり（観点なし）に戻します。選び直したいときや、今回は観点を付けずに頼みたいときに使います。何も選んでいないときは押せません。" />
+    </Grid>
 </UserControl>

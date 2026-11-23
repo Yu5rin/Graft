@@ -219,9 +219,9 @@ public static class VbaWorkbookInfoReadRules
     /// 名前付き範囲の <c>RefersTo</c>（<c>=Sheet1!$A$1:$B$9</c> など）が、セル範囲への<b>参照だけ</b>でできているか。
     /// 参照なら、それは「どこを指すか」という構造の情報で、値そのものではない。
     /// 参照でない（<c>="パスワード"</c>・<c>=0.08</c>・<c>={1,2,3}</c>・数式）ときは、式の中に<b>値そのもの</b>が書かれている。
-    /// 名前付き範囲に定数を入れる使い方は珍しくなく（税率・社名・接続文字列など）、見本がオフでも
-    /// 依頼文へ出てしまうと、見本のオプトイン（確認ダイアログ）を迂回して値が渡る。呼び出し側は、これが false の名前の式を
-    /// 値の見本がオンのときだけ出す。判定は「確実に参照と分かるものだけ true」に倒す（迷うものは値を伏せる側）。
+    /// 名前付き範囲に定数を入れる使い方は珍しくなく（税率・社名・接続文字列など）、値を渡す選択をしていなくても
+    /// 依頼文へ出てしまうと、値を渡す選択のオプトイン（確認ダイアログ）を迂回して値が渡る。呼び出し側は、これが false の名前の式を
+    /// 値が渡るシートを 1 枚でも選んでいるときだけ出す。判定は「確実に参照と分かるものだけ true」に倒す（迷うものは値を伏せる側）。
     /// <para>
     /// 複数領域（<c>=Sheet1!$A$1,Sheet1!$C$1</c>）と、括弧でくくった形（<c>=(Sheet1!$A$1,Sheet1!$C$1)</c>）、
     /// テーブルの構造化参照（<c>=Table1[列名]</c>）は参照として扱う。関数を含む式（<c>=OFFSET(...)</c> など）は、
@@ -261,6 +261,67 @@ public static class VbaWorkbookInfoReadRules
 
         yield return text[start..];
     }
+
+    /// <summary>
+    /// 名前付き範囲の <c>RefersTo</c>（<c>=Sheet1!$A$1</c>・<c>='売上 2026'!$A$1:$B$9</c>）が、指定のシート名を指しているか。
+    /// 「出さない」にしたシートの存在が、ブック全体の名前の参照先から漏れないよう、名前を落とす判断に使う。
+    /// 迷うものは「指している」側に倒す（部分一致。<c>MySheet1!</c> を <c>Sheet1</c> と取り違えて名前を 1 つ余計に伏せるのは害が小さい）。
+    /// </summary>
+    public static bool RefersToSheet(string? refersTo, string sheetName)
+    {
+        if (string.IsNullOrEmpty(refersTo) || string.IsNullOrEmpty(sheetName)) return false;
+        var quoted = "'" + sheetName.Replace("'", "''", StringComparison.Ordinal) + "'!";
+        return refersTo.Contains(quoted, StringComparison.OrdinalIgnoreCase)
+               || refersTo.Contains(sheetName + "!", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly Regex QuotedSheetPrefix = new(@"'((?:[^']|'')+)'!", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // 引用なしのシート名: 英数・かな漢字・_・. だけでできた語の直後の「!」。3-D 参照（Sheet1:Sheet3!A1）は両端を数える。
+    // 直前が「#」なら #REF!、「]」なら別ブックの参照（[Book.xlsx]Sheet1!）なので、シート名として数えない。
+    private static readonly Regex PlainSheetPrefix = new(
+        @"(?<![\p{L}\p{N}_.'#\]])([\p{L}\p{N}_.]+)(?::([\p{L}\p{N}_.]+))?!",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex StructuredTableName = new(
+        @"(?<![\p{L}\p{N}_.])([\p{L}_\\][\p{L}\p{N}_.]*)\[",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 名前付き範囲の <c>RefersTo</c> が、シート名つきで指している<b>シート名</b>（<c>=設定!$B$3</c> の「設定」、
+    /// <c>='売上 2026'!$A$1</c> の「売上 2026」、3-D 参照の両端）を挙げる。引用の中の <c>''</c> は <c>'</c> に戻す。
+    /// 「ブックの全シートに無い名前のシートを指す式」を伏せる判断（<see cref="VbaWorkbookInfoFormatter"/>）に使う。
+    /// 迷うもの（解釈できないシート名の接頭辞）は、一覧に無い名前として挙がる＝伏せる側に倒れる。
+    /// </summary>
+    public static IReadOnlyList<string> ReferencedSheetNames(string? refersTo)
+    {
+        if (string.IsNullOrEmpty(refersTo)) return Array.Empty<string>();
+        var found = new List<string>();
+        foreach (Match match in QuotedSheetPrefix.Matches(refersTo))
+        {
+            found.Add(match.Groups[1].Value.Replace("''", "'", StringComparison.Ordinal));
+        }
+
+        // 引用の中の「!」を、引用なしの規則で読み直さない（引用の部分を取り除いてから探す）。
+        var rest = QuotedSheetPrefix.Replace(refersTo, "_");
+        foreach (Match match in PlainSheetPrefix.Matches(rest))
+        {
+            found.Add(match.Groups[1].Value);
+            if (match.Groups[2].Success) found.Add(match.Groups[2].Value);
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// 名前付き範囲の <c>RefersTo</c> が構造化参照（<c>=単価表[金額]</c>・<c>=Sheet1!売上[[#Headers],[日付]]</c>）で指している
+    /// <b>テーブル名</b>を挙げる。「出さない」のシートのテーブルを指す名前を伏せる判断に使う
+    /// （そのシートのテーブルは読まない＝一覧に無いので、「出してよいテーブルの一覧に無い名前」を伏せる）。
+    /// </summary>
+    public static IReadOnlyList<string> StructuredReferenceTables(string? refersTo)
+        => string.IsNullOrEmpty(refersTo)
+            ? Array.Empty<string>()
+            : StructuredTableName.Matches(refersTo).Select(m => m.Groups[1].Value).ToArray();
 
     /// <summary>
     /// 利用者が作った名前ではなく、Excel が内部で持つ名前（印刷範囲・印刷タイトル・オートフィルターの

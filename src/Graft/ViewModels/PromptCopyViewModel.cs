@@ -76,7 +76,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         // 切り替えと同じ経路（RefreshEstimatesIfListed → RefreshAsync(keepSelection: true)）に乗せ、
         // 選んでいるテンプレートは変えない。選択そのものは Context.Focus が持つ（収集の窓と共有）。
         Context.Focus.Changed += (_, _) => RefreshEstimatesIfListed();
-        // ブックの情報の出し方・値の見本を切り替えたときも、同じ経路で推定トークン数を計算し直す。
+        // ブックの情報の出し方・シートごとの見せ方を切り替えたときも、同じ経路で推定トークン数を計算し直す。
         Context.WorkbookInfoChanged += (_, _) => RefreshEstimatesIfListed();
 
         CopyCommand = new AsyncRelayCommand(CopySelectedAsync, () => SelectedTemplate is not null, context: "プロンプトのコピー");
@@ -279,6 +279,9 @@ public sealed class PromptCopyViewModel : ObservableObject
         var template = SelectedTemplate;
         if (template is null) return;
 
+        // 収集の窓の入力欄に打っていた途中の範囲・行数を、コピーの前に確定する（窓を閉じた直後でも、LostFocus に頼らない）。
+        await Context.CommitPendingInputsAsync().ConfigureAwait(true);
+
         var request = BuildRequest();
         var lastRevision = await GetLastRevisionSummaryAsync().ConfigureAwait(true);
         var rendered = await _renderer.RenderAsync(
@@ -331,6 +334,7 @@ public sealed class PromptCopyViewModel : ObservableObject
         // 1度だけ文にするので、一覧の全テンプレートが同じ選択で数えられる。
         FocusText = Context.BuildFocusText(),
         WorkbookInfoText = Context.BuildWorkbookInfoText(),
+        RibbonText = Context.BuildRibbonText(),
     };
 
     private async Task<string?> GetLastRevisionSummaryAsync()

@@ -69,7 +69,8 @@ public class PromptFocusPanelAndSettingsTests : IDisposable
             "操作できるコントロールには HelpTip を付ける（SettingsHelpTipCoverageTests と同じ規約）");
         chips.Should().OnlyContain(c => c.IsVisible && c.IsEffectivelyVisible, "折りたたまれていない");
         chips.Select(c => Avalonia.Automation.AutomationProperties.GetName(c)).Should().Contain("読みやすく（未選択）");
-        panel.GetVisualDescendants().OfType<Button>().Single(b => b.GetType() == typeof(Button)).Content.Should().Be("すべて解除");
+        panel.GetVisualDescendants().OfType<Button>().Single(b => b.GetType() == typeof(Button) && b.IsVisible).Content.Should().Be("すべて解除",
+            "表に出ているボタンは「すべて解除」だけ（この置き場では、たたむボタンは出さない）");
     }
 
     [AvaloniaFact(DisplayName = "パネル: VBA でないプロジェクトでは14チップで、VBA のチップは出ない")]
@@ -95,7 +96,7 @@ public class PromptFocusPanelAndSettingsTests : IDisposable
         vm.SelectedIds.Should().Equal("focus-speed");
         panel.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).Should().Contain("依頼の観点 1");
 
-        var clear = panel.GetVisualDescendants().OfType<Button>().Single(b => b.GetType() == typeof(Button));
+        var clear = panel.GetVisualDescendants().OfType<Button>().Single(b => Equals(b.Content, "すべて解除"));
         clear.Command!.Execute(null);
         Dispatcher.UIThread.RunJobs();
 

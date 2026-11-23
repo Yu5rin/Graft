@@ -302,7 +302,8 @@ public class ContextCollectFilterAndGitTests : IDisposable
         box.IsFocused.Should().BeTrue();
 
         // プレビュータブへ移ってからでも、Ctrl+Fでファイル選択タブへ戻って欄に移れる。
-        tabs.SelectedIndex = 1;
+        // （タブの番号ではなく見出しで選ぶ。VBA では、間に「ブックの情報」タブが入ることがある。）
+        tabs.SelectedItem = tabs.Items.OfType<TabItem>().Single(t => Equals(t.Header, "プレビュー"));
         Dispatcher.UIThread.RunJobs();
         window.Focus();
 
@@ -358,6 +359,9 @@ public class ContextCollectFilterAndGitTests : IDisposable
     {
         var (window, _) = await OpenWindowAsync("win-labels", ws => ws.WriteText("a.py", "x"));
         var filterBox = window.FindControl<TextBox>("FileFilterBox")!;
+        // 除外パターンの入力欄は、一覧の下の折りたたみの中（初期状態は閉じている）。開いてから探す。
+        window.FindControl<Expander>("ExcludesExpander")!.IsExpanded = true;
+        Dispatcher.UIThread.RunJobs();
         var excludeBox = window.GetVisualDescendants().OfType<TextBox>()
             .Single(t => Avalonia.Automation.AutomationProperties.GetName(t) == "追加する除外パターン");
 

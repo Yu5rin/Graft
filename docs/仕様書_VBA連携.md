@@ -270,7 +270,7 @@ public VbaLink? Vba { get; init; }
 - `Vba` が null のプロジェクトは、従来どおりのファイルプロジェクトとして扱う。既存の `projects.json` は変更なしで読めること（後方互換のテストを書く。JSON は camelCase なのでキーは `vba`）。
 - `Project.Root` はミラーフォルダを指す。
 - `AutoPushAfterApply` と `SaveWorkbookAfterPush` は `ProjectOverrides` ではなく `VbaLink` の項目である。変更する画面は 7.6 のプロジェクト右クリックメニューのチェック項目とする。
-- （v0.4）`VbaLink` には、続きの仕様（`docs/仕様書_ブックの情報と依頼の観点.md` 4.1）の項目も入る: `AutoPushOnSave`（保存時の自動反映。既定オフ。右クリックのチェック項目「保存したらそのモジュールを Excel へ反映する」）、`WorkbookInfoState`・`WorkbookInfoSampleValues`・`WorkbookInfoIncludeFormulas`（ブックの情報の出し方）。いずれもキーが無い既存の `projects.json` は既定値で読める。
+- （v0.4）`VbaLink` には、続きの仕様（`docs/仕様書_ブックの情報と依頼の観点.md` 4.1）の項目も入る: `AutoPushOnSave`（保存時の自動反映。既定オフ。右クリックのチェック項目「保存したらそのモジュールを Excel へ反映する」）、`WorkbookInfoState`・`WorkbookInfoSheetViews`（ブックの情報の出し方とシートごとの見せ方。旧 `WorkbookInfoSampleValues`・`WorkbookInfoIncludeFormulas` は移行のためだけに読む）。いずれもキーが無い既存の `projects.json` は既定値で読める。
 - **実効の許可拡張子**: 書き込み・クイックオープン・エクスプローラ操作は `Settings.Safety.AllowedExtensions` をそのまま使っており、プロジェクト別の上書き（`ProjectOverrideResolver`）は配線されていない。既定値を増やしても保存済みの設定には届かない。そこで、**VBA プロジェクトに限り、実効の許可拡張子に `.bas`／`.cls`／`.frm` を自動で加える**。全体の既定とユーザーの設定は変えない。
   - 純ロジック `VbaExtensionPolicy.Effective(allowed, project)` を `Core/Vba` に置き、次の3箇所で使う（コンテキスト収集は `AllowedExtensions` を見ていないので対象外）。
     - 書き込み: `MainViewModel.cs` の `PathGuardOptions` の組み立て（`AllowedExtensions = _settings.Safety.AllowedExtensions` の箇所）
@@ -400,7 +400,7 @@ public interface IVbaBridge : IPlatformService
     Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default);
 
     /// <summary>
-    /// ブックの構造（シート・テーブル・名前付き範囲・先頭行の見出し・参照設定。オプトインで値の見本）を読む（v0.4 で追加。
+    /// ブックの構造（シート・テーブル・名前付き範囲・参照設定。シートごとの見せ方で選んだシートだけ値も）を読む（v0.4 で追加。
     /// 機能 A。`docs/仕様書_ブックの情報と依頼の観点.md` 5.5）。読み取りだけで、ブックは変更しない。
     /// </summary>
     Task<GraftResult<VbaWorkbookInfoSnapshot>> ReadWorkbookInfoAsync(
@@ -718,7 +718,7 @@ Graft 上の手編集（エディタ保存、エクスプローラの新規・�
 | `Vba.CallTimeoutMs` | 30000 | 5.3 の呼び出し全体の時間切れ。範囲 5000〜120000、`ComTimeoutMs` 以上 |
 
 - **`Vba.PullHotkey` は初版から設けない。** 既存のホットキーは `Settings` の `Hotkey`／`PromptHotkey` の2本固定で、再登録（`StartupCoordinator.Hotkey.cs` の `ReapplyHotkey` は、個別解除なしの `UnregisterAll` で2本を扱う）の作り直しが大きいため。Pull はコマンドパレットとプロジェクトの右クリックメニューで行う。
-- （v0.4）`Vba` には、ブックの情報の 5 項目（`CollectWorkbookInfo`・`WorkbookInfoSampleRows`・`WorkbookInfoMaxColumns`・`WorkbookInfoMaxCellChars`・`WorkbookInfoMaxChars`）と、控えの 2 項目（`RescueMaxGenerations`・`RescueMaxTotalMB`）が加わった。既定値と範囲は続きの仕様（`docs/仕様書_ブックの情報と依頼の観点.md`）9章。
+- （v0.4）`Vba` には、ブックの情報の 5 項目（`CollectWorkbookInfo`・`WorkbookInfoSampleRows`・`WorkbookInfoMaxColumns`・`WorkbookInfoMaxCellChars`・`WorkbookInfoMaxChars`）に、「全部」「範囲を指定」の上限 2 項目（`WorkbookInfoAllMaxRows`・`WorkbookInfoAllMaxColumns`。続きの仕様 v0.4）を加えたものと、控えの 2 項目（`RescueMaxGenerations`・`RescueMaxTotalMB`）が加わった。既定値と範囲は続きの仕様（`docs/仕様書_ブックの情報と依頼の観点.md`）9章。
 - プロジェクトごとの `AutoPushAfterApply`・`SaveWorkbookAfterPush`・`AutoPushOnSave`（v0.4）は、プロジェクトの右クリックメニューのチェック項目から変える（7.6）。`ProjectOverrides` を編集する画面は存在しない（編集されるのはコンテキスト収集の `Excludes`／`ContextFileStates` だけ）。
 - 設定画面には「VBA 連携」パネルを追加する（`Views/SettingsPanels/VbaSettingsView.axaml`。既存のタブは12個なので13個目）。Windows 以外では、パネルごと「この環境では使えない機能です」（E706 の実際の文言）と表示する。
 - **設定の保存で `Vba` が消えないようにする。** `SettingsViewModel.BuildSettingsFromFields` は `new Settings { … }` で全項目を組み立て直すので、ここと読み込み側に `Vba` を足さないと、**設定画面で何か保存するたびに Vba が既定値へ戻る**。`SettingsStore` の null 置き換えと、`ComTimeoutMs`／`CallTimeoutMs` の範囲検証（`NormalizeIntRange`）も追加する。JSON は camelCase（`JsonFileStore`）なのでキーは `vba`。「設定を保存しても Vba の値が保たれる」テストを書く（10.2）。

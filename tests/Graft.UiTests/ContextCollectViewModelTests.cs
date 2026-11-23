@@ -727,4 +727,108 @@ public class ContextCollectViewModelTests : IDisposable
         savedText.Should().Contain("big.txt", "選択されていたが保存直前に除外された事実が保存先にも明記されるはず");
         savedText.Should().Contain("サイズが1MBを超過", "除外理由が保存先からも読み取れるはず");
     }
+
+    // ------------------------------------------------------------------
+    // 状況の文のトークン数と、ボタンの行の「推定トークン数」の食い違い（実機で報告された不具合）。
+    // 状況の文は、走査の直後の値の文字列を作ったきりで、そのあとの選択の変更に追従せず、
+    // ボタンの行（EstimatedTokens のバインド）だけが変わっていた（約90427 と 約85365）。
+    // ------------------------------------------------------------------
+
+    private static Settings SmallThreshold(int threshold) => new() { Context = new ContextSettings { TokenWarnThreshold = threshold } };
+
+    [AvaloniaFact(DisplayName = "状況の文: 走査直後の助言に出るトークン数は、あとで選択を変えると、推定トークン数（ボタンの行）と同じ値へ追従する")]
+    public async Task 状況の文のトークン数は選択の変更に追従する()
+    {
+        var (vm, _, _) = await BuildAsync(
+            "status-follows",
+            ws =>
+            {
+                ws.WriteText("a.py", new string('a', 30000));
+                ws.WriteText("b.py", new string('b', 30000));
+            },
+            SmallThreshold(1000), new AvaloniaUiServices(), new NullDialogService());
+
+        vm.StatusMessage.Should().Contain($"約{vm.EstimatedTokens}トークン", "前提: 走査の直後は一致している");
+        var before = vm.EstimatedTokens;
+
+        // 1 つ目を「構成だけ」にする（本文が出なくなるので、推定が下がる）。
+        vm.CycleStateCommand.Execute(FindByPath(vm, "a.py"));
+
+        vm.EstimatedTokens.Should().BeLessThan(before, "前提: 本文が減ったので推定が下がる");
+        vm.StatusMessage.Should().Contain($"約{vm.EstimatedTokens}トークン",
+            "状況の文の数字は、ボタンの行の数字と食い違わない（以前は走査直後の値のままだった）");
+        vm.StatusMessage.Should().NotContain($"約{before}トークン", "古い数字が残らない");
+        vm.ExceedsWarnThreshold.Should().BeTrue("前提: まだ目安を超えている（助言の文は残る）");
+    }
+
+    [AvaloniaFact(DisplayName = "状況の文: 目安以下まで軽くすると、助言の文は消える（古い助言が残らない）。また重くすると、助言がまた出る")]
+    public async Task 目安以下になると助言の文は消える()
+    {
+        var (vm, _, _) = await BuildAsync(
+            "status-clears",
+            ws =>
+            {
+                ws.WriteText("big.py", new string('x', 40000));
+                ws.WriteText("small.py", "print(1)\n");
+            },
+            SmallThreshold(5000), new AvaloniaUiServices(), new NullDialogService());
+
+        vm.ExceedsWarnThreshold.Should().BeTrue("前提: big.py のぶんで、目安を超えている");
+        vm.StatusMessage.Should().Contain("目安");
+
+        // big.py を「出さない」まで巡らせる（内容も出す → 構成だけ → 出さない）。
+        var big = FindByPath(vm, "big.py");
+        vm.CycleStateCommand.Execute(big);
+        vm.CycleStateCommand.Execute(big);
+
+        vm.ExceedsWarnThreshold.Should().BeFalse("前提: 本文が無くなり、目安以下になった");
+        vm.StatusMessage.Should().BeNullOrEmpty("目安以下になったら、大きさの助言は要らないので消える");
+
+        vm.CycleStateCommand.Execute(big); // 出さない → 内容も出す（もう一度重くする）
+        vm.StatusMessage.Should().Contain($"約{vm.EstimatedTokens}トークン", "また目安を超えたら、助言が今の数字で出る");
+    }
+
+    [AvaloniaFact(DisplayName = "状況の文: コピーの結果の助言も、あとで選択を変えると今の数字へ追従する")]
+    public async Task コピー後の助言も選択の変更に追従する()
+    {
+        var clipboard = new FakeClipboardAccess();
+        var (vm, _, _) = await BuildAsync(
+            "status-copy-follows",
+            ws =>
+            {
+                ws.WriteText("a.py", new string('a', 30000));
+                ws.WriteText("b.py", new string('b', 30000));
+            },
+            SmallThreshold(1000), new FakeUiServices(clipboard), new NullDialogService());
+
+        await ExecuteAsync(vm.CopyCommand);
+        vm.StatusMessage.Should().StartWith("クリップボードにコピーしました。").And.Contain("目安");
+
+        vm.CycleStateCommand.Execute(FindByPath(vm, "a.py"));
+
+        vm.StatusMessage.Should().StartWith("クリップボードにコピーしました。");
+        vm.StatusMessage.Should().Contain($"約{vm.EstimatedTokens}トークン", "コピー結果の助言の数字も、ボタンの行と同じ値");
+    }
+
+    [AvaloniaFact(DisplayName = "状況の文: ほかの文（要求されたファイルの結果など）に替わったあとは、古い助言の文が上書きし直さない")]
+    public async Task 別の文に替わったあとは助言が書き戻らない()
+    {
+        var (vm, _, _) = await BuildAsync(
+            "status-replaced",
+            ws =>
+            {
+                ws.WriteText("a.py", new string('a', 30000));
+                ws.WriteText("b.py", new string('b', 30000));
+            },
+            SmallThreshold(1000), new AvaloniaUiServices(), new NullDialogService());
+        vm.StatusMessage.Should().Contain("目安", "前提: 走査直後は大きさの助言が出ている");
+
+        await vm.ApplyRequestedFilesAsync(new[] { "no-such-file.py" });
+        var replaced = vm.StatusMessage;
+        replaced.Should().Contain("no-such-file.py", "前提: 要求されたファイルの結果の文に替わった");
+
+        vm.CycleStateCommand.Execute(FindByPath(vm, "a.py"));
+
+        vm.StatusMessage.Should().Be(replaced, "別の文に替わったあとは、トークン数の変化では文を書き換えない");
+    }
 }

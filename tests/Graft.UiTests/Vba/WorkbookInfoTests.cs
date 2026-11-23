@@ -13,13 +13,15 @@ namespace Graft.UiTests.Vba;
 /// <summary>
 /// ブックの情報（機能 A。仕様書_ブックの情報と依頼の観点 5章・11.2）のシナリオ。
 /// <see cref="FakeVbaBridge"/> のスナップショットが、依頼文の出力とコンテキスト収集の窓の出力に入ること、
-/// 3 状態・値の見本のオプトイン・取得失敗の扱いを、実際の起動と同じ依存グラフ（<see cref="ShellHarness"/>）で確かめる。
+/// 全体の 3 状態・シートごとの見せ方・取得失敗の扱いを、実際の起動と同じ依存グラフ（<see cref="ShellHarness"/>）で確かめる。
+/// （v0.4 でブック全体の「値の見本」のオン・オフをシートごとの見せ方に一本化した。見せ方ごとの出力・記憶・移行・上限・範囲の検証は
+/// <see cref="WorkbookInfoSheetViewTests"/>。）
 /// </summary>
 public class WorkbookInfoTests
 {
     private static readonly DateTimeOffset ReadAt = new(2026, 11, 21, 10, 30, 0, TimeSpan.Zero);
 
-    /// <summary>値の見本（社外秘の想定）を含む、ブックの情報。見本の合図に <c>SECRET</c> の文字を入れてある。</summary>
+    /// <summary>値（社外秘の想定）を含む、ブックの情報。値の合図に <c>SECRET</c> の文字を入れてある。</summary>
     internal static VbaWorkbookInfoSnapshot Sample(string workbookName = "計画.xlsm") => new(
         workbookName, ReadAt,
         new[]
@@ -40,8 +42,8 @@ public class WorkbookInfoTests
         var rig = await VbaP3Rig.CreateAsync(
             settings ?? new Settings { ShowPreview = false },
             arrange: bridge => bridge.Get(VbaP3Rig.Book)!.Info = info is null ? Sample() : info(bridge.Get(VbaP3Rig.Book)!)).ConfigureAwait(true);
-        // 値の見本をオンにする確認は、既定（Enter）が「やめる」の選択ダイアログ。見本をオンにしたいテストは、
-        // 利用者が「値の見本を渡す」を押したことにする（断るテストだけ上書きする）。
+        // 値が渡る見せ方を選ぶ確認は、既定（Enter）が「やめる」の選択ダイアログ。値を渡したいテストは、
+        // 利用者が「値を渡す」を押したことにする（断るテストだけ上書きする）。
         rig.ChoiceAnswer = _ => "give";
         return rig;
     }
@@ -57,7 +59,7 @@ public class WorkbookInfoTests
     private static async Task<VbaLink> StoredLinkAsync(VbaP3Rig r)
         => (await new ProjectStore(r.H.AppPaths).LoadAsync().ConfigureAwait(true)).Value.First(p => p.Id == r.Project.Id).Vba!;
 
-    [AvaloniaFact(DisplayName = "収集の窓の出力: 取得したブックの情報が「# 前提」の後・構成の前に入る。既定は内容も出す（見本は出ない）")]
+    [AvaloniaFact(DisplayName = "収集の窓の出力: 取得したブックの情報が「# 前提」の後・構成の前に入る。既定は全シート構成だけ（値も見出し行も出ない）")]
     public async Task 収集の出力に入る()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
@@ -68,8 +70,9 @@ public class WorkbookInfoTests
 
         context.WorkbookInfo.IsVisible.Should().BeTrue();
         context.WorkbookInfo.Level.Should().Be(VbaWorkbookInfoLevel.Full);
-        text.Should().Contain("# ブックの情報").And.Contain("| 集計 | Sheet1 | 表示 | A1:C20 |").And.Contain("## 先頭行の見出し").And.Contain("## 参照設定");
-        text.Should().NotContain("SECRET", "値の見本は既定オフ");
+        text.Should().Contain("# ブックの情報").And.Contain("| 集計 | Sheet1 | 表示 | A1:C20 |").And.Contain("## 参照設定");
+        text.Should().NotContain("## シートの値").And.NotContain("SECRET", "既定は全シート構成だけ。値は渡らない");
+        text.Should().NotContain("日付 | 顧客 | 金額 |", "見出し行も、見せ方が値を渡すシートだけ");
         text.IndexOf("# ブックの情報", StringComparison.Ordinal).Should().BeLessThan(text.IndexOf("# プロジェクト構成", StringComparison.Ordinal));
     }
 
@@ -89,7 +92,7 @@ public class WorkbookInfoTests
         text.Should().NotContain("確かめられないものを推測で使わず、質問してください。");
     }
 
-    [AvaloniaFact(DisplayName = "3 状態: 内容も出す → 構成だけ（見出し・参照設定が消える）→ 出さない（何も出ず Excel も呼ばない）→ 内容も出す。選んだ状態は保存される")]
+    [AvaloniaFact(DisplayName = "3 状態: 内容も出す → 構成だけ（参照設定が消える）→ 出さない（何も出ず Excel も呼ばない）→ 内容も出す。選んだ状態は保存される")]
     public async Task 三状態の巡回()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
@@ -101,7 +104,7 @@ public class WorkbookInfoTests
         context.WorkbookInfo.Level.Should().Be(VbaWorkbookInfoLevel.StructureOnly);
         var structure = await CollectedTextAsync(r).ConfigureAwait(true);
         structure.Should().Contain("## シート").And.Contain("## テーブル").And.Contain("## 名前付き範囲");
-        structure.Should().NotContain("## 先頭行の見出し").And.NotContain("## 参照設定");
+        structure.Should().NotContain("## 参照設定");
         (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoState.Should().Be("StructureOnly");
 
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true);
@@ -115,7 +118,7 @@ public class WorkbookInfoTests
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true);
         context.WorkbookInfo.Level.Should().Be(VbaWorkbookInfoLevel.Full);
         InfoCalls(r).Should().Be(calls + 1, "出さないから戻したときは、取り直す");
-        (await CollectedTextAsync(r).ConfigureAwait(true)).Should().Contain("## 先頭行の見出し");
+        (await CollectedTextAsync(r).ConfigureAwait(true)).Should().Contain("## 参照設定");
     }
 
     [AvaloniaFact(DisplayName = "保存済みの状態（出さない）でプロジェクトを開くと、Excel に問い合わせず、何も出ない")]
@@ -128,8 +131,8 @@ public class WorkbookInfoTests
         {
             IsAvailable = () => true,
             SampleRows = () => 5,
-            FetchAsync = async (sample, formulas, ct) => await r.Bridge.ReadWorkbookInfoAsync(
-                VbaP3Rig.Book, new VbaWorkbookInfoOptions(true, sample ? 5 : 0, formulas, 30, 60, 100, TimeSpan.FromSeconds(20)), ct).ConfigureAwait(true),
+            FetchAsync = async (views, ct) => await r.Bridge.ReadWorkbookInfoAsync(
+                VbaP3Rig.Book, new VbaWorkbookInfoOptions(true, views, 30, 60, 100, TimeSpan.FromSeconds(20)), ct).ConfigureAwait(true),
         };
         var context = new ContextCollectViewModel(
             r.H.AppPaths, new ProjectStore(r.H.AppPaths), project, new Settings(), new FakeUiServices(r.H.Clipboard), r.H.Dialogs,
@@ -144,8 +147,8 @@ public class WorkbookInfoTests
         context.WorkbookInfo.StatusText.Should().Contain("出さない");
     }
 
-    [AvaloniaFact(DisplayName = "値の見本がオフなら、options.SampleRows が 0 で渡る（見本を読まない）。出力にも見本は無い")]
-    public async Task 見本オフなら0行で呼ぶ()
+    [AvaloniaFact(DisplayName = "読み取りの指示: 既定では全シート構成だけで渡り、セルの値を読んだシートは 1 つも無い。列・文字数・時間の予算・全部の上限は設定どおり")]
+    public async Task 既定ではセルを読まない()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
@@ -153,129 +156,15 @@ public class WorkbookInfoTests
         await context.InitializeAsync().ConfigureAwait(true);
 
         r.Bridge.InfoRequests.Should().NotBeEmpty();
-        r.Bridge.InfoRequests.Should().OnlyContain(o => o.SampleRows == 0 && !o.IncludeFormulas);
+        r.Bridge.InfoRequests.Should().OnlyContain(o => !o.Views.For("Sheet1").PassesValues && !o.Views.For("Sheet2").PassesValues);
+        r.Bridge.InfoValueReads.Should().OnlyContain(reads => reads.Count == 0, "構成だけのシートのセルは読まない");
         r.Bridge.InfoRequests[0].IncludeReferences.Should().BeTrue();
         r.Bridge.InfoRequests[0].MaxColumns.Should().Be(30);
         r.Bridge.InfoRequests[0].MaxCellChars.Should().Be(60);
+        r.Bridge.InfoRequests[0].AllMaxRows.Should().Be(500);
+        r.Bridge.InfoRequests[0].AllMaxColumns.Should().Be(50);
         r.Bridge.InfoRequests[0].Budget.Should().Be(TimeSpan.FromSeconds(20), "呼び出し全体の時間切れ 30 秒の 2/3");
         (await CollectedTextAsync(r).ConfigureAwait(true)).Should().NotContain("SECRET");
-    }
-
-    [AvaloniaFact(DisplayName = "値の見本をオンにすると確認が出る。確認を断ると何も変わらない")]
-    public async Task 見本は確認を断れば変わらない()
-    {
-        using var r = await NewRigAsync().ConfigureAwait(true);
-        var context = r.Graft.ContextCollect!;
-        await context.InitializeAsync().ConfigureAwait(true);
-        r.ChoiceAnswer = _ => "cancel";
-        var calls = InfoCalls(r);
-
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-
-        var confirm = r.Choices.Should().ContainSingle().Subject;
-        confirm.Message.Should().Contain("見出し行に続く 5 行").And.Contain("AI に渡ります").And.Contain("社外秘");
-        r.H.Dialogs.Confirms.Should().BeEmpty("OK／キャンセルの確認ではなく、動詞のボタンの選択ダイアログを使う");
-        context.WorkbookInfo.SampleValues.Should().BeFalse();
-        context.WorkbookInfo.SampleNoticeText.Should().BeEmpty();
-        InfoCalls(r).Should().Be(calls, "断ったので取り直さない");
-        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSampleValues.Should().BeFalse();
-    }
-
-    [AvaloniaFact(DisplayName = "値の見本の確認: ボタンは動詞（値の見本を渡す／やめる）で、既定（Enter）は「やめる」。既定のまま閉じると何も変わらない")]
-    public async Task 見本の確認は既定がやめる()
-    {
-        using var r = await NewRigAsync().ConfigureAwait(true);
-        var context = r.Graft.ContextCollect!;
-        await context.InitializeAsync().ConfigureAwait(true);
-        r.ChoiceAnswer = null; // 何も選ばずに閉じた（Enter・Esc・×）のと同じ。
-
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-
-        var request = r.Choices.Should().ContainSingle().Subject;
-        request.Options.Select(o => o.Label).Should().Equal("値の見本を渡す", "やめる");
-        request.Default.Label.Should().Be("やめる");
-        request.Options.Count(o => o.IsDefault).Should().Be(1);
-        context.WorkbookInfo.SampleValues.Should().BeFalse("社外秘が AI に渡る操作なので、既定では何も変えない");
-        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSampleValues.Should().BeFalse();
-        r.H.Dialogs.Confirms.Should().BeEmpty();
-    }
-
-    [AvaloniaFact(DisplayName = "値の見本の確認: 選択ダイアログが配線されていない環境でも、確認を省略せず、オンにしない")]
-    public async Task 見本の確認が配線されていなければオンにしない()
-    {
-        using var r = await NewRigAsync().ConfigureAwait(true);
-        var context = r.Graft.ContextCollect!;
-        await context.InitializeAsync().ConfigureAwait(true);
-        r.Graft.ChooseVbaAsync = null;
-
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-
-        context.WorkbookInfo.SampleValues.Should().BeFalse();
-    }
-
-    [AvaloniaFact(DisplayName = "値の見本の確認: 実際の窓で、Enter の既定のボタンは「やめる」（primary）になる")]
-    public async Task 見本の確認の窓の既定のボタン()
-    {
-        using var r = await NewRigAsync().ConfigureAwait(true);
-        var context = r.Graft.ContextCollect!;
-        await context.InitializeAsync().ConfigureAwait(true);
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-        var request = r.Choices.Should().ContainSingle().Subject;
-
-        var window = new Graft.Views.VbaChoiceWindow(request);
-        try
-        {
-            window.Show();
-            var buttons = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Avalonia.Controls.Button>().ToList();
-
-            buttons.Select(b => b.Content).Should().Equal("値の見本を渡す", "やめる");
-            buttons.Single(b => b.IsDefault).Content.Should().Be("やめる");
-        }
-        finally
-        {
-            window.Close();
-        }
-    }
-
-    [AvaloniaFact(DisplayName = "値の見本をオンにすると、見本が読まれて出力に入り、注意が常時出る。オフに戻すと出力から消える")]
-    public async Task 見本をオンにすると入る()
-    {
-        using var r = await NewRigAsync().ConfigureAwait(true);
-        var context = r.Graft.ContextCollect!;
-        await context.InitializeAsync().ConfigureAwait(true);
-
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-
-        context.WorkbookInfo.SampleValues.Should().BeTrue();
-        context.WorkbookInfo.SampleNoticeText.Should().Be("値の見本: オン（各シートの見出し行に続く 5 行が AI へ渡ります）");
-        context.WorkbookInfo.IsSampleNoticeVisible.Should().BeTrue();
-        r.Bridge.InfoRequests.Last().SampleRows.Should().Be(5);
-        r.Bridge.InfoRequests.Last().IncludeFormulas.Should().BeFalse("数式は別の選択で既定オフ");
-        var on = await CollectedTextAsync(r).ConfigureAwait(true);
-        on.Should().Contain("## 値の見本").And.Contain("SECRET-甲社").And.Contain("=B2*C2 → 2500");
-        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSampleValues.Should().BeTrue();
-
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-
-        context.WorkbookInfo.SampleValues.Should().BeFalse();
-        context.WorkbookInfo.IsSampleNoticeVisible.Should().BeFalse();
-        (await CollectedTextAsync(r).ConfigureAwait(true)).Should().NotContain("SECRET", "オフに戻した瞬間に、出力からもメモリからも消える");
-        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSampleValues.Should().BeFalse();
-    }
-
-    [AvaloniaFact(DisplayName = "値の見本の数式: 見本をオンにしているときだけ options.IncludeFormulas が true で渡る")]
-    public async Task 数式は見本がオンのときだけ()
-    {
-        using var r = await NewRigAsync().ConfigureAwait(true);
-        var context = r.Graft.ContextCollect!;
-        await context.InitializeAsync().ConfigureAwait(true);
-
-        await context.SetWorkbookIncludeFormulasAsync(true).ConfigureAwait(true);
-        r.Bridge.InfoRequests.Last().IncludeFormulas.Should().BeFalse("見本がオフなら、数式を選んでいても読まない");
-        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoIncludeFormulas.Should().BeTrue();
-
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
-        r.Bridge.InfoRequests.Last().Should().Match<VbaWorkbookInfoOptions>(o => o.SampleRows == 5 && o.IncludeFormulas);
     }
 
     [AvaloniaFact(DisplayName = "取得失敗: 収集は止まらず警告が出る。前回の成功分があれば、取得日時つきで使う")]
@@ -310,6 +199,8 @@ public class WorkbookInfoTests
         context.WorkbookInfoWarning.Should().Contain("E804").And.Contain("ブックの情報なしで続けます");
         (await CollectedTextAsync(r).ConfigureAwait(true)).Should().NotContain("ブックの情報");
         context.BuildFocusText().Should().BeEmpty();
+        context.WorkbookInfo.Sheets.Should().BeEmpty("取得できていないので、シートの一覧も出ない");
+        context.WorkbookInfo.ShowSheetViewsPlaceholder.Should().BeTrue();
     }
 
     [AvaloniaFact(DisplayName = "一部だけ読めた（参照設定が読めない）: 読めた分を使い、E815 の警告が出る")]
@@ -383,6 +274,7 @@ public class WorkbookInfoTests
         await ShellHarness.ExecuteAsync(context.CopyCommand).ConfigureAwait(true);
 
         context.WorkbookInfo.IsVisible.Should().BeFalse();
+        context.WorkbookInfo.Sheets.Should().BeEmpty();
         bridge.Calls.Should().BeEmpty();
         h.Clipboard.Text.Should().NotContain("ブックの情報");
     }
@@ -432,13 +324,14 @@ public class WorkbookInfoTests
         withInfo.Should().BeGreaterThan(hidden);
     }
 
-    [AvaloniaFact(DisplayName = "ブックの情報はディスクに書かれない: 値の見本をオンにして取得しても、データ保存先のどのファイルにも見本の値が残らない")]
-    public async Task 見本がディスクに残らない()
+    [AvaloniaFact(DisplayName = "ブックの情報はディスクに書かれない: 値が渡る見せ方にして取得しても、データ保存先のどのファイルにも値が残らない")]
+    public async Task 値がディスクに残らない()
     {
         using var r = await NewRigAsync().ConfigureAwait(true);
         var context = r.Graft.ContextCollect!;
         await context.InitializeAsync().ConfigureAwait(true);
-        await context.ToggleWorkbookSampleValuesAsync().ConfigureAwait(true);
+        await context.SetSheetViewModeAsync("Sheet1", VbaSheetViewMode.HeaderRows).ConfigureAwait(true);
+        (await CollectedTextAsync(r).ConfigureAwait(true)).Should().Contain("SECRET-甲社", "前提: 値は依頼文に入る");
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true);
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true);
         await context.CycleWorkbookInfoLevelAsync().ConfigureAwait(true);
@@ -453,6 +346,7 @@ public class WorkbookInfoTests
             })
             .ToArray();
 
-        leaked.Should().BeEmpty("見本の値が社外秘を含みうるため、メモリにだけ持つ");
+        leaked.Should().BeEmpty("値が社外秘を含みうるため、メモリにだけ持つ（保存するのは見せ方の選択だけ）");
+        (await StoredLinkAsync(r).ConfigureAwait(true)).WorkbookInfoSheetViews.Should().ContainSingle().Which.Mode.Should().Be("HeaderRows");
     }
 }

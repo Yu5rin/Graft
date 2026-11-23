@@ -56,6 +56,11 @@ public sealed partial class WindowsVbaBridge
         var omitted = new List<string>();
         var sheets = new List<VbaSheetInfo>();
         var tables = new List<VbaTableInfo>();
+
+        // 【全シートの名前だけを先に取る】 値を読むかどうかや、時間・枚数の上限・読み取りの失敗にかかわらず、表示名とコード名は
+        // 安い 2 回の呼び出しで取れる。これが無いと、時間切れなどで読めなかった「出さない」のシートの名前が分からず、
+        // そのシートを指す名前付き範囲や「読めませんでした」の注記を伏せられない（シート名の漏れ）。
+        var identities = ReadSheetIdentities(session, workbook);
         ReadSheets(session, workbook, options, watch, sheets, tables, omitted);
 
         var names = session.IsAbandoned ? new List<VbaNamedRangeInfo>() : ReadNames(session, workbook, omitted);
@@ -69,11 +74,60 @@ public sealed partial class WindowsVbaBridge
         }
 
         return GraftResult<VbaWorkbookInfoSnapshot>.Ok(new VbaWorkbookInfoSnapshot(
-            workbookName, DateTimeOffset.Now, sheets, tables, names, references, omitted));
+            workbookName, DateTimeOffset.Now, sheets, tables, names, references, omitted, identities));
+    }
+
+    /// <summary>
+    /// ブックの全シートの表示名とコード名（セルは読まない）。Excel のシートの上限は実質メモリ次第なので、念のため上限を置く。
+    /// 1 枚の取得に失敗したシートは一覧に載せない（その名前を指す式は、「一覧に無いシート」として伏せられる）。
+    /// 呼び出し全体が時間切れになりそうなとき（<see cref="ComBusyException"/>）は、取れた分で打ち切る。
+    /// </summary>
+    private static List<VbaSheetIdentity> ReadSheetIdentities(Session s, object workbook)
+    {
+        const int MaxIdentities = 2000;
+        var result = new List<VbaSheetIdentity>();
+        try
+        {
+            dynamic wb = workbook;
+            var sheetsObj = s.Own(s.Call(() => (object)wb.Worksheets));
+            if (sheetsObj is null) return result;
+
+            dynamic worksheets = sheetsObj;
+            var total = Math.Min(s.Call(() => (int)worksheets.Count), MaxIdentities);
+            for (var i = 1; i <= total; i++)
+            {
+                if (s.IsAbandoned) break;
+                try
+                {
+                    using var item = new ComScope();
+                    var sheetObj = item.Own(s.Call(() => (object)worksheets.Item(i)));
+                    if (sheetObj is null) continue;
+
+                    dynamic sheet = sheetObj;
+                    var name = s.Call(() => (string)sheet.Name);
+                    var codeName = s.Call(() => (string)sheet.CodeName);
+                    result.Add(new VbaSheetIdentity(name, codeName ?? string.Empty));
+                }
+                catch (COMException ex) when (VbaComHResult.Classify(ex.HResult) == VbaComFailure.Other)
+                {
+                    // この 1 枚だけ名前が取れなかった。他のシートは続ける。
+                }
+            }
+        }
+        catch (ComBusyException)
+        {
+            // 時間切れ。取れた分で返す（ここで失敗にすると、読めた分まで失う）。
+        }
+        catch (COMException ex) when (VbaComHResult.Classify(ex.HResult) == VbaComFailure.Other)
+        {
+            // Worksheets 自体が読めない。名前の一覧なしで続ける（シートの読み取りが同じ失敗を報告する）。
+        }
+
+        return result;
     }
 
     // ------------------------------------------------------------------
-    // シート（見出し・値の見本・テーブル）
+    // シート（シートごとの見せ方に応じた値・テーブル）
     // ------------------------------------------------------------------
 
     private static void ReadSheets(
@@ -115,9 +169,14 @@ public sealed partial class WindowsVbaBridge
 
                 dynamic sheet = sheetObj;
                 sheetName = s.Call(() => (string)sheet.Name);
-                sheets.Add(ReadSheet(s, item, sheetObj, sheetName, options));
+                var info = ReadSheet(s, item, sheetObj, sheetName, options);
+                sheets.Add(info);
                 sheetAdded = true;
-                ReadTables(s, item, sheetObj, sheetName, options, tables);
+                // 「出さない」のシートは、テーブルも出力に出ない。読まない（Excel への問い合わせを増やさない）。
+                if (options.Views.For(info.CodeName).Mode != VbaSheetViewMode.None)
+                {
+                    ReadTables(s, item, sheetObj, sheetName, options, tables);
+                }
             }
             catch (ComBusyException) when (sheets.Count > 0)
             {
@@ -164,12 +223,12 @@ public sealed partial class WindowsVbaBridge
         var visibility = VbaWorkbookInfoReadRules.VisibilityFromExcel(visible);
 
         var usedObj = item.Own(s.Call(() => (object)sheet.UsedRange));
-        if (usedObj is null) return new VbaSheetInfo(sheetName, codeName, visibility, null, Array.Empty<string>(), Array.Empty<IReadOnlyList<string>>());
+        if (usedObj is null) return EmptySheet(sheetName, codeName, visibility, options);
 
         dynamic used = usedObj;
         var rowsObj = item.Own(s.Call(() => (object)used.Rows));
         var columnsObj = item.Own(s.Call(() => (object)used.Columns));
-        if (rowsObj is null || columnsObj is null) return new VbaSheetInfo(sheetName, codeName, visibility, null, Array.Empty<string>(), Array.Empty<IReadOnlyList<string>>());
+        if (rowsObj is null || columnsObj is null) return EmptySheet(sheetName, codeName, visibility, options);
 
         dynamic rows = rowsObj;
         dynamic columns = columnsObj;
@@ -180,52 +239,60 @@ public sealed partial class WindowsVbaBridge
         if (rowCount == 1 && columnCount == 1)
         {
             var only = s.Call(() => (object?)used.Value2);
-            if (only is null)
-            {
-                return new VbaSheetInfo(sheetName, codeName, visibility, null, Array.Empty<string>(), Array.Empty<IReadOnlyList<string>>());
-            }
+            if (only is null) return EmptySheet(sheetName, codeName, visibility, options);
         }
 
         var address = s.Call(() => (string)used.Address(false, false));
+        var structure = new VbaSheetInfo(sheetName, codeName, visibility, address, Array.Empty<string>(), Array.Empty<IReadOnlyList<string>>());
 
-        // 見出し行: 使用範囲の先頭行を MaxColumns 列まで、Value2 を 1 回で読む（セルを 1 つずつ読まない）。
-        var readColumns = Math.Min(columnCount, Math.Max(1, options.MaxColumns));
-        var headerObj = item.Own(s.Call(() => (object)used.Resize(1, readColumns)));
-        IReadOnlyList<string> header = Array.Empty<string>();
-        if (headerObj is not null)
+        // 【セルの値を読むのは、値が渡る見せ方のシートだけ】 構成だけ・出さないのシートでは、ここから先の COM 呼び出しを
+        // 1 回も行わない（社外秘を Graft のメモリにも載せない。読む範囲の計画は Core の VbaSheetReadPlanner が立てる）。
+        var view = options.Views.For(codeName);
+        var plan = VbaSheetReadPlanner.Plan(
+            VbaA1Range.FromAddress(address), view, options.MaxColumns, options.AllMaxRows, options.AllMaxColumns);
+        if (plan.Mode is not (VbaSheetViewMode.HeaderRows or VbaSheetViewMode.All or VbaSheetViewMode.Range)) return structure;
+        if (!plan.ReadsCells) return VbaSheetReadPlanner.Assemble(structure, plan, Array.Empty<IReadOnlyList<string>>(), null);
+
+        // 計画の範囲（先頭のセルから行数×列数）を、セルの値 1 回（数式を含めるときは数式も 1 回）で受ける。
+        // 使用範囲そのものを Offset/Resize しないのは、使用範囲がシートの最終行まである場合に範囲外で失敗するのと、
+        // 「範囲を指定」で使用範囲の途中から読むため。Cells.Item(行, 列) から Resize する形に統一している。
+        var startRow = plan.StartRow;
+        var startColumn = plan.StartColumn;
+        var readRows = plan.RowCount;
+        var readColumns = plan.ColumnCount;
+        var cellsObj = item.Own(s.Call(() => (object)sheet.Cells));
+        if (cellsObj is null) return structure;
+
+        dynamic cells = cellsObj;
+        var topObj = item.Own(s.Call(() => (object)cells.Item(startRow, startColumn)));
+        if (topObj is null) return structure;
+
+        dynamic top = topObj;
+        var blockObj = item.Own(s.Call(() => (object)top.Resize(readRows, readColumns)));
+        if (blockObj is null) return structure;
+
+        dynamic block = blockObj;
+        var raw = s.Call(() => (object?)block.Value2);
+        var values = VbaWorkbookInfoReadRules.ToGrid(raw, options.MaxCellChars);
+        IReadOnlyList<IReadOnlyList<string>>? withFormulas = null;
+        if (view.IncludeFormulas)
         {
-            dynamic headerRange = headerObj;
-            var raw = s.Call(() => (object?)headerRange.Value2);
-            var grid = VbaWorkbookInfoReadRules.ToGrid(raw, options.MaxCellChars);
-            if (grid.Count > 0) header = grid[0];
+            var formulas = s.Call(() => (object?)block.Formula);
+            withFormulas = VbaWorkbookInfoReadRules.ToGrid(raw, formulas, options.MaxCellChars);
         }
 
-        // 値の見本: オプトインのときだけ（SampleRows が 0 なら、この中の COM 呼び出しは 1 回も行わない）。
-        var samples = new List<IReadOnlyList<string>>();
-        var sampleRows = Math.Min(options.SampleRows, rowCount - 1);
-        if (options.SampleRows > 0 && sampleRows > 0 && headerObj is not null)
-        {
-            dynamic headerRange = headerObj;
-            // 使用範囲全体ではなく、見出し行を 1 行下へずらしてから切り出す。使用範囲がシートの最終行まである場合に、
-            // 全体を Offset すると範囲外で失敗するため（見出し行は 1 行目なので、rowCount > 1 のとき 2 行目は必ずある）。
-            var belowObj = item.Own(s.Call(() => (object)headerRange.Offset(1, 0)));
-            if (belowObj is not null)
-            {
-                dynamic below = belowObj;
-                var sampleObj = item.Own(s.Call(() => (object)below.Resize(sampleRows, readColumns)));
-                if (sampleObj is not null)
-                {
-                    dynamic sampleRange = sampleObj;
-                    var values = s.Call(() => (object?)sampleRange.Value2);
-                    object? formulas = options.IncludeFormulas ? s.Call(() => (object?)sampleRange.Formula) : null;
-                    samples.AddRange(VbaWorkbookInfoReadRules.ToGrid(values, formulas, options.MaxCellChars));
-                }
-            }
-        }
+        return VbaSheetReadPlanner.Assemble(structure, plan, values, withFormulas);
+    }
 
-        return new VbaSheetInfo(
-            sheetName, codeName, visibility, address, header, samples,
-            OmittedColumns: columnCount - readColumns);
+    /// <summary>
+    /// 使用範囲の無い（空の）シート。セルは読まないが、「範囲を指定」のシートには「使用範囲の外で値は無い」という説明を残す
+    /// （計画は <see cref="VbaSheetReadPlanner"/> が立てる。何も出ない理由が利用者にも AI にも伝わらなかった）。
+    /// </summary>
+    private static VbaSheetInfo EmptySheet(string sheetName, string codeName, VbaSheetVisibility visibility, VbaWorkbookInfoOptions options)
+    {
+        var structure = new VbaSheetInfo(sheetName, codeName, visibility, null, Array.Empty<string>(), Array.Empty<IReadOnlyList<string>>());
+        var plan = VbaSheetReadPlanner.Plan(null, options.Views.For(codeName), options.MaxColumns, options.AllMaxRows, options.AllMaxColumns);
+        return VbaSheetReadPlanner.Assemble(structure, plan, Array.Empty<IReadOnlyList<string>>(), null);
     }
 
     private static void ReadTables(

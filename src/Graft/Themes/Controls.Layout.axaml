@@ -81,6 +81,14 @@
     <ControlTheme x:Key="{x:Type TabControl}" TargetType="TabControl">
         <Setter Property="Background" Value="{DynamicResource BgSurface}" />
         <Setter Property="BorderThickness" Value="0" />
+        <!--
+            タブの中身の周りの余白。以前は中身の ContentPresenter に Margin="12" を直接書いていたが、
+            テンプレートに直書きした値は呼び出し側のスタイルで上書きできない（ローカル値が勝つ）。
+            中身を窓の左右の端まで使いたい画面（コンテキスト収集の窓。上の収集モードや下のボタンと
+            左右の端を揃える）が、負の余白で打ち消す仮の手当てをせずに済むよう、TabControl の
+            Padding（既定 12 = 従来と同じ）へ移し、下の「flush」クラスで 0 にできるようにした。
+        -->
+        <Setter Property="Padding" Value="12" />
         <!-- 既定は上（横並び）。TabStripPlacement="Left" のときは下のセレクタで縦並びへ切り替える。 -->
         <Setter Property="ItemsPanel">
             <ItemsPanelTemplate>
@@ -103,7 +111,7 @@
                         <ContentPresenter Name="PART_SelectedContentHost"
                                           Content="{TemplateBinding SelectedContent}"
                                           ContentTemplate="{TemplateBinding SelectedContentTemplate}"
-                                          Margin="12" />
+                                          Padding="{TemplateBinding Padding}" />
                     </Border>
                 </DockPanel>
             </ControlTemplate>
@@ -112,6 +120,10 @@
             AvaloniaのTabControlはタブ位置に対応する疑似クラス（:left等）を立てないため、
             プロパティセレクタで直接 TabStripPlacement を見て切り替える。
         -->
+        <!-- 中身の周りの余白なし（<TabControl Classes="flush">）。上の Padding のコメント参照。 -->
+        <Style Selector="^.flush">
+            <Setter Property="Padding" Value="0" />
+        </Style>
         <Style Selector="^[TabStripPlacement=Left]">
             <Setter Property="ItemsPanel">
                 <ItemsPanelTemplate>
@@ -140,7 +152,13 @@
         <Setter Property="Template">
             <ControlTemplate>
                 <StackPanel>
+                    <!--
+                        読み上げ名は、Expander に付けた AutomationProperties.Name をそのまま使う。見出しが文字列でない
+                        （2 つの TextBlock を並べた StackPanel など）とき、名前が空になり、Tab で届いても何の部品か伝わらないため。
+                        付けていない Expander（ライセンス表示）は、従来どおり（null のまま）。
+                    -->
                     <ToggleButton Name="PART_toggle"
+                                  AutomationProperties.Name="{Binding (AutomationProperties.Name), RelativeSource={RelativeSource AncestorType=Expander}}"
                                   HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Stretch"
                                   Padding="{TemplateBinding Padding}"
@@ -308,6 +326,13 @@
     </ControlTheme>
 
     <ControlTheme x:Key="GraftScrollBarRepeatButton" TargetType="RepeatButton">
+        <!--
+            トラックの空き（つまみの前後を押してページ送りする領域）は、マウス専用の操作。フォーカスを受けると、
+            Tab キーで 1 つの ScrollViewer ごとに 2 つずつ何も見えない停止位置ができる（見た目に出ない部品にフォーカスが
+            止まり、キーボード利用者と読み上げの利用者が迷う）。キーボードのスクロールは、スクロール領域の中身へ
+            フォーカスがあるときの矢印キー・PageUp/Down で足りるので、フォーカスは受けない。
+        -->
+        <Setter Property="Focusable" Value="False" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Template">
             <ControlTemplate>

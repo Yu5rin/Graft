@@ -1,23 +1,29 @@
 namespace Graft.Core.Vba;
 
 /// <summary>
-/// ブックの情報（機能 A。仕様書_ブックの情報と依頼の観点 4.3）を読むときの指示。
+/// ブックの情報（機能 A。仕様書_ブックの情報と依頼の観点 4.3・5.5）を読むときの指示。
 /// すべて「読み取り方」だけを表す値で、COM のオブジェクトは持たない。
 /// </summary>
 /// <param name="IncludeReferences">参照設定（<c>VBProject.References</c>）を読むか。</param>
-/// <param name="SampleRows">値の見本の行数。<b>0 なら値の見本を読む COM 呼び出しを一切行わない</b>
-/// （既定オフのオプトイン。社外秘を Graft のメモリにも載せないため）。</param>
-/// <param name="IncludeFormulas">値の見本に数式も含めるか（<paramref name="SampleRows"/> が 0 のときは無意味）。</param>
-/// <param name="MaxColumns">見出し・見本の最大列数。</param>
+/// <param name="Views">
+/// シートごとの見せ方（v0.4）。<b>セルの値を読むのは、値が渡る見せ方（見出し＋N 行・全部・範囲を指定）のシートだけ</b>
+/// （構成だけ・出さないのシートでは、セルを読む COM 呼び出しを 1 回も行わない。社外秘を Graft のメモリにも載せないため）。
+/// 「出さない」のシートは、テーブルも読まない（出力に出ないので）。
+/// </param>
+/// <param name="MaxColumns">「見出し＋N 行」の最大列数。</param>
 /// <param name="MaxCellChars">1 セルの最大文字数（超えたら <c>…</c> つきで切る）。</param>
 /// <param name="MaxSheets">読むシートの最大数。</param>
 /// <param name="Budget">
 /// シートの合間に見る「ここまでで打ち切る」時間。<c>Vba.CallTimeoutMs</c> の 2/3 を渡す。
 /// 呼び出し全体の時間切れ（E805）より手前で、読めた分だけを返すための余裕。
 /// </param>
+/// <param name="AllMaxRows">「全部」「範囲を指定」で 1 シートから読む最大の行数（<c>Vba.WorkbookInfoAllMaxRows</c>）。</param>
+/// <param name="AllMaxColumns">「全部」「範囲を指定」で 1 シートから読む最大の列数（<c>Vba.WorkbookInfoAllMaxColumns</c>）。</param>
 public sealed record VbaWorkbookInfoOptions(
-    bool IncludeReferences, int SampleRows, bool IncludeFormulas,
-    int MaxColumns, int MaxCellChars, int MaxSheets, TimeSpan Budget);
+    bool IncludeReferences, VbaSheetViewSet Views,
+    int MaxColumns, int MaxCellChars, int MaxSheets, TimeSpan Budget,
+    int AllMaxRows = VbaSheetViewLimits.DefaultAllMaxRows,
+    int AllMaxColumns = VbaSheetViewLimits.DefaultAllMaxColumns);
 
 /// <summary>シートの表示状態（<c>Worksheet.Visible</c>）。</summary>
 public enum VbaSheetVisibility
@@ -43,29 +49,88 @@ public enum VbaSheetVisibility
 /// <param name="Names">名前付き範囲。</param>
 /// <param name="References">参照設定。読めなかったときは空で、理由は <paramref name="Omitted"/> にある。</param>
 /// <param name="Omitted">上限・時間切れ・権限で省いたものの説明（警告 E815 の元）。</param>
+/// <param name="AllSheets">
+/// <b>ブックの全シートの表示名とコード名</b>（グラフシートは含まない）。値を読まなかったシート、時間切れ・読み取り失敗・
+/// 枚数の上限で <paramref name="Sheets"/> に載らなかったシートも含む。名前（表示名・コード名）だけは、セルを読まないので安く先に取れる。
+/// 「出さない」のシートが <paramref name="Sheets"/> に載らなかったとき、その名前を知らないと、そのシートを指す名前付き範囲や
+/// 「読めませんでした」の注記を伏せられず、シート名が漏れていた。null は「<paramref name="Sheets"/> がすべて」（従来の取得結果）。
+/// </param>
 public sealed record VbaWorkbookInfoSnapshot(
     string WorkbookName, DateTimeOffset ReadAt,
     IReadOnlyList<VbaSheetInfo> Sheets, IReadOnlyList<VbaTableInfo> Tables,
     IReadOnlyList<VbaNamedRangeInfo> Names, IReadOnlyList<VbaReferenceInfo> References,
-    IReadOnlyList<string> Omitted);
+    IReadOnlyList<string> Omitted,
+    IReadOnlyList<VbaSheetIdentity>? AllSheets = null)
+{
+    /// <summary>
+    /// ブックの全シートの名前（<see cref="AllSheets"/>。無ければ <see cref="Sheets"/> から）。
+    /// 載っているシートの値は <see cref="Sheets"/> と重なり、<see cref="Sheets"/> にだけあるものも漏らさず含める。
+    /// </summary>
+    public IReadOnlyList<VbaSheetIdentity> KnownSheets
+        => AllSheets is null
+            ? Sheets.Select(s => new VbaSheetIdentity(s.Name, s.CodeName)).ToArray()
+            : AllSheets.Concat(Sheets.Select(s => new VbaSheetIdentity(s.Name, s.CodeName)))
+                .DistinctBy(s => (s.Name.ToUpperInvariant(), s.CodeName.ToUpperInvariant()))
+                .ToArray();
+}
+
+/// <summary>シート 1 枚の名前（表示名とコード名）。セルの値は持たない。</summary>
+/// <param name="Name">表示名。</param>
+/// <param name="CodeName">コード名（<c>Sheet1</c> など）。</param>
+public sealed record VbaSheetIdentity(string Name, string CodeName);
 
 /// <summary>シート 1 枚。</summary>
 /// <param name="Name">表示名。</param>
 /// <param name="CodeName">コード名（<c>Sheet1</c> など。ドキュメントモジュールのファイル名と対応する）。</param>
 /// <param name="Visibility">表示状態。</param>
 /// <param name="UsedRange">使用範囲（<c>A1:F120</c>）。空のシートは null。</param>
-/// <param name="HeaderRow">使用範囲の先頭行（最大 <c>MaxColumns</c> 列）。</param>
-/// <param name="SampleRows">値の見本。読んでいなければ空。</param>
+/// <param name="HeaderRow">見出し＋N 行のシートの、使用範囲の先頭行（最大 <c>MaxColumns</c> 列）。読んでいなければ空。</param>
+/// <param name="SampleRows">見出し＋N 行のシートの、見出しに続く N 行の値。読んでいなければ空。</param>
 /// <param name="OmittedColumns">
-/// <c>MaxColumns</c> を超えて切った右側の列数（仕様書のレコードに無い追加項目。「…（他 N 列）」の N。
-/// 既定 0。見出しの右側を切ったことを AI に伝えるために持つ）。
+/// <c>MaxColumns</c> を超えて切った右側の列数（「…（他 N 列）」の N。見出しの右側を切ったことを AI に伝えるために持つ）。
 /// </param>
+/// <param name="Block">「全部」「範囲を指定」で読んだ値のかたまり。読んでいなければ null。</param>
 public sealed record VbaSheetInfo(
     string Name, string CodeName, VbaSheetVisibility Visibility,
     string? UsedRange,
     IReadOnlyList<string> HeaderRow,
     IReadOnlyList<IReadOnlyList<string>> SampleRows,
-    int OmittedColumns = 0);
+    int OmittedColumns = 0,
+    VbaSheetBlock? Block = null);
+
+/// <summary>
+/// 「全部」「範囲を指定」で読んだ、1 枚のシートの値のかたまり（<b>メモリにだけ</b>持つ）。
+/// 切った（上限で読まなかった）ことを AI に伝えられるよう、切る前の行数・列数も持つ。
+/// </summary>
+/// <param name="Mode"><see cref="VbaSheetViewMode.All"/> か <see cref="VbaSheetViewMode.Range"/>。</param>
+/// <param name="Requested">
+/// 指定された範囲（<see cref="VbaSheetViewMode.Range"/> のときだけ。正規化した <c>A1:F30</c>）。
+/// 利用者が範囲を変えたあとに、古い取得結果の別の範囲が出てしまわないよう、出力の直前に突き合わせる。
+/// </param>
+/// <param name="StartRow">読んだ範囲の先頭行（1 始まり）。</param>
+/// <param name="StartColumn">読んだ範囲の先頭列（1 始まり）。</param>
+/// <param name="Rows">読んだ値（行×列。セル内の改行は空白に畳み済み。数式を含めるときは <c>=式 → 値</c>）。</param>
+/// <param name="TotalRows">切る前の（対象の範囲の）行数。<see cref="Rows"/> の行数より多ければ、行を切っている。</param>
+/// <param name="TotalColumns">切る前の列数。</param>
+/// <param name="OutsideUsedRange">指定の範囲が使用範囲に全く掛からず、読む所が無かった。</param>
+public sealed record VbaSheetBlock(
+    VbaSheetViewMode Mode, string? Requested, int StartRow, int StartColumn,
+    IReadOnlyList<IReadOnlyList<string>> Rows, int TotalRows, int TotalColumns, bool OutsideUsedRange = false)
+{
+    /// <summary>読んだ列数。</summary>
+    public int ColumnCount => Rows.Count == 0 ? 0 : Rows.Max(r => r.Count);
+
+    /// <summary>行を上限で切ったか。</summary>
+    public bool RowsCut => Rows.Count < TotalRows;
+
+    /// <summary>列を上限で切ったか。</summary>
+    public bool ColumnsCut => ColumnCount < TotalColumns;
+
+    /// <summary>実際に読んだ範囲（<c>A1:F30</c>）。何も読んでいなければ null。</summary>
+    public string? Address => Rows.Count == 0 || ColumnCount == 0
+        ? null
+        : new VbaA1Range(StartRow, StartColumn, StartRow + Rows.Count - 1, StartColumn + ColumnCount - 1).ToA1();
+}
 
 /// <summary>テーブル（ListObject）1 つ。</summary>
 public sealed record VbaTableInfo(string Name, string SheetName, string Range, IReadOnlyList<string> Columns);
@@ -82,10 +147,10 @@ public sealed record VbaReferenceInfo(string Name, string Description, string? F
 /// </summary>
 public enum VbaWorkbookInfoLevel
 {
-    /// <summary>内容も出す（既定）。シート・テーブル・名前・先頭行の見出し・参照設定（値の見本はオプトインのときだけ）。</summary>
+    /// <summary>内容も出す（既定）。シート・テーブル・名前・参照設定と、シートごとの見せ方（<see cref="VbaSheetView"/>）で選んだ値。</summary>
     Full,
 
-    /// <summary>構成だけ。シート・テーブル・名前付き範囲だけで、見出し・参照設定・値の見本は出さない。</summary>
+    /// <summary>構成だけ。シート・テーブル・名前付き範囲だけで、参照設定・シートの値は出さない（「出さない」のシートは守る）。</summary>
     StructureOnly,
 
     /// <summary>出さない。Excel にも問い合わせない。</summary>

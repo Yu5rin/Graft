@@ -58,6 +58,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     private bool _isEmpty;
     private GraftIssue? _errorIssue;
     private string? _statusMessage;
+    private Func<string?>? _sizeStatus;
     private string _newExcludePattern = string.Empty;
     private IReadOnlyList<PreviewLine> _previewLines = Array.Empty<PreviewLine>();
 
@@ -103,6 +104,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         _vbaPull = vbaPull;
         _workbookInfoSource = vbaWorkbookInfo;
         InitializeWorkbookInfo(project, vbaWorkbookInfo);
+        InitializeRibbon(project, vbaWorkbookInfo);
 
         Modes = new ObservableCollection<ModeOption>
         {
@@ -290,10 +292,46 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         private set => SetProperty(ref _errorIssue, value);
     }
 
+    /// <summary>
+    /// 画面下の状況の文。トークン数に触れる文（大きさの助言・コピー／保存／プレビューの結果）は
+    /// <see cref="SetSizeStatus"/> で入れる。ここへ直接代入した文は、別の文で上書きするまで変わらない。
+    /// </summary>
     public string? StatusMessage
     {
         get => _statusMessage;
-        private set => SetProperty(ref _statusMessage, value);
+        // 直接代入は「別の文に替わった」ことなので、数字に追従させる仕組みは外す
+        // （外さないと、gitの結果などの文を、あとから古い助言の文が上書きしてしまう）。
+        private set
+        {
+            _sizeStatus = null;
+            SetProperty(ref _statusMessage, value);
+        }
+    }
+
+    /// <summary>
+    /// トークン数を含む状況の文を、<paramref name="build"/> の結果として出し、以後はトークン数が変わるたびに作り直す。
+    ///
+    /// 【なぜ文字列を一度作って終わりにしないか（実機で報告された食い違いの原因）】
+    /// 以前は、走査の直後に「推定 約90427トークン」という文字列を作って <see cref="StatusMessage"/> へ入れ、
+    /// それきりだった。一方、ボタンの横の「推定トークン数」は <see cref="EstimatedTokens"/> のバインドなので、
+    /// そのあとの選択の変更・保存済みの選択の復元・ブックの情報やリボンの取得・依頼の観点の選択のたびに
+    /// 「約85365トークン」へ追従する。結果、上の文と下の行の数字が食い違った（利用者の画面で確認）。
+    /// 数字を含む文は、数字の元（<see cref="UpdateApproxTokenEstimate"/>）が変わるたびに、同じ書き方で
+    /// 作り直すようにして、構造的に食い違わせない。
+    ///
+    /// <paramref name="build"/> が null を返したとき（目安以下になり、助言が要らなくなったとき）は、文を消す。
+    /// </summary>
+    private void SetSizeStatus(Func<string?> build)
+    {
+        StatusMessage = build();
+        _sizeStatus = build;
+    }
+
+    /// <summary>数字に追従する文があれば、いまのトークン数で作り直す。</summary>
+    private void RefreshSizeStatus()
+    {
+        if (_sizeStatus is not { } build) return;
+        SetProperty(ref _statusMessage, build(), nameof(StatusMessage));
     }
 
     /// <summary>
@@ -371,6 +409,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         Focus.Changed -= OnFocusChanged;
         // ブックの情報（値の見本を含みうる）は、このインスタンスの寿命より長く持たない。ディスクには元々書いていない。
         _workbookSnapshot = null;
+        ReleaseRibbon();
         // 画面に残るプレビュー（見本を含みうる）も手放す。
         _previewLines = Array.Empty<PreviewLine>();
         if (_focusPersistPending)
@@ -473,9 +512,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     {
         var result = await CollectAsync().ConfigureAwait(true);
         if (result is null) return;
-        StatusMessage = ExceedsWarnThreshold
+        SetSizeStatus(() => ExceedsWarnThreshold
             ? $"推定: 約{EstimatedTokens}トークン。{BuildSizeAdvice()}"
-            : $"推定: 約{EstimatedTokens}トークン。";
+            : $"推定: 約{EstimatedTokens}トークン。");
     }
 
     /// <summary>
@@ -503,9 +542,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         if (result is null) return;
 
         _ui.Clipboard.SetText(result.Text);
-        StatusMessage = ExceedsWarnThreshold
+        SetSizeStatus(() => ExceedsWarnThreshold
             ? $"クリップボードにコピーしました。{BuildSizeAdvice()}"
-            : "クリップボードにコピーしました。";
+            : "クリップボードにコピーしました。");
     }
 
     /// <summary>
@@ -538,9 +577,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             return;
         }
 
-        StatusMessage = ExceedsWarnThreshold
+        SetSizeStatus(() => ExceedsWarnThreshold
             ? $"保存しました。{BuildSizeAdvice()}保存先: {path}"
-            : $"保存しました。保存先: {path}";
+            : $"保存しました。保存先: {path}");
     }
 
     /// <summary>
@@ -567,6 +606,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
 
     private async Task<ContextResult?> CollectAsync()
     {
+        // 入力欄に打っている途中の範囲・行数を、出力の前に確定する（LostFocus に頼らない。ブックの情報の入力欄の説明参照）。
+        await CommitPendingInputsAsync().ConfigureAwait(true);
+
         // Files先頭の「すべて」行（RootNode）はIsDirectory=trueのため、下の2つの
         // Where(f => f is { IsDirectory: false, ... })で自動的に対象外になる。ルートを
         // Filesへ混ぜるにあたってここは変更不要（Files.RootNodeのコメント参照）。
@@ -585,6 +627,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             SinceRevision = _selectedRevision?.Revision,
             FocusText = BuildFocusText(),
             WorkbookInfoText = BuildWorkbookInfoText(),
+            RibbonText = BuildRibbonText(),
         };
 
         // 8.8: 収集本体（プレビュー・コピー・ファイル保存）にも待機表示を出す。従来は
@@ -884,7 +927,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
         var treeChars = IncludesTreeInEstimate(_selectedMode) ? EstimateTreeSectionChars() : 0;
 
         // 依頼の観点（チップ）の文も出力の先頭近くに入るので、概算に含める（何も選んでいなければ0）。
-        var workbookChars = BuildWorkbookInfoText().Length;
+        var workbookChars = BuildWorkbookInfoText().Length + BuildRibbonText().Length;
         var focusChars = BuildFocusText().Length;
 
         EstimatedTokens = TokenEstimator.EstimateLength(totalBytes, _settings.Context.TokenRatio)
@@ -892,6 +935,9 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             + TokenEstimator.EstimateLength(workbookChars, _settings.Context.TokenRatio)
             + TokenEstimator.EstimateLength(focusChars, _settings.Context.TokenRatio);
         ExceedsWarnThreshold = EstimatedTokens > TokenWarnThreshold;
+
+        // 状況の文に出ているトークン数も、この値に合わせる（SetSizeStatus のコメント参照）。
+        RefreshSizeStatus();
     }
 
     /// <summary>ContextCollector.CollectAsync内のIncludesTreeと同じ判定（構成ツリーを出力に含むモードか）。</summary>
@@ -951,7 +997,10 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
     private void WarnIfDefaultSelectionIsLarge()
     {
         if (!ExceedsWarnThreshold) return;
-        StatusMessage = $"既定ですべてのファイルの内容を含めています。{BuildSizeAdvice()}";
+        // 目安以下になったら（フォルダを「構成だけ」にした等）、助言は要らないので文ごと消す。
+        SetSizeStatus(() => ExceedsWarnThreshold
+            ? $"既定ですべてのファイルの内容を含めています。{BuildSizeAdvice()}"
+            : null);
     }
 
     // ---- 追加要件: プロジェクトごとのチェック状態（3状態）の永続化 ----

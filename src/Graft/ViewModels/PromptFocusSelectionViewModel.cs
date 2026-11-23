@@ -125,6 +125,20 @@ public sealed class PromptFocusSelectionViewModel : ObservableObject
     /// <summary>パネルの見出し。選んでいるときは数を添える（「依頼の観点 3」）。</summary>
     public string HeaderText => SelectedCount > 0 ? $"依頼の観点 {SelectedCount}" : "依頼の観点";
 
+    /// <summary>
+    /// たたんだ状態の 1 行に出す、選んでいる観点の名前（画面の並び順。「・」区切り）。
+    /// たたんでも選択は変わらないので、何を選んでいるかがチップを開かなくても見え続けるようにする。
+    /// 何も選んでいないときは「選んでいません」（空欄にすると、たたんだ行が壊れたように見えるため）。
+    /// </summary>
+    public string SelectedSummary
+    {
+        get
+        {
+            var names = Groups.SelectMany(g => g.Chips).Where(c => c.IsSelected).Select(c => c.Name).ToArray();
+            return names.Length > 0 ? string.Join("・", names) : "選んでいません";
+        }
+    }
+
     /// <summary>選ばれている観点の Id（画面の並び順）。一覧に無いもの・VBA でないときの VBA 専用は含めない。</summary>
     public IReadOnlyList<string> SelectedIds
         => PromptFocusComposer.ResolveSelected(_catalog, _selected, _isVba).Select(f => f.Id).ToArray();
@@ -209,6 +223,7 @@ public sealed class PromptFocusSelectionViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(SelectedCount));
         OnPropertyChanged(nameof(HeaderText));
+        OnPropertyChanged(nameof(SelectedSummary));
         ((RelayCommand)ClearAllCommand).RaiseCanExecuteChanged();
     }
 

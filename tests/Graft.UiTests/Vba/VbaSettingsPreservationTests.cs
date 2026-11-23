@@ -55,6 +55,9 @@ public class VbaSettingsPreservationTests : IDisposable
         WorkbookInfoMaxColumns = 50,
         WorkbookInfoMaxCellChars = 120,
         WorkbookInfoMaxChars = 40000,
+        WorkbookInfoAllMaxRows = 800,
+        WorkbookInfoAllMaxColumns = 70,
+        RibbonMaxChars = 55000,
         RescueMaxGenerations = 42,
         RescueMaxTotalMB = 90,
     };

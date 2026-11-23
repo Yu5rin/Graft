@@ -31,8 +31,15 @@ public sealed partial class MainViewModel
             // オフにした直後のクイックコピーに古い取得結果が出ない。
             IsCollecting = () => _settings.Vba.CollectWorkbookInfo,
             MaxChars = () => _settings.Vba.WorkbookInfoMaxChars,
-            FetchAsync = (sampleValues, includeFormulas, ct) => FetchVbaWorkbookInfoAsync(project, sampleValues, includeFormulas, ct),
-            // 値の見本をオンにする確認は、ボタンの文言と既定を指定できる選択ダイアログ（VbaChoiceWindow）で出す。
+            AllMaxRows = () => _settings.Vba.WorkbookInfoAllMaxRows,
+            AllMaxColumns = () => _settings.Vba.WorkbookInfoAllMaxColumns,
+            FetchAsync = (views, ct) => FetchVbaWorkbookInfoAsync(project, views, ct),
+            // リボン（customUI）。ブックのファイルを読むだけで Excel は呼ばない。設定は、ブックの情報の取得（CollectWorkbookInfo）に従う。
+            FetchRibbonAsync = ct => FetchVbaRibbonAsync(project, ct),
+            RibbonMaxChars = () => _settings.Vba.RibbonMaxChars,
+            // いま紐付いているブック（一覧の最新）。収集のモデルが、取得と出力の直前に、取得に使ったブックと突き合わせる。
+            CurrentWorkbookFullName = () => CurrentVbaProject(project).Vba?.WorkbookFullName,
+            // 値が渡る見せ方を選ぶ確認は、ボタンの文言と既定を指定できる選択ダイアログ（VbaChoiceWindow）で出す。
             ChooseAsync = ChooseVbaOptionAsync,
         };
     }
@@ -42,34 +49,36 @@ public sealed partial class MainViewModel
         => ProjectPane.Items.FirstOrDefault(i => i.Project.Id == project.Id)?.Project ?? project;
 
     private async Task<GraftResult<VbaWorkbookInfoSnapshot>?> FetchVbaWorkbookInfoAsync(
-        Project project, bool sampleValues, bool includeFormulas, CancellationToken ct)
+        Project project, VbaSheetViewSet views, CancellationToken ct)
     {
         var current = CurrentVbaProject(project);
         if (!IsVbaActive(current) || !_settings.Vba.CollectWorkbookInfo) return null;
 
         var vba = _settings.Vba;
-        // 値の見本の行数は、オプトインしていないとき 0（見本を読む COM 呼び出しを一切行わない）。
+        // シートごとの見せ方を、そのまま読み取りの指示にする。セルの値を読むのは、値が渡る見せ方のシートだけ
+        // （構成だけ・出さないのシートは、ブリッジがセルを読まない）。
         var options = new VbaWorkbookInfoOptions(
             IncludeReferences: true,
-            SampleRows: sampleValues ? vba.WorkbookInfoSampleRows : 0,
-            IncludeFormulas: sampleValues && includeFormulas,
+            Views: views,
             MaxColumns: vba.WorkbookInfoMaxColumns,
             MaxCellChars: vba.WorkbookInfoMaxCellChars,
             MaxSheets: 100,
             // 呼び出し全体の時間切れ（E805）より手前で、読めた分を返すための予算（仕様書5.5）。
-            Budget: TimeSpan.FromMilliseconds(vba.CallTimeoutMs * 2 / 3.0));
+            Budget: TimeSpan.FromMilliseconds(vba.CallTimeoutMs * 2 / 3.0),
+            AllMaxRows: vba.WorkbookInfoAllMaxRows,
+            AllMaxColumns: vba.WorkbookInfoAllMaxColumns);
 
         var result = await _vbaBridge.ReadWorkbookInfoAsync(current.Vba!.WorkbookFullName, options, ct).ConfigureAwait(true);
 
-        // ログには事実だけを残す。見本の値そのものはログに書かない（社外秘を含みうるため。仕様書14章）。
+        // ログには事実だけを残す。値そのものはログに書かない（社外秘を含みうるため。仕様書14章）。
         if (result.IsSuccess)
         {
-            var sampled = options.SampleRows > 0 ? result.Value.Sheets.Sum(s => s.SampleRows.Count) : 0;
+            var withValues = result.Value.Sheets.Count(sheet => sheet.SampleRows.Count > 0 || sheet.HeaderRow.Count > 0 || sheet.Block is not null);
             Logger?.Info(
                 "vba-workbook-info",
-                options.SampleRows > 0
-                    ? $"ブックの情報を取得しました（シート {result.Value.Sheets.Count} 枚、値の見本 {sampled} 行）。"
-                    : $"ブックの情報を取得しました（シート {result.Value.Sheets.Count} 枚。値の見本は読んでいません）。",
+                withValues > 0
+                    ? $"ブックの情報を取得しました（シート {result.Value.Sheets.Count} 枚、うち値を読んだシート {withValues} 枚）。"
+                    : $"ブックの情報を取得しました（シート {result.Value.Sheets.Count} 枚。値は読んでいません）。",
                 targetPath: current.Root);
         }
         else
@@ -78,5 +87,34 @@ public sealed partial class MainViewModel
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// リボン（customUI）を読む処理。既定はブックのファイルを実際に読む（<see cref="VbaRibbonCollector.CollectAsync"/>）。
+    /// テストは、Excel の代役（<c>FakeVbaBridge</c>）が開いている「ブック」には実ファイルが無いので、これを差し替えて
+    /// 一時ファイルの zip を読ませる。引数は（ブックのフルパス, VBA のミラーのフォルダ, 取り消し）。
+    /// </summary>
+    internal Func<string, string, CancellationToken, Task<VbaRibbonSnapshot>> VbaRibbonReader { get; set; } =
+        (workbookPath, mirrorRoot, ct) => VbaRibbonCollector.CollectAsync(workbookPath, mirrorRoot, null, ct);
+
+    /// <summary>
+    /// リボン（customUI）を読んで取得結果にする。<b>null は「取得しない」</b>（VBA が使えない・設定でブックの情報の取得がオフ）。
+    /// 例外にはしない（<see cref="VbaRibbonCollector"/> が失敗を結果の種類で返す）。
+    /// </summary>
+    private async Task<VbaRibbonSnapshot?> FetchVbaRibbonAsync(Project project, CancellationToken ct)
+    {
+        var current = CurrentVbaProject(project);
+        if (!IsVbaActive(current) || !_settings.Vba.CollectWorkbookInfo) return null;
+
+        var snapshot = await VbaRibbonReader(current.Vba!.WorkbookFullName, current.Root, ct).ConfigureAwait(true);
+
+        // ログには事実だけを残す。XML の中身・label はログに書かない（業務名を含みうるため。仕様書14章）。
+        Logger?.Info(
+            "vba-ribbon",
+            snapshot.Status == VbaRibbonReadStatus.Ok
+                ? $"リボン（customUI）を読みました（部品 {snapshot.Parts.Count} 件、コールバック {snapshot.Callbacks.Count} 件）。"
+                : $"リボン（customUI）は読んでいません（{snapshot.Status}）。",
+            targetPath: current.Root);
+        return snapshot;
     }
 }

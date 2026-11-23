@@ -318,15 +318,15 @@
                             -->
                             <views:PromptFocusPanel DataContext="{Binding Context.Focus}" Margin="0,10,0,0" />
                             <!--
-                                値の見本（ブックの情報）をオンにしている間は、依頼文に各シートの先頭数行の値が入ることを
-                                常に1行出す（仕様書_ブックの情報と依頼の観点 5.2）。オフのときは出ない。
+                                シートごとの見せ方（ブックの情報）で値が渡るシートがある間は、依頼文にそのシートの値が入ることを
+                                常に1行出す（仕様書_ブックの情報と依頼の観点 5.2）。渡るシートが無いときは出ない。
                             -->
-                            <TextBlock Text="{Binding Context.WorkbookInfo.SampleNoticeText}"
-                                       IsVisible="{Binding Context.WorkbookInfo.IsSampleNoticeVisible}"
+                            <TextBlock Text="{Binding Context.WorkbookInfo.ValueNoticeText}"
+                                       IsVisible="{Binding Context.WorkbookInfo.IsValueNoticeVisible}"
                                        Margin="0,6,0,0" TextWrapping="Wrap"
                                        Foreground="{DynamicResource StateWarn}"
                                        FontSize="{DynamicResource CaptionFontSize}"
-                                       AutomationProperties.Name="値の見本の注意" />
+                                       AutomationProperties.Name="シートの値の注意" />
                             <!--
                                 指示文と選んだファイルを1回のコピーで渡すための選択肢。テンプレートの本文は
                                 書き換えず、コピーのたびに「指示文の後ろにファイルを付けるか」だけを選ぶ。

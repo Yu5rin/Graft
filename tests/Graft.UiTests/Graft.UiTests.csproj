@@ -18,6 +18,11 @@
     <ProjectReference Include="..\..\src\Graft\Graft.csproj" />
   </ItemGroup>
 
+  <!-- リボン（customUI）の読み取りのテスト用に、小さな .xlsm 相当の zip を組み立てる補助。Graft.Tests と同じものを使う（2 か所に書かない）。 -->
+  <ItemGroup>
+    <Compile Include="..\Graft.Tests\TestSupport\RibbonPackageBuilder.cs" Link="TestSupport\RibbonPackageBuilder.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia.Headless" Version="11.2.3" />
     <PackageReference Include="Avalonia.Headless.XUnit" Version="11.2.3" />

@@ -467,6 +467,13 @@ public sealed partial class ProjectPaneViewModel
     // 作成フロー（7.1）
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// 選択中のプロジェクトを、同じまま別のブック（または同じブック）へ結び直したことの通知。
+    /// <see cref="ProjectSelected"/> と違い、選択は変わっていないので、タブやエクスプローラは触らない
+    /// （購読側は、プロジェクトに結び付いた状態——収集・依頼文のモデル——だけを作り直す）。
+    /// </summary>
+    public event EventHandler<Project>? WorkbookRelinked;
+
     private async Task AddFromWorkbookAsync()
     {
         if (_vbaSync is null || ShowWorkbookPickerAsync is null) return;
@@ -487,7 +494,7 @@ public sealed partial class ProjectPaneViewModel
         {
             // 同じ場所を再び追加したとき（既存のミラーを使う）、既に VBA の紐付けを持つプロジェクトの設定
             // （適用後の自動反映・反映後の保存）を黙って既定へ戻さない。変えるのはブックのパスだけ。
-            // 別のブックへ結び直したときは、値の見本のオンを解除する（VbaLink.WithWorkbook）。
+            // 別のブックへ結び直したときは、値が渡る見せ方（シートごとの見せ方）をすべて戻す（VbaLink.WithWorkbook）。
             Vba = p.Vba is { } existing
                 ? existing.WithWorkbook(chosen.WorkbookFullName)
                 : new VbaLink { WorkbookFullName = chosen.WorkbookFullName },
@@ -500,8 +507,18 @@ public sealed partial class ProjectPaneViewModel
             return;
         }
 
+        // 追加の前から同じプロジェクトを選んでいたか。選び直しが無い（同じ Id）と、ProjectSelected が発火せず、
+        // 収集のモデル（作成時の VbaLink と取得結果を持つ）が作り直されない。
+        var wasSelected = SelectedItem?.Project.Id == registered.Value.Id;
         await LoadAsync().ConfigureAwait(true);
         SelectedItem = Items.FirstOrDefault(i => i.Project.Id == registered.Value.Id);
+
+        // 【同じプロジェクトを選んだまま結び直したときも、収集のモデルを作り直させる】 以前は、選択が同じ Id のまま
+        // （ApplyItems が黙って選択を復元する）だと何も起きず、古いブックの見せ方（例: Sheet1 は全部）と取得結果を持つモデルが
+        // 生き残り、新しいブックの値を確認なしで読んで依頼文へ出した。結び直しで保存側は全シート構成だけへ戻っているので、
+        // モデルも作り直して合わせる（別のプロジェクトを選んでいたときは、選択の変更で ProjectSelected が発火するので不要）。
+        if (wasSelected && SelectedItem is { } selected) WorkbookRelinked?.Invoke(this, selected.Project);
+
         Notify?.Invoke(chosen.ModuleCount >= 0
             ? $"「{updated.Value.DisplayName}」を追加しました（モジュール {chosen.ModuleCount} 件）。"
             : $"「{updated.Value.DisplayName}」を追加しました（既存のミラーを使います）。");

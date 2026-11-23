@@ -44,7 +44,7 @@ public interface IVbaBridge : IPlatformService
     Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default);
 
     /// <summary>
-    /// ブックの構造（シート・テーブル・名前・先頭行の見出し・参照設定。<paramref name="options"/> で値の見本）を読む。
+    /// ブックの構造（シート・テーブル・名前・参照設定。<paramref name="options"/> のシートごとの見せ方で、値が渡るシートだけセルの値も）を読む。
     /// 書き込みはしない（仕様書_ブックの情報と依頼の観点 5.5）。
     /// <para>
     /// 読めた分だけを返す: 参照設定だけ読めない（E802／E803 相当）・時間の予算切れ・上限は失敗にせず、
