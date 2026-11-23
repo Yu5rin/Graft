@@ -95,8 +95,25 @@ public sealed partial class MainViewModel
     /// <summary>理由に、対処を添えた表示文。</summary>
     private static string FormatVbaIssue(GraftIssue issue) => $"{issue.ToDisplayText()}{Environment.NewLine}対処: {issue.Remedy}";
 
-    /// <summary>パッチの対象のうち、ミラーのモジュールとして同期の対象になるものの正規の相対パス。</summary>
-    private static List<string> VbaScopeOf(IEnumerable<string> paths)
+    /// <summary>
+    /// パッチの対象のうち、ミラーのモジュールとして同期の対象になるものの正規の相対パス。<b>リボン（<c>CustomUI/</c>）は含めない</b>。
+    /// <para>
+    /// 【取込の範囲（<see cref="VbaPullScopeOf"/>）と分ける理由】 この範囲は「Excel へ反映（Push）」に使う。リボンのパスを混ぜると、
+    /// リボンだけの取り消し・復元でも範囲が空にならず、Excel の全モジュールを読みに行って、閉じたブックでは E804 で失敗する
+    /// （VBA を 1 行も変えていないのに失敗のダイアログが出て、ブックが閉じていても動くはずのリボンの確認も出なくなった。不具合 2）。
+    /// リボンは Excel の COM を通らず、ブックのファイルとして別に扱う（16.4・16.10）ので、VBA の反映の範囲には入れない。
+    /// </para>
+    /// </summary>
+    private static List<string> VbaScopeOf(IEnumerable<string> paths) => ScopeOf(paths, includeRibbon: false);
+
+    /// <summary>
+    /// パッチの対象のうち、<b>取込（Pull・Check）</b>の範囲になるもの。モジュールに加えて、リボン（<c>CustomUI/customUI14.xml</c> など。
+    /// 仕様書_ブックの情報と依頼の観点 16.4）を含む。パッチが <c>CustomUI/</c> を含むときも、解析の前にブックのファイルから取り込む
+    /// （取込の 3 つ目の契機）。リボンの同期をしていないときは、同期の側が範囲から外す。
+    /// </summary>
+    private static List<string> VbaPullScopeOf(IEnumerable<string> paths) => ScopeOf(paths, includeRibbon: true);
+
+    private static List<string> ScopeOf(IEnumerable<string> paths, bool includeRibbon)
     {
         var scope = new List<string>();
         foreach (var path in paths)
@@ -107,10 +124,8 @@ public sealed partial class MainViewModel
             {
                 relative = parsed.RelativePath;
             }
-            else if (VbaRibbonMirrorLayout.TryParse(normalized, out var ribbon) && ribbon is not null)
+            else if (includeRibbon && VbaRibbonMirrorLayout.TryParse(normalized, out var ribbon) && ribbon is not null)
             {
-                // リボン（CustomUI/customUI14.xml など。仕様書_ブックの情報と依頼の観点 16.4）。パッチが CustomUI/ を含むときも、
-                // 解析の前にブックのファイルから取り込む（取込の 3 つ目の契機）。リボンの同期をしていないときは、同期の側が範囲から外す。
                 relative = ribbon.RelativePath;
             }
 
@@ -177,7 +192,7 @@ public sealed partial class MainViewModel
     {
         if (!IsVbaActive(project)) return true;
 
-        var scope = VbaScopeOf(patch.Blocks.SelectMany(b => b is RenameBlock rename ? new[] { b.Path, rename.ToPath } : new[] { b.Path }));
+        var scope = VbaPullScopeOf(patch.Blocks.SelectMany(b => b is RenameBlock rename ? new[] { b.Path, rename.ToPath } : new[] { b.Path }));
         if (scope.Count == 0) return true;
 
         if (!_settings.Vba.PullBeforeDryRun)
@@ -340,7 +355,7 @@ public sealed partial class MainViewModel
         var project = ProjectPane.SelectedItem?.Project;
         if (!IsVbaActive(project) || _vbaFileOnly) return (dryRun, context);
 
-        var scope = VbaScopeOf(plans.Where(p => p.IsSelected && p.CanApply).SelectMany(p => new[] { p.Block.Path, p.Path }));
+        var scope = VbaPullScopeOf(plans.Where(p => p.IsSelected && p.CanApply).SelectMany(p => new[] { p.Block.Path, p.Path }));
         if (scope.Count == 0) return (dryRun, context);
 
         var check = await VbaSync.CheckAsync(project!, scope).ConfigureAwait(true);

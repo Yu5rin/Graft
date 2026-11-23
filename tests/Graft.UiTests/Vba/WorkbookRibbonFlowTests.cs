@@ -149,7 +149,8 @@ public sealed class WorkbookRibbonFlowTests : IDisposable
 
         shown.Should().BeEmpty();
         CloseOpenCalls(r).Should().BeEmpty("保存も閉じるも呼ばない");
-        r.Graft.Notice.Text.Should().Contain("リボンは未反映のままです").And.Contain("Excel へ反映");
+        // 閉じたブックでは「Excel へ反映」は何度押しても E804 になるので、リボンだけで反映できる「リボンをブックへ反映…」も案内する（不具合 2）。
+        r.Graft.Notice.Text.Should().Contain("リボンは未反映のままです").And.Contain("Excel へ反映").And.Contain("リボンをブックへ反映…");
         (await r.StatusAsync().ConfigureAwait(true)).RibbonUnpushed.Should().BeTrue();
     }
 
@@ -307,5 +308,34 @@ public sealed class WorkbookRibbonFlowTests : IDisposable
         File.ReadAllBytes(BookFile).Should().Equal(original, "控えの内容で置き換わる");
         Directory.GetFiles(r.H.AppPaths.GetVbaWorkbookBackupDirectory(r.Project.Id)).Should().HaveCount(2, "置き換える前のブックも控えとして残る");
         window!.StatusText.Should().Contain("控え（").And.Contain("置き換えました");
+    }
+
+    [AvaloniaFact(DisplayName = "不具合 2: リボンだけの適用を取り消すとき、ブックが閉じていても Excel に触れず、失敗の選択も出さず、リボンの確認が出てブックのリボンが戻る")]
+    public async Task リボンだけの取り消しは閉じたブックでもExcelに触れない()
+    {
+        var shown = new List<VbaRibbonRewriteViewModel>();
+        using var r = await ArrangeAsync(shown).ConfigureAwait(true);
+        await r.PasteAsync(RibbonPatch()).ConfigureAwait(true);
+        await r.ApplyAsync().ConfigureAwait(true);
+        BookRibbon().Should().Be(XmlB);
+        shown.Should().HaveCount(1);
+
+        // 適用のあとでブックを閉じる（VBA は 1 行も変えていない。リボンだけの取り消し）。
+        r.Bridge.CloseWorkbook(VbaP3Rig.Book);
+        r.Bridge.Calls.Clear();
+        r.Choices.Clear();
+        r.H.Dialogs.Messages.Clear();
+
+        await ShellHarness.ExecuteAsync(r.Graft.UndoCommand).ConfigureAwait(true);
+
+        r.Mirror(Ribbon14).Should().Be(RibbonPackageBuilder.SampleRibbon, "取り消しでミラーが戻る");
+        r.Bridge.Calls.Should().NotContain(c => c.StartsWith("Read:", StringComparison.Ordinal) || c.StartsWith("Write:", StringComparison.Ordinal) || c == "List",
+            "リボンだけの取り消しは、Excel のモジュールを読みにも書きにも行かない（VBA の反映の範囲が空）");
+        r.Choices.Should().BeEmpty("「Excel へ反映できませんでした」の選択（E804）は出ない");
+        r.H.Dialogs.Messages.Should().NotContain(m => m.Message.Contains("E804", StringComparison.Ordinal));
+        shown.Should().HaveCount(2, "閉じたブックでも、取り消しのあとにリボンの確認が出る");
+        BookRibbon().Should().Be(RibbonPackageBuilder.SampleRibbon, "閉じたブックのファイルを書き換えて、リボンが元に戻る");
+        (await r.StatusAsync().ConfigureAwait(true)).RibbonUnpushed.Should().BeFalse();
+        r.Bridge.HeldTickets.Should().BeEmpty();
     }
 }
