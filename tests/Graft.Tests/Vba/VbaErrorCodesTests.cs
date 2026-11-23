@@ -5,7 +5,7 @@ using Xunit;
 namespace Graft.Tests.Vba;
 
 /// <summary>
-/// E801〜E817（Excel VBA 連携。docs/仕様書_VBA連携.md 9章）の登録の確認。
+/// E801〜E823（Excel VBA 連携。docs/仕様書_VBA連携.md 9章、E818〜E823 は仕様書_ブックの情報と依頼の観点 16.13）の登録の確認。
 /// 全コードの登録漏れ検出そのものは <see cref="ErrorCatalogTests"/> が担う。ここでは「仕様の14件が
 /// 揃っていること」と、見出し・対処の中身が仕様の意図どおりであることを固定する。
 /// </summary>
@@ -15,10 +15,11 @@ public class VbaErrorCodesTests
     {
         ErrorCode.E801, ErrorCode.E802, ErrorCode.E803, ErrorCode.E804, ErrorCode.E805, ErrorCode.E806, ErrorCode.E807,
         ErrorCode.E808, ErrorCode.E809, ErrorCode.E810, ErrorCode.E811, ErrorCode.E812, ErrorCode.E813, ErrorCode.E814, ErrorCode.E815, ErrorCode.E816, ErrorCode.E817,
+        ErrorCode.E818, ErrorCode.E819, ErrorCode.E820, ErrorCode.E821, ErrorCode.E822, ErrorCode.E823,
     };
 
-    [Fact(DisplayName = "E8xx は E801〜E817 の 17 件ちょうどで、すべて見出しと対処が空でない")]
-    public void 十七件が揃っている()
+    [Fact(DisplayName = "E8xx は E801〜E823 の 23 件ちょうどで、すべて見出しと対処が空でない")]
+    public void 二十三件が揃っている()
     {
         var all = Enum.GetValues<ErrorCode>().Where(c => c.ToString().StartsWith("E8", StringComparison.Ordinal)).ToArray();
 
@@ -46,6 +47,12 @@ public class VbaErrorCodesTests
     [InlineData(ErrorCode.E815, "ブックの情報を一部読めませんでした")]
     [InlineData(ErrorCode.E816, "控えを保存できませんでした")]
     [InlineData(ErrorCode.E817, "保存時の自動反映を行いませんでした")]
+    [InlineData(ErrorCode.E818, "リボンの XML に問題があります")]
+    [InlineData(ErrorCode.E819, "このブックのリボンは書き換えられません")]
+    [InlineData(ErrorCode.E820, "ブックを保存して閉じられませんでした")]
+    [InlineData(ErrorCode.E821, "ブックのファイルを書き換えられませんでした")]
+    [InlineData(ErrorCode.E822, "書き換えたブックを開き直せませんでした")]
+    [InlineData(ErrorCode.E823, "ブックを元の内容へ戻せませんでした")]
     public void 見出し(ErrorCode code, string summary)
     {
         ErrorCatalog.SummaryOf(code).Should().Be(summary);
@@ -101,6 +108,17 @@ public class VbaErrorCodesTests
         var remedy = ErrorCatalog.RemedyOf(ErrorCode.E817);
 
         remedy.Should().Contain("保存済み").And.Contain("未反映").And.Contain("Excel へ反映").And.Contain("衝突");
+    }
+
+    [Fact(DisplayName = "E818〜E823（リボンの書き換え）の対処は、ブックがどうなっているか（変えていない／元のまま／書き換え済み）を伝える")]
+    public void リボンの書き換えの案内()
+    {
+        ErrorCatalog.RemedyOf(ErrorCode.E818).Should().Contain("2009/07/customui").And.Contain("2006/01/customui").And.Contain("ブックへ書きません");
+        ErrorCatalog.RemedyOf(ErrorCode.E819).Should().Contain("何も変えていません");
+        ErrorCatalog.RemedyOf(ErrorCode.E820).Should().Contain("変えていません");
+        ErrorCatalog.RemedyOf(ErrorCode.E821).Should().Contain("元の内容のまま");
+        ErrorCatalog.RemedyOf(ErrorCode.E822).Should().Contain("書き換えは済んでいます");
+        ErrorCatalog.RemedyOf(ErrorCode.E823).Should().Contain("控えのファイルでブックを置き換え");
     }
 
     [Fact(DisplayName = "E706 の実際の文言（「この環境では使えない機能です」）が NullVbaBridge の失敗で使われる前提と一致する")]
