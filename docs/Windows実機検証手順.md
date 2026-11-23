@@ -1353,3 +1353,133 @@ customUI の**無い**ブックでは、`GRAFT_RIBBON_PROBE_SOURCE` の代わり
 - (4): 利用者の本物のブック（`vbaProject.bin` あり）の写しへの追加と差し替えの 2 つとも、修復の確認なしで開け、タブが出た。
 - この報告に含まれていないもの: (3)（Excel で保存したあとも customUI が残るか）、画像つきのリボン（元のブックに画像つきの customUI があるとき。実機検証 3）、.xlsb、Excel の版。仕様書の付録B に残してある。
 - 書き換えの作り（仕様書 16.7。新しい zip を作り、項目を 1 つずつ写す）は見直し不要と判断し、段階 F2 へ進んだ。
+
+### 6-33. リボンの書き換え: 閉じたブックへの反映（段階 F3。仕様書_ブックの情報と依頼の観点 16.15 の実機検証 13・14・18）
+
+段階 F3 で、プロジェクトの右クリック（とコマンドパレット）に「**リボンをブックへ反映…**」と「**リボンの XML を検査**」が増えました。Graft のミラーの `CustomUI/customUI14.xml`（古い形式は `CustomUI/customUI.xml`）で直したリボンを、**Excel で閉じたブックのファイル**へ書き戻します。書く前に毎回確認し、ブック全体の控えをデータ保存先の `vba-sync\<プロジェクトId>.workbooks\` に残し、ブックと同じフォルダの一時ファイル（`~graft-<ブック名>-<8桁>.tmp`）へ書いて全部の部品を照合してから、`File.Replace` で置き換えます。**Excel で開いたままのブックは書き換えず**、「Excel でブックを閉じてから」と案内して止まります（開いたまま反映できるようにするのは次の段階です）。
+
+ここで確かめたいのは、Linux では確かめられない 3 点です: (13) `File.Replace` がいろいろな保存先で通り、ファイルの属性とアクセス権（ACL）が残るか、(14) VBA プロジェクトに署名のあるブックで、書き換えたあとも署名が有効か、(18) ディスクの空きが足りないとき、ブックが元のまま残るか。どれも**検証用の写しのブック**で行ってください（大事なブックでは試さないでください）。
+
+準備（5 分）:
+
+1. リボンのある検証用のブック（6-32 の `graft-ribbon-probe-b0-before-replace.xlsm` の写しでも、ご自分のブックの写しでもかまいません）を、Graft の「Excel ブックから追加」でプロジェクトにします（Excel で開いた状態で追加し、右クリック「Excel から取込」を押すと、ミラーに `CustomUI\customUI14.xml` ができます）。
+2. エクスプローラーで、ミラーの `CustomUI\customUI14.xml` を Graft のエディタで開き、タブの `label` を 1 か所変えて保存します（例: `label="Graft検証B（差し替え前）"` を `label="Graft検証F3"` に）。プロジェクト一覧の補足に「リボン未反映」が出ます。
+3. Excel でそのブックを**閉じます**（保存するかを聞かれたら「保存しない」）。
+
+- [ ] **(0) 一連の流れ（基本。5 分）**
+  1. ブックを Excel で開いたまま、右クリック「リボンをブックへ反映…」を押す。**期待する結果**: 確認ダイアログは出ずに「Excel でブックを閉じてから、もう一度…」の知らせ（E819）が出る。「もう一度試す」を押す前に Excel でブックを閉じ、それから「もう一度試す」を押す。
+  2. **期待する結果**: 確認ダイアログ「リボンをブックへ反映」が出る。手順は「1. 書き換える前のブックを、控えとして丸ごと残す」「2. リボンの XML を差し替える（CustomUI/customUI14.xml）」の 2 つ、控えの場所の行があり、既定のボタン（青）は「中止」。Enter・Esc で何も起きずに閉じる（閉じたら、もう一度「リボンをブックへ反映…」を押してください）。
+  3. 「差分を見る」で、ブックのいまのリボンと Graft のファイルの差分が窓の中に出る。「書き換える」を押す。
+  4. **期待する結果**: ステータスに「リボンをブックへ反映しました（CustomUI/customUI14.xml。控え: 計画-…-ribbon.xlsm）」。「リボン未反映」が消える。ブックを Excel で開くと、修復の確認なしで開き、タブの名前が変わっている。控えのフォルダ（データ保存先の `vba-sync\` の下の `….workbooks`）に控えが 1 つでき、控えをダブルクリックすると**元のリボン**で開く（開いたら保存せずに閉じる）。ブックのフォルダに `~graft-` で始まるファイルが残っていない。
+  5. 右クリック「リボンの XML を検査」を押す。**期待する結果**: 「CustomUI/customUI14.xml: 問題はありません。」または、エラー・警告の一覧（コールバックが VBA に無い、など）が出る。ブックは変わらない。
+  - **報告してほしいこと**: 知らせ・ダイアログの文面が期待と違った所（スクリーンショット）。Excel で開いたときの確認（修復など）。`~graft-` のファイルが残った。
+
+- [ ] **(13) 保存先ごとの `File.Replace` と、属性・アクセス権が残るか（実機検証 13。保存先 1 つにつき 5 分）**
+  ブックを次の保存先に置いて、(0) の 2〜4 と同じことをします（保存先ごとにプロジェクトを作り直してください）。書き換えの前後で、属性・アクセス権・照合値を PowerShell で控えて比べます。下の例のパスは、実際のブックのパスに書き換えてください。
+  1. ローカルの NTFS（例: `C:\Users\YUGO\Documents\graft-f3\計画.xlsm`）
+  2. UNC パス（例: `\\localhost\C$\Users\YUGO\Documents\graft-f3\計画.xlsm`。Excel の「ファイル → 開く」でこのパスから開いたブックで追加します）
+  3. ネットワークドライブ（例: `net use Z: \\localhost\C$\Users\YUGO\Documents` で割り当てた `Z:\graft-f3\計画.xlsm`）
+  4. USB メモリ（exFAT。例: `E:\graft-f3\計画.xlsm`）
+
+  書き換える前（ブックを Excel で閉じてから）:
+
+  ```powershell
+  cd C:\Users\YUGO\Documents\graft-f3
+  $book = "C:\Users\YUGO\Documents\graft-f3\計画.xlsm"
+  icacls $book /grant "${env:USERNAME}:(R)"
+  (Get-Item $book).Attributes = "Archive"
+  (Get-Item $book).Attributes
+  icacls $book
+  Get-FileHash $book -Algorithm SHA256
+  ```
+
+  Graft で「書き換える」を押したあと:
+
+  ```powershell
+  cd C:\Users\YUGO\Documents\graft-f3
+  $book = "C:\Users\YUGO\Documents\graft-f3\計画.xlsm"
+  (Get-Item $book).Attributes
+  icacls $book
+  Get-FileHash $book -Algorithm SHA256
+  Get-ChildItem (Split-Path $book) -Force -Filter "~graft-*"
+  ```
+
+  - **期待する結果**: どの保存先でも「リボンをブックへ反映しました」が出て、ブックが修復の確認なしで開き、リボンが変わっている。属性（`Archive`）と `icacls` の一覧（足した `(R)` の行を含む）が前後で同じ。照合値は変わる（中身を書き換えたため）。`~graft-` のファイルが残っていない。exFAT はアクセス権を持たないので、`icacls` の比較は省いてかまいません。
+  - **報告してほしいこと**: 保存先ごとの結果（成功・失敗の知らせの文面）。属性や `icacls` の一覧が変わった保存先（前後の出力をそのまま）。`File.Replace` が使えない保存先では、Graft が上書きの移動に切り替えるので、その保存先では属性・アクセス権が変わる見込みです（それも報告してください）。
+  - 後片付け（ネットワークドライブを外す）:
+
+  ```powershell
+  cd C:\Users\YUGO\Documents
+  net use Z: /delete
+  ```
+
+- [ ] **(14) VBA プロジェクトに署名のあるブック（実機検証 14。10 分）**
+  1. 署名用の証明書を作る（無ければ）: Office に付属の「VBA プロジェクトのデジタル証明書」（`SELFCERT.EXE`。例: `C:\Program Files\Microsoft Office\root\Office16\SELFCERT.EXE`）を起動し、名前（例: `Graft検証`）を入れて作る。
+  2. 検証用のブックを開き、VBE（Alt+F11）の「ツール → デジタル署名」で、作った証明書を選んで署名する。ブックを上書き保存して閉じる。
+  3. Graft で (0) の 2〜4 と同じく、リボンだけを書き換える。
+  4. ブックを開き、VBE の「ツール → デジタル署名」を開く。**期待する結果**: 署名した証明書の名前がそのまま出ている（「署名がありません」になっていない）。マクロの設定で「デジタル署名されたマクロを除き、すべてのマクロを無効にする」にしているなら、マクロが署名つきとして扱われる（黄色い帯の文面が書き換える前と同じ）。
+  - Graft は `vbaProject.bin`（と署名の `vbaProjectSignature.bin`）を 1 バイトも変えずに写すので、署名は有効なままの見込みです。ブック全体の電子署名（「ファイル → 情報 → ブックの保護 → デジタル署名の追加」）のあるブックは、書き換えると署名が無効になるので、Graft は書き換えずに止めます（E819）。試せるなら、別の写しで確かめてください。
+  - **報告してほしいこと**: 署名が消えた・無効と出た（VBE の画面と、ブックを開いたときの帯のスクリーンショット）。ブック全体の電子署名のあるブックで、E819 で止まらなかった。
+
+- [ ] **(18) ディスクの空きが足りないとき、ブックが元のまま残るか（実機検証 18。15 分）**
+  小さな仮想ディスク（64 MB）を作ってブックを置き、空きを減らして試します。**管理者として開いた PowerShell** で実行します（仮想ディスクの作成に管理者の権限が要ります）。`R:` が使われていれば、空いている文字に変えてください。
+
+  仮想ディスクを作る:
+
+  ```powershell
+  cd C:\Users\YUGO\Documents
+  $vhd = "C:\Users\YUGO\Documents\graft-small.vhdx"
+  "create vdisk file=`"$vhd`" maximum=64 type=fixed", "select vdisk file=`"$vhd`"", "attach vdisk", "create partition primary", "format fs=ntfs quick label=GraftSmall", "assign letter=R" | Set-Content -Encoding ASCII "$env:TEMP\graft-small.txt"
+  diskpart /s "$env:TEMP\graft-small.txt"
+  ```
+
+  1. 検証用のブック（数 MB あるもの）を `R:\計画.xlsm` へ写し、Graft にプロジェクトとして追加し、準備の 2〜3 をする。
+  2. 空きを、ブックの大きさより少ないところまで減らす（下の例は、空きが 1 MB 残るように詰め物のファイルを作る）:
+
+  ```powershell
+  cd R:\
+  $free = (Get-PSDrive R).Free
+  fsutil file createnew R:\filler.bin ($free - 1MB)
+  (Get-PSDrive R).Free
+  Get-FileHash R:\計画.xlsm -Algorithm SHA256
+  ```
+
+  3. 「リボンをブックへ反映…」を押す。**期待する結果**: 確認ダイアログは出ずに「ブックのフォルダの空き容量が足りません（必要 …・空き …）」の知らせ（E821）が出る。ブックの照合値が変わっていない（もう一度 `Get-FileHash` を実行して比べる）。`R:\` に `~graft-` のファイルが残っていない。
+  4. 次に、確認ダイアログを出したあとで空きを無くす場合を試す: 下のコマンドの 1 行目と 2 行目で `R:\filler.bin` を消してから「リボンをブックへ反映…」を押し、**確認ダイアログが出たところで止めて**、残りの行で空きを詰めてから「書き換える」を押す。
+
+  ```powershell
+  cd R:\
+  Remove-Item R:\filler.bin -ErrorAction SilentlyContinue
+  $free = (Get-PSDrive R).Free
+  fsutil file createnew R:\filler.bin ($free - 64KB)
+  ```
+
+  - **期待する結果**: 「ブックのファイルを書き換えられませんでした」（E821）の知らせが出て、ブックの照合値が書き換える前と同じ。`~graft-` のファイルが残っていない。データ保存先の控えのフォルダに、今回の控えが残っていない（何も変えていないので、控えは消す作り）。Excel でブックを開くと、元のリボンのまま開く。
+  - 後片付け（仮想ディスクを外して消す）:
+
+  ```powershell
+  cd C:\Users\YUGO\Documents
+  $vhd = "C:\Users\YUGO\Documents\graft-small.vhdx"
+  "select vdisk file=`"$vhd`"", "detach vdisk" | Set-Content -Encoding ASCII "$env:TEMP\graft-small-detach.txt"
+  diskpart /s "$env:TEMP\graft-small-detach.txt"
+  Remove-Item $vhd
+  ```
+
+  - **報告してほしいこと**: 知らせの文面（スクリーンショット）。ブックの照合値が変わった、Excel で開けなくなった、`~graft-` のファイルや作りかけの控えが残った（ファイル名と大きさ）。
+
+- [ ] **(参考) 途中で Graft を終了したとき**（任意。5 分）
+  大きなブック（数十 MB）で「書き換える」を押した直後に、タスク マネージャーで Graft を終了します。もう一度 Graft を起動して、プロジェクト一覧を開きます。**期待する結果**: 「前回のリボンの書き換えについて」の知らせが出て、ブックが「元のまま」か「書き換え済み」かが書かれている。ブックのフォルダに `~graft-` のファイルが残っていない。ブックは Excel で修復の確認なしで開く。
+  - **報告してほしいこと**: 知らせが出なかった・ブックが開けなくなった・`~graft-` のファイルが残った。
+
+記録欄:
+
+| 項目 | 保存先・ブック | 結果 | 備考 |
+|---|---|---|---|
+| (0) 一連の流れ | （記入） | | |
+| (13) ローカル NTFS | | | |
+| (13) UNC | | | |
+| (13) ネットワークドライブ | | | |
+| (13) USB（exFAT） | | | |
+| (14) VBA の署名 | | | |
+| (18) ディスクの空き（予行で止まる） | | | |
+| (18) ディスクの空き（確認のあとで詰める） | | | |
