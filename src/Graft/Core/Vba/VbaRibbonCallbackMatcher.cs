@@ -154,6 +154,25 @@ public static class VbaRibbonCallbackMatcher
         return (module.Length == 0 ? null : module, procedure);
     }
 
+    /// <summary>
+    /// 標準モジュールに宣言されている手続きのうち、<paramref name="names"/>（大文字小文字を区別しない）に当たるものを、渡した綴りで返す。
+    /// コールバックの照合と同じ走査（<see cref="Scan"/>。行継続・コメントを読み飛ばす）を流用する。
+    /// <para>
+    /// 使い道は、<c>Auto_Open</c>・<c>Auto_Close</c> の有無（リボンの書き換えの確認ダイアログの注意。仕様書_ブックの情報と依頼の観点 16.9）。
+    /// この 2 つは<b>標準モジュール</b>に置いたものだけが Excel に呼ばれるので、シートやクラスのモジュールにあるものは数えない。
+    /// ミラーを読めなかった（null）ときは空（有無を言えないので、注意を出さない側に倒す。出さなくても、動かないだけで害は無い）。
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<string> FindStandardProcedures(IReadOnlyList<VbaRibbonSourceModule>? modules, params string[] names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        if (modules is null) return Array.Empty<string>();
+
+        var declared = new HashSet<string>(
+            modules.Where(m => m.Kind == VbaModuleKind.Standard).SelectMany(Scan).Select(d => d.Procedure), StringComparer.OrdinalIgnoreCase);
+        return names.Where(declared.Contains).ToArray();
+    }
+
     private static string Describe(VbaRibbonSourceModule module)
         => module.Kind == VbaModuleKind.Standard ? module.Name : $"{VbaModuleKinds.Label(module.Kind)} {module.Name}";
 

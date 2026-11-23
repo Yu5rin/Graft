@@ -79,15 +79,29 @@ public static class VbaRibbonRewriteText
     }
 
     /// <summary>
-    /// 未保存の変更の注意（開いていて <c>Saved</c> が False のときだけ。それ以外は null）。「再計算だけでもこの表示になります」を
-    /// 添えるのは、<c>NOW()</c>・<c>RAND()</c> を含むブックは何も編集しなくても未保存と見えるため（16.6 の表）。
+    /// 未保存の変更の注意（開いていて <c>Saved</c> が False のときだけ。それ以外は null）。
+    /// <para>
+    /// 【なぜ原因を言い切らないか】 実機（2026-11-24。6-34 の 1-c・1-d）で、セルの編集のほか、<b>VBE でモジュールを編集しただけ</b>でも
+    /// <c>Saved</c> が False になることを確かめた。つまり Graft 自身の VBA の反映（Excel へ書く操作）でも「未保存」になり、
+    /// 利用者がセルなどを編集したのか、Graft が VBA を反映した分なのか、再計算（<c>NOW()</c>・<c>RAND()</c> を含むブックは何も編集しなくても
+    /// False になる）なのかは、<c>Saved</c> からは区別できない。そこで「あなたの変更がある」と断定せず、考えられる原因を並べ、
+    /// どれでも保存されること（失われないこと）を伝える。VBA の反映に続けて出すとき（<see cref="VbaRibbonRewritePlan.PrecedingVbaModules"/>
+    /// が 1 以上）は、Graft が反映した VBA が未保存の中に必ず含まれるので、そのことを書く。
+    /// </para>
     /// </summary>
     public static string? UnsavedWarning(VbaRibbonRewritePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        return plan.HasUnsavedChanges
-            ? "⚠ このブックには、まだ保存していない変更があります。続けると、その変更も保存されます（再計算だけでも、この表示になります）。"
-            : null;
+        if (!plan.HasUnsavedChanges) return null;
+
+        var text = "⚠ このブックには、まだ保存していない変更があります。続けると、その変更もすべて保存されます。";
+        if (plan.PrecedingVbaModules > 0)
+        {
+            text += "先ほど Graft が Excel へ反映した VBA の変更も、まだ保存されていません（保存してから閉じるので、失われません）。";
+        }
+
+        // Saved は原因を区別できない（上の説明）。利用者に「自分は編集していない」と戸惑わせない言い方にする。
+        return text + "セルなどの編集のほか、VBE での編集・Graft が反映した VBA・再計算だけでも、この表示になります（編集した覚えが無くても、保存されて困るものではありません）。";
     }
 
     /// <summary>
@@ -98,12 +112,27 @@ public static class VbaRibbonRewriteText
     {
         ArgumentNullException.ThrowIfNull(plan);
         if (!plan.IsOpen) return Array.Empty<string>();
-        return new[]
+        var notices = new List<string>
         {
             "閉じるとき・開くときに、ブックのマクロ（Workbook_BeforeClose・Workbook_Open など）が動きます。",
-            "Excel の「元に戻す」の履歴と、選択していたセルは戻りません。",
         };
+
+        // 実機で確かめた（2026-11-24。6-34 の 2-a・2-c）: COM の Open・Close では、Auto_Open・Auto_Close は動かない。
+        // あるブックだけに添える（無いブックに出すと、関係の無い注意で確認を読みづらくする）。
+        if (HasAutoMacro(plan, "Auto_Open")) notices.Add(AutoOpenNotice);
+        if (HasAutoMacro(plan, "Auto_Close")) notices.Add(AutoCloseNotice);
+        notices.Add("Excel の「元に戻す」の履歴と、選択していたセルは戻りません。");
+        return notices;
     }
+
+    /// <summary>ブックに <c>Auto_Open</c> があるときの注意（動かないのは、COM の開き直しでは Excel がこれを呼ばないため）。</summary>
+    public const string AutoOpenNotice = "このブックの Auto_Open は、Graft の開き直しでは動きません（Workbook_Open は動きます）。";
+
+    /// <summary>ブックに <c>Auto_Close</c> があるときの注意。</summary>
+    public const string AutoCloseNotice = "このブックの Auto_Close は、Graft の閉じる処理では動きません（Workbook_BeforeClose は動きます）。";
+
+    private static bool HasAutoMacro(VbaRibbonRewritePlan plan, string name)
+        => plan.AutoMacroNames.Contains(name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// 手順（番号つき）。開いていないブックは「控えを残す → XML を差し替える（新しく足す）」の 2 つ、開いているブックは

@@ -13,10 +13,12 @@ namespace Graft.Platform.Windows;
 // 【実機で要確認のまま実装している前提】（付録B。tools/Test-ExcelReopen.ps1 の結果で直す箇所）
 //  - Workbook.Save / Close(SaveChanges:=False) / Workbooks.Open を COM から呼んだとき、Workbook_BeforeSave・BeforeClose・Workbook_Open が
 //    動き、Auto_Open は動かない（16.12）。動く・動かないはこのコードの分岐を変えないが、確認ダイアログの文面（VbaRibbonRewriteText.ExcelNotes）が変わる。
-//  - Workbook.Close のあと、ROT と Application.Workbooks からブックが消えるまでに待ちは要らない（閉じたことの確認を 1 回で行っている。
-//    消えるのが遅れるなら、ここに短い待ちを足す）。
+//  - 【実機で確認済み（2026-11-24）】 Workbook.Close のあと、ブックは ROT に 10 秒以上残る（5 回とも。6-34 の 5-b）。Application.Workbooks からは
+//    Close が戻った時点で消える。そこで「開いているか」は ROT だけで決めず、必ず Workbooks に実在するかで決める
+//    （FindWorkbook・ResolveLiveWorkbook。閉じたことの確認 IsStillOpen も同じ）。待ちは足さない。
 //  - 開き直しで保護ビューや「マクロを有効にする」のバーが出るか（16.12。出るなら Workbooks.Open が戻らない・マクロが動かない、のどちらかになる）。
-//  - Window.Left/Top/Width/Height と WindowState で見た目が戻ること（VbaWorkbookViewRestore）。
+//  - 【実機で確認済み（2026-11-24）】 アクティブなシート・通常ウィンドウの位置と大きさ・最大化は、Excel が自分で戻す（3-a〜3-c）。
+//    戻らないのは前面のブックだけ（3-d）で、ここだけを Graft が戻す（VbaWorkbookViewRestore）。
 public sealed partial class WindowsVbaBridge
 {
     /// <summary>
@@ -264,55 +266,16 @@ public sealed partial class WindowsVbaBridge
         return GraftResult<VbaWorkbookReopenTicket>.Ok(new VbaWorkbookReopenTicket(ticketId, fullName, view));
     }
 
-    /// <summary>閉じる前の見た目（16.6「保存して閉じる」の 2）。どの項目も、取れなければ null のまま（開き直したあと戻さないだけ）。</summary>
+    /// <summary>
+    /// 閉じる前の見た目（16.6「保存して閉じる」の 2）。控えるのは、このブックがアクティブだったか、そうでなければそのとき前面にあったブックだけ
+    /// （アクティブなシートとウィンドウの状態は Excel が自分で戻す。<see cref="VbaWorkbookViewState"/>）。分からなければ「アクティブだった」と
+    /// みなし、ほかのブックを前面へ動かさない。
+    /// </summary>
     private static VbaWorkbookViewState CaptureView(Session s, object workbook, string fullName)
     {
         dynamic wb = workbook;
-        string? sheetName = null;
-        int? windowState = null;
-        double? left = null, top = null, width = null, height = null;
         var wasActive = true;
         string? previous = null;
-
-        try
-        {
-            var sheetObj = s.Own(s.Call(() => (object)wb.ActiveSheet));
-            if (sheetObj is not null)
-            {
-                dynamic sheet = sheetObj;
-                sheetName = s.Call(() => (string)sheet.Name);
-            }
-        }
-        catch (Exception ex) when (ex is COMException or InvalidCastException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-        {
-            // シートが無い（グラフだけのブックなど）。戻さない。
-        }
-
-        try
-        {
-            var windowsObj = s.Own(s.Call(() => (object)wb.Windows));
-            if (windowsObj is not null)
-            {
-                dynamic windows = windowsObj;
-                if (s.Call(() => (int)windows.Count) >= 1)
-                {
-                    var windowObj = s.Own(s.Call(() => (object)windows.Item(1)));
-                    if (windowObj is not null)
-                    {
-                        dynamic window = windowObj;
-                        windowState = s.Call(() => Convert.ToInt32((object)window.WindowState, CultureInfo.InvariantCulture));
-                        left = s.Call(() => Convert.ToDouble((object)window.Left, CultureInfo.InvariantCulture));
-                        top = s.Call(() => Convert.ToDouble((object)window.Top, CultureInfo.InvariantCulture));
-                        width = s.Call(() => Convert.ToDouble((object)window.Width, CultureInfo.InvariantCulture));
-                        height = s.Call(() => Convert.ToDouble((object)window.Height, CultureInfo.InvariantCulture));
-                    }
-                }
-            }
-        }
-        catch (Exception ex) when (ex is COMException or InvalidCastException or FormatException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-        {
-            // ウィンドウの無いブック（非表示のブック）など。戻さない。
-        }
 
         try
         {
@@ -335,15 +298,17 @@ public sealed partial class WindowsVbaBridge
             // 分からなければ「アクティブだった」とみなす（ほかのブックを前面へ動かさない）。
         }
 
-        return new VbaWorkbookViewState(sheetName, windowState, left, top, width, height, wasActive, previous);
+        return new VbaWorkbookViewState(wasActive, previous);
     }
 
     /// <summary>
     /// 閉じたあとも、閉じた Excel の <c>Workbooks</c> にブックが残っているか。
     /// <para>
-    /// 【<c>Workbooks</c> を先に見る理由】 ROT（実行中オブジェクト表）からブックが消えるまでに遅れがあるか（付録 B・要確認）が分からない。
-    /// 遅れがあると、閉じたのに「開いたまま（E820）」と誤って止めてしまう。<c>Workbooks</c> は <c>Close</c> が戻った時点で正しいので、
-    /// これを根拠にする。<c>Workbooks</c> を数えられないときだけ、ROT を見る（残っていれば「開いたまま」として止める側に倒す）。
+    /// 【<c>Workbooks</c> を根拠にする理由】 実機で、閉じたブックが ROT に 10 秒以上残ることを確かめた（6-34 の 5-b。5 回とも）。
+    /// ROT で決めると、閉じたのに「開いたまま（E820）」と誤って止めてしまう。<c>Workbooks</c> は <c>Close</c> が戻った時点で正しいので、
+    /// これを根拠にする。<c>Workbooks</c> を数えられないときの代わりの確認（<see cref="FindWorkbook"/>）も、ROT の項目をそのまま信用せず
+    /// 項目の Excel の <c>Workbooks</c> で確かめる（数えられない状況では確かめも通らず「閉じた」と見る。閉じた判断が外れていても、
+    /// 段階 7 の排他で開く検査が、ブックのファイルを書き換える前に最後に止める）。
     /// </para>
     /// </summary>
     private static bool IsStillOpen(Session s, object appObject, string fullName)
@@ -370,7 +335,7 @@ public sealed partial class WindowsVbaBridge
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
         {
-            // Workbooks を数えられない。ROT を見る。
+            // Workbooks を数えられない。ROT の項目からの確かめ（FindWorkbook）に任せる。
         }
 
         return FindWorkbook(s, fullName) is not null;
@@ -428,7 +393,7 @@ public sealed partial class WindowsVbaBridge
             }
 
             // 2. 見た目を戻す（どれも「できれば」。失敗しても警告にもしない。覚え書きにだけ残す）。
-            var notes = RestoreView(session, appObj!, openedObj, ticket.View, fullName);
+            var notes = RestoreView(session, appObj!, ticket.View, fullName);
             return GraftResult<VbaWorkbookReopenOutcome>.Ok(new VbaWorkbookReopenOutcome(notes.Count == 0, notes));
         }
         catch (ComBusyException)
@@ -449,55 +414,14 @@ public sealed partial class WindowsVbaBridge
     }
 
     /// <summary>
-    /// 見た目を戻す（<see cref="VbaWorkbookViewRestore"/> の決め方どおり）。順序は、シート → ウィンドウ → 前にアクティブだったブック
-    /// （最後に前面へ戻すものを最後に）。戻せなかった項目を返す。
+    /// 見た目を戻す（<see cref="VbaWorkbookViewRestore"/> の決め方どおり）。戻すのは、閉じる前にアクティブでなかったブックの
+    /// 場合の「前にアクティブだったブック」だけ（開き直したブックが前面になるため。実機の 3-d）。アクティブなシート・ウィンドウは
+    /// Excel が自分で戻す（3-a〜3-c）ので触れない。戻せなかった項目を返す。
     /// </summary>
-    private static List<string> RestoreView(Session s, object appObject, object workbook, VbaWorkbookViewState view, string fullName)
+    private static List<string> RestoreView(Session s, object appObject, VbaWorkbookViewState view, string fullName)
     {
         var notes = new List<string>();
         dynamic app = appObject;
-        dynamic wb = workbook;
-
-        if (view.ActiveSheetName is { Length: > 0 } sheetName)
-        {
-            try
-            {
-                var sheetsObj = s.Own(s.Call(() => (object)wb.Sheets));
-                dynamic sheets = sheetsObj!;
-                var sheetObj = s.Own(s.Call(() => (object)sheets.Item(sheetName)));
-                dynamic sheet = sheetObj!;
-                s.Call(() => { sheet.Activate(); return 0; });
-            }
-            catch (Exception ex) when (ex is COMException or ComBusyException or InvalidCastException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-            {
-                notes.Add($"シート「{sheetName}」をアクティブにできませんでした（{ex.GetType().Name}）。");
-            }
-        }
-
-        if (VbaWorkbookViewRestore.RestoresWindowState(view))
-        {
-            try
-            {
-                var windowsObj = s.Own(s.Call(() => (object)wb.Windows));
-                dynamic windows = windowsObj!;
-                var windowObj = s.Own(s.Call(() => (object)windows.Item(1)));
-                dynamic window = windowObj!;
-                var state = view.WindowState!.Value;
-                s.Call(() => { window.WindowState = state; return 0; });
-                if (VbaWorkbookViewRestore.RestoresBounds(view))
-                {
-                    var (left, top, width, height) = (view.Left!.Value, view.Top!.Value, view.Width!.Value, view.Height!.Value);
-                    s.Call(() => { window.Left = left; return 0; });
-                    s.Call(() => { window.Top = top; return 0; });
-                    s.Call(() => { window.Width = width; return 0; });
-                    s.Call(() => { window.Height = height; return 0; });
-                }
-            }
-            catch (Exception ex) when (ex is COMException or ComBusyException or InvalidCastException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
-            {
-                notes.Add($"ウィンドウの状態・位置を戻せませんでした（{ex.GetType().Name}）。");
-            }
-        }
 
         if (VbaWorkbookViewRestore.ReactivatesPrevious(view, fullName))
         {

@@ -59,8 +59,16 @@ public sealed record VbaRibbonRewritePlan(
     long BookSize,
     DateTime BookModifiedUtc,
     VbaWorkbookRewriteState? OpenState = null,
-    int PrecedingVbaModules = 0)
+    int PrecedingVbaModules = 0,
+    IReadOnlyList<string>? AutoMacros = null)
 {
+    /// <summary>
+    /// ブックの標準モジュールにある <c>Auto_Open</c>・<c>Auto_Close</c>（ミラーの VBA を走査して分かったもの。無ければ空）。
+    /// 実機で、COM の <c>Workbooks.Open</c>・<c>Close</c> ではこの 2 つが動かないと確かめた（2026-11-24。Windows実機検証手順 6-34 の 2-a・2-c）ので、
+    /// 開いているブックの確認ダイアログに、動かないことを添える（<see cref="VbaRibbonRewriteText.OpenNotices"/>）。
+    /// </summary>
+    public IReadOnlyList<string> AutoMacroNames => AutoMacros ?? Array.Empty<string>();
+
     /// <summary>計画を作ったとき、ブックは Excel で開いていたか（閉じて開き直す経路か。16.6）。</summary>
     public bool IsOpen => OpenState is { IsOpen: true };
 

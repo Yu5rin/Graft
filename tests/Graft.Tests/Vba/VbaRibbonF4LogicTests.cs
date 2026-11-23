@@ -14,7 +14,7 @@ public sealed class VbaRibbonF4LogicTests
     private const string Book = @"C:\Work\計画.xlsm";
 
     private static VbaRibbonRewritePlan Plan(
-        VbaWorkbookRewriteState? open = null, bool newPart = false, int preceding = 0, bool both = false)
+        VbaWorkbookRewriteState? open = null, bool newPart = false, int preceding = 0, bool both = false, IReadOnlyList<string>? autoMacros = null)
     {
         var targets = new List<VbaRibbonRewriteTarget>
         {
@@ -23,7 +23,7 @@ public sealed class VbaRibbonF4LogicTests
         if (both) targets.Add(new(VbaRibbonFormat.Office2007, "CustomUI/customUI.xml", "<customUI/>", "h12", "<customUI/>", false));
         return new VbaRibbonRewritePlan(
             "p", Book, "計画.xlsm", targets, Array.Empty<VbaRibbonRewriteWarning>(), @"D:\data\vba-sync\p.workbooks", 1000, DateTime.UtcNow,
-            open, preceding);
+            open, preceding, autoMacros);
     }
 
     // ------------------------------------------------------------------
@@ -96,8 +96,11 @@ public sealed class VbaRibbonF4LogicTests
         VbaRibbonRewriteText.Lead(plan).Should().Contain("Excel で開いているブックは書き換えられないため、Graft が次の順に行います");
         VbaRibbonRewriteText.Steps(plan).Should().Equal(
             "1. ブックを保存して閉じる", "2. 書き換える前のブックを、控えとして丸ごと残す", "3. リボンの XML を差し替える（CustomUI/customUI14.xml）", "4. ブックを開き直す");
-        VbaRibbonRewriteText.UnsavedWarning(plan).Should().Be("⚠ このブックには、まだ保存していない変更があります。続けると、その変更も保存されます（再計算だけでも、この表示になります）。");
-        VbaRibbonRewriteText.OpenNotices(plan).Should().HaveCount(2);
+        var warning = VbaRibbonRewriteText.UnsavedWarning(plan);
+        warning.Should().StartWith("⚠ このブックには、まだ保存していない変更があります。続けると、その変更もすべて保存されます。")
+            .And.Contain("VBE での編集").And.Contain("Graft が反映した VBA").And.Contain("再計算だけでも", "原因（利用者の編集か Graft の反映か再計算か）は Saved から区別できない");
+        warning.Should().NotContain("先ほど Graft が Excel へ反映した", "VBA の反映に続けて出すとき以外は、反映した話をしない");
+        VbaRibbonRewriteText.OpenNotices(plan).Should().HaveCount(2, "Auto_Open の無いブックには、その注意を出さない");
         text.Should().Contain("Workbook_BeforeClose・Workbook_Open").And.Contain("「元に戻す」の履歴").And.Contain("⚠").And.Contain("控えの場所:");
         VbaRibbonRewriteText.ConfirmButtonText(plan).Should().Be("保存して書き換える");
     }
@@ -113,6 +116,51 @@ public sealed class VbaRibbonF4LogicTests
         VbaRibbonRewriteText.Steps(saved).Should().Equal(VbaRibbonRewriteText.Steps(withUnsaved));
         VbaRibbonRewriteText.ConfirmButtonText(saved).Should().Be(VbaRibbonRewriteText.ConfirmButtonText(withUnsaved));
         VbaRibbonRewriteText.Lead(saved).Should().Be(VbaRibbonRewriteText.Lead(withUnsaved));
+    }
+
+    [Fact(DisplayName = "確認の文面（VBA の反映に続けて・未保存あり）: Graft が反映した VBA も未保存に含まれると書く（利用者の編集と区別できないため）")]
+    public void 未保存の文面はVBAの反映を含む()
+    {
+        var plan = Plan(new VbaWorkbookRewriteState(true, Saved: false), preceding: 3);
+
+        VbaRibbonRewriteText.UnsavedWarning(plan).Should()
+            .Contain("先ほど Graft が Excel へ反映した VBA の変更も、まだ保存されていません")
+            .And.Contain("失われません");
+        VbaRibbonRewriteText.UnsavedWarning(Plan(new VbaWorkbookRewriteState(true, Saved: true), preceding: 3)).Should().BeNull("未保存でなければ出さない");
+    }
+
+    [Fact(DisplayName = "確認の文面（Auto_Open・Auto_Close のあるブック）: COM の開き直しでは動かないことを添える（実機 6-34 の 2-a・2-c）。無いブック・開いていないブックには出さない")]
+    public void AutoOpenの注意()
+    {
+        var open = new VbaWorkbookRewriteState(true, Saved: true);
+
+        var both = VbaRibbonRewriteText.OpenNotices(Plan(open, autoMacros: new[] { "Auto_Open", "Auto_Close" }));
+        both.Should().Contain("このブックの Auto_Open は、Graft の開き直しでは動きません（Workbook_Open は動きます）。");
+        both.Should().Contain("このブックの Auto_Close は、Graft の閉じる処理では動きません（Workbook_BeforeClose は動きます）。");
+        both[0].Should().Contain("Workbook_BeforeClose・Workbook_Open", "マクロが動く注意が先、動かない注意がその次");
+        both[^1].Should().Contain("元に戻す");
+
+        VbaRibbonRewriteText.OpenNotices(Plan(open, autoMacros: new[] { "Auto_Open" })).Should().ContainSingle(n => n.Contains("Auto_Open", StringComparison.Ordinal))
+            .And.NotContain(n => n.Contains("Auto_Close", StringComparison.Ordinal));
+        VbaRibbonRewriteText.OpenNotices(Plan(open)).Should().NotContain(n => n.Contains("Auto_", StringComparison.Ordinal));
+        VbaRibbonRewriteText.OpenNotices(Plan(null, autoMacros: new[] { "Auto_Open" })).Should().BeEmpty("開いていないブックは閉じも開きもしない");
+        VbaRibbonRewriteText.FullText(Plan(open, autoMacros: new[] { "Auto_Open" })).Should().Contain("Auto_Open は、Graft の開き直しでは動きません");
+    }
+
+    [Fact(DisplayName = "Auto_Open・Auto_Close の判定: 標準モジュールの宣言だけを数える（シート・クラス・コメント・行継続・大文字小文字）")]
+    public void AutoOpenを見つける()
+    {
+        var modules = new[]
+        {
+            new VbaRibbonSourceModule("Module1", VbaModuleKind.Standard, "' Sub Auto_Close()\r\nPrivate Sub auto_open()\r\nEnd Sub\r\nPublic Function Foo() As Long\r\nEnd Function"),
+            new VbaRibbonSourceModule("Sheet1", VbaModuleKind.Document, "Sub Auto_Close()\r\nEnd Sub"),
+            new VbaRibbonSourceModule("Class1", VbaModuleKind.Class, "Public Sub Auto_Close()\r\nEnd Sub"),
+        };
+
+        VbaRibbonCallbackMatcher.FindStandardProcedures(modules, "Auto_Open", "Auto_Close").Should().Equal("Auto_Open");
+        VbaRibbonCallbackMatcher.FindStandardProcedures(null, "Auto_Open").Should().BeEmpty("ミラーを読めなかったときは言えない");
+        VbaRibbonCallbackMatcher.FindStandardProcedures(
+            new[] { new VbaRibbonSourceModule("M", VbaModuleKind.Standard, "Sub _\r\n  Auto_Close()\r\nEnd Sub") }, "Auto_Close").Should().Equal("Auto_Close");
     }
 
     [Fact(DisplayName = "確認の文面（開いていない）: 従来どおり（手順 2 つ・マクロの行なし・ボタン「書き換える」）。開いている計画の NotOpen も同じ")]
@@ -184,22 +232,12 @@ public sealed class VbaRibbonF4LogicTests
     // 見た目を戻す手順（16.6「開き直す」の 2）
     // ------------------------------------------------------------------
 
-    [Fact(DisplayName = "見た目を戻す: 位置と大きさは「通常」のときだけ。最大化・最小化は WindowState だけ（Left などを書くと「通常」に戻って崩れるため）")]
-    public void 位置は通常のときだけ()
+    [Fact(DisplayName = "見た目の控えは前面のブックだけ（シート・ウィンドウの位置と状態は Excel が自分で戻すので、控えも書き戻しもしない。実機 6-34 の 3-a〜3-d）")]
+    public void 前面のブックだけを持つ()
     {
-        var normal = new VbaWorkbookViewState("Sheet1", VbaWorkbookViewRestore.Normal, 10, 20, 800, 600);
-        VbaWorkbookViewRestore.RestoresWindowState(normal).Should().BeTrue();
-        VbaWorkbookViewRestore.RestoresBounds(normal).Should().BeTrue();
-
-        var maximized = normal with { WindowState = VbaWorkbookViewRestore.Maximized };
-        VbaWorkbookViewRestore.RestoresWindowState(maximized).Should().BeTrue();
-        VbaWorkbookViewRestore.RestoresBounds(maximized).Should().BeFalse();
-        VbaWorkbookViewRestore.RestoresBounds(normal with { WindowState = VbaWorkbookViewRestore.Minimized }).Should().BeFalse();
-
-        VbaWorkbookViewRestore.RestoresWindowState(normal with { WindowState = null }).Should().BeFalse("取れなかった項目は戻さない");
-        VbaWorkbookViewRestore.RestoresWindowState(normal with { WindowState = 99 }).Should().BeFalse("知らない値は書かない");
-        VbaWorkbookViewRestore.RestoresBounds(normal with { Width = 0 }).Should().BeFalse("大きさが正でなければ戻さない");
-        VbaWorkbookViewRestore.RestoresBounds(normal with { Left = null }).Should().BeFalse();
+        typeof(VbaWorkbookViewState).GetProperties().Select(p => p.Name).Where(n => n != "EqualityContract")
+            .Should().BeEquivalentTo("WasActive", "PreviouslyActiveWorkbook");
+        new VbaWorkbookViewState().WasActive.Should().BeTrue("分からなければ「アクティブだった」とみなす（ほかのブックを前面へ動かさない）");
     }
 
     [Fact(DisplayName = "見た目を戻す: 閉じる前にアクティブでなかったブックだけ、前にアクティブだったブックを前面へ戻す（同じパスは戻さない）")]

@@ -241,7 +241,8 @@ public sealed partial class VbaRibbonSyncService
 
         var plan = new VbaRibbonRewritePlan(
             project.Id, file, workbookName, targets, warnings, _paths.GetVbaWorkbookBackupDirectory(project.Id),
-            preflight.Value.Size, preflight.Value.ModifiedUtc, open.State.IsOpen ? open.State : null);
+            preflight.Value.Size, preflight.Value.ModifiedUtc, open.State.IsOpen ? open.State : null,
+            AutoMacros: open.State.IsOpen ? VbaRibbonCallbackMatcher.FindStandardProcedures(modules, "Auto_Open", "Auto_Close") : null);
         return GraftResult<VbaRibbonRewritePreparation>.Ok(
             new VbaRibbonRewritePreparation(VbaRibbonRewritePreparationKind.Ready, plan, notes, recovery));
     }

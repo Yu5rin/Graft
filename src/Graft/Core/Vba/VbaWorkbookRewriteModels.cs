@@ -42,22 +42,17 @@ public sealed record VbaWorkbookRewriteState(
 
 /// <summary>
 /// 閉じる前に控えた、ブックの見た目（16.6「保存して閉じる」の 2）。開き直したあとに「できれば」戻す。戻せなくても警告にもしない。
+/// <para>
+/// 【前面のブックだけを持つ理由（v1.2 で簡素化）】 実機（2026-11-24。6-34 の 3-a〜3-d）で、閉じて開き直すと、<b>アクティブなシート・
+/// 通常ウィンドウの位置と大きさ・最大化の状態は、Excel が保存時の状態を覚えていて自分で戻す</b>ことを確かめた（最大化は -4137 のまま）。
+/// Graft が書き戻す必要が無く、書けば Excel の復元と競合しうる（最大化のウィンドウに <c>Left</c> などを書くと「通常」に戻って崩れる）ので、
+/// 控えも書き戻しもやめた。Excel が戻さないのは<b>前面のブック</b>だけで（3-d: 別のブックがアクティブのとき閉じて開き直すと、
+/// 開き直したブックが前面になる）、ここだけは Graft が元に戻す。
+/// </para>
 /// </summary>
-/// <param name="ActiveSheetName">ブックのアクティブなシートの名前（取れなければ null）。</param>
-/// <param name="WindowState">ブックの最初のウィンドウの <c>WindowState</c>（<see cref="VbaWorkbookViewRestore"/> の定数。取れなければ null）。</param>
-/// <param name="Left">ウィンドウの位置（ポイント）。</param>
-/// <param name="Top">ウィンドウの位置（ポイント）。</param>
-/// <param name="Width">ウィンドウの大きさ（ポイント）。</param>
-/// <param name="Height">ウィンドウの大きさ（ポイント）。</param>
 /// <param name="WasActive">閉じる前に、このブックが Excel のアクティブなブックだったか。</param>
 /// <param name="PreviouslyActiveWorkbook">アクティブでなかったとき、そのときアクティブだったブックの <c>FullName</c>（前面へ戻す相手）。</param>
 public sealed record VbaWorkbookViewState(
-    string? ActiveSheetName = null,
-    int? WindowState = null,
-    double? Left = null,
-    double? Top = null,
-    double? Width = null,
-    double? Height = null,
     bool WasActive = true,
     string? PreviouslyActiveWorkbook = null);
 
@@ -145,31 +140,11 @@ public static class VbaWorkbookRewriteGuard
 }
 
 /// <summary>
-/// 開き直したあとに見た目を戻す手順の決め方（16.6「開き直す」の 2。純ロジック）。ブリッジはこの結果のとおりに COM を呼ぶ。
-/// <para>
-/// 【位置と大きさは「通常」のときだけ戻す】 最大化・最小化のウィンドウに <c>Left</c> などを書くと、Excel は「通常」へ戻してから動かすので、
-/// 利用者の見ていた最大化の表示が崩れる。最大化・最小化なら <c>WindowState</c> だけを戻す。
-/// </para>
+/// 開き直したあとに見た目を戻す手順の決め方（16.6「開き直す」。純ロジック）。ブリッジはこの結果のとおりに COM を呼ぶ。
+/// 戻すのは前面のブックだけ（理由は <see cref="VbaWorkbookViewState"/>。シート・ウィンドウは Excel が戻す）。
 /// </summary>
 public static class VbaWorkbookViewRestore
 {
-    /// <summary><c>xlMaximized</c>。</summary>
-    public const int Maximized = -4137;
-
-    /// <summary><c>xlMinimized</c>。</summary>
-    public const int Minimized = -4140;
-
-    /// <summary><c>xlNormal</c>。</summary>
-    public const int Normal = -4143;
-
-    /// <summary>ウィンドウの状態を書き戻すか（知っている 3 つの値のときだけ）。</summary>
-    public static bool RestoresWindowState(VbaWorkbookViewState view)
-        => view?.WindowState is Maximized or Minimized or Normal;
-
-    /// <summary>位置と大きさを書き戻すか（「通常」で、4 つとも取れていて、大きさが正のときだけ）。</summary>
-    public static bool RestoresBounds(VbaWorkbookViewState view)
-        => view is { WindowState: Normal, Left: not null, Top: not null, Width: > 0, Height: > 0 };
-
     /// <summary>前にアクティブだったブックを前面へ戻すか（閉じる前にアクティブでなく、相手が分かっているときだけ）。</summary>
     public static bool ReactivatesPrevious(VbaWorkbookViewState view, string reopenedFullName)
         => view is { WasActive: false, PreviouslyActiveWorkbook: { Length: > 0 } previous }
