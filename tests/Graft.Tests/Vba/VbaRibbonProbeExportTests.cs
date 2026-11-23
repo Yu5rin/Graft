@@ -174,6 +174,76 @@ public class VbaRibbonProbeExportTests
         return path;
     }
 
+    /// <summary>（任意）customUI の無い利用者のブック（Excel が作った本物）のパス。足す → 差し替えるの 2 段を、その写しで試す。</summary>
+    public const string ProbeUserBookVariable = "GRAFT_RIBBON_PROBE_USER_BOOK";
+
+    [Fact(DisplayName = "利用者のブックの写しに customUI14 を足し、さらに差し替える（環境変数 GRAFT_RIBBON_PROBE_USER_BOOK と GRAFT_RIBBON_PROBE_DIR を設定したときだけ）")]
+    public void 利用者のブックで足して差し替える()
+    {
+        var dir = Environment.GetEnvironmentVariable(ProbeDirVariable);
+        var source = Environment.GetEnvironmentVariable(ProbeUserBookVariable);
+        if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(source)) return;
+        Directory.CreateDirectory(dir);
+
+        // 元のブックは読むだけ（利用者のファイル）。写しを作ってから書き換え、最後に元が 1 バイトも変わっていないことも確かめる。
+        var original = File.ReadAllBytes(source);
+        VbaRibbonPackageReader.Read(source).Status.Should().Be(VbaRibbonReadStatus.NoRibbon, "customUI の無いブックを想定している");
+
+        var added = ProbeRibbon(Ns14, "Graft検証U", "追加U", "U");
+        var replaced = ProbeRibbon(Ns14, "Graft検証U（差し替え後）", "差し替え後U", "U");
+        VbaRibbonXmlValidator.Validate(added, VbaRibbonFormat.Office2010).Findings.Should().BeEmpty();
+        VbaRibbonXmlValidator.Validate(replaced, VbaRibbonFormat.Office2010).Findings.Should().BeEmpty();
+
+        // (d) 写しに customUI14 を新しく足す。
+        var dPath = Path.Combine(dir, "user-test-ribbon14.xlsm");
+        File.WriteAllBytes(dPath, original);
+        var d = VbaRibbonPackageWriter.RewriteFile(dPath, new[] { new VbaRibbonWriteRequest(VbaRibbonFormat.Office2010, added) });
+        d.Succeeded.Should().BeTrue(d.Problem);
+        d.Parts.Should().ContainSingle().Which.AddedRelationship.Should().BeTrue();
+        VbaRibbonPackageReader.Read(dPath).Parts.Should().ContainSingle().Which.Xml.Should().Be(added);
+
+        // (e) (d) の XML を差し替える（タブの名前が変わる）。
+        var ePath = Path.Combine(dir, "user-test-ribbon14-replaced.xlsm");
+        File.Copy(dPath, ePath, overwrite: true);
+        var e = VbaRibbonPackageWriter.RewriteFile(ePath, new[] { new VbaRibbonWriteRequest(VbaRibbonFormat.Office2010, replaced) });
+        e.Succeeded.Should().BeTrue(e.Problem);
+        e.Parts.Should().ContainSingle().Which.AddedRelationship.Should().BeFalse();
+        VbaRibbonPackageReader.Read(ePath).Parts.Should().ContainSingle().Which.Xml.Should().Be(replaced);
+
+        // 部品ごとの比較（元 → (d)、(d) → (e)）を書き出し、変わってよい部品以外がバイト単位で同じことを確かめる。
+        var report = new StringBuilder();
+        var before = RibbonPackageBuilder.ReadEntries(original);
+        var afterD = RibbonPackageBuilder.ReadEntries(File.ReadAllBytes(dPath));
+        var afterE = RibbonPackageBuilder.ReadEntries(File.ReadAllBytes(ePath));
+        Compare("元 → user-test-ribbon14.xlsm", before, afterD, new[] { "_rels/.rels", "customUI/customUI14.xml" }, report);
+        Compare("user-test-ribbon14.xlsm → user-test-ribbon14-replaced.xlsm", afterD, afterE, new[] { "customUI/customUI14.xml" }, report);
+        File.WriteAllText(Path.Combine(dir, "user-test-parts.txt"), report.ToString(), new UTF8Encoding(false));
+
+        File.ReadAllBytes(source).Should().Equal(original, "元のブックには書かない");
+    }
+
+    /// <summary>2 つのブックの部品を名前ごとに比べ、<paramref name="mayChange"/> 以外が同じことを確かめて、結果を <paramref name="report"/> に書く。</summary>
+    private static void Compare(string title, List<(string Name, byte[] Data)> a, List<(string Name, byte[] Data)> b, string[] mayChange, StringBuilder report)
+    {
+        report.Append("## ").Append(title).Append('\n');
+        foreach (var (name, data) in a)
+        {
+            var other = b.FirstOrDefault(x => x.Name == name);
+            var state = other.Data is null ? "無くなった" : other.Data.AsSpan().SequenceEqual(data) ? "同じ" : "変わった";
+            report.Append(state).Append(": ").Append(name).Append(" (").Append(data.Length).Append(" → ").Append(other.Data?.Length ?? 0).Append(" バイト)\n");
+            if (!mayChange.Contains(name)) state.Should().Be("同じ", name);
+        }
+
+        foreach (var (name, data) in b.Where(x => a.All(y => y.Name != x.Name)))
+        {
+            report.Append("足された: ").Append(name).Append(" (").Append(data.Length).Append(" バイト)\n");
+            mayChange.Should().Contain(name);
+        }
+
+        b.Select(x => x.Name).Take(a.Count).Should().Equal(a.Select(x => x.Name), "元の部品の順序を保つ");
+        report.Append('\n');
+    }
+
     [Fact(DisplayName = "検証用のリボンは、両形式とも同梱の XSD の検査を通る（書き出しをしない通常の実行でも確かめる）")]
     public void 検証用のリボンは定義に合う()
     {

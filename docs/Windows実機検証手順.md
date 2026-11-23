@@ -1337,6 +1337,8 @@ Remove-Item Env:GRAFT_RIBBON_PROBE_DIR
   2. 元のブックと写しのシート・VBA（VBE で開く）が同じに見える。
   - **報告してほしいこと**: 確認が出た・リボンや画像が出なかった（そのときは、元のブックで同じリボンが出ることも確かめてください）。`graft-ribbon-probe-e-findings.txt` の中身（本物の XML に、Graft の検査がエラーや警告を出していないか。出ていれば、その行）。ブックの作り方（Excel の版、Custom UI Editor などのツール名）。
 
+customUI の**無い**ブックでは、`GRAFT_RIBBON_PROBE_SOURCE` の代わりに `GRAFT_RIBBON_PROBE_USER_BOOK` にパスを入れると、写しに「Graft検証U」タブを足した `user-test-ribbon14.xlsm` と、その XML を差し替えた（タブの名前が「Graft検証U（差し替え後）」になる）`user-test-ribbon14-replaced.xlsm`、部品ごとの比較 `user-test-parts.txt`（`vbaProject.bin` などがバイト単位で同じか）を書き出します。どちらも警告なしで開け、タブが出ること、VBE で VBA が元のままであることを確かめてください。
+
 記録欄（(4) で試したブックごとに 1 行）:
 
 | ブック | Excel の版 | 開けたか（確認の有無） | リボン | 画像 | findings.txt のエラー・警告 | 備考 |
