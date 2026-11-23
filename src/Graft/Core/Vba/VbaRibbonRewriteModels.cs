@@ -102,8 +102,16 @@ public enum VbaRibbonRewritePreparationKind
 /// 知らせておくこと（反映しない衝突〔E812〕、読めない形式〔E810〕など）。止める理由ではない。
 /// </param>
 /// <param name="Recovery">準備の最初に見つけて片付けた、途中で終わった前回の書き換え（無ければ null。16.11）。</param>
+/// <param name="Conflicts">
+/// 反映しなかった衝突（ブックのリボンとミラーの両方が変わっている。段階 F5）。衝突ダイアログに載せる材料（両側の本文つき）。
+/// 「Graft 側で上書き」と言われた衝突は、<c>overwriteConflicts</c> を渡した準備の結果では反映の対象に入り、ここには入らない。
+/// </param>
 public sealed record VbaRibbonRewritePreparation(
-    VbaRibbonRewritePreparationKind Kind, VbaRibbonRewritePlan? Plan, IReadOnlyList<GraftIssue> Notes, VbaRibbonRecovery? Recovery = null);
+    VbaRibbonRewritePreparationKind Kind, VbaRibbonRewritePlan? Plan, IReadOnlyList<GraftIssue> Notes, VbaRibbonRecovery? Recovery = null)
+{
+    /// <summary>反映しなかった衝突（<see cref="VbaConflictItem"/>。ダイアログ用）。</summary>
+    public IReadOnlyList<VbaConflictItem> Conflicts { get; init; } = Array.Empty<VbaConflictItem>();
+}
 
 /// <summary>書き換えが済んだときの結果。</summary>
 /// <param name="WorkbookPath">書き換えたブック。</param>

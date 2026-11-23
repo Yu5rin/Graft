@@ -642,7 +642,12 @@ public sealed partial class MainViewModel : ObservableObject
         // 適用済みのパッチ（E302）はここ＝プレビューの時点で利用者に見せる（MainViewModel.AlreadyApplied.cs）。
         SetAlreadyAppliedRevision(dryRun.Value.AlreadyAppliedRevision);
         LogDryRunFileProbes(dryRun.Value, context); // 依頼4対応: MainViewModel.DryRunDiagnostics.cs参照
-        ReplaceBlocks(dryRun.Value.Plans);
+        // リボン（CustomUI/*.xml）のブロックの XML の警告（止めないもの）を、解析結果に添える（仕様書_ブックの情報と依頼の観点 16.8・16.10）。
+        // リボンの同期をしていないプロジェクト・リボンのブロックが無い解析結果は、そのまま（1 バイトも変わらない）。
+        var plansToShow = IsVbaActive(project) && _settings.Vba.RibbonEditEnabled
+            ? Core.Vba.VbaApplyGuard.AddRibbonWarnings(dryRun.Value.Plans)
+            : dryRun.Value.Plans;
+        ReplaceBlocks(plansToShow);
         OnPropertyChanged(nameof(StatusSummaryText));
         OnPropertyChanged(nameof(StatusSummaryMainText));
         OnPropertyChanged(nameof(StatusSummaryFailedText));

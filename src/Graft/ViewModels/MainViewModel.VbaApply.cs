@@ -210,23 +210,18 @@ public sealed partial class MainViewModel
             Logger?.Warn("vba", $"未保存の編集があるため、Excel からの取り込みをスキップしました: {skipped}", targetPath: Path.Combine(project.Root, skipped));
         }
 
-        foreach (var ribbonConflict in pulled.Value.RibbonConflicts)
+        // モジュールとリボンの衝突を、1 つの衝突ダイアログに並べる（リボンは、左がブックのファイルの部品。16.4）。
+        var allConflicts = pulled.Value.AllConflictItems;
+        if (allConflicts.Count > 0)
         {
-            // リボンの衝突は、衝突ダイアログに載せられない（段階 F5 まで）。解析は止めず（パッチはミラーの内容に当てる）、記録だけ残す。
-            Logger?.Warn("vba", $"ブックのリボンとファイルの両方が変更されているため、取り込みませんでした: {ribbonConflict}",
-                targetPath: Path.Combine(project.Root, ribbonConflict));
-        }
-
-        if (pulled.Value.Conflicts.Count > 0)
-        {
-            var decision = await AskVbaConflictAsync(new VbaConflictRequest(VbaConflictScene.BeforeAnalysis, pulled.Value.ConflictItems))
+            var decision = await AskVbaConflictAsync(new VbaConflictRequest(VbaConflictScene.BeforeAnalysis, allConflicts))
                 .ConfigureAwait(true);
             if (decision.Aborted)
             {
                 // 衝突の「中止」では解析しない。衝突が解決されずに処理が止まるので、E812 を中央ペインに残す（仕様 7.5）。
                 CenterError = GraftIssue.Of(
                     ErrorCode.E812,
-                    $"次のモジュールが衝突しているため、解析を中止しました: {string.Join("、", pulled.Value.ConflictItems.Select(c => c.RelativePath))}。" +
+                    $"次のモジュール（リボンを含む）が衝突しているため、解析を中止しました: {string.Join("、", allConflicts.Select(c => c.RelativePath))}。" +
                     "Excel 側とファイル側のどちらを残すか決めてから、もう一度解析してください。");
                 State = CenterPaneState.Error;
                 return false;
@@ -240,7 +235,23 @@ public sealed partial class MainViewModel
                 importedCount += adopted.Value.Pulled.Count;
             }
 
-            var overwrite = decision.PathsWith(VbaConflictChoice.OverwriteExcel);
+            var overwriteAll = decision.PathsWith(VbaConflictChoice.OverwriteExcel);
+            var overwrite = overwriteAll.Where(p => !VbaRibbonMirrorLayout.TryParse(p, out _)).ToList();
+
+            // リボンの「Graft 側で上書き」は、ブックを閉じて開き直す書き換え（確認ダイアログは省かない）。「中止」・失敗なら、解析を中止する
+            // （上書きを選んだのに反映されていないまま、解析へ進まない）。
+            var ribbonOverwrite = overwriteAll.Where(p => VbaRibbonMirrorLayout.TryParse(p, out _)).ToList();
+            if (ribbonOverwrite.Count > 0
+                && !await OverwriteRibbonConflictsAsync(project, ribbonOverwrite, VbaConflictScene.BeforeAnalysis).ConfigureAwait(true))
+            {
+                CenterError = GraftIssue.Of(
+                    ErrorCode.E812,
+                    $"「Graft 側で上書き」を選んだリボンをブックへ反映しなかったため、解析を中止しました: {string.Join("、", ribbonOverwrite)}。" +
+                    "もう一度解析するか、ブックのリボンとファイル側のどちらを残すか決めてください。");
+                State = CenterPaneState.Error;
+                return false;
+            }
+
             if (overwrite.Count > 0)
             {
                 var pushed = await VbaSync.PushAsync(project, overwrite, overwrite).ConfigureAwait(true);
@@ -285,7 +296,7 @@ public sealed partial class MainViewModel
     {
         if (!IsVbaActive(project)) return false;
 
-        var findings = VbaApplyGuard.Check(plans).ToList();
+        var findings = VbaApplyGuard.Check(plans, checkRibbon: _settings.Vba.RibbonEditEnabled).ToList();
 
         // 新しく作るファイルが、既存のコンポーネントと同名で種別違いにならないか（不具合 1）。Excel を読む検査なので、
         // 新規ファイルがあるときだけ行う。

@@ -29,12 +29,19 @@ public sealed record VbaPullResult(
     /// <summary>
     /// リボン（<c>CustomUI/customUI14.xml</c> など）の衝突で、取り込まなかったもの（ミラーのパス。仕様書_ブックの情報と依頼の観点 16.4）。
     /// <para>
-    /// 【<see cref="Conflicts"/> と分ける理由】 衝突ダイアログの項目（<see cref="VbaConflictItem"/>）はモジュールの種別
-    /// （<see cref="VbaModuleKind"/>）を必須にしていて、リボンを載せられない。リボンの衝突をダイアログで解決するのは段階 F5
-    /// （16.15 の申し送り）で、それまでは E812 の警告として知らせ、ここに分けて持つ（モジュールの衝突の解決の流れに混ぜない）。
+    /// 【<see cref="Conflicts"/> と分けて持つ理由】 モジュールの衝突は <see cref="Conflicts"/>・<see cref="ConflictItems"/> の対応（同じ順・同じ
+    /// 件数）を前提にした既存の流れ（衝突ダイアログ → 採用・上書き）に載る。リボンはパスだけをここに持ち、ダイアログに出す両側の本文つきの項目は
+    /// <see cref="RibbonConflictItems"/>。呼び出し側は、ダイアログへ出すとき <see cref="ConflictItems"/> と <see cref="RibbonConflictItems"/> を
+    /// 並べて 1 つの要求にする（段階 F5。付録A-89）。
     /// </para>
     /// </summary>
     public IReadOnlyList<string> RibbonConflicts { get; init; } = Array.Empty<string>();
+
+    /// <summary>リボンの衝突の詳細（<see cref="VbaConflictItem.ForRibbon"/>。左: ブックの部品の XML、右: ミラーの本文）。</summary>
+    public IReadOnlyList<VbaConflictItem> RibbonConflictItems { get; init; } = Array.Empty<VbaConflictItem>();
+
+    /// <summary>モジュールとリボンの衝突を、衝突ダイアログに出す順（モジュール → リボン）に並べたもの。</summary>
+    public IReadOnlyList<VbaConflictItem> AllConflictItems => ConflictItems.Concat(RibbonConflictItems).ToList();
 
     /// <summary>何も起きなかった。</summary>
     public bool IsEmpty => Pulled.Count == 0 && Conflicts.Count == 0 && Skipped.Count == 0 && RibbonConflicts.Count == 0;
@@ -629,6 +636,7 @@ public sealed class VbaSyncService
                 {
                     ConflictItems = work is null ? Array.Empty<VbaConflictItem>() : ConflictItemsOf(work, conflicts),
                     RibbonConflicts = ribbonConflicts,
+                    RibbonConflictItems = ribbon is null ? Array.Empty<VbaConflictItem>() : VbaRibbonSyncService.ConflictItemsOf(ribbon, ribbonConflicts),
                 },
                 issues),
             null);

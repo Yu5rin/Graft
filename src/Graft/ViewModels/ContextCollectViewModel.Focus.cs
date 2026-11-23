@@ -136,5 +136,22 @@ public sealed partial class ContextCollectViewModel
     /// VBA の前提の最終行を「ブックの情報に載っているものだけを使う」へ切り替える。入らないのにそう書くと、
     /// 存在しない「ブックの情報」を AI に指さしてしまう（Q1 の申し送り）。
     /// </remarks>
-    public string BuildFocusText() => Focus.ComposeText(hasWorkbookInfo: BuildWorkbookInfoText().Length > 0);
+    public string BuildFocusText()
+        => Focus.ComposeText(hasWorkbookInfo: BuildWorkbookInfoText().Length > 0, ribbonFiles: RibbonFilesInMirror());
+
+    /// <summary>
+    /// ミラーにあるリボンのファイル（<c>CustomUI/customUI14.xml</c> など。正規の綴り）。VBA プロジェクトで、リボンを Graft のファイルとして扱う設定
+    /// （<c>Vba.RibbonEditEnabled</c>）のときだけ。無ければ null（依頼文のリボンの行を足さない。仕様書_ブックの情報と依頼の観点 16.14）。
+    /// </summary>
+    private IReadOnlyList<string>? RibbonFilesInMirror()
+    {
+        if (_project.Vba is null || !_settings.Vba.RibbonEditEnabled) return null;
+        var files = Features.VbaRibbonSyncService.MirrorFiles(_project.Root)
+            .Select(path => Core.Vba.VbaRibbonMirrorLayout.TryParse(Core.Vba.VbaRibbonMirrorLayout.FolderName + "/" + System.IO.Path.GetFileName(path), out var parsed)
+                ? parsed?.RelativePath
+                : null)
+            .OfType<string>()
+            .ToList();
+        return files.Count == 0 ? null : files;
+    }
 }

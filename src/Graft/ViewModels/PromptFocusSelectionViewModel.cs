@@ -155,10 +155,11 @@ public sealed class PromptFocusSelectionViewModel : ObservableObject
     /// （＝依頼文は従来と同じ）。
     /// </summary>
     /// <param name="hasWorkbookInfo">ブックの情報が依頼文に入っているか（Q1では常に false。ブックの情報は次の段階）。</param>
-    public string ComposeText(bool hasWorkbookInfo = false)
+    /// <param name="ribbonFiles">ミラーにあるリボンのファイル（VBA の前提にリボンの行を足す。null なら足さない）。</param>
+    public string ComposeText(bool hasWorkbookInfo = false, IReadOnlyList<string>? ribbonFiles = null)
     {
         var selected = PromptFocusComposer.ResolveSelected(_catalog, _selected, _isVba);
-        return PromptFocusComposer.Compose(selected, _isVba, hasWorkbookInfo);
+        return PromptFocusComposer.Compose(selected, _isVba, hasWorkbookInfo, ribbonFiles);
     }
 
     /// <summary>

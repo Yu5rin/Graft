@@ -43,6 +43,21 @@ public static class PromptFocusComposer
     internal const string VbaPremiseLastLineWithoutWorkbook =
         "- シート名・テーブル名・列は、確かめられないものを推測で使わず、質問してください。";
 
+    /// <summary>
+    /// VBA の前提に足す、リボン（customUI）の行（ミラーに <c>CustomUI/*.xml</c> があるときだけ。仕様書_ブックの情報と依頼の観点 14 章の 16.14・6.4）。
+    /// {0} はミラーのパス（例: <c>CustomUI/customUI14.xml</c>。2 つあれば「・」でつなぐ）。AI に、(1) 答え方（そのファイルへの search/replace。
+    /// 別のパスや XML の全文の貼り直しにしない）、(2) 壊れやすい点（id の重複・コールバックの置き場）、(3) できないこと（画像は足せない）を 1 つの文で伝える。
+    /// 観点（チップ）ごとの追記ではなく、<b>前提に 1 回</b>だけ置く（同じ文を観点の数だけ繰り返すと、依頼文が長くなるだけで効果は変わらない）。
+    /// </summary>
+    internal const string RibbonPremiseLineFormat =
+        "- リボン（{0}）を直すときは、そのファイルへの search/replace で答えてください。id は重複させず、"
+        + "コールバック（onAction など）は標準モジュールの Public な Sub／Function にしてください。"
+        + "画像は足せないので、idMso・imageMso の組み込みの画像を使ってください。";
+
+    /// <summary>リボンの行（<see cref="RibbonPremiseLineFormat"/>）を、ファイルの名前で組み立てる。</summary>
+    internal static string RibbonPremiseLine(IReadOnlyList<string> ribbonFiles)
+        => string.Format(System.Globalization.CultureInfo.InvariantCulture, RibbonPremiseLineFormat, string.Join("・", ribbonFiles));
+
     private const string VbaPremiseHead =
         "## VBA の前提\n"
         + "- これは Excel VBA です。各ファイルは VBE のモジュール本文で、Attribute 行やエクスポート用のヘッダは含みません。\n"
@@ -90,7 +105,12 @@ public static class PromptFocusComposer
     /// <param name="selected">画面の並び順の、選ばれた観点。</param>
     /// <param name="isVba">VBA プロジェクトか。true のとき VBA の前提を1回と、各観点の VBA 追記を足す。</param>
     /// <param name="hasWorkbookInfo">ブックの情報が依頼文に入っているか（VBA の前提の最終行が変わる）。</param>
-    public static string Compose(IReadOnlyList<PromptFocus> selected, bool isVba, bool hasWorkbookInfo)
+    /// <param name="ribbonFiles">
+    /// ミラーにあるリボンのファイル（<c>CustomUI/customUI14.xml</c> など）。VBA のときだけ、前提にリボンの行を足す。null か空なら、従来と
+    /// 1 バイトも変わらない（リボンの無いプロジェクト・リボンの同期をしないプロジェクトは、依頼文が変わらない）。
+    /// </param>
+    public static string Compose(
+        IReadOnlyList<PromptFocus> selected, bool isVba, bool hasWorkbookInfo, IReadOnlyList<string>? ribbonFiles = null)
     {
         ArgumentNullException.ThrowIfNull(selected);
         if (selected.Count == 0) return string.Empty;
@@ -101,6 +121,7 @@ public static class PromptFocusComposer
         if (isVba)
         {
             sb.Append(VbaPremiseHead);
+            if (ribbonFiles is { Count: > 0 }) sb.Append(RibbonPremiseLine(ribbonFiles)).Append('\n');
             sb.Append(hasWorkbookInfo ? VbaPremiseLastLineWithWorkbook : VbaPremiseLastLineWithoutWorkbook);
             sb.Append("\n\n");
         }

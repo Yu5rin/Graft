@@ -71,15 +71,16 @@ public sealed partial class MainViewModel
             Logger?.Warn("vba", $"未保存の編集があるため、Excel からの取り込みをスキップしました: {skipped}", targetPath: Path.Combine(current.Root, skipped));
         }
 
-        if (pulled.Conflicts.Count > 0)
+        // モジュールとリボンの衝突を、1 つの衝突ダイアログに並べる（リボンは、左がブックのファイルの部品。仕様書_ブックの情報と依頼の観点 16.4）。
+        if (pulled.AllConflictItems.Count > 0)
         {
-            var request = new VbaConflictRequest(VbaConflictScene.ContextCollect, pulled.ConflictItems);
+            var request = new VbaConflictRequest(VbaConflictScene.ContextCollect, pulled.AllConflictItems);
             var ask = showConflict ?? ShowVbaConflictAsync;
             var decision = (ask is null ? null : await ask(request).ConfigureAwait(true)) ?? request.DefaultDecision;
             if (decision.Aborted)
             {
                 return "Excel の最新を取り込めていません（Excel 側とファイル側の両方が変更されているため）: " +
-                       string.Join("、", pulled.ConflictItems.Select(c => c.RelativePath));
+                       string.Join("、", pulled.AllConflictItems.Select(c => c.RelativePath));
             }
 
             var adopt = decision.PathsWith(VbaConflictChoice.AdoptExcel);
@@ -89,24 +90,25 @@ public sealed partial class MainViewModel
                 if (!adopted.IsSuccess) return "Excel の最新を取り込めていません。Graft 側（ミラー）の現在の内容で続けます。";
             }
 
-            var overwrite = decision.PathsWith(VbaConflictChoice.OverwriteExcel);
+            var overwriteAll = decision.PathsWith(VbaConflictChoice.OverwriteExcel);
+            var overwrite = overwriteAll.Where(p => !VbaRibbonMirrorLayout.TryParse(p, out _)).ToList();
             if (overwrite.Count > 0)
             {
                 var pushed = await VbaSync.PushAsync(current, overwrite, overwrite, ct).ConfigureAwait(true);
                 if (!pushed.IsSuccess) return "Graft 側の内容を Excel へ反映できませんでした。Graft 側（ミラー）の現在の内容で続けます。";
             }
 
+            // リボンの「Graft 側で上書き」は、ブックを閉じて開き直す書き換え（確認ダイアログは省かない）。
+            var ribbonOverwrite = overwriteAll.Where(p => VbaRibbonMirrorLayout.TryParse(p, out _)).ToList();
+            if (ribbonOverwrite.Count > 0
+                && !await OverwriteRibbonConflictsAsync(current, ribbonOverwrite, VbaConflictScene.ContextCollect).ConfigureAwait(true))
+            {
+                return "Graft 側のリボンをブックへ反映していません。Graft 側（ミラー）の現在の内容で続けます。";
+            }
+
             // 衝突を解決した（または取り込んだ）ので、保存時の自動反映が付けた「衝突 N」の印を見直す
             // （バッジを数え直すと、未反映でなくなったモジュールの印が外れる）。
             ProjectPane.RequestVbaBadgeRefresh(checkWorkbookOpen: false);
-        }
-
-        if (pulled.RibbonConflicts.Count > 0)
-        {
-            // リボンの衝突（仕様書_ブックの情報と依頼の観点 16.4）は、衝突ダイアログに載せられない（段階 F5 まで）。収集は止めず、
-            // 取り込めていないことだけを警告で伝える（「リボン（customUI）」の行は、ミラーの現在の内容を読む）。
-            return "リボンは、ブックとファイル（Graft 側）の両方が変更されているため取り込んでいません。Graft 側（ミラー）の現在の内容で続けます: " +
-                   string.Join("、", pulled.RibbonConflicts);
         }
 
         return null;

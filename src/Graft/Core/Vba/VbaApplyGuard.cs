@@ -36,10 +36,71 @@ public sealed record VbaComponentRef(string Component, VbaModuleKind Kind);
 /// （反映すると既存の本文を上書きしてしまう）。ミラーにゴミのファイルが残らないよう、適用の前に止める
 /// （<see cref="CheckNameCollisions"/>。既存の名前の一覧は呼び出し側が渡す）。
 /// </item>
+/// <item>
+/// <b>リボン（<c>CustomUI/*.xml</c>）の XML の誤り（E818。段階 F5。仕様書_ブックの情報と依頼の観点 16.8）</b>: パッチが
+/// <c>CustomUI/customUI14.xml</c>・<c>CustomUI/customUI.xml</c> を変える（新しく作る場合を含む）とき、適用後の本文を、同梱した Office の
+/// 公開スキーマ（XSD）による検査（<see cref="VbaRibbonXmlValidator"/>）に通す。エラーは<b>適用を止める</b>（そのブロックのチェックを外せば、
+/// ほかは適用できる）。壊れた XML をミラーに書いてしまうと、あとでブックへ反映するときに止まるうえ、取込でも読めなくなる。
+/// 警告（識別子の無いコントロールなど）は止めず、<see cref="AddRibbonWarnings"/> で解析結果のブロックの警告に出す。ここでの検査は
+/// ミラーの VBA を読まないので、コールバックの照合（VBA に手続きが無い）と画像の関係の検査は行わない（書き換えの直前の検査が行う）。
+/// </item>
 /// </list>
 /// </summary>
 public static class VbaApplyGuard
 {
+    /// <summary>リボンの XML のエラーを 1 ファイルについて並べる上限（超えた分は「ほか N 件」にまとめる）。</summary>
+    private const int MaxRibbonFindingsPerFile = 10;
+
+    /// <summary>
+    /// パッチ適用後のリボンの XML（<c>CustomUI/*.xml</c>）を検査して、エラーを E818 の問題にする。
+    /// 適用後の本文があるブロックだけが対象。ミラーのリボンのパスでなければ何もしない。
+    /// </summary>
+    private static IEnumerable<VbaGuardFinding> CheckRibbonErrors(BlockPlan plan)
+    {
+        if (plan.AfterText is null || !VbaRibbonMirrorLayout.TryParse(plan.Path, out var layout) || layout is null) yield break;
+
+        var errors = VbaRibbonXmlValidator.Validate(plan.AfterText, layout.Format).Errors.ToList();
+        foreach (var error in errors.Take(MaxRibbonFindingsPerFile))
+        {
+            yield return new VbaGuardFinding(plan, GraftIssue.Of(
+                ErrorCode.E818, detail: $"{plan.Path} {error.ToDisplayText()}", line: error.Line > 0 ? error.Line : null, path: plan.Path));
+        }
+
+        if (errors.Count > MaxRibbonFindingsPerFile)
+        {
+            yield return new VbaGuardFinding(plan, GraftIssue.Of(
+                ErrorCode.E818, detail: $"{plan.Path} ほか {errors.Count - MaxRibbonFindingsPerFile} 件のエラーがあります。", path: plan.Path));
+        }
+    }
+
+    /// <summary>
+    /// パッチ適用後のリボンの XML の警告（止めないもの）を、解析結果のブロックに添える問題にする（<see cref="BlockPlan.Issues"/>）。
+    /// リボンのブロックが無ければ、渡した一覧をそのまま返す（リボンの無いプロジェクトの解析結果は 1 バイトも変わらない）。
+    /// </summary>
+    public static IReadOnlyList<BlockPlan> AddRibbonWarnings(IReadOnlyList<BlockPlan> plans)
+    {
+        ArgumentNullException.ThrowIfNull(plans);
+        if (!plans.Any(p => p.AfterText is not null && VbaRibbonMirrorLayout.TryParse(p.Path, out _))) return plans;
+
+        var result = new List<BlockPlan>(plans.Count);
+        foreach (var plan in plans)
+        {
+            if (plan.AfterText is null || !VbaRibbonMirrorLayout.TryParse(plan.Path, out var layout) || layout is null)
+            {
+                result.Add(plan);
+                continue;
+            }
+
+            var warnings = VbaRibbonXmlValidator.Validate(plan.AfterText, layout.Format).Warnings
+                .Select(w => GraftIssue.Of(ErrorCode.E818, detail: $"{plan.Path} {w.ToDisplayText()}", line: w.Line > 0 ? w.Line : null,
+                    path: plan.Path, severity: Severity.Warning))
+                .ToList();
+            result.Add(warnings.Count == 0 ? plan : plan with { Issues = plan.Issues.Concat(warnings).ToList() });
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// 新規に作るミラーのファイルが、既存のコンポーネントや、同時に作るほかのファイルと「同名で種別違い」に
     /// なっていないかを検査する（不具合 1）。
@@ -98,7 +159,11 @@ public static class VbaApplyGuard
     private static IEnumerable<BlockPlan> NewMirrorFiles(IEnumerable<BlockPlan> plans) => plans.Where(CreatesMirrorFile);
 
     /// <summary>適用を止めるべき問題を列挙する。なければ空。</summary>
-    public static IReadOnlyList<VbaGuardFinding> Check(IEnumerable<BlockPlan> plans)
+    /// <param name="plans">現在のチェックの状態を反映した解析結果。</param>
+    /// <param name="checkRibbon">
+    /// リボン（<c>CustomUI/*.xml</c>）の XML を検査するか（設定 <c>Vba.RibbonEditEnabled</c> がオフなら false。同期しないなら検査も要らない）。
+    /// </param>
+    public static IReadOnlyList<VbaGuardFinding> Check(IEnumerable<BlockPlan> plans, bool checkRibbon = true)
     {
         ArgumentNullException.ThrowIfNull(plans);
 
@@ -120,6 +185,14 @@ public static class VbaApplyGuard
             }
 
             if (plan.AfterText is null) continue;
+
+            // リボン: CP932 の検査は掛けず（XML は UTF-8 で書くので、掛けないのが正しい。16.3）、XSD の検査を掛ける。
+            if (checkRibbon && VbaRibbonMirrorLayout.TryParse(plan.Path, out _))
+            {
+                findings.AddRange(CheckRibbonErrors(plan));
+                continue;
+            }
+
             if (!VbaMirrorLayout.TryParse(plan.Path, out _, out _)) continue;
 
             var issue = VbaCodePageGuard.ToIssue(plan.Path, plan.AfterText);

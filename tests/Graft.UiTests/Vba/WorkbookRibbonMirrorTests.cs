@@ -149,20 +149,25 @@ public class WorkbookRibbonMirrorTests : IDisposable
         r.H.Dialogs.Messages.Should().Contain(m => m.Title.Contains("取り込めませんでした"), "モジュールは取り込めていない");
     }
 
-    [AvaloniaFact(DisplayName = "手動の「Excel から取込」: リボンの衝突は注意の一覧に E812 で出す（衝突ダイアログには載せない。F5 まで）")]
+    [AvaloniaFact(DisplayName = "手動の「Excel から取込」: リボンの衝突は衝突ダイアログに載せる（F5）。選ばずに閉じる（中止）なら、ミラーは変わらず、衝突を伝える")]
     public async Task 手動の取込でリボンの衝突を知らせる()
     {
         using var r = await NewRigAsync(Book()).ConfigureAwait(true);
         await ShellHarness.ExecuteAsync(r.Graft.ProjectPane.PullFromExcelCommand).ConfigureAwait(true);
         File.WriteAllText(r.MirrorPath(Ribbon14), XmlB);
-        Book(RibbonPackageBuilder.SampleRibbon.Replace("label=\"業務\"", "label=\"業務C\"", StringComparison.Ordinal));
+        var bookXml = RibbonPackageBuilder.SampleRibbon.Replace("label=\"業務\"", "label=\"業務C\"", StringComparison.Ordinal);
+        Book(bookXml);
         r.H.Dialogs.Messages.Clear();
 
         await ShellHarness.ExecuteAsync(r.Graft.ProjectPane.PullFromExcelCommand).ConfigureAwait(true);
 
         r.Mirror(Ribbon14).Should().Be(XmlB, "衝突は黙って上書きしない");
-        r.Conflicts.Should().BeEmpty("リボンは衝突ダイアログに載せない");
-        r.H.Dialogs.Messages.Should().Contain(m => m.Message.Contains("E812") && m.Message.Contains(Ribbon14));
+        var item = r.Conflicts.Should().ContainSingle("リボンの衝突も衝突ダイアログに載せる").Subject.Items.Should().ContainSingle().Subject;
+        item.IsRibbon.Should().BeTrue();
+        item.RelativePath.Should().Be(Ribbon14);
+        item.ExcelText.Should().Be(bookXml, "左はブックのファイルの部品");
+        item.MirrorText.Should().Be(XmlB, "右は Graft 側（ミラー）");
+        r.H.Dialogs.Messages.Should().Contain(m => m.Message.Contains("E812") && m.Message.Contains(Ribbon14), "選ばずに閉じたので、解決されていないことを伝える");
     }
 
     [AvaloniaFact(DisplayName = "解析の前の取込: パッチが CustomUI/ だけを含むとき、Excel が閉じていても、解析の前にブックのリボンを取り込む")]

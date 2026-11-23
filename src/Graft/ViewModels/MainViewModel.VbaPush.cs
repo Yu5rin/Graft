@@ -32,13 +32,20 @@ public sealed partial class MainViewModel
         VbaPushEnd End, IReadOnlyList<string> Written, IReadOnlyList<string> Created, IReadOnlyList<string> DeletePending);
 
     /// <summary>
+    /// 適用のあとの VBA の反映の結果。<see cref="Undone"/> は、Push の失敗でこの適用を取り消したか（適用後フックと Git の自動コミットを行わない目印）。
+    /// <see cref="Detail"/> は適用通知に添える一言。<see cref="Completed"/> は、反映するものがすべて反映できたか（反映するものが無かった場合を含む。
+    /// 続けてリボンを反映してよいかの条件。16.10）。<see cref="Written"/> は、Excel へ書いたモジュールの数（リボンの確認の冒頭に添える）。
+    /// </summary>
+    private sealed record VbaApplyPushResult(bool Undone, string? Detail, bool Completed = false, int Written = 0);
+
+    /// <summary>
     /// 適用の成功後に、Excel へ反映する。ここまでの適用（ファイルの書き込み・履歴・一覧の読み込み）は済んでいる。
-    /// 戻り値の <c>Undone</c> は、Push の失敗でこの適用を取り消したか（適用後フックと Git の自動コミットを行わない目印）。
+    /// <c>Undone</c> は、Push の失敗でこの適用を取り消したか（適用後フックと Git の自動コミットを行わない目印）。
     /// <c>Detail</c> は適用通知に添える一言。
     /// </summary>
-    private async Task<(bool Undone, string? Detail)> PushVbaAfterApplyAsync(Project project, RevisionManifest manifest)
+    private async Task<VbaApplyPushResult> PushVbaAfterApplyAsync(Project project, RevisionManifest manifest)
     {
-        if (_vbaFileOnly) return (false, "Excel には未反映");
+        if (_vbaFileOnly) return new VbaApplyPushResult(false, "Excel には未反映");
 
         var manifestPaths = new HashSet<string>(
             VbaScopeOf(manifest.Entries.Select(e => e.Path)), StringComparer.OrdinalIgnoreCase);
@@ -59,16 +66,16 @@ public sealed partial class MainViewModel
             switch (loop.End)
             {
                 case VbaPushEnd.Undone:
-                    return (true, null);
+                    return new VbaApplyPushResult(true, null);
                 case VbaPushEnd.KeptUnpushed:
-                    return (false, "Excel には未反映");
+                    return new VbaApplyPushResult(false, "Excel には未反映");
                 default:
                     var written = loop.Written.Count + loop.Created.Count;
-                    if (written == 0) return (false, null);
+                    if (written == 0) return new VbaApplyPushResult(false, null, Completed: true);
                     var earlier = loop.Written.Concat(loop.Created).Count(p => !manifestPaths.Contains(p));
-                    return (false, earlier > 0
+                    return new VbaApplyPushResult(false, earlier > 0
                         ? $"Excel へ反映済み: {written}件（うち以前からの未反映 {earlier}件）"
-                        : "Excel へ反映済み");
+                        : "Excel へ反映済み", Completed: true, Written: written);
             }
         }
         finally
@@ -322,7 +329,18 @@ public sealed partial class MainViewModel
         {
             // 取り消し・復元も、適用と同じく「適用後に Excel へ自動反映する」の設定に従う（オフなら Excel には触れず、
             // ミラーだけが戻って「未反映」の印が付く）。
-            if (project!.Vba!.AutoPushAfterApply) await PushVbaAfterRestoreCoreAsync(project, restoredPaths).ConfigureAwait(true);
+            if (project!.Vba!.AutoPushAfterApply)
+            {
+                var vba = await PushVbaAfterRestoreCoreAsync(project, restoredPaths).ConfigureAwait(true);
+
+                // 戻したパスに CustomUI/*.xml があれば、VBA の反映のあとに、リボンの確認を出す（16.10。「中止」なら未反映のまま）。
+                // 戻していない（リボンの未反映が以前からあるだけ）ときは、取り消し・復元の流れでは触れない。
+                if (restoredPaths.Any(p => VbaRibbonMirrorLayout.TryParse(p.Replace('\\', '/'), out _)))
+                {
+                    await ProjectPane.FollowWithRibbonAsync(project, vba.Completed, vba.Written, VbaConflictScene.AfterRestore, quietSuccess: false)
+                        .ConfigureAwait(true);
+                }
+            }
         }
         finally
         {
@@ -331,11 +349,12 @@ public sealed partial class MainViewModel
         }
     }
 
-    private async Task PushVbaAfterRestoreCoreAsync(Project project, IReadOnlyList<string> restoredPaths)
+    /// <summary>取り消し・復元のあとの VBA の反映の結果（<see cref="VbaApplyPushResult"/> の <c>Completed</c>・<c>Written</c> だけを使う）。</summary>
+    private async Task<VbaApplyPushResult> PushVbaAfterRestoreCoreAsync(Project project, IReadOnlyList<string> restoredPaths)
     {
 
         var scope = VbaScopeOf(restoredPaths);
-        if (scope.Count == 0) return;
+        if (scope.Count == 0) return new VbaApplyPushResult(false, null, Completed: true);
 
         SetVbaPushing(true);
         try
@@ -348,6 +367,7 @@ public sealed partial class MainViewModel
                 .Where(p => loop.DeletePending.Contains(p, StringComparer.OrdinalIgnoreCase))
                 .ToList();
             if (remaining.Count > 0) await NotifyVbaRemainingInExcelAsync(remaining).ConfigureAwait(true);
+            return new VbaApplyPushResult(false, null, loop.End == VbaPushEnd.Completed, loop.Written.Count + loop.Created.Count);
         }
         finally
         {

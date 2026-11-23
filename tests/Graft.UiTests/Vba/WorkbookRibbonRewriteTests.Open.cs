@@ -54,7 +54,8 @@ public partial class WorkbookRibbonRewriteTests
         stateWhileClosed.Should().Be(CenterPaneState.Loading, "処理中の表示にする");
         r.Graft.State.Should().Be(before, "終わったら元の表示へ戻す");
         r.Graft.Notice.Text.Should().StartWith("リボンをブックへ反映しました（CustomUI/customUI14.xml。控え: 計画-");
-        r.Graft.Notice.HasAction.Should().BeFalse("開き直したので「Excel で開く」は要らない");
+        r.Graft.Notice.HasAction.Should().BeTrue("開き直したので「Excel で開く」は要らず、控えのフォルダを開く「控えを見る」を添える（16.10）");
+        r.Graft.Notice.ActionLabel.Should().Be("控えを見る");
         Item(r).VbaStatusText.Should().NotContain("リボン未反映");
         r.Graft.VbaSync.IsWritingToExcel.Should().BeFalse();
     }

@@ -138,7 +138,14 @@ public sealed partial class VbaRibbonSyncService
     /// 足したときに、閉じたあとで止まる経路が増えない。
     /// </para>
     /// </summary>
-    public async Task<GraftResult<VbaRibbonRewritePreparation>> PrepareRewriteAsync(Project project, CancellationToken ct = default)
+    /// <param name="project">VBA プロジェクト。</param>
+    /// <param name="ct">取り消し。</param>
+    /// <param name="overwriteConflicts">
+    /// 衝突（ブックのリボンとミラーの両方が変わっている）のうち、利用者が衝突ダイアログで「Graft 側で上書き」を選んだもの（ミラーのパス。段階 F5）。
+    /// 反映の対象に入れる（確認ダイアログ・控え・書き換えの手順は省かない。控えはブックの丸ごとの控えが兼ねる。16.4）。null なら、衝突は反映しない。
+    /// </param>
+    public async Task<GraftResult<VbaRibbonRewritePreparation>> PrepareRewriteAsync(
+        Project project, CancellationToken ct = default, IReadOnlyCollection<string>? overwriteConflicts = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         var link = project.Vba ?? throw new ArgumentException("VBA プロジェクトではありません。", nameof(project));
@@ -164,7 +171,7 @@ public sealed partial class VbaRibbonSyncService
         await _gate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            return await PrepareCoreAsync(project, link, ct).ConfigureAwait(true);
+            return await PrepareCoreAsync(project, link, overwriteConflicts, ct).ConfigureAwait(true);
         }
         finally
         {
@@ -172,7 +179,8 @@ public sealed partial class VbaRibbonSyncService
         }
     }
 
-    private async Task<GraftResult<VbaRibbonRewritePreparation>> PrepareCoreAsync(Project project, VbaLink link, CancellationToken ct)
+    private async Task<GraftResult<VbaRibbonRewritePreparation>> PrepareCoreAsync(
+        Project project, VbaLink link, IReadOnlyCollection<string>? overwriteConflicts, CancellationToken ct)
     {
         // 前回の書き換えが途中で終わっていれば、先に片付ける（16.11。「次のリボンの操作で」）。片付ける前に次を始めると、残った
         // 一時ファイルや記録を、今回のものと取り違える。
@@ -189,14 +197,20 @@ public sealed partial class VbaRibbonSyncService
         if (BookStatusIssue(work.Book, workbookName) is { } bookIssue) return GraftResult<VbaRibbonRewritePreparation>.Fail(bookIssue);
 
         // 反映しない衝突・読めない形式は、止める理由ではなく知らせ（反映できる形式だけを書く）。
+        // 衝突のうち「Graft 側で上書き」と言われたものは、反映の対象に入れる（残りの衝突だけを知らせる）。
+        bool Overwrites(VbaRibbonSyncItem item)
+            => item.Action == VbaRibbonSyncAction.Conflict && overwriteConflicts is not null
+               && overwriteConflicts.Contains(item.MirrorPath, StringComparer.OrdinalIgnoreCase);
+        var unresolved = work.Plan.Where(VbaRibbonSyncAction.Conflict).Where(i => !Overwrites(i)).Select(i => i.MirrorPath).ToList();
         var notes = new List<GraftIssue>(work.LoadIssues);
-        notes.AddRange(VbaRibbonSyncIssues.Collect(work.Plan, null, "ブックへは反映しませんでした"));
+        notes.AddRange(VbaRibbonSyncIssues.Collect(work.Plan, unresolved, "ブックへは反映しませんでした"));
+        var conflicts = ConflictItemsOf(work, unresolved);
 
-        var pushes = work.Plan.Where(VbaRibbonSyncAction.Push).OrderBy(i => i.Format).ToList();
+        var pushes = work.Plan.Items.Where(i => i.Action == VbaRibbonSyncAction.Push || Overwrites(i)).OrderBy(i => i.Format).ToList();
         if (pushes.Count == 0)
         {
             return GraftResult<VbaRibbonRewritePreparation>.Ok(
-                new VbaRibbonRewritePreparation(VbaRibbonRewritePreparationKind.NothingToDo, null, notes, recovery));
+                new VbaRibbonRewritePreparation(VbaRibbonRewritePreparationKind.NothingToDo, null, notes, recovery) { Conflicts = conflicts });
         }
 
         var targets = new List<VbaRibbonRewriteTarget>();
@@ -244,7 +258,27 @@ public sealed partial class VbaRibbonSyncService
             preflight.Value.Size, preflight.Value.ModifiedUtc, open.State.IsOpen ? open.State : null,
             AutoMacros: open.State.IsOpen ? VbaRibbonCallbackMatcher.FindStandardProcedures(modules, "Auto_Open", "Auto_Close") : null);
         return GraftResult<VbaRibbonRewritePreparation>.Ok(
-            new VbaRibbonRewritePreparation(VbaRibbonRewritePreparationKind.Ready, plan, notes, recovery));
+            new VbaRibbonRewritePreparation(VbaRibbonRewritePreparationKind.Ready, plan, notes, recovery) { Conflicts = conflicts });
+    }
+
+    /// <summary>
+    /// 衝突したリボンの、両側の本文つきの一覧（衝突ダイアログの表示用。左: ブックの部品の XML、右: ミラーの本文）。
+    /// どちらかが読めない形式は載せない（読めない形式は、衝突ではなく警告として扱われている）。
+    /// </summary>
+    internal static List<VbaConflictItem> ConflictItemsOf(VbaRibbonWork work, IEnumerable<string> paths)
+    {
+        var items = new List<VbaConflictItem>();
+        foreach (var path in paths)
+        {
+            var item = work.Plan.Items.FirstOrDefault(i => string.Equals(i.MirrorPath, path, StringComparison.OrdinalIgnoreCase));
+            if (item is null || item.Action != VbaRibbonSyncAction.Conflict) continue;
+            var bookPart = work.Book.Parts.FirstOrDefault(p => VbaRibbonMirrorLayout.FormatOf(p) == item.Format && p.IsReadable);
+            if (bookPart?.Xml is not { } bookXml) continue;
+            if (!work.Mirror.TryGetValue(item.Format, out var mirror) || mirror.File.Text is not { } mirrorXml) continue;
+            items.Add(VbaConflictItem.ForRibbon(item.MirrorPath, bookXml, mirrorXml, item.ConflictReason));
+        }
+
+        return items;
     }
 
     /// <summary>
@@ -435,7 +469,7 @@ public sealed partial class VbaRibbonSyncService
                 // 段階 6: 保存して閉じる（開いているときだけ）。
                 if (plan.IsOpen)
                 {
-                    var closed = await SaveAndCloseForRewriteAsync(project, plan, job, held, ct).ConfigureAwait(true);
+                    var closed = await SaveAndCloseForRewriteAsync(project, plan.WorkbookName, plan.WorkbookPath, job, held, ct).ConfigureAwait(true);
                     if (closed.Failure is not null) return closed.Failure;
                     job = closed.Job!;
                 }
@@ -500,7 +534,7 @@ public sealed partial class VbaRibbonSyncService
     /// 変えていない問題（E820・E819・E813・E805）。時間切れ（E805）のときは、Excel 側で遅れて完了しうるので、状態を取り直して案内を決める。
     /// </summary>
     private async Task<(VbaRibbonRewriteJob? Job, GraftResult<VbaRibbonRewriteOutcome>? Failure)> SaveAndCloseForRewriteAsync(
-        Project project, VbaRibbonRewritePlan plan, VbaRibbonRewriteJob job, ReopenHolder held, CancellationToken ct)
+        Project project, string workbookName, string workbookPath, VbaRibbonRewriteJob job, ReopenHolder held, CancellationToken ct)
     {
         Progress?.Invoke(VbaRibbonRewriteText.ProgressSaveAndClose);
         var watch = Stopwatch.StartNew();
@@ -509,14 +543,14 @@ public sealed partial class VbaRibbonSyncService
         {
             DeleteJob(project.Id);
             var issues = saved.Issues.ToList();
-            if (issues.Any(i => i.Code == ErrorCode.E805)) issues = await ReconcileAfterSaveCloseTimeoutAsync(plan, held.WorkbookFullName, issues).ConfigureAwait(true);
+            if (issues.Any(i => i.Code == ErrorCode.E805)) issues = await ReconcileAfterSaveCloseTimeoutAsync(workbookName, workbookPath, held.WorkbookFullName, issues).ConfigureAwait(true);
             Logger?.Warn("vba-ribbon", $"ブックを保存して閉じられませんでした（{string.Join("・", issues.Select(i => i.Code.ToString()))}）。ファイルは変えていません。",
-                targetPath: plan.WorkbookPath, durationMs: watch.ElapsedMilliseconds);
+                targetPath: workbookPath, durationMs: watch.ElapsedMilliseconds);
             return (null, GraftResult<VbaRibbonRewriteOutcome>.Fail(issues));
         }
 
         held.Hold(saved.Value);
-        Logger?.Info("vba-ribbon", $"ブックを保存して閉じました（{plan.WorkbookName}）。", targetPath: plan.WorkbookPath, durationMs: watch.ElapsedMilliseconds);
+        Logger?.Info("vba-ribbon", $"ブックを保存して閉じました（{workbookName}）。", targetPath: workbookPath, durationMs: watch.ElapsedMilliseconds);
 
         // 「Graft が Excel で閉じた」印を、閉じたあとで書く（閉じていないのに印があると、後始末の知らせが嘘になる）。
         job = job with { ClosedWorkbook = true };
@@ -526,7 +560,7 @@ public sealed partial class VbaRibbonSyncService
             // ここで止める（呼び出し側が開き直す）。
             DeleteJob(project.Id);
             return (null, GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821,
-                "作業の記録を更新できないため、書き換えを止めました。ブックのファイルは変えていません。", path: plan.WorkbookPath));
+                "作業の記録を更新できないため、書き換えを止めました。ブックのファイルは変えていません。", path: workbookPath));
         }
 
         return (job, null);
@@ -538,7 +572,7 @@ public sealed partial class VbaRibbonSyncService
     /// 案内する（利用者には時間切れと伝わっているので、ここから先へ黙って進めない）。まだ開いていれば、E805 に「開いたまま」を添える。
     /// </summary>
     private async Task<List<GraftIssue>> ReconcileAfterSaveCloseTimeoutAsync(
-        VbaRibbonRewritePlan plan, string workbookFullName, List<GraftIssue> timeoutIssues)
+        string workbookName, string workbookPath, string workbookFullName, List<GraftIssue> timeoutIssues)
     {
         var state = await _bridge.InspectWorkbookForRewriteAsync(workbookFullName, CancellationToken.None).ConfigureAwait(true);
         if (state.IsSuccess && !state.Value.IsOpen)
@@ -546,9 +580,9 @@ public sealed partial class VbaRibbonSyncService
             return new List<GraftIssue>
             {
                 GraftIssue.Of(ErrorCode.E820,
-                    $"「{plan.WorkbookName}」の保存と閉じる処理が時間切れになりましたが、そのあと Excel 側でブックが閉じられていました（保存も済んだ見込みです）。" +
+                    $"「{workbookName}」の保存と閉じる処理が時間切れになりましたが、そのあと Excel 側でブックが閉じられていました（保存も済んだ見込みです）。" +
                     "ブックのファイルは変えていません。リボンの書き換えは行っていません。" + VbaRibbonRewriteText.OpenInExcelSentence,
-                    path: plan.WorkbookPath),
+                    path: workbookPath),
             };
         }
 

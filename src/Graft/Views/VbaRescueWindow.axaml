@@ -27,9 +27,26 @@
                        FontWeight="{DynamicResource PaneHeadingFontWeight}"
                        Foreground="{DynamicResource TextPrimary}" />
             <TextBlock Text="{Binding GuideText}"
+                       x:Name="GuideTextBlock"
                        TextWrapping="Wrap"
                        FontSize="{DynamicResource CaptionFontSize}"
                        Foreground="{DynamicResource TextSecondary}" />
+            <!-- 控えの種類の切り替え（段階 F5）。モジュール本文の控え（既定）と、ブック全体の控え（リボンの書き換えの前に残るもの）。 -->
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0"
+                        IsVisible="{Binding CanShowWorkbookBackups}">
+                <Button x:Name="ShowModulesButton"
+                        Classes.primary="{Binding ShowModules}"
+                        Content="モジュールの控え"
+                        Command="{Binding ShowModulesCommand}"
+                        views:HelpTip.Standard="「Excel へ反映」で上書きされる前の、Excel 側のモジュールの本文の控えを見ます。"
+                        AutomationProperties.Name="モジュールの控えを表示" />
+                <Button x:Name="ShowWorkbooksButton"
+                        Classes.primary="{Binding ShowWorkbooks}"
+                        Content="ブックの控え"
+                        Command="{Binding ShowWorkbooksCommand}"
+                        views:HelpTip.Standard="リボンの書き換えの前に残した、ブック全体の写しを見ます。選んだ控えでブックを置き換えることもできます。"
+                        AutomationProperties.Name="ブックの控えを表示" />
+            </StackPanel>
         </StackPanel>
 
         <!-- 従来の控えだけで容量の上限を超えているときの警告（自動では消さないため、利用者に伝える）。 -->
@@ -54,8 +71,46 @@
                 <ColumnDefinition Width="*" MinWidth="360" />
             </Grid.ColumnDefinitions>
 
+            <!-- 左（ブックの控え）: ブック全体の写しの一覧（日時・大きさ）。選ぶと右側に説明が出る。 -->
+            <Grid Grid.Column="0" IsVisible="{Binding ShowWorkbooks}">
+                <ListBox x:Name="WorkbookListBox"
+                         ItemsSource="{Binding WorkbookItems}"
+                         SelectedItem="{Binding SelectedWorkbook, Mode=TwoWay}"
+                         Background="{DynamicResource BgSurface}"
+                         AutomationProperties.Name="ブックの控えの一覧"
+                         views:HelpTip.Standard="リボンの書き換えの前に残した、ブック全体の写しの一覧です。新しい順に並びます。">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                        </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,2">
+                                <TextBlock Text="{Binding TimeText}" FontSize="{DynamicResource BodyFontSize}" />
+                                <TextBlock Text="{Binding WorkbookText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding SizeText}"
+                                           FontSize="{DynamicResource CaptionFontSize}"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock x:Name="WorkbooksEmptyText"
+                           Text="{Binding WorkbooksEmptyText}"
+                           IsVisible="{Binding IsWorkbooksEmpty}"
+                           Margin="12"
+                           TextWrapping="Wrap"
+                           IsHitTestVisible="False"
+                           FontSize="{DynamicResource CaptionFontSize}"
+                           Foreground="{DynamicResource TextSecondary}" />
+            </Grid>
+
             <!-- 左: モジュールごとの控えの一覧（日時・種別・行数・サイズ）。選ぶと右側に差分が出る。 -->
-            <Grid Grid.Column="0">
+            <Grid Grid.Column="0" IsVisible="{Binding ShowModules}">
                 <ListBox x:Name="ItemsListBox"
                          ItemsSource="{Binding Items}"
                          SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
@@ -103,8 +158,18 @@
                           VerticalAlignment="Stretch"
                           AutomationProperties.Name="一覧と差分の境界" />
 
+            <!-- 右（ブックの控え）: ブックの控えは中身を差分では見られないので、何が入っていて、何ができるかを説明する。 -->
+            <ScrollViewer Grid.Column="2" IsVisible="{Binding ShowWorkbooks}">
+                <TextBlock x:Name="WorkbookDetailText"
+                           Text="{Binding WorkbookDetailText}"
+                           Margin="8"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextPrimary}"
+                           AutomationProperties.Name="ブックの控えの説明" />
+            </ScrollViewer>
+
             <!-- 右: 選んだ控えと現在のミラーの差分（既存の DiffView／DiffViewModel をそのまま流用）。 -->
-            <Grid Grid.Column="2" RowDefinitions="Auto,*">
+            <Grid Grid.Column="2" RowDefinitions="Auto,*" IsVisible="{Binding ShowModules}">
                 <TextBlock Grid.Row="0"
                            Text="{Binding DiffCaptionText}"
                            Margin="0,0,0,4"
@@ -138,12 +203,13 @@
                     Classes="primary"
                     Content="今すぐ Excel へ反映"
                     Command="{Binding PushNowCommand}"
-                    IsVisible="{Binding ShowPushNow}"
-                    IsDefault="{Binding ShowPushNow}"
+                    IsVisible="{Binding ModulePushVisible}"
+                    IsDefault="{Binding ModulePushVisible}"
                     views:HelpTip.Standard="戻したモジュールだけを、いま Excel へ反映します。"
                     views:HelpTip.Detailed="戻したモジュール 1 件だけを Excel へ反映します。Excel 側が変わっていれば、衝突の確認が出ます。押さなくても、あとからプロジェクトの右クリック「Excel へ反映」で送れます。"
                     AutomationProperties.Name="今すぐ Excel へ反映" />
             <Button x:Name="RestoreButton"
+                    IsVisible="{Binding ShowModules}"
                     Classes.primary="{Binding !ShowPushNow}"
                     IsDefault="{Binding !ShowPushNow}"
                     Content="ミラーへ戻す"
@@ -151,7 +217,30 @@
                     views:HelpTip.Standard="選んだ控えの内容を、Graft のファイル（ミラー）へ書きます。Excel にはまだ書きません。"
                     views:HelpTip.Detailed="選んだ控えの内容で、ミラーのファイルを置き換えます。いまのミラーの内容は「戻す前のミラー」として控えに残ります。Excel にはまだ書かず、履歴にも記録されません。Excel に送るには、あとで「Excel へ反映」を押します。"
                     AutomationProperties.Name="ミラーへ戻す" />
+            <!--
+                ブックの控えの操作。ブック全体が元に戻る強い操作なので、どれも既定（Enter）にしない（確認ダイアログの既定は「やめる」）。
+            -->
+            <Button x:Name="ReplaceWorkbookButton"
+                    IsVisible="{Binding ShowWorkbooks}"
+                    Content="この控えでブックを置き換える…"
+                    Command="{Binding ReplaceWorkbookCommand}"
+                    views:HelpTip.Standard="いまのブックを、選んだ控えの内容で置き換えます（強い確認が出ます）。"
+                    views:HelpTip.Detailed="控えを取ったあとに行ったシートの編集・VBA の変更・リボンの変更が、すべて元に戻ります。置き換える前のブックは、新しい控えとして残ります。リボンだけを前の状態へ戻したいときは、履歴の取り消しを使ってください。"
+                    AutomationProperties.Name="この控えでブックを置き換える" />
+            <Button x:Name="ExportWorkbookButton"
+                    IsVisible="{Binding ShowWorkbooks}"
+                    Content="別の場所へ取り出す"
+                    Command="{Binding ExportWorkbookCommand}"
+                    views:HelpTip.Standard="選んだ控えを、選んだフォルダへコピーします（控えは残ります）。"
+                    AutomationProperties.Name="別の場所へ取り出す" />
+            <Button x:Name="DeleteWorkbookButton"
+                    IsVisible="{Binding ShowWorkbooks}"
+                    Content="控えを削除"
+                    Command="{Binding DeleteWorkbookCommand}"
+                    views:HelpTip.Standard="選んだブックの控えを削除します。元には戻せません。"
+                    AutomationProperties.Name="ブックの控えを削除" />
             <Button x:Name="DeleteButton"
+                    IsVisible="{Binding ShowModules}"
                     Content="控えを削除"
                     Command="{Binding DeleteCommand}"
                     views:HelpTip.Standard="選んだ控えを削除します。元には戻せません。"
