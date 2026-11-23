@@ -538,6 +538,9 @@ public sealed partial class VbaRibbonRewriteServiceTests
         WriteMirror(Ribbon14, XmlB);
         var plan = await PlanAsync();
         // 置き換えのあとの読み直しで「落ちる」（どの catch にも捕まらない例外）。このとき記録は ClosedWorkbook つきで残る。
+        // 想定外の例外では、Graft は閉じたブックを開き直してから抜ける（記録の「閉じた」印も下ろす）ので、本当に Graft が終了した状況に
+        // 近づけるため、開き直せない（Excel が終了していた）ことにする。
+        _bridge.ExcelQuitBeforeReopen = true;
         Ribbon.PackageReader = path => PartText(File.ReadAllBytes(path), "customUI/customUI14.xml") == XmlB
             ? throw new SimulatedCrash()
             : VbaRibbonPackageReader.Read(path);

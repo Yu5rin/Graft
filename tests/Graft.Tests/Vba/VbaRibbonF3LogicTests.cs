@@ -106,7 +106,8 @@ public sealed class VbaRibbonF3LogicTests
         VbaRibbonRecoveryLogic.Message(Job(closed: true), VbaRibbonInterruptedState.Rewritten)
             .Should().Contain("書き換え済み").And.Contain("Excel では閉じたままです");
         VbaRibbonRecoveryLogic.Message(Job(backupSha: null), VbaRibbonInterruptedState.Original).Should().NotContain("書き換える前の控え");
-        VbaRibbonRecoveryLogic.Message(null, VbaRibbonInterruptedState.Unknown).Should().Contain("読めませんでした");
+        VbaRibbonRecoveryLogic.Message(null, VbaRibbonInterruptedState.Unknown).Should().Contain("読めませんでした")
+            .And.NotContain("ブックの中身は変えていません", "記録が読めないので、どこまで進んでいたか分からない。変えていないとは言い切らない");
     }
 
     [Fact(DisplayName = "画像の関係の Id: 部品の _rels を読む。無ければ空、壊れていれば null（#13 を省く）")]
@@ -134,7 +135,7 @@ public sealed class VbaRibbonF3LogicTests
             .Should().BeNull();
     }
 
-    [Fact(DisplayName = "RewriteFile: 渡した一時ファイルの名前で書き、置き換えの差し替え口を通す。失敗しても一時ファイルを消し、元は無傷")]
+    [Fact(DisplayName = "RewriteFile: 渡した一時ファイルの名前で書き、置き換えの差し替え口を通す。置き換えの失敗は ReplaceFailed で、一時ファイルは消さずに残す（不具合 1）。置き換えの前の失敗は消す")]
     public void RewriteFileの差し替え口()
     {
         using var ws = new TempWorkspace();
@@ -153,9 +154,20 @@ public sealed class VbaRibbonF3LogicTests
             throw new IOException("置き換えに失敗");
         });
 
-        failed.Status.Should().Be(VbaRibbonWriteStatus.IoFailed);
+        // 置き換えを始めてからの失敗: 元のブックが無傷とは限らない（Win32 の ReplaceFile の 1176 など）ので「変えていません」とは言わず、
+        // 呼び出し側に状態を確かめさせる。一時ファイルは、失われたかもしれない新しい内容の唯一の写しなので、消さずに残す。
+        failed.Status.Should().Be(VbaRibbonWriteStatus.ReplaceFailed);
+        failed.Problem.Should().NotContain("変えていません");
         seenTemp.Should().Be(temp);
-        File.Exists(temp).Should().BeFalse();
+        File.Exists(temp).Should().BeTrue("置き換えの途中で失敗したときは、一時ファイルを消さずに残す");
+        File.ReadAllBytes(book).Should().Equal(original);
+        File.Delete(temp);
+
+        // 置き換えを始める前の失敗（一時ファイルを作れない）: 元は無傷と言い切れるので、従来どおり IoFailed。
+        var noFolder = Path.Combine(ws.RootPath, "no-such-folder", "~graft-x.tmp");
+        var early = VbaRibbonPackageWriter.RewriteFile(book, requests, tempPath: noFolder);
+        early.Status.Should().Be(VbaRibbonWriteStatus.IoFailed);
+        early.Problem.Should().Contain("変えていません");
         File.ReadAllBytes(book).Should().Equal(original);
 
         var ok = VbaRibbonPackageWriter.RewriteFile(book, requests, tempPath: temp);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Graft.Core.Vba;
 
@@ -146,6 +147,24 @@ public enum VbaRibbonRewriteStage
 }
 
 /// <summary>
+/// 作業の記録が表す操作の種類。後始末（途中で落ちたあとの判定と知らせ）が、操作ごとに「置き換え済み」の意味と文面を変えるために持つ。
+/// <para>
+/// 【なぜ持つか】 丸ごと戻す操作（16.11）の記録は、リボンの書き換えと同じ形だが、「置き換え済み」の目印が違う（リボンの部品の本文ではなく、
+/// 選んだ控えのブック全体の SHA-256）。種類が無いと、置き換えたあとに落ちても「書き換える前とも後とも違う」（Unknown）と判定され、
+/// 戻せていたのに「外部で保存された」と誤って案内し、リボンの同期基準も捨てられなかった。
+/// </para>
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum VbaRibbonJobKind
+{
+    /// <summary>リボンの書き換え（16.5）。記録に <c>Kind</c> が無い古い記録もこれとして読む。</summary>
+    Rewrite,
+
+    /// <summary>「この控えでブックを置き換える…」（丸ごと戻す操作。16.11）。</summary>
+    RestoreWorkbook,
+}
+
+/// <summary>
 /// リボンの書き換えの作業の記録（<c>vba-sync/&lt;プロジェクトId&gt;.ribbon-job.json</c>。16.5 の段階 5・16.11）。
 /// 書き換えの最中だけ存在し、終われば消す。残っていれば、Graft が途中で落ちた印として次の起動・次のリボンの操作で後始末する。
 /// <para>
@@ -162,8 +181,27 @@ public sealed record VbaRibbonRewriteJob
     /// <summary>プロジェクトの Id。</summary>
     public string ProjectId { get; init; } = string.Empty;
 
+    /// <summary>
+    /// 記録が表す操作の種類（既定は <see cref="VbaRibbonJobKind.Rewrite"/>。<c>Kind</c> の無い古い記録も、書き換えとして読めるように既定にしている）。
+    /// </summary>
+    public VbaRibbonJobKind Kind { get; init; } = VbaRibbonJobKind.Rewrite;
+
     /// <summary>書き換えるブックのファイル（フルパス）。</summary>
     public string WorkbookPath { get; init; } = string.Empty;
+
+    /// <summary>
+    /// プロジェクトに紐付けたブックの <c>FullName</c>（同期状態の読み書きに使う）。後始末で、丸ごと戻したあとのリボンの同期基準を捨てるために要る
+    /// （<see cref="WorkbookPath"/> は実際に書き換えるファイルで、テストの代役などでは <c>FullName</c> と違う）。無い記録は <see cref="WorkbookPath"/> で代える。
+    /// </summary>
+    public string? WorkbookFullName { get; init; }
+
+    /// <summary>丸ごと戻す操作で選んだ控えのファイル名（フォルダを含まない。知らせの文に使う。書き換えでは null）。</summary>
+    public string? RestoreSourceFileName { get; init; }
+
+    /// <summary>
+    /// 丸ごと戻す操作で選んだ控えの SHA-256（16 進の小文字。書き換えでは null）。ブックのハッシュがこれと同じなら「選んだ控えの内容に置き換え済み」と判定する。
+    /// </summary>
+    public string? RestoreSourceSha256 { get; init; }
 
     /// <summary>控えのパス（書く予定の場所。控えを書き終える前に落ちたときは、作りかけのファイルがここに残りうる）。</summary>
     public string? BackupPath { get; init; }
@@ -202,6 +240,9 @@ public enum VbaRibbonInterruptedState
     /// <summary>書き換え済み（置き換えまで済んでいた）。</summary>
     Rewritten,
 
+    /// <summary>丸ごと戻す操作で、選んだ控えの内容へ置き換え済み（<see cref="VbaRibbonJobKind.RestoreWorkbook"/> のときだけ）。</summary>
+    Replaced,
+
     /// <summary>元とも書き換え後とも違う（落ちたあとに、ほかで保存された見込み）、または読めない。</summary>
     Unknown,
 
@@ -224,9 +265,13 @@ public static class VbaRibbonRecoveryLogic
     /// <summary>
     /// ブックのいまの状態を決める。
     /// <list type="bullet">
+    /// <item>ブックのファイルが無い: 見つからない。</item>
     /// <item>控えのハッシュがまだ無い（控えを書き終える前に落ちた）: ブックには触れていない＝元のまま。</item>
     /// <item>ブックのハッシュが控えと同じ: 元のまま（置き換えの前に落ちた、または控えから戻せていた）。</item>
-    /// <item>ブックのリボンの部品が、書く予定の本文と全部同じ: 書き換え済み。</item>
+    /// <item>丸ごと戻す操作（<see cref="VbaRibbonJobKind.RestoreWorkbook"/>）で、ブックのハッシュが選んだ控えと同じ: 置き換え済み
+    /// （<see cref="VbaRibbonInterruptedState.Replaced"/>）。リボンの部品の本文では判定できない（控えの中のリボンは、ミラーとは無関係）ので、
+    /// ブック全体のハッシュで見る。</item>
+    /// <item>書き換え（<see cref="VbaRibbonJobKind.Rewrite"/>）で、ブックのリボンの部品が書く予定の本文と全部同じ: 書き換え済み。</item>
     /// <item>どれでもない: 分からない（落ちたあとに、Excel などで保存された見込み）。</item>
     /// </list>
     /// </summary>
@@ -240,6 +285,14 @@ public static class VbaRibbonRecoveryLogic
         if (bookSha256 is null) return VbaRibbonInterruptedState.Missing;
         if (job.BackupSha256 is null) return VbaRibbonInterruptedState.Original;
         if (string.Equals(job.BackupSha256, bookSha256, StringComparison.OrdinalIgnoreCase)) return VbaRibbonInterruptedState.Original;
+
+        if (job.Kind == VbaRibbonJobKind.RestoreWorkbook)
+        {
+            return job.RestoreSourceSha256 is { } source && string.Equals(source, bookSha256, StringComparison.OrdinalIgnoreCase)
+                ? VbaRibbonInterruptedState.Replaced
+                : VbaRibbonInterruptedState.Unknown;
+        }
+
         if (bookRibbonHashes is not null && job.ExpectedHashes.Count > 0
             && job.ExpectedHashes.All(kv => bookRibbonHashes.TryGetValue(kv.Key, out var h) && string.Equals(h, kv.Value, StringComparison.Ordinal)))
         {
@@ -250,29 +303,58 @@ public static class VbaRibbonRecoveryLogic
     }
 
     /// <summary>
-    /// 後始末の知らせの文（16.11:「前回の書き換えは途中で終わりました。ブックは（元のまま／書き換え済み）です。Excel では閉じたままです」）。
+    /// 後始末の知らせの文。
+    /// <para>
+    /// 【2 つの文面を分ける理由】 <paramref name="duringRun"/> が false（Graft が終了したあとの後始末。次の起動・次のリボンの操作）は、
+    /// 16.11 の「前回の書き換えは途中で終わりました（Graft が終了したため）。ブックは（元のまま／書き換え済み）です。Excel では閉じたままです」。
+    /// true は、実行中に入出力の失敗などで落ちて、<b>Graft はまだ動いている</b>ときの文（ブックの状態と控えの場所だけ）。この後で呼び出し側が
+    /// 「開き直しました」などを足すので、「Graft が終了したため」「Excel では閉じたままです」を含めてはならない（含めると、同じダイアログに「閉じたまま」と「開き直しました」が
+    /// 並ぶ。不具合 4）。
+    /// </para>
     /// </summary>
-    public static string Message(VbaRibbonRewriteJob? job, VbaRibbonInterruptedState state)
+    public static string Message(VbaRibbonRewriteJob? job, VbaRibbonInterruptedState state, bool duringRun = false)
     {
         if (job is null)
         {
-            return "前回のリボンの書き換えの記録を読めませんでした。記録は片付けました。ブックの中身は変えていません（念のため、Excel でブックを開いてリボンを確かめてください）。";
+            // 「ブックの中身は変えていません」とは言い切らない: 記録が読めないので、どこまで進んでいたか Graft には分からない
+            // （置き換えのあとで記録だけが壊れた、ということもありうる）。ブックを確かめてもらう。
+            return "前回のリボンの書き換えの記録を読めませんでした。記録は片付けましたが、ブックがどこまで書き換わっていたかは分かりません。" +
+                   "Excel でブックを開いて、リボンと内容を確かめてください（控えのフォルダに、書き換える前のブックの控えが残っていることがあります）。";
         }
 
         var name = VbaRibbonRewriteText.FileNameOf(job.WorkbookPath);
+        var restore = job.Kind == VbaRibbonJobKind.RestoreWorkbook;
         var when = job.StartedAt == default ? string.Empty : job.StartedAt.ToLocalTime().ToString("（M月d日 H:mm）", CultureInfo.InvariantCulture);
-        var head = $"前回のリボンの書き換え{when}は、途中で終わりました（Graft が終了したため）。";
-        var body = state switch
-        {
-            VbaRibbonInterruptedState.Original => $"「{name}」は元のままです（リボンは未反映のまま残っています）。",
-            VbaRibbonInterruptedState.Rewritten => $"「{name}」は書き換え済みです（リボンは新しい内容です）。",
-            VbaRibbonInterruptedState.Missing => $"「{name}」が見つかりません。移動・削除していないか確かめてください。",
-            _ => $"「{name}」は、書き換える前とも後とも違う内容です（その後、Excel などで保存された見込みです）。",
-        };
+        var operation = restore ? "控えでブックを置き換える操作" : "リボンの書き換え";
+        // 実行中の失敗では、冒頭の「途中で失敗しました（理由）」を呼び出し側が書くので、ここでは状態だけを返す。
+        var head = duringRun ? string.Empty : $"前回の{operation}{when}は、途中で終わりました（Graft が終了したため）。";
+        var body = restore ? RestoreBody(job, state, name) : RewriteBody(state, name);
         var backup = job.BackupSha256 is not null && job.BackupPath is not null
-            ? $"書き換える前の控え: {job.BackupPath}"
+            ? (restore ? $"置き換える前の控え: {job.BackupPath}" : $"書き換える前の控え: {job.BackupPath}")
             : string.Empty;
-        var closed = job.ClosedWorkbook ? "Excel では閉じたままです。" + VbaRibbonRewriteText.OpenInExcelSentence : string.Empty;
+        // 実行中の失敗では「閉じたまま」とは言わない（このあと開き直す。開き直せなければ呼び出し側が E822 を添える）。
+        var closed = !duringRun && job.ClosedWorkbook ? "Excel では閉じたままです。" + VbaRibbonRewriteText.OpenInExcelSentence : string.Empty;
         return string.Join(" ", new[] { head, body, closed, backup }.Where(s => s.Length > 0));
+    }
+
+    private static string RewriteBody(VbaRibbonInterruptedState state, string name) => state switch
+    {
+        VbaRibbonInterruptedState.Original => $"「{name}」は元のままです（リボンは未反映のまま残っています）。",
+        VbaRibbonInterruptedState.Rewritten => $"「{name}」は書き換え済みです（リボンは新しい内容です）。",
+        VbaRibbonInterruptedState.Missing => $"「{name}」が見つかりません。移動・削除していないか確かめてください。",
+        _ => $"「{name}」は、書き換える前とも後とも違う内容です（その後、Excel などで保存された見込みです）。",
+    };
+
+    private static string RestoreBody(VbaRibbonRewriteJob job, VbaRibbonInterruptedState state, string name)
+    {
+        var source = job.RestoreSourceFileName is { Length: > 0 } f ? $"控え「{f}」" : "選んだ控え";
+        return state switch
+        {
+            VbaRibbonInterruptedState.Original => $"「{name}」は置き換える前のままです。",
+            VbaRibbonInterruptedState.Replaced =>
+                $"「{name}」は{source}の内容に置き換え済みです。リボンの同期の記録は捨てたので、次の「Excel から取込」でミラーのリボンとの食い違いを確かめます。",
+            VbaRibbonInterruptedState.Missing => $"「{name}」が見つかりません。移動・削除していないか確かめてください。",
+            _ => $"「{name}」は、置き換える前とも{source}の内容とも違います（その後、Excel などで保存された見込みです）。",
+        };
     }
 }

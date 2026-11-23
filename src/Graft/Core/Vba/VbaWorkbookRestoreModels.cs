@@ -50,6 +50,18 @@ public sealed record VbaWorkbookRestorePlan(
     DateTime BookModifiedUtc,
     VbaWorkbookRewriteState? OpenState = null)
 {
+    /// <summary>
+    /// 控えを取ったブックのフルパスが、いま置き換えるブックと違うとき、その控えのブックのフルパス（同じ、または分からないときは null）。
+    /// 控えを取ったときに残した記録、記録が無い控えは同期状態に残っている紐付け先と比べる。
+    /// <para>
+    /// 【止めずに強く確認する理由】 名前と拡張子が同じなので、結び直す前のブックや、ブックを別の場所へ移した場合は、実際に同じブックの控え
+    /// でありうる（止めると、その正当な使い方を塞ぐ）。いっぽう名前だけが同じ別のブックなら、まったく別の内容に置き換わる。どちらかを
+    /// Graft は判断できないので、利用者に判断を委ねる。ただし、取り返しがつかなくならないよう、確認は既定が「やめる」の強い文面にし、置き換える前の
+    /// ブックは必ず控えに残す（置き換えたあとでも元に戻せる）。
+    /// </para>
+    /// </summary>
+    public string? OtherLocationWorkbook { get; init; }
+
     /// <summary>計画を作ったとき、ブックは Excel で開いていたか（保存して閉じ、置き換えて、開き直す経路か）。</summary>
     public bool IsOpen => OpenState is { IsOpen: true };
 
@@ -101,7 +113,14 @@ public static class VbaWorkbookRestoreText
     {
         ArgumentNullException.ThrowIfNull(plan);
         var nl = Environment.NewLine;
-        var text = $"「{plan.WorkbookName}」を、{plan.BackupAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} の控え" +
+        var text = plan.OtherLocationWorkbook is { } other
+            ? "⚠ この控えは、別の場所のブックの控えです。" + nl +
+              $"  控えを取ったブック: {other}" + nl +
+              $"  いま置き換えるブック: {plan.WorkbookPath}" + nl +
+              "  ブックを別の場所へ移した（結び直した）だけなら、同じブックの控えです。名前が同じだけの別のブックなら、まったく別の内容に置き換わります。" +
+              "どちらか分からないときは、「やめる」を選んでください。" + nl + nl
+            : string.Empty;
+        text += $"「{plan.WorkbookName}」を、{plan.BackupAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} の控え" +
                    $"（{plan.BackupFileName}・{FormatSize(plan.BackupSize)}）の内容で置き換えます。" + nl + nl +
                    "⚠ 控えを取ったあとに行った変更は、すべて元に戻ります。" + nl +
                    "  ・シートの編集（セルの値・書式・シートの追加や削除など）" + nl +

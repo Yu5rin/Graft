@@ -49,8 +49,16 @@ public enum VbaRibbonWriteStatus
     /// </summary>
     SourceChanged,
 
-    /// <summary>ファイルの読み書き・置き換えに失敗した（使用中・権限・ディスクの空き）。元のファイルは変えていない。</summary>
+    /// <summary>ファイルの読み書きに失敗した（使用中・権限・ディスクの空き）。<b>置き換えを始める前</b>の失敗なので、元のファイルは変えていない。</summary>
     IoFailed,
+
+    /// <summary>
+    /// <b>置き換えそのもの</b>が失敗した（使用中・権限・Win32 の <c>ReplaceFile</c> の 1176／1177 など）。元のファイルが無傷だとは限らない:
+    /// <c>ReplaceFile</c> は、置き換える側へ名前を移したあとで失敗すると「置き換えられる側が無い」状態で止まりうる（控えの名前を渡さないとき）。
+    /// 呼び出し側は、ブックの SHA-256 を元と比べて扱いを決めること。一時ファイルは、失われたかもしれない新しい内容の唯一の写しなので消さずに残す
+    /// （後始末は呼び出し側と、作業の記録による次回の後始末）。
+    /// </summary>
+    ReplaceFailed,
 }
 
 /// <summary>書き換えの結果。</summary>
@@ -493,6 +501,9 @@ public static class VbaRibbonPackageWriter
         }
 
         tempPath ??= NewTempPath(workbookPath);
+        // 置き換えを始めたか／最後まで済んだか。始めて済まなかったとき、一時ファイルは消さない（finally を参照）。
+        var replaceStarted = false;
+        var replaceDone = false;
         try
         {
             VbaRibbonWriteResult result;
@@ -524,19 +535,29 @@ public static class VbaRibbonPackageWriter
                     "書き換えの途中で、ブックのファイルがほかのプログラムに変えられました。上書きしないよう止めました（元のブックは変えていません）。");
             }
 
+            replaceStarted = true;
             (replace ?? ReplaceFile)(tempPath, workbookPath);
+            replaceDone = true;
             return result;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return VbaRibbonWriteResult.Fail(VbaRibbonWriteStatus.IoFailed,
-                $"ブックのファイルを書き換えられませんでした。元のブックは変えていません（{VbaRibbonText.OneLine(ex.GetType().Name)}）。");
+            // 置き換えの前の失敗は元のブックが無傷。置き換えの最中の失敗は、元のブックの状態が分からない（ReplaceFailed の説明）ので、
+            // 「変えていません」とは言い切らず、呼び出し側に確かめさせる。
+            return replaceStarted
+                ? VbaRibbonWriteResult.Fail(VbaRibbonWriteStatus.ReplaceFailed,
+                    $"ブックの置き換えの途中で失敗しました（{VbaRibbonText.OneLine(ex.GetType().Name)}）。ブックの状態を確かめます。")
+                : VbaRibbonWriteResult.Fail(VbaRibbonWriteStatus.IoFailed,
+                    $"ブックのファイルを書き換えられませんでした。元のブックは変えていません（{VbaRibbonText.OneLine(ex.GetType().Name)}）。");
         }
         finally
         {
             try
             {
-                if (File.Exists(tempPath)) File.Delete(tempPath);
+                // 置き換えを始めて済まなかったとき（失敗でも、想定外の例外でも）は、一時ファイルを消さずに残す。ブックが置き換えの途中で
+                // 失われていた場合、この一時ファイルが新しい内容の唯一の写しで、控えから戻せないときの最後の手がかりになるため。
+                // 消すのは、状態を確かめた呼び出し側（RewriteStagesAsync）か、作業の記録による後始末（16.11）。
+                if (File.Exists(tempPath) && (!replaceStarted || replaceDone)) File.Delete(tempPath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -547,7 +568,9 @@ public static class VbaRibbonPackageWriter
 
     /// <summary>
     /// 一時ファイル <paramref name="tempPath"/> で <paramref name="destinationPath"/> を原子的に置き換える（16.7「原子的な置き換え」の 3）。
-    /// Win32 の <c>ReplaceFile</c>（元のファイルの属性と ACL が残る。成功か失敗のどちらかで、半端な状態にならない）。
+    /// Win32 の <c>ReplaceFile</c>（元のファイルの属性と ACL が残る）。<b>失敗しても無傷とは限らない</b>: 置き換えの途中（1176 など）で
+    /// 止まると、置き換えられる側が無くなりうる。そのため呼び出し側は、失敗のあとにブックの SHA-256 を元と比べてから扱いを決める
+    /// （<c>VbaRibbonSyncService</c>。16.11）。
     /// 使えない保存先（一部のネットワーク共有など。<b>実機で要確認</b>。実機検証 13）では、同じボリュームの上書きの移動に切り替える。
     /// 控えから戻すとき（16.11）も同じ処理を使う。
     /// </summary>

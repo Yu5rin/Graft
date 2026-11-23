@@ -23,7 +23,7 @@ namespace Graft.Infra;
 /// <item><c>projects.json</c> の <c>id</c>（と <c>root</c>）</item>
 /// <item><c>back/&lt;Id&gt;/</c> フォルダ</item>
 /// <item><c>vba-sync/&lt;Id&gt;.json</c> と <c>vba-sync/&lt;Id&gt;.rescue/</c>・<c>vba-sync/&lt;Id&gt;.workbooks/</c>
-/// （リボンの書き換えの前のブックの控え。仕様書_ブックの情報と依頼の観点 16.11）</item>
+/// （リボンの書き換えの前のブックの控え。仕様書_ブックの情報と依頼の観点 16.11。取り込み直しでは、<c>.workbooks</c> は消さずにマージする）</item>
 /// <item><c>queue.json</c> の各項目の <c>projectId</c></item>
 /// <item><c>layout.json</c> の <c>projectPaneWidths</c> のキー</item>
 /// <item><c>back/&lt;Id&gt;/*/manifest.json</c> の <c>projectId</c>。履歴の読み書きでは照合に使われない
@@ -76,10 +76,11 @@ public static class VbaDataRelinker
                 if (replaceExisting)
                 {
                     DeleteIfExists(target.GetVbaRescueDirectory(newId));
-                    // リボンの書き換えの前に残したブックの丸ごとの控え（仕様書_ブックの情報と依頼の観点 16.11）も、.rescue と同じ扱い。
-                    // 旧保存先の内容で置き換えるときに新 Id 側の古いフォルダを残すと、Move が「移す先がある」として移さず、旧 Id の
-                    // 控えが置き去りになる。
-                    DeleteIfExists(target.GetVbaWorkbookBackupDirectory(newId));
+                    // リボンの書き換えの前に残したブックの丸ごとの控え（仕様書_ブックの情報と依頼の観点 16.11）は、.rescue と違って消さずに
+                    // <b>マージ</b>する。ブックの控えは、書き換えや置き換えが失敗したときに利用者のブックを取り戻す最後の手段で、新 Id 側（取り込み直しの
+                    // 前に新しい保存先で作った控え）にしかない控えがありうる。消してしまうと、その控えが旧保存先にも無い限り、二度と戻せない。
+                    // 新 Id 側のフォルダを残したまま旧 Id の控えを足す（名前が重なったものは、新 Id 側を優先して旧 Id 側に残す。何も消さない）。
+                    MergeDirectoryInto(target.GetVbaWorkbookBackupDirectory(oldId), target.GetVbaWorkbookBackupDirectory(newId));
                 }
 
                 sync.Move(oldId, newId);
@@ -211,6 +212,30 @@ public static class VbaDataRelinker
         }
 
         Directory.Move(from, to);
+    }
+
+    /// <summary>
+    /// <paramref name="from"/> のファイルを、既にある <paramref name="to"/> へ足す（サブフォルダも同じ。名前が重なるファイルは移さず、
+    /// <paramref name="from"/> に残す）。<paramref name="from"/> か <paramref name="to"/> が無ければ何もしない（<paramref name="to"/> が無いときは、
+    /// 後続の <c>VbaSyncStateStore.Move</c> がフォルダごと移す）。移し終えて空になった <paramref name="from"/> は消す（空でなければ残す）。
+    /// </summary>
+    private static void MergeDirectoryInto(string from, string to)
+    {
+        if (!Directory.Exists(from) || !Directory.Exists(to)) return;
+        foreach (var file in Directory.EnumerateFiles(from))
+        {
+            var destination = Path.Combine(to, Path.GetFileName(file));
+            if (!File.Exists(destination)) File.Move(file, destination);
+        }
+
+        foreach (var sub in Directory.EnumerateDirectories(from))
+        {
+            var destination = Path.Combine(to, Path.GetFileName(sub));
+            if (Directory.Exists(destination)) MergeDirectoryInto(sub, destination);
+            else Directory.Move(sub, destination);
+        }
+
+        if (!Directory.EnumerateFileSystemEntries(from).Any()) Directory.Delete(from);
     }
 
     private static void DeleteIfExists(string directory)

@@ -442,6 +442,7 @@ public sealed partial class VbaRibbonSyncService
         {
             ProjectId = project.Id,
             WorkbookPath = file,
+            WorkbookFullName = link.WorkbookFullName,
             BackupPath = backupPath,
             TempPath = VbaRibbonPackageWriter.NewTempPath(file),
             Stage = VbaRibbonRewriteStage.Started,
@@ -480,8 +481,10 @@ public sealed partial class VbaRibbonSyncService
             {
                 // 段階ごとに捕まえていない所での入出力の失敗（作業の記録の書き直しなど）。途中で落ちたときと同じ後始末をして、ブックの
                 // いまの状態を知らせる（元のまま／書き換え済み）。後始末も記録に従うので、ここで新しい判断はしない。
+                // 知らせの文は「実行中の失敗用」（duringRun）: Graft はまだ動いているので「Graft が終了したため」「閉じたまま」は言わず、
+                // このあと ReopenAfterFailureAsync が「開き直しました」を足す（不具合 4。一緒に出ると矛盾した案内になる）。
                 Logger?.Error("vba-ribbon", $"リボンの書き換えの途中で失敗しました（{ex.GetType().Name}）。", targetPath: file);
-                var recovered = await RecoverInterruptedCoreAsync(project.Id).ConfigureAwait(true);
+                var recovered = await RecoverInterruptedCoreAsync(project.Id, duringRun: true).ConfigureAwait(true);
                 var detail = recovered?.Message ?? "ブックの状態を確かめられませんでした。";
                 result = GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821,
                     $"リボンの書き換えの途中で失敗しました（{ExceptionMessages.Describe(ex)}）。{detail}", path: file);
@@ -493,8 +496,51 @@ public sealed partial class VbaRibbonSyncService
         }
         finally
         {
-            // 想定外の例外（取り消しなど）で抜けたときに、Excel の参照を残さない（Excel のプロセスが Graft の終了まで残るのを防ぐ）。
+            // 想定外の例外（IOException・UnauthorizedAccessException 以外。JsonException・ArgumentException・取り消しなど）で抜けたときは、
+            // 保存して閉じたブックを開き直してから抜ける（利用者の Excel で、ブックが閉じたまま黙って残るのを防ぐ）。置き換えは原子的で、
+            // Graft 自身は途中のブックを残さないので、開き直してよい。E823（控えから戻せなかった）は ReopenAfterFailureAsync が券を捨て済みで、
+            // ここには券が残らない。開き直しの失敗は、すでに別の例外が飛んでいるので握りつぶさずログだけに残す。
+            await ReopenAfterUnexpectedExceptionAsync(held, project.Id).ConfigureAwait(true);
+            // 券を残さない（Excel のプロセスが Graft の終了まで残るのを防ぐ）。
             await held.DiscardAsync(_bridge).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// 想定外の例外で抜けるときの後始末: 券が残っていれば（閉じたまま開き直していない）、開き直す。ふつうの経路（成功・失敗の返り値）では
+    /// 券は既に使われているので何もしない。例外はここでは外へ出さない（元の例外を隠さないため）。
+    /// 開き直せたら、作業の記録（まだ残っている）の「Graft が閉じた」印を下ろす: 残したままだと、次の後始末の知らせが、もう開き直したブックを
+    /// 「Excel では閉じたままです」と案内してしまう。
+    /// </summary>
+    private async Task ReopenAfterUnexpectedExceptionAsync(ReopenHolder held, string projectId)
+    {
+        if (!held.HasTicket) return;
+        try
+        {
+            Logger?.Warn("vba-ribbon", "想定外の例外で抜けるため、閉じたブックを開き直します。", targetPath: held.WorkbookFullName);
+            var report = await ReopenAsync(held).ConfigureAwait(true);
+            if (report is { Reopened: true }) await ClearClosedFlagInJobAsync(projectId).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Logger?.Error("vba-ribbon", $"想定外の例外のあとの開き直しにも失敗しました（{ex.GetType().Name}）。", targetPath: held.WorkbookFullName);
+        }
+    }
+
+    /// <summary>作業の記録が残っていれば、「Graft が Excel で閉じた」印を下ろして書き直す（読めない・書けないときは何もしない）。</summary>
+    private async Task ClearClosedFlagInJobAsync(string projectId)
+    {
+        var path = _paths.GetVbaRibbonJobFilePath(projectId);
+        try
+        {
+            if (!File.Exists(path)) return;
+            var job = JsonSerializer.Deserialize<VbaRibbonRewriteJob>(await File.ReadAllTextAsync(path).ConfigureAwait(true), JsonFileStore.DefaultOptions);
+            if (job is null || !job.ClosedWorkbook) return;
+            await TryWriteJobAsync(job with { ClosedWorkbook = false }).ConfigureAwait(true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            Logger?.Warn("vba-ribbon", $"作業の記録の「閉じた」印を下ろせませんでした（{ex.GetType().Name}）。", targetPath: path);
         }
     }
 
@@ -673,6 +719,9 @@ public sealed partial class VbaRibbonSyncService
             return GraftResult<VbaRibbonRewriteOutcome>.Fail(backup.Issues);
         }
 
+        // 控えが「どの場所のブックの控えか」を残す（丸ごと戻す操作が、同じ名前の別の場所のブックの控えを取り違えないため。16.11）。
+        await RecordBackupOriginAsync(backupPath, link.WorkbookFullName).ConfigureAwait(true);
+
         job = job with { BackupSha256 = backup.Value.Sha256, Stage = VbaRibbonRewriteStage.BackedUp };
         if (!await TryWriteJobAsync(job).ConfigureAwait(true))
         {
@@ -705,12 +754,7 @@ public sealed partial class VbaRibbonSyncService
         var written = await Task.Run(() => VbaRibbonPackageWriter.RewriteFile(file, requests, 0, null, tempPath, replace)).ConfigureAwait(true);
         if (!written.Succeeded)
         {
-            // 置き換えの前（または置き換えそのもの）で止まった。ブックは 1 バイトも変わっていないので、いま作った控えは消す
-            // （何も変えていないのに世代だけが進むのを避ける。16.11）。
-            TryDelete(backupPath);
-            DeleteJob(project.Id);
-            Logger?.Warn("vba-ribbon", $"リボンを書き換えられませんでした（{written.Status}）。ブックは元のままです。", targetPath: file, durationMs: watch.ElapsedMilliseconds);
-            return GraftResult<VbaRibbonRewriteOutcome>.Fail(WriteStatusIssue(written, name, file));
+            return await HandleWriteFailureAsync(project, link, plan, job, written, watch).ConfigureAwait(true);
         }
 
         job = job with { Stage = VbaRibbonRewriteStage.Replaced };
@@ -753,7 +797,7 @@ public sealed partial class VbaRibbonSyncService
 
         // 段階 14: 後始末（作業の記録を消す・控えの掃除）。掃除の失敗は警告だけ。
         DeleteJob(project.Id);
-        if (PruneBackups(plan.BackupDirectory) is { } pruneIssue) issues.Add(pruneIssue);
+        if (PruneBackups(plan.BackupDirectory, keep: backupPath) is { } pruneIssue) issues.Add(pruneIssue);
 
         Logger?.Info("vba-ribbon",
             $"リボンをブックへ書き換えました（{name}・{string.Join("、", written.Parts.Select(p => p.PartName + (p.AddedRelationship ? "（新規）" : string.Empty)))}・控え {VbaRibbonRewriteText.FileNameOf(backupPath)}）。",
@@ -762,6 +806,66 @@ public sealed partial class VbaRibbonSyncService
             file, backupPath, plan.Targets.Select(t => t.MirrorPath).ToList(), written.Parts.Any(p => p.AddedRelationship),
             WasOpen: plan.IsOpen, Reopened: report?.Reopened == true);
         return GraftResult<VbaRibbonRewriteOutcome>.Ok(outcome, issues);
+    }
+
+    /// <summary>
+    /// 一時ファイルへの書き込み・照合・置き換えが成功しなかったとき（不具合 1）。
+    /// <para>
+    /// 【なぜ「ブックはそのまま」と決めつけないか】 以前は、失敗なら無条件で「元のまま」と見なして控えを消していた。ところが Win32 の
+    /// <c>ReplaceFile</c> には、置き換えの途中で止まる失敗がある（1176: 置き換える側へ名前を移したあとで失敗すると、控えの名前を渡さない限り
+    /// 「置き換えられる側が無い」状態で止まる。1177 も同様）。その状態で控えを消すと、ブック・一時ファイル・控えの 3 つがすべて無くなり、
+    /// 利用者のブックを失う（失敗を差し込んだテストで再現済み）。そこで、置き換えを始めてから失敗したとき（
+    /// <see cref="VbaRibbonWriteStatus.ReplaceFailed"/>）は、<b>ブックの SHA-256 を控え（＝元）と比べてから</b>扱いを決める。
+    /// <list type="bullet">
+    /// <item>一致: 元のまま。何も変わっていないので、控えと一時ファイルを消す（世代だけが進むのを避ける）。E821。</item>
+    /// <item>違う・ブックが無い（読めない場合も、安全側で「違う」と見なす）: 控えは<b>消さず</b>、控えから戻す（16.11 の照合と同じ手順）。
+    /// 戻せれば E821、戻せなければ E823（要確認）。</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// 置き換えを始める前に止まった失敗（照合の不一致・ほかのプログラムがブックを変えた・一時ファイルを書けない、など）は、Graft はブックに
+    /// 触れていない。ここで SHA-256 を比べて「違う」からと控えで上書きすると、<b>ほかのプログラムが書いた内容を消してしまう</b>
+    /// （<see cref="VbaRibbonWriteStatus.SourceChanged"/> がその例）ので、従来どおり控えを消して、ブックには触れない。
+    /// </para>
+    /// </summary>
+    private async Task<GraftResult<VbaRibbonRewriteOutcome>> HandleWriteFailureAsync(
+        Project project, VbaLink link, VbaRibbonRewritePlan plan, VbaRibbonRewriteJob job, VbaRibbonWriteResult written, Stopwatch watch)
+    {
+        var file = plan.WorkbookPath;
+        var name = plan.WorkbookName;
+        var backupPath = job.BackupPath!;
+        var tempPath = job.TempPath!;
+
+        if (written.Status != VbaRibbonWriteStatus.ReplaceFailed)
+        {
+            // 置き換えの前で止まった。ブックは 1 バイトも変わっていないので、いま作った控えは消す（何も変えていないのに世代だけが進むのを避ける。16.11）。
+            TryDelete(backupPath);
+            DeleteJob(project.Id);
+            Logger?.Warn("vba-ribbon", $"リボンを書き換えられませんでした（{written.Status}）。ブックは元のままです。", targetPath: file, durationMs: watch.ElapsedMilliseconds);
+            return GraftResult<VbaRibbonRewriteOutcome>.Fail(WriteStatusIssue(written, name, file));
+        }
+
+        // 置き換えの最中の失敗: ブックの実際の状態を、控えのハッシュと比べて確かめる。
+        var current = await Task.Run(() => TrySha256(file)).ConfigureAwait(true);
+        if (current is not null && string.Equals(current, job.BackupSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            TryDelete(tempPath);
+            TryDelete(backupPath);
+            DeleteJob(project.Id);
+            Logger?.Warn("vba-ribbon", "ブックの置き換えに失敗しました。ブックは元のままです。", targetPath: file, durationMs: watch.ElapsedMilliseconds);
+            return GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821,
+                $"「{name}」の置き換えに失敗しました（使用中・権限など）。ブックを控えと照合して、元のままであることを確かめました。ブックは変えていません。",
+                path: file);
+        }
+
+        Logger?.Error("vba-ribbon",
+            $"ブックの置き換えに失敗し、ブックが元の内容ではありません（{(current is null ? "ファイルが無い、または読めない" : "内容が違う")}）。控えから戻します。", targetPath: file);
+        var detail = current is null ? "ブックのファイルが無くなっている（または読めない）" : "ブックが元の内容と違っている";
+        return await RestoreFromBackupAfterFailureAsync(
+            project, link, plan, job,
+            restoredText: $"「{name}」の置き換えの途中で失敗し、{detail}ことを確かめたため、控えから元の内容に戻しました。ブックは元の内容です（控え: {backupPath}）。",
+            failedText: $"「{name}」の置き換えの途中で失敗し、{detail}うえ、控えから元の内容へ戻すこともできませんでした。控え: {backupPath}（フォルダ: {plan.BackupDirectory}）",
+            written).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -982,28 +1086,40 @@ public sealed partial class VbaRibbonSyncService
     /// 仕上げの照合が合わなかったとき（16.11）: 控えを一時ファイルへ写し、SHA-256 を確かめてから置き換える。戻せたら E821（ブックは
     /// 元の内容）、戻せなければ E823（同期状態に要確認の印を立て、控えの場所を示す）。
     /// </summary>
-    private async Task<GraftResult<VbaRibbonRewriteOutcome>> RestoreAfterMismatchAsync(
+    private Task<GraftResult<VbaRibbonRewriteOutcome>> RestoreAfterMismatchAsync(
         Project project, VbaLink link, VbaRibbonRewritePlan plan, VbaRibbonRewriteJob job, string mismatch, VbaRibbonWriteResult written)
+    {
+        var backupPath = job.BackupPath!;
+        Logger?.Error("vba-ribbon", $"書き換えたブックの照合が合いませんでした。控えから戻します（{mismatch}）。", targetPath: plan.WorkbookPath);
+        return RestoreFromBackupAfterFailureAsync(
+            project, link, plan, job,
+            restoredText: $"書き換えたブックを読み直したら、期待と違っていました（{mismatch}）。控えから元の内容に戻しました。ブックは元の内容です（控え: {backupPath}）。",
+            failedText: $"書き換えたブックを読み直したら期待と違っていて（{mismatch}）、控えから元の内容へ戻すこともできませんでした。控え: {backupPath}（フォルダ: {plan.BackupDirectory}）",
+            written);
+    }
+
+    /// <summary>
+    /// 控えからブックを戻す共通の手順（不具合 1 の置き換えの失敗と、仕上げの照合の不一致が使う）。戻す前に、一時ファイルの場所を
+    /// <b>作業の記録へ先に書く</b>（一時ファイルを作ってから落ちても、後始末が消せるように。不具合 5 と同じ作法）。記録を書けなくても、
+    /// 戻すのを止めない（戻さないほうが利用者のブックを失う。一時ファイルが 1 つ残るだけで済む）。戻せたら記録と一時ファイルを消して E821、
+    /// 戻せなければ要確認の印を立てて E823（一時ファイルは、新しい内容の唯一の写しかもしれないので消さず、場所を知らせる）。
+    /// </summary>
+    private async Task<GraftResult<VbaRibbonRewriteOutcome>> RestoreFromBackupAfterFailureAsync(
+        Project project, VbaLink link, VbaRibbonRewritePlan plan, VbaRibbonRewriteJob job, string restoredText, string failedText, VbaRibbonWriteResult written)
     {
         var file = plan.WorkbookPath;
         var backupPath = job.BackupPath!;
-        Logger?.Error("vba-ribbon", $"書き換えたブックの照合が合いませんでした。控えから戻します（{mismatch}）。", targetPath: file);
-
-        job = job with { Stage = VbaRibbonRewriteStage.Restoring, RestoreTempPath = VbaRibbonPackageWriter.NewTempPath(file, ".restore") };
-        await WriteJobOrThrowAsync(job).ConfigureAwait(true);
-        var restoreTemp = job.RestoreTempPath!;
         var backupSha = job.BackupSha256!;
-        var restored = await Task.Run(() => RestoreFromBackup(backupPath, backupSha, file, restoreTemp)).ConfigureAwait(true);
+        var restored = await RestoreWithRecordAsync(job, backupPath, backupSha, file).ConfigureAwait(true);
         if (restored)
         {
+            if (job.TempPath is { } leftover) TryDelete(leftover);
             DeleteJob(project.Id);
             Logger?.Warn("vba-ribbon", "控えからブックを元の内容に戻しました。", targetPath: file);
-            return GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821,
-                $"書き換えたブックを読み直したら、期待と違っていました（{mismatch}）。控えから元の内容に戻しました。ブックは元の内容です（控え: {backupPath}）。",
-                path: file);
+            return GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E821, restoredText, path: file);
         }
 
-        // 戻せなかった。ブックは期待と違う内容のまま。同期状態に要確認の印を立て、次の同期で衝突として扱わせる（黙って上書きしない）。
+        // 戻せなかった。ブックは期待と違う内容のまま（または無い）。同期状態に要確認の印を立て、次の同期で衝突として扱わせる（黙って上書きしない）。
         try
         {
             var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName).ConfigureAwait(true);
@@ -1027,9 +1143,22 @@ public sealed partial class VbaRibbonSyncService
 
         DeleteJob(project.Id);
         Logger?.Error("vba-ribbon", "控えからブックを戻せませんでした（要確認）。", targetPath: file);
-        return GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E823,
-            $"書き換えたブックを読み直したら期待と違っていて（{mismatch}）、控えから元の内容へ戻すこともできませんでした。控え: {backupPath}（フォルダ: {plan.BackupDirectory}）",
-            path: file);
+        var tempNote = job.TempPath is { } temp && File.Exists(temp)
+            ? $" 書き換え後の内容の一時ファイルを消さずに残しています: {temp}"
+            : string.Empty;
+        return GraftResult<VbaRibbonRewriteOutcome>.Fail(ErrorCode.E823, failedText + tempNote, path: file);
+    }
+
+    /// <summary>
+    /// 戻す一時ファイル（<c>.restore</c>）の場所を作業の記録へ<b>先に書いてから</b>、控えでブックを置き換える。一時ファイルはブック全体の写しなので、
+    /// 作ってから落ちて記録に無いと、後始末が消せずにブックの隣へ残り続ける（不具合 5）。
+    /// </summary>
+    private async Task<bool> RestoreWithRecordAsync(VbaRibbonRewriteJob job, string backupPath, string backupSha256, string file)
+    {
+        var restoreTemp = VbaRibbonPackageWriter.NewTempPath(file, ".restore");
+        // 記録を書けなくても戻す（戻さないほうが、利用者のブックを失う）。
+        await TryWriteJobAsync(job with { Stage = VbaRibbonRewriteStage.Restoring, RestoreTempPath = restoreTemp }).ConfigureAwait(true);
+        return await Task.Run(() => RestoreFromBackup(backupPath, backupSha256, file, restoreTemp)).ConfigureAwait(true);
     }
 
     /// <summary>控えでブックを置き換える（控え → 一時ファイル → SHA-256 の照合 → 置き換え → ブックの SHA-256 の照合）。</summary>
@@ -1090,7 +1219,12 @@ public sealed partial class VbaRibbonSyncService
         }
     }
 
-    private async Task<VbaRibbonRecovery?> RecoverInterruptedCoreAsync(string projectId)
+    /// <param name="projectId">プロジェクトの Id。</param>
+    /// <param name="duringRun">
+    /// Graft が動いているあいだの失敗（入出力の例外）の後始末か。true なら、知らせの文は状態だけ（「Graft が終了したため」「閉じたまま」を含めない。
+    /// <see cref="VbaRibbonRecoveryLogic.Message"/>）。false は、Graft が終了したあとの後始末（次の起動・次のリボンの操作）。
+    /// </param>
+    private async Task<VbaRibbonRecovery?> RecoverInterruptedCoreAsync(string projectId, bool duringRun = false)
     {
         var path = _paths.GetVbaRibbonJobFilePath(projectId);
         if (!File.Exists(path)) return null;
@@ -1108,15 +1242,20 @@ public sealed partial class VbaRibbonSyncService
         }
 
         var removed = 0;
+        var kept = new List<string>();
         var state = VbaRibbonInterruptedState.Unknown;
         if (job is not null)
         {
+            // ブックの状態を先に見る（一時ファイルを消す前に。ブックが無いときは、一時ファイルが新しい内容の唯一の写しかもしれないため）。
+            var bookSha = await Task.Run(() => TrySha256(job.WorkbookPath)).ConfigureAwait(true);
+
             // 一時ファイル（~graft-*.tmp）を消す。記録にある名前でも、形が違うものは消さない（記録が書き換えられていても、利用者の
-            // ファイルを消さないため）。
+            // ファイルを消さないため）。ブックが見つからないときは消さずに残して知らせる（控えから戻せないときの最後の手がかり）。
             foreach (var temp in new[] { job.TempPath, job.RestoreTempPath })
             {
-                if (temp is null || !IsOurTempFile(temp, job.WorkbookPath)) continue;
-                if (TryDelete(temp)) removed++;
+                if (temp is null || !IsOurTempFile(temp, job.WorkbookPath) || !File.Exists(temp)) continue;
+                if (bookSha is null) kept.Add(temp);
+                else if (TryDelete(temp)) removed++;
             }
 
             // 控えを書き終える前に落ちたなら、作りかけの控えを消す（中身が途中までのファイルを「控え」として残さない）。
@@ -1126,9 +1265,9 @@ public sealed partial class VbaRibbonSyncService
                 TryDelete(partial);
             }
 
-            var bookSha = await Task.Run(() => TrySha256(job.WorkbookPath)).ConfigureAwait(true);
             IReadOnlyDictionary<string, string>? ribbonHashes = null;
-            if (bookSha is not null && job.BackupSha256 is not null && !string.Equals(bookSha, job.BackupSha256, StringComparison.OrdinalIgnoreCase))
+            if (job.Kind == VbaRibbonJobKind.Rewrite && bookSha is not null && job.BackupSha256 is not null
+                && !string.Equals(bookSha, job.BackupSha256, StringComparison.OrdinalIgnoreCase))
             {
                 var read = await Task.Run(() => CheckParts(VbaRibbonPackageReader.Read(job.WorkbookPath))).ConfigureAwait(true);
                 if (read.Status == VbaRibbonReadStatus.Ok)
@@ -1140,12 +1279,48 @@ public sealed partial class VbaRibbonSyncService
             }
 
             state = VbaRibbonRecoveryLogic.Judge(job, bookSha, ribbonHashes);
+
+            // 丸ごと戻す操作で、選んだ控えの内容へ置き換え済みなら、リボンの同期基準を捨てる（成功したときと同じ後始末。落ちたせいで
+            // 基準だけが古いまま残ると、控えより前のリボンの内容を指す基準で三方比較してしまう）。
+            if (state == VbaRibbonInterruptedState.Replaced)
+            {
+                var issue = await DiscardRibbonBaselineAsync(projectId, job.WorkbookFullName ?? job.WorkbookPath, job.WorkbookPath).ConfigureAwait(true);
+                if (issue is not null) Logger?.Warn("vba-ribbon", issue.ToDisplayText(), targetPath: job.WorkbookPath);
+            }
         }
 
         DeleteJob(projectId);
-        var message = VbaRibbonRecoveryLogic.Message(job, state);
+        var message = VbaRibbonRecoveryLogic.Message(job, state, duringRun);
+        if (kept.Count > 0)
+        {
+            message += $" ブックが見つからないため、一時ファイル（書き換え後の内容の写しかもしれません）は消さずに残しています: {string.Join("、", kept)}";
+        }
+
         Logger?.Warn("vba-ribbon", $"途中で終わったリボンの書き換えを片付けました（ブック: {state}・一時ファイル {removed} 件）。", targetPath: job?.WorkbookPath);
         return new VbaRibbonRecovery(job, state, message, removed);
+    }
+
+    /// <summary>
+    /// リボンの同期基準を捨てて「記録なし」に戻す（丸ごと戻した直後。16.11）。次の取込で、本文が同じなら基準を作り直し、違えば衝突になる。
+    /// 保存に失敗しても置き換えは済んでいるので、警告の問題を返すだけにする（基準が古いまま残っても、次の取込で食い違いは衝突として見つかる）。
+    /// </summary>
+    private async Task<GraftIssue?> DiscardRibbonBaselineAsync(string projectId, string workbookFullName, string file)
+    {
+        try
+        {
+            var loaded = await _states.LoadAsync(projectId, workbookFullName).ConfigureAwait(true);
+            var state = loaded.Value;
+            foreach (var path in state.Ribbon?.Keys.ToList() ?? new List<string>()) state = state.WithoutRibbon(path);
+            if (!VbaSyncService.StatesEqual(loaded.Value, state)) await _states.SaveAsync(projectId, state).ConfigureAwait(true);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.Warn("vba-ribbon", $"リボンの同期基準を捨てられませんでした（{ex.GetType().Name}）。", targetPath: file);
+            return GraftIssue.Of(ErrorCode.E821,
+                $"ブックは控えの内容で置き換えましたが、同期状態を更新できませんでした（{ExceptionMessages.Describe(ex)}）。次の取込でリボンの食い違いを確かめます。",
+                path: file, severity: Severity.Warning);
+        }
     }
 
     private static bool IsOurTempFile(string temp, string workbookPath)
@@ -1206,8 +1381,16 @@ public sealed partial class VbaRibbonSyncService
     /// <summary>
     /// 控えの掃除（16.11。書き換えが成功したあとだけ）。世代数も容量もプロジェクトのフォルダ全体で数え、最新の 1 件は残す。
     /// 消せなかったときは警告を返す（書き換えは成功している）。
+    /// <para>
+    /// 【<paramref name="keep"/> を必ず除く理由】 「最新」は控えのファイル名の日時で決まる。時計が戻った・夏時間が終わった・別の PC の
+    /// 時計がずれていたとき、いま作ったばかりの控えが「古い」と数えられて消えうる。書き換えが成功した直後に、その書き換えを元へ戻せる
+    /// 唯一の控えを消しては本末転倒なので、いま作った控え（<paramref name="keep"/>）は日時に依らず消さない
+    /// （そのぶん、世代数・容量の上限を 1 件超えることがある）。
+    /// </para>
     /// </summary>
-    private GraftIssue? PruneBackups(string directory)
+    /// <param name="directory">控えのフォルダ。</param>
+    /// <param name="keep">消してはならない控え（いま作った控えのフルパス）。null なら除かない（一覧を開いたときの掃除）。</param>
+    private GraftIssue? PruneBackups(string directory, string? keep = null)
     {
         try
         {
@@ -1217,8 +1400,12 @@ public sealed partial class VbaRibbonSyncService
                 .Select(x => new VbaWorkbookBackupEntry(Path.GetFileName(x.Path), x.Name!, new FileInfo(x.Path).Length))
                 .ToList();
             var plan = VbaWorkbookBackupPruner.Plan(entries, MaxBackupGenerations(), MaxBackupTotalMB() * 1024L * 1024L);
-            foreach (var entry in plan.Delete) File.Delete(Path.Combine(directory, entry.FileName));
-            if (plan.Delete.Count > 0) Logger?.Info("vba-ribbon", $"ブックの控えを {plan.Delete.Count} 件掃除しました。", targetPath: directory);
+            var keepName = keep is null ? null : Path.GetFileName(keep);
+            var deletions = plan.Delete
+                .Where(e => keepName is null || !string.Equals(e.FileName, keepName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var entry in deletions) File.Delete(Path.Combine(directory, entry.FileName));
+            if (deletions.Count > 0) Logger?.Info("vba-ribbon", $"ブックの控えを {deletions.Count} 件掃除しました。", targetPath: directory);
             return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
