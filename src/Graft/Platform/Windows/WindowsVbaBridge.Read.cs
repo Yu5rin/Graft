@@ -49,14 +49,19 @@ public sealed partial class WindowsVbaBridge
     private static VbaWorkbookInfo? DescribeWorkbook(Session s, ComRunningObjectTable.Snapshot snapshot, int index)
     {
         var displayName = snapshot.DisplayNames[index];
-        var obj = s.Own(snapshot.GetObject(index));
-        if (obj is null) return null;
+        var rotObject = s.Own(snapshot.GetObject(index));
+        if (rotObject is null) return null;
 
+        object? obj;
         string fullName;
         string name;
         bool readOnly;
         try
         {
+            // 閉じたのに ROT に残っている古い項目は、一覧に出さない（実機検証 6-34 の 5-b。FindWorkbook の説明を参照）。
+            obj = ResolveLiveWorkbook(s, rotObject, displayName);
+            if (obj is null) return null;
+
             dynamic wb = obj;
             fullName = s.Call(() => (string)wb.FullName);
             name = s.Call(() => (string)wb.Name);
@@ -175,7 +180,22 @@ public sealed partial class WindowsVbaBridge
     // ブックと VBProject を開く（前提条件の検査。仕様 5.4）
     // ------------------------------------------------------------------
 
-    /// <summary>ROT から、紐付けたブックを探す。見つからなければ null（E804）。Excel を起動しない。</summary>
+    /// <summary>
+    /// ROT から候補を見つけ、<b>その Excel の <c>Workbooks</c> に実在するブックだけ</b>を返す。見つからなければ null（E804）。Excel を起動しない。
+    /// <para>
+    /// 【ROT の項目を信用しない理由】 実機（2026-11-24。Windows実機検証手順 6-34 の 5-b）で、<c>Workbook.Close</c> から 10 秒たっても
+    /// ブックが ROT に残り続けた（5 回とも）。ROT に載っているだけでは「開いている」と言えないので、候補ごとに
+    /// <see cref="ResolveLiveWorkbook"/> で確かめ、実在しない項目（閉じたのに残った古い項目）は読み飛ばす。
+    /// 返すのは ROT のオブジェクトではなく <c>Workbooks</c> から取り直したブックで、閉じて開き直したあとに古い項目と新しい項目が
+    /// 並んでいても、死んだ方のブックを掴まない。
+    /// </para>
+    /// <para>
+    /// 【古い項目から開き直してしまう心配】 ここで ROT に使うのは <c>IRunningObjectTable.GetObject</c>（登録済みのオブジェクトを取り出すだけ）と、
+    /// 取り出したあとの <c>Application</c>・<c>Workbooks</c> の読み取りだけで、ファイルを開く操作は 1 つも無い。
+    /// モニカを束ねてファイルを開く <c>Marshal.BindToMoniker</c>・<c>IMoniker.BindToObject</c> は使っていない
+    /// （<c>ComRunningObjectTable</c> の冒頭と、<c>VbaRotNoReopenGuardTests</c> がソースで固定している）。
+    /// </para>
+    /// </summary>
     private static object? FindWorkbook(Session s, string fullName)
     {
         using var snapshot = ComRunningObjectTable.Enumerate();
@@ -184,8 +204,11 @@ public sealed partial class WindowsVbaBridge
         object? chosen = null;
         foreach (var index in matches)
         {
-            var obj = s.Own(snapshot.GetObject(index));
-            if (obj is null) continue;
+            var rotObject = s.Own(snapshot.GetObject(index));
+            if (rotObject is null) continue;
+
+            var obj = ResolveLiveWorkbook(s, rotObject, fullName);
+            if (obj is null) continue; // 閉じたのに ROT に残っている古い項目。
 
             chosen ??= obj;
             try
@@ -204,6 +227,51 @@ public sealed partial class WindowsVbaBridge
         }
 
         return chosen;
+    }
+
+    /// <summary>
+    /// ROT の項目（<paramref name="rotObject"/>）が、いま開いているブックを指しているかを確かめ、開いていればその <b>Workbook</b> を返す
+    /// （閉じたのに残った項目なら null）。判定は <see cref="VbaRotNames.IsLiveEntry"/> と同じ考え方: 項目から <c>Application</c> を辿り、
+    /// <c>Application.Workbooks</c> に同じフルパスのブックがあれば、<b>そちらのオブジェクト</b>を返す（古い項目の死んだオブジェクトは返さない）。
+    /// <c>Workbooks</c> に無くても、保護ビューのウィンドウにあるなら開いているので、ROT のオブジェクトを返す（保護ビューは既存の判定で止める）。
+    /// <para>
+    /// 閉じたブックのオブジェクトから <c>Application</c> を辿れない（切断された・無効）ときは「実在しない」。Excel が拒否し続けた
+    /// （<see cref="ComBusyException"/>）ときは、ここで握りつぶさず呼び出し側へ伝える（E805。実在するかどうかを推測で決めない）。
+    /// </para>
+    /// </summary>
+    private static object? ResolveLiveWorkbook(Session s, object rotObject, string fullName)
+    {
+        try
+        {
+            dynamic stale = rotObject;
+            var appObj = s.Own(s.Call(() => (object)stale.Application));
+            if (appObj is null) return null;
+
+            dynamic app = appObj;
+            var workbooksObj = s.Own(s.Call(() => (object)app.Workbooks));
+            if (workbooksObj is not null)
+            {
+                dynamic workbooks = workbooksObj;
+                var count = s.Call(() => (int)workbooks.Count);
+                for (var i = 1; i <= count; i++)
+                {
+                    var bookObj = s.Own(s.Call(() => (object)workbooks.Item(i)));
+                    if (bookObj is null) continue;
+
+                    dynamic book = bookObj;
+                    if (VbaRotNames.SamePath(s.Call(() => (string)book.FullName), fullName)) return bookObj;
+                    s.Scope.Release(bookObj);
+                }
+            }
+
+            return IsInProtectedView(s, rotObject, fullName) ? rotObject : null;
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or InvalidComObjectException
+                                       or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
+        {
+            // 閉じたブックの項目（切断されたオブジェクト）、または確かめている最中に閉じられた。開いているとは言えない。
+            return null;
+        }
     }
 
     /// <summary>

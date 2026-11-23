@@ -62,7 +62,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         public bool ModeUnreadable { get; set; }
 
         /// <summary>閉じる前の見た目（保存して閉じるときに券へ写し、開き直したら <see cref="RestoredView"/> に入る）。</summary>
-        public VbaWorkbookViewState View { get; set; } = new("Sheet1", VbaWorkbookViewRestore.Normal, 10, 20, 800, 600);
+        public VbaWorkbookViewState View { get; set; } = new(WasActive: false, PreviouslyActiveWorkbook: @"C:\Work\別.xlsx");
 
         /// <summary>開き直したときに戻された見た目（まだ開き直していなければ null）。</summary>
         public VbaWorkbookViewState? RestoredView { get; set; }
@@ -113,7 +113,34 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     }
 
     private readonly Dictionary<string, Workbook> _workbooks = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 本物の ROT（実行中オブジェクト表）の写し。ブックを開くと項目が増える。<b>閉じても消えない</b>ように設定できる
+    /// （<see cref="StaleRotAfterClose"/>。実機で、閉じたブックが 10 秒以上 ROT に残ることを確かめた。Windows実機検証手順 6-34 の 5-b）。
+    /// 開いているかは、本物のブリッジと同じく、項目の Excel の <c>Workbooks</c> に実在するかで決める（<see cref="TryFindOpen"/>）。
+    /// </summary>
+    private readonly List<RotEntry> _rot = new();
+
+    private sealed record RotEntry(string Path, bool ObjectDead);
     private readonly Dictionary<string, GraftIssue> _failNext = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// true なら、ブックを閉じたあとも ROT の項目が残る（実機の挙動。閉じたブックは 10 秒以上 ROT に残った）。閉じたはずのブックが
+    /// 「開いている」と見えてしまわないこと、開き直しで項目が二重になっても二重に開かないことを確かめるために使う。
+    /// </summary>
+    public bool StaleRotAfterClose { get; set; }
+
+    /// <summary>
+    /// 古い ROT の項目から、<c>Application</c> を辿れない（閉じたブックのオブジェクトが切断されている）再現。false なら、項目の
+    /// オブジェクトは辿れ、<c>Workbooks</c> にブックが無いだけ。どちらも「開いていない」と判定されなければならない。
+    /// </summary>
+    public bool StaleRotObjectDead { get; set; }
+
+    /// <summary>ROT にいま載っている項目の数（閉じたあとに残った古い項目を含む）。</summary>
+    public int RotEntryCount => _rot.Count;
+
+    /// <summary>「Workbooks に実在しない」として読み飛ばした古い項目の延べ回数（確かめが実際に走ったことの確認）。</summary>
+    public int StaleRotRejected { get; private set; }
 
     public bool IsSupported { get; set; } = true;
 
@@ -228,13 +255,52 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         var workbook = new Workbook(fullName);
         workbook.Modules.AddRange(modules);
         _workbooks[fullName] = workbook;
+        _rot.Add(new RotEntry(fullName, ObjectDead: false));
         return workbook;
     }
 
-    /// <summary>ブックを閉じる（E804 の再現）。</summary>
-    public void CloseWorkbook(string fullName) => _workbooks.Remove(fullName);
+    /// <summary>ブックを閉じる（E804 の再現）。<see cref="StaleRotAfterClose"/> なら、ROT の項目は残る。</summary>
+    public void CloseWorkbook(string fullName)
+    {
+        _workbooks.Remove(fullName);
+        DropRotEntries(fullName);
+    }
 
     public Workbook? Get(string fullName) => _workbooks.GetValueOrDefault(fullName);
+
+    /// <summary>ブックが閉じたあとの ROT の項目の扱い。残す設定なら、項目は残り、オブジェクトだけが死んだ印を持つ。</summary>
+    private void DropRotEntries(string fullName)
+    {
+        for (var i = _rot.Count - 1; i >= 0; i--)
+        {
+            if (!VbaRotNames.SamePath(_rot[i].Path, fullName)) continue;
+            if (StaleRotAfterClose) _rot[i] = _rot[i] with { ObjectDead = StaleRotObjectDead };
+            else _rot.RemoveAt(i);
+        }
+    }
+
+    /// <summary>
+    /// 本物のブリッジの <c>FindWorkbook</c> の写し。ROT の項目のうち、<b>項目の Excel の <c>Workbooks</c> に実在するもの</b>だけを開いている
+    /// ブックとして返す（<see cref="VbaRotNames.IsLiveEntry"/>）。古い項目は数えて読み飛ばす。返すのは、古い項目のオブジェクトではなく、
+    /// 実在するブック。
+    /// </summary>
+    private bool TryFindOpen(string fullName, out Workbook workbook)
+    {
+        foreach (var entry in _rot.Where(e => VbaRotNames.SamePath(e.Path, fullName)).ToList())
+        {
+            var names = entry.ObjectDead ? null : _workbooks.Keys;
+            if (VbaRotNames.IsLiveEntry(names, fullName) && _workbooks.TryGetValue(fullName, out var found))
+            {
+                workbook = found;
+                return true;
+            }
+
+            StaleRotRejected++;
+        }
+
+        workbook = null!;
+        return false;
+    }
 
     /// <summary>次の1回の呼び出し（操作名: <c>List</c>／<c>Read</c>／<c>Write</c>／<c>Save</c>）を、指定の問題で失敗させる。</summary>
     public void FailNext(string operation, GraftIssue issue) => _failNext[operation] = issue;
@@ -257,7 +323,9 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         var gate = await EnterAsync<IReadOnlyList<VbaWorkbookInfo>>("List", ct).ConfigureAwait(false);
         if (gate is not null) return gate;
 
-        var list = _workbooks.Values
+        var list = _rot.Select(e => e.Path).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(path => TryFindOpen(path, out var open) ? open : null)
+            .OfType<Workbook>()
             .Select(w => new VbaWorkbookInfo(w.FullName, w.Name, w.Availability, w.UnavailableReason, w.IsReadOnly))
             .OrderBy(w => w.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -353,7 +421,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
         // 本物のブリッジの前提検査と同じ: 開いていない・URL・保護ビューは弾く。ただし VBProject には依存しないので、
         // トラストセンターがオフ（E802）・ロック中（E803）でもシート・テーブル・名前は読め、参照設定だけが省かれる。
-        if (!_workbooks.TryGetValue(workbookFullName, out var workbook))
+        if (!TryFindOpen(workbookFullName, out var workbook))
         {
             return GraftResult<VbaWorkbookInfoSnapshot>.Fail(GraftIssue.Of(ErrorCode.E804, $"次のブックが開いていません: {workbookFullName}"));
         }
@@ -417,7 +485,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         var gate = await EnterAsync<VbaWorkbookRewriteState>("Inspect", ct).ConfigureAwait(false);
         if (gate is not null) return gate;
         return GraftResult<VbaWorkbookRewriteState>.Ok(
-            _workbooks.TryGetValue(workbookFullName, out var workbook) ? StateOf(workbook) : VbaWorkbookRewriteState.NotOpen);
+            TryFindOpen(workbookFullName, out var workbook) ? StateOf(workbook) : VbaWorkbookRewriteState.NotOpen);
     }
 
     /// <summary>本物のブリッジの <c>ReadRewriteState</c> の写し。</summary>
@@ -436,6 +504,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
             // （本物のブリッジは遅れて作られた券を自分で外す）ので、閉じるだけ済ませておく。
             if (CompleteLateAfterHang && _workbooks.Remove(workbookFullName, out var late))
             {
+                DropRotEntries(workbookFullName);
                 late.SaveCount++;
                 late.CloseCount++;
                 OnSaveAndClose?.Invoke(workbookFullName);
@@ -447,7 +516,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
         var gate = await EnterAsync<VbaWorkbookReopenTicket>("SaveClose", ct).ConfigureAwait(false);
         if (gate is not null) return gate;
-        if (!_workbooks.TryGetValue(workbookFullName, out var workbook))
+        if (!TryFindOpen(workbookFullName, out var workbook))
         {
             return GraftResult<VbaWorkbookReopenTicket>.Fail(ErrorCode.E820, "閉じる前に Excel で開いていませんでした。");
         }
@@ -464,6 +533,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         }
 
         _workbooks.Remove(workbookFullName);
+        DropRotEntries(workbookFullName);
         workbook.CloseCount++;
         OnSaveAndClose?.Invoke(workbookFullName);
         var ticket = new VbaWorkbookReopenTicket(Guid.NewGuid().ToString("N"), workbookFullName, workbook.View);
@@ -495,7 +565,9 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
 
     private void Reopen(Workbook workbook, VbaWorkbookReopenTicket ticket)
     {
+        // 開き直すと、ROT に新しい項目が増える（古い項目が残っていれば、同じパスの項目が 2 つ並ぶ）。
         _workbooks[workbook.FullName] = workbook;
+        _rot.Add(new RotEntry(workbook.FullName, ObjectDead: false));
         workbook.ReopenCount++;
         workbook.RestoredView = ticket.View;
     }
@@ -566,7 +638,7 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
     {
         workbook = null;
         if (VbaRotNames.IsNoMacroFormat(fullName)) return GraftIssue.Of(ErrorCode.E806, fullName);
-        if (!_workbooks.TryGetValue(fullName, out var found)) return GraftIssue.Of(ErrorCode.E804, $"次のブックが開いていません: {fullName}");
+        if (!TryFindOpen(fullName, out var found)) return GraftIssue.Of(ErrorCode.E804, $"次のブックが開いていません: {fullName}");
         // 本物のブリッジの前提検査と同じ: URL・保護ビューのブックは、選択画面と同じ理由で弾く。
         var unavailable = VbaWorkbookAvailabilityIssues.ToIssue(found.Availability, fullName);
         if (unavailable is not null) return unavailable;
