@@ -213,18 +213,20 @@ public static class VbaRibbonXmlValidator
 
         findings.AddRange(results);
 
-        // #11 識別子の無いコントロール。スキーマ上 id・idMso・idQ を持てる要素（＝コントロール）で、どれも書いていないもの。
-        // XSD 1.0 では「どれか 1 つ必須」を書けないので、スキーマは通る。Excel が拒むかは実機で要確認（付録B）なので警告にする。
+        // #11 識別子の無いコントロール。スキーマ上 idMso を持てる要素（＝組み込みのものも指せるコントロール・タブ・グループ）で、
+        // id・idMso・idQ のどれも書いていないもの。XSD 1.0 では「どれか 1 つ必須」を書けないので、スキーマは通る。
+        // Excel が拒むかは実機で要確認（付録B）なので警告にする。separator・menuSeparator（id・idQ だけを持てる）は、
+        // 実物の XML で識別子なしに書くのが普通なので数えない（数えると、正しい XML で毎回警告が出る）。
         foreach (var element in document.Root!.DescendantsAndSelf())
         {
             if (element.GetSchemaInfo()?.SchemaType is not XmlSchemaComplexType type) continue;
-            var declaresId = false;
+            var declaresIdMso = false;
             foreach (XmlQualifiedName name in type.AttributeUses.Names)
             {
-                if (name.Name is "id" or "idMso" or "idQ") { declaresId = true; break; }
+                if (name.Name == "idMso") { declaresIdMso = true; break; }
             }
 
-            if (!declaresId) continue;
+            if (!declaresIdMso) continue;
             if (element.Attributes().Any(a => a.Name.NamespaceName.Length == 0 && a.Name.LocalName is "id" or "idMso" or "idQ")) continue;
             findings.Add(Warning(11, element, $"{Describe(element)} に識別子（id・idMso・idQ）がありません。"));
         }

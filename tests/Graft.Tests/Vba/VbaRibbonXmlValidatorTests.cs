@@ -260,6 +260,14 @@ public class VbaRibbonXmlValidatorTests
         result.Warnings.Should().ContainSingle().Which.Check.Should().Be(11);
     }
 
+    [Fact(DisplayName = "#11 separator（id・idQ だけを持てる要素）は識別子なしでも警告しない")]
+    public void 区切りは識別子なしでよい()
+    {
+        var xml = Ribbon(OkButton + "          <separator/>\n");
+
+        VbaRibbonXmlValidator.Validate(xml, VbaRibbonFormat.Office2010).Findings.Should().BeEmpty();
+    }
+
     [Fact(DisplayName = "#12 コールバックの呼び先が VBA に無い・Private なら警告。ある（標準モジュールの Public）なら何も出さない")]
     public void コールバックの照合()
     {
