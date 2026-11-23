@@ -604,7 +604,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             // VBA プロジェクトのミラーは .bas/.cls/.frm なので、実効の許可に加える（仕様書_VBA連携 4.1）。
             // 加えないと、適用が E202（許可されていない拡張子）で止まる。全体の設定は変えない。
-            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(_settings.Safety.AllowedExtensions, project),
+            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(_settings.Safety.AllowedExtensions, project, _settings.Vba.RibbonEditEnabled),
             MaxFileSizeMB = _settings.Safety.MaxFileSizeMB,
             MaxFilesPerRevision = _settings.Safety.MaxFilesPerRevision,
         });
