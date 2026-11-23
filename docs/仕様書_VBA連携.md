@@ -32,20 +32,22 @@ v0.1 をコードと突き合わせてレビューし（指摘26件）、利用�
 
 ---
 
-## v0.4 への追記（リボンの書き換えの仕様。段階 F1 まで実装）
+## v0.4 への追記（リボンの書き換えの仕様。段階 F2 まで実装）
 
-続きの仕様（`docs/仕様書_ブックの情報と依頼の観点.md` v0.7・v0.8 の 16 章「機能 F: リボンの書き換え」）で、リボン（customUI）の XML をミラーのファイルとして扱い、ブックへ書き戻す仕様を決めた。v0.8 で、Office の customUI の公開スキーマ（XSD）を同梱して XML を検査することに決まり、段階 F1（純ロジックとエラーコード・設定）を実装した。**この文書の版は上げていない**（同期・反映・画面は未実装。F2 以降の実装のときに、下の箇所を実装に合わせて書き直す）。この文書に関係する点だけを挙げる。
+続きの仕様（`docs/仕様書_ブックの情報と依頼の観点.md` v0.7・v0.8 の 16 章「機能 F: リボンの書き換え」）で、リボン（customUI）の XML をミラーのファイルとして扱い、ブックへ書き戻す仕様を決めた。v0.8 で、Office の customUI の公開スキーマ（XSD）を同梱して XML を検査することに決まり、段階 F1（純ロジックとエラーコード・設定）を実装した。続きの仕様 v0.9 で、段階 F2（ミラーと取込。ブックへはまだ書かない）を実装した。**この文書の版は上げていない**（反映・画面は未実装。F3 以降の実装のときに、下の箇所を実装に合わせて書き直す）。この文書に関係する点だけを挙げる（「F2 で実装」と添えたものは、現在のコードに実在する）。
 
 | この文書の章 | 関係する変更（詳細は続きの仕様 16 章） |
 |---|---|
-| 4.2 ミラーの構造 | ミラーに `CustomUI/customUI14.xml`・`CustomUI/customUI.xml` が加わる。`VbaModuleKind` には足さない（COM の `VBComponent` ではないため） |
-| 4.3 同期状態 | `vba-sync/<プロジェクトId>.json` に、任意の `ribbon`（`mirrorHash`・`fileHash`・`partName` など）を足す。`version` は 1 のまま |
-| 4.4 移行・場所の変更・削除 | ブックの丸ごとの控え `vba-sync/<プロジェクトId>.workbooks/` を新設。`.rescue` と同じ扱いで、`VbaSyncStateStore.Move` と `VbaDataRelinker.Relink` の付け替えに加える |
+| 4.1 許可拡張子 | `VbaExtensionPolicy.VbaExtensions` に `.xml` を足す（F2 で実装。利用者が既定の許可リストから外していても、取り込んだリボンのファイルへ適用できるように） |
+| 4.2 ミラーの構造 | ミラーに `CustomUI/customUI14.xml`・`CustomUI/customUI.xml` が加わる（F2 で実装。最初の取込で現れる）。`VbaModuleKind` には足さない（COM の `VBComponent` ではないため） |
+| 4.3 同期状態 | `vba-sync/<プロジェクトId>.json` に、任意の `ribbon`（`mirrorHash`・`fileHash`・`partName` など）を足す。`version` は 1 のまま。リボンの記録が無ければ書かない（F2 で実装） |
+| 4.4 移行・場所の変更・削除 | ブックの丸ごとの控え `vba-sync/<プロジェクトId>.workbooks/` を新設。`.rescue` と同じ扱いで、`VbaSyncStateStore.Move` と `VbaDataRelinker.Relink` の付け替えに加える（F2 で実装） |
 | 5.1 `IVbaBridge` | 3 メソッドを新設（書き換えのための状態の検査・保存して閉じる・開き直す）。`WriteComponentsAsync` の契約は変えない |
-| 6.1 E810 | `CustomUI/` の上の 2 パスは E810 の対象から外す。`CustomUI/` のそれ以外は E810 のまま |
+| 6.1 E810 | `CustomUI/` の上の 2 パスは E810 の対象から外す。`CustomUI/` のそれ以外は E810 のまま（F2 で実装。設定 `Vba.RibbonEditEnabled` がオフのときは従来どおりすべて E810） |
 | 6.5 三方比較 | `VbaSyncPlanner` は変えない。リボンは、同じ形の判定表を持つ別の純ロジック（相手は Excel ではなく、ディスク上のブックのファイル） |
-| 7.2・7.2b・7.3・7.4 | 取込はリボンも含む（ファイルを読むだけ。E804 でも行う）。反映は、VBA の反映が済んだあとに、**毎回の確認**を出してから行う（ブックを保存して閉じ、書き換えて、開き直す）。**保存時の自動反映はリボンを対象にしない** |
-| 7.5 衝突ダイアログ | リボンの衝突も同じ窓で見せる（「ブック側を採用」「Graft 側で上書き」） |
+| 7.2・7.2b・7.3・7.4 | 取込はリボンも含む（ファイルを読むだけ。E804 でも行う。F2 で実装）。反映は、VBA の反映が済んだあとに、**毎回の確認**を出してから行う（ブックを保存して閉じ、書き換えて、開き直す。F3 以降）。**保存時の自動反映はリボンを対象にしない**（F2 でテストに固定） |
+| 7.6 バッジ | 補足行に「リボン未反映」（件数なし）。リボンの削除保留は「削除保留 N」に数える（F2 で実装） |
+| 7.5 衝突ダイアログ | リボンの衝突も同じ窓で見せる（「ブック側を採用」「Graft 側で上書き」。F5）。F2 では窓に載せず、E812 の警告にして取り込まない |
 | 9 エラーコード | E818〜E823 を足す（F1 で `ErrorCodes.cs` に実装済み） |
 
 ---
@@ -520,7 +522,7 @@ public enum VbaWriteStatus { Written, Created, RolledBack, Failed }
   - 入れ子のフォルダ（`Modules/sub/x.bas` など）
   - Windows の予約名（`CON`、`PRN`、`AUX`、`NUL`、`COM1`〜`COM9`、`LPT1`〜`LPT9`）のコンポーネント名。ミラーのファイルを作れないため、Pull でもスキップして警告する。
 - ファイル名の比較は大文字小文字を区別しない（VBA のコンポーネント名の扱いに合わせる）。
-- （リボンの書き換えの仕様。未実装）`CustomUI/customUI14.xml`・`CustomUI/customUI.xml` は、リボン（customUI）のミラーとして別の部品が扱うので、E810 の対象から外す（続きの仕様 16.3）。
+- （リボンの書き換えの仕様。段階 F2 で実装）`CustomUI/customUI14.xml`・`CustomUI/customUI.xml` は、リボン（customUI）のミラーとして別の部品（`VbaRibbonSyncService`）が扱うので、E810 の対象から外す（`VbaMirrorLayout.CollectUnsupported` の `ribbonSynced`。続きの仕様 16.3）。`CustomUI/` のそれ以外は「CustomUI/ に置けるのは customUI14.xml と customUI.xml だけです（画像は扱いません）」の E810。設定 `Vba.RibbonEditEnabled` がオフなら、従来どおり `CustomUI/` はすべて E810。
 - `Documents/`・`Forms/` にだけあって Excel に該当コンポーネントがないファイルは、新規作成できないので**作成不可**（E808 の警告）として、Push の対象にしない。
 
 ### 6.2 VbaNameRules
