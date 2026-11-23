@@ -22,13 +22,18 @@ namespace Graft.Tests.Vba;
 /// (0) 元のブック（customUI なし。Excel が元のブック自体を開けることの確認用）、
 /// (a) customUI の無いブックに customUI14 を新しく足したもの、
 /// (b) 既に customUI14 があるブックの XML を差し替えたもの（差し替え前の元のブックも並べる）、
-/// (c) customUI.xml（2006/01 の古い形式）を新しく足したもの。
+/// (c) customUI.xml（2006/01 の古い形式）を新しく足したもの、
+/// (d) 新旧の両方を足したもの（実機検証 4。どちらが効くかを見る）、
+/// (e) 環境変数 <c>GRAFT_RIBBON_PROBE_SOURCE</c> に利用者のブック（Excel が作った本物）を指定したときだけ、その写しを書き換えたもの。
 /// </para>
 /// </summary>
 public class VbaRibbonProbeExportTests
 {
     /// <summary>書き出し先のフォルダを指す環境変数。</summary>
     public const string ProbeDirVariable = "GRAFT_RIBBON_PROBE_DIR";
+
+    /// <summary>（任意）書き換えを試す、利用者のブック（Excel が作った本物）のパスを指す環境変数。写しだけを書き換える。</summary>
+    public const string ProbeSourceVariable = "GRAFT_RIBBON_PROBE_SOURCE";
 
     private const string Ns14 = "http://schemas.microsoft.com/office/2009/07/customui";
     private const string Ns12 = "http://schemas.microsoft.com/office/2006/01/customui";
@@ -89,11 +94,67 @@ public class VbaRibbonProbeExportTests
             RibbonPackageBuilder.ExcelWorkbook(sheetText: "検証(c): 古い形式の customUI.xml を新しく足したブック。リボンに「Graft検証C」タブが出れば成功"),
             new VbaRibbonWriteRequest(VbaRibbonFormat.Office2007, c), expectAddedRelationship: true));
 
+        // (d) 新旧の両方を足す（実機検証 4: 両方あるとき、Excel がどちらを使うか）。タブの名前で、どちらが効いたかが分かる。
+        var d14 = ProbeRibbon(Ns14, "Graft検証D（新しい形式）", "新しい形式D", "D");
+        var d12 = ProbeRibbon(Ns12, "Graft検証D（古い形式）", "古い形式D", "D");
+        var dPath = Path.Combine(dir, "graft-ribbon-probe-d-add-both.xlsm");
+        File.WriteAllBytes(dPath, RibbonPackageBuilder.ExcelWorkbook(sheetText: "検証(d): 新旧の両方を足したブック。どちらのタブが出たかを記録する"));
+        var dResult = VbaRibbonPackageWriter.RewriteFile(dPath,
+            new[] { new VbaRibbonWriteRequest(VbaRibbonFormat.Office2010, d14), new VbaRibbonWriteRequest(VbaRibbonFormat.Office2007, d12) });
+        dResult.Succeeded.Should().BeTrue(dResult.Problem);
+        VbaRibbonPackageReader.Read(dPath).ReadableParts.Should().HaveCount(2);
+        files.Add(dPath);
+
+        // (e) 利用者のブック（Excel が作った本物）の写しを書き換える。環境変数 GRAFT_RIBBON_PROBE_SOURCE にブックのパスを
+        // 設定したときだけ（実機検証 1・3 の本番に近い形。画像つきのリボンなら、画像が残るかも確かめられる）。元のブックには触れない。
+        var real = Environment.GetEnvironmentVariable(ProbeSourceVariable);
+        if (!string.IsNullOrWhiteSpace(real)) files.Add(RewriteRealWorkbook(dir, real));
+
         // 利用者の PC へ運ぶときに壊れていないことを確かめられるよう、sha256sum と同じ書式の照合値を並べる。
         var sums = new StringBuilder();
         foreach (var file in files)
             sums.Append(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant()).Append("  ").Append(Path.GetFileName(file)).Append('\n');
         File.WriteAllText(Path.Combine(dir, "SHA256SUMS.txt"), sums.ToString(), new UTF8Encoding(false));
+    }
+
+    /// <summary>
+    /// 利用者のブックの写しを作り、本番と同じ書き換えを掛ける。customUI があれば、<b>同じ本文のまま</b>書き直す（.NET が zip を作り直した
+    /// だけのブックを Excel が受け入れるか、画像の部品と関係が残るかを、リボンの中身の違いと混ぜずに確かめるため）。customUI が無ければ、
+    /// 検証用のタブ（Graft検証E）を足す。本文の検査の結果は、止めずに <c>graft-ribbon-probe-e-findings.txt</c> へ書き出す
+    /// （本物の XML で、検査の重さ〔16.8 の #7・#11〕が厳しすぎないかを見直す材料にする）。
+    /// </summary>
+    private static string RewriteRealWorkbook(string dir, string sourcePath)
+    {
+        var name = Path.GetFileNameWithoutExtension(sourcePath);
+        var path = Path.Combine(dir, $"graft-ribbon-probe-e-real-{name}{Path.GetExtension(sourcePath)}");
+        File.Copy(sourcePath, path, overwrite: true);
+
+        var read = VbaRibbonPackageReader.Read(path);
+        var requests = read.ReadableParts
+            .Select(p => new VbaRibbonWriteRequest(VbaRibbonMirrorLayout.FormatOf(p), p.Xml!))
+            .GroupBy(r => r.Format).Select(g => g.First())
+            .ToList();
+        if (requests.Count == 0)
+            requests.Add(new VbaRibbonWriteRequest(VbaRibbonFormat.Office2010, ProbeRibbon(Ns14, "Graft検証E", "追加E", "E")));
+
+        var findings = new StringBuilder();
+        findings.Append("元のブック: ").Append(Path.GetFileName(sourcePath)).Append('\n');
+        findings.Append("読み取り: ").Append(read.Status).Append(read.Reason is null ? string.Empty : "（" + read.Reason + "）").Append('\n');
+        foreach (var request in requests)
+        {
+            var validation = VbaRibbonXmlValidator.Validate(request.Xml, request.Format);
+            findings.Append('\n').Append(VbaRibbonMirrorLayout.FileName(request.Format)).Append(": エラー ")
+                .Append(validation.Errors.Count()).Append(" 件・警告 ").Append(validation.Warnings.Count()).Append(" 件\n");
+            foreach (var f in validation.Findings)
+                findings.Append("  [").Append(f.Severity == Graft.Core.Severity.Error ? "エラー" : "警告").Append(" #").Append(f.Check).Append("] ")
+                    .Append(f.ToDisplayText()).Append('\n');
+        }
+
+        var result = VbaRibbonPackageWriter.RewriteFile(path, requests);
+        findings.Append("\n書き換え: ").Append(result.Status).Append(result.Problem is null ? string.Empty : "（" + result.Problem + "）").Append('\n');
+        File.WriteAllText(Path.Combine(dir, "graft-ribbon-probe-e-findings.txt"), findings.ToString(), new UTF8Encoding(false));
+        result.Succeeded.Should().BeTrue(result.Problem);
+        return path;
     }
 
     /// <summary>元のブックを置き、本番と同じ原子的な書き換え（<see cref="VbaRibbonPackageWriter.RewriteFile"/>）で書き換えて、読み取りで往復を確かめる。</summary>
