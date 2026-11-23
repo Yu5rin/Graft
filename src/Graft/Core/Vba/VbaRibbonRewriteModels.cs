@@ -41,6 +41,14 @@ public sealed record VbaRibbonRewriteWarning(string MirrorPath, VbaRibbonFinding
 /// <param name="BackupDirectory">控えの置き場（<c>vba-sync/&lt;Id&gt;.workbooks/</c>）。確認ダイアログに出す。</param>
 /// <param name="BookSize">計画を作ったときのブックの大きさ（バイト）。</param>
 /// <param name="BookModifiedUtc">計画を作ったときのブックの更新日時（UTC）。</param>
+/// <param name="OpenState">
+/// 計画を作ったときの、ブックの Excel での状態（段階 F4。16.6）。開いていなければ null か <see cref="VbaWorkbookRewriteState.NotOpen"/>。
+/// 確認ダイアログの文面（開いている／未保存の有無）と、書き換えの直前の「確認のあいだに状態が変わっていないか」の比べ直しに使う。
+/// </param>
+/// <param name="PrecedingVbaModules">
+/// 同じ操作で、先に Excel へ反映した VBA のモジュールの数（0 なら冒頭の一文を出さない。16.9「VBA の反映に続けて出すとき」）。
+/// 段階 F5 の呼び出し側が <c>plan with { PrecedingVbaModules = n }</c> で渡す。
+/// </param>
 public sealed record VbaRibbonRewritePlan(
     string ProjectId,
     string WorkbookPath,
@@ -49,8 +57,19 @@ public sealed record VbaRibbonRewritePlan(
     IReadOnlyList<VbaRibbonRewriteWarning> Warnings,
     string BackupDirectory,
     long BookSize,
-    DateTime BookModifiedUtc)
+    DateTime BookModifiedUtc,
+    VbaWorkbookRewriteState? OpenState = null,
+    int PrecedingVbaModules = 0)
 {
+    /// <summary>計画を作ったとき、ブックは Excel で開いていたか（閉じて開き直す経路か。16.6）。</summary>
+    public bool IsOpen => OpenState is { IsOpen: true };
+
+    /// <summary>
+    /// 開いていて、保存していない変更があると見えるか（<c>Workbook.Saved</c> が False。確認ダイアログの ⚠ の段落を出す）。
+    /// <b>文面を変えるためだけ</b>に使い、「保存するか」は決めない（必ず保存する。16.6「<c>Saved</c> の限界」）。
+    /// </summary>
+    public bool HasUnsavedChanges => OpenState is { IsOpen: true, Saved: false };
+
     /// <summary>新しく足す形式があるか（確認ダイアログの手順の言い方を変える）。</summary>
     public bool AddsNewPart => Targets.Any(t => t.IsNewPart);
 }
@@ -83,7 +102,13 @@ public sealed record VbaRibbonRewritePreparation(
 /// <param name="BackupPath">書き換える前のブックの控え（フルパス）。</param>
 /// <param name="Written">書いたミラーのパス（<c>CustomUI/customUI14.xml</c>）。</param>
 /// <param name="AddedNew">新しく足した形式があったか（customUI の無いブックへの追加）。</param>
-public sealed record VbaRibbonRewriteOutcome(string WorkbookPath, string BackupPath, IReadOnlyList<string> Written, bool AddedNew);
+/// <param name="WasOpen">書き換える前、ブックは Excel で開いていたか（Graft が保存して閉じ、開き直す経路だったか）。</param>
+/// <param name="Reopened">
+/// 開き直して、ブックが Excel で開いているか（<see cref="WasOpen"/> が true のときだけ意味がある）。false なら E822 の警告が付く。
+/// 開いていなかったブックは Graft が開かないので false のまま。完了の通知に「Excel で開く」を添えるかの材料。
+/// </param>
+public sealed record VbaRibbonRewriteOutcome(
+    string WorkbookPath, string BackupPath, IReadOnlyList<string> Written, bool AddedNew, bool WasOpen = false, bool Reopened = false);
 
 /// <summary>作業の記録の段階（16.5 の段階 5〜12 のどこまで進んだか。途中で落ちたときの後始末の材料）。</summary>
 public enum VbaRibbonRewriteStage
@@ -231,7 +256,7 @@ public static class VbaRibbonRecoveryLogic
         var backup = job.BackupSha256 is not null && job.BackupPath is not null
             ? $"書き換える前の控え: {job.BackupPath}"
             : string.Empty;
-        var closed = job.ClosedWorkbook ? "Excel では閉じたままです。" : string.Empty;
+        var closed = job.ClosedWorkbook ? "Excel では閉じたままです。" + VbaRibbonRewriteText.OpenInExcelSentence : string.Empty;
         return string.Join(" ", new[] { head, body, closed, backup }.Where(s => s.Length > 0));
     }
 }

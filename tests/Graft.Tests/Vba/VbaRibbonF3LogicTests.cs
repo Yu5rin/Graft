@@ -63,10 +63,9 @@ public sealed class VbaRibbonF3LogicTests
         VbaRibbonRewriteText.WarningLines(Plan(warnings: 5)).Should().HaveCount(5);
     }
 
-    [Fact(DisplayName = "開いているブック・アドインの案内は、利用者向けの言い方（段階の名前を出さない）")]
+    [Fact(DisplayName = "開いているアドインの案内は、利用者向けの言い方（段階の名前を出さない）")]
     public void 開いているときの案内()
     {
-        VbaRibbonRewriteText.OpenWorkbookReason("計画.xlsm").Should().Contain("Excel でブックを閉じてから").And.NotContain("F4");
         VbaRibbonRewriteText.OpenAddinReason("道具.xlam").Should().Contain("アドインを閉じて").And.NotContain("F4");
         VbaRibbonRewriteText.IsAddinPath(@"C:\a\道具.XLAM").Should().BeTrue();
         VbaRibbonRewriteText.IsAddinPath(@"C:\a\計画.xlsm").Should().BeFalse();
