@@ -22,7 +22,8 @@ namespace Graft.Infra;
 /// <list type="bullet">
 /// <item><c>projects.json</c> の <c>id</c>（と <c>root</c>）</item>
 /// <item><c>back/&lt;Id&gt;/</c> フォルダ</item>
-/// <item><c>vba-sync/&lt;Id&gt;.json</c> と <c>vba-sync/&lt;Id&gt;.rescue/</c></item>
+/// <item><c>vba-sync/&lt;Id&gt;.json</c> と <c>vba-sync/&lt;Id&gt;.rescue/</c>・<c>vba-sync/&lt;Id&gt;.workbooks/</c>
+/// （リボンの書き換えの前のブックの控え。仕様書_ブックの情報と依頼の観点 16.11）</item>
 /// <item><c>queue.json</c> の各項目の <c>projectId</c></item>
 /// <item><c>layout.json</c> の <c>projectPaneWidths</c> のキー</item>
 /// <item><c>back/&lt;Id&gt;/*/manifest.json</c> の <c>projectId</c>。履歴の読み書きでは照合に使われない
@@ -72,7 +73,15 @@ public static class VbaDataRelinker
                     return GraftResult<int>.Fail(ErrorCode.E407, $"付け替え先の同期状態ファイルが既に存在します: {newFile}");
                 }
 
-                if (replaceExisting) DeleteIfExists(target.GetVbaRescueDirectory(newId));
+                if (replaceExisting)
+                {
+                    DeleteIfExists(target.GetVbaRescueDirectory(newId));
+                    // リボンの書き換えの前に残したブックの丸ごとの控え（仕様書_ブックの情報と依頼の観点 16.11）も、.rescue と同じ扱い。
+                    // 旧保存先の内容で置き換えるときに新 Id 側の古いフォルダを残すと、Move が「移す先がある」として移さず、旧 Id の
+                    // 控えが置き去りになる。
+                    DeleteIfExists(target.GetVbaWorkbookBackupDirectory(newId));
+                }
+
                 sync.Move(oldId, newId);
             }
 

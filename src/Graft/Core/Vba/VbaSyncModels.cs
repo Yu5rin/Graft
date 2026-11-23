@@ -109,6 +109,56 @@ public sealed record VbaSyncState
     public IReadOnlyDictionary<string, VbaModuleState> Modules { get; init; } =
         new Dictionary<string, VbaModuleState>();
 
+    /// <summary>
+    /// リボン（customUI）の形式ごとの基準（仕様書_ブックの情報と依頼の観点 16.4）。キーはミラーの正規の相対パス
+    /// （<c>CustomUI/customUI14.xml</c>・<c>CustomUI/customUI.xml</c>）。
+    /// <para>
+    /// 【無いときは null にして JSON に書かない】 customUI の無いブックのプロジェクトでは、同期状態のファイルを機能 F を入れる前と
+    /// 1 バイトも変えないため（<c>version</c> も 1 のまま）。古い版の Graft が読んで書き戻すと <c>ribbon</c> は消えるが、次の取込で
+    /// 「記録なし」から突き合わせ直し、本文が同じなら基準を作り直すだけなので害は無い（16.4）。
+    /// </para>
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, VbaRibbonSyncRecord>? Ribbon { get; init; }
+
+    /// <summary>リボンの 1 形式の基準を追加または置き換えた新しい状態を返す。</summary>
+    public VbaSyncState WithRibbon(string mirrorPath, VbaRibbonSyncRecord record)
+    {
+        var copy = Ribbon is null
+            ? new Dictionary<string, VbaRibbonSyncRecord>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, VbaRibbonSyncRecord>(Ribbon, StringComparer.OrdinalIgnoreCase);
+        copy[mirrorPath] = record;
+        return this with { Ribbon = copy };
+    }
+
+    /// <summary>
+    /// リボンの 1 形式の基準を取り除いた新しい状態を返す。最後の 1 件を取り除いたら <see cref="Ribbon"/> を null に戻す
+    /// （リボンの記録が無いプロジェクトの JSON を、機能 F を入れる前と同じ形に保つ）。
+    /// </summary>
+    public VbaSyncState WithoutRibbon(string mirrorPath)
+    {
+        if (Ribbon is null) return this;
+        var copy = new Dictionary<string, VbaRibbonSyncRecord>(Ribbon, StringComparer.OrdinalIgnoreCase);
+        copy.Remove(mirrorPath);
+        return this with { Ribbon = copy.Count == 0 ? null : copy };
+    }
+
+    /// <summary>リボンの基準を、形式ごとの辞書にして返す（三方比較 <see cref="VbaRibbonSyncPlanner.Plan"/> の入力）。</summary>
+    public IReadOnlyDictionary<VbaRibbonFormat, VbaRibbonSyncRecord> RibbonRecordsByFormat()
+    {
+        var result = new Dictionary<VbaRibbonFormat, VbaRibbonSyncRecord>();
+        if (Ribbon is null) return result;
+        foreach (var (key, record) in Ribbon)
+        {
+            if (record is not null && VbaRibbonMirrorLayout.TryParse(key, out var parsed) && parsed is not null)
+            {
+                result[parsed.Format] = record;
+            }
+        }
+
+        return result;
+    }
+
     /// <summary>指定モジュールの基準を追加または置き換えた新しい状態を返す。</summary>
     public VbaSyncState WithModule(string relativePath, VbaModuleState module)
     {

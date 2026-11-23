@@ -58,12 +58,31 @@ public class VbaRibbonMirrorLayoutTests
         VbaRibbonMirrorLayout.DefaultPartName(VbaRibbonFormat.Office2007).Should().Be("customUI/customUI.xml");
     }
 
-    [Fact(DisplayName = "F1 では VbaMirrorLayout.CollectUnsupported を変えない（リボンの 2 パスはまだ E810。除外は同期を入れる F2 で）")]
-    public void E810はF2まで変えない()
+    [Fact(DisplayName = "F2: リボンを同期しているとき、CollectUnsupported はリボンの 2 パスを E810 にしない。CustomUI/ のほかは理由つきの E810")]
+    public void E810の除外()
     {
-        // ミラーの CustomUI/customUI14.xml は、F2 で同期を入れるまで Excel へは届かない。届かないものを警告から外すと、
-        // 利用者が「反映された」と思い込むので、F1 では従来どおり E810 のままにする（仕様書 16.15 の段階 F2 の「E810 の除外」）。
+        // 同期を入れた F2 で、ミラーのリボンのファイルは取込でブックとつながる（仕様書 16.3・16.15）。警告に残すと、取り込んだ
+        // ミラーで毎回「同期の対象外」と出てしまう。F1 で「E810 のまま」と固定していたのを、ここで逆向きにした。
+        VbaMirrorLayout.CollectUnsupported(new[] { "CustomUI/customUI14.xml", "customui/CUSTOMUI.XML" }, ribbonSynced: true)
+            .Should().BeEmpty();
+
+        var others = VbaMirrorLayout.CollectUnsupported(
+            new[] { "CustomUI/images/a.png", "CustomUI/foo.xml", "CustomUI/sub/customUI14.xml" }, ribbonSynced: true);
+        others.Should().HaveCount(3);
+        others.Should().OnlyContain(i => i.Code == ErrorCode.E810 && i.Severity == Severity.Warning
+                                         && i.Detail == VbaRibbonMirrorLayout.OtherFileReason);
+
+        // モジュールのパスの判定は変わらない。
+        VbaMirrorLayout.CollectUnsupported(new[] { "Modules/A.bas", "memo.txt" }, ribbonSynced: true)
+            .Should().ContainSingle().Which.Path.Should().Be("memo.txt");
+    }
+
+    [Fact(DisplayName = "F2: リボンを同期していないとき（設定でオフ・未配線）は、従来どおり CustomUI/ はすべて E810（ブックへ届かないものを警告から外さない）")]
+    public void 同期していなければE810のまま()
+    {
         VbaMirrorLayout.CollectUnsupported(new[] { "CustomUI/customUI14.xml" })
             .Should().ContainSingle().Which.Code.Should().Be(ErrorCode.E810);
+        VbaMirrorLayout.CollectUnsupported(new[] { "CustomUI/customUI14.xml" }, ribbonSynced: false)
+            .Single().Detail.Should().Contain("同期のフォルダではありません");
     }
 }

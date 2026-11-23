@@ -1,8 +1,8 @@
 namespace Graft.Core.Vba;
 
 /// <summary>
-/// リボンの 1 形式ぶんの同期基準（仕様書_ブックの情報と依頼の観点 16.4。保存先は段階 F2 で <c>vba-sync/&lt;Id&gt;.json</c> の
-/// <c>ribbon</c> に足す。F1 では型と判定だけを用意する）。
+/// リボンの 1 形式ぶんの同期基準（仕様書_ブックの情報と依頼の観点 16.4）。保存先は <c>vba-sync/&lt;Id&gt;.json</c> の
+/// <c>ribbon</c>（<see cref="VbaSyncState.Ribbon"/>。キーはミラーのパス）。F1 で型と判定を、F2 で保存先への読み書きを足した。
 /// <para>
 /// 【基準を 2 本持つ理由】 モジュールの同期基準（<see cref="VbaModuleState"/> の <c>MirrorHash</c>・<c>ExcelHash</c>）と同じ形に
 /// そろえるため。書き換えはミラーの本文をそのまま書くので通常は同じ値になるが、取込の直後に Excel が保存で部品を書き直した、
@@ -118,7 +118,8 @@ public sealed record VbaRibbonSyncPlan(IReadOnlyList<VbaRibbonSyncItem> Items, s
 /// </para>
 /// <para>
 /// 【別のブックの記録】 同期状態の <c>workbookFullName</c> がいまのブックと違うときは、モジュールと同じく「記録なし」として扱う。
-/// その判定と E812 の警告は呼び出し側（段階 F2 の同期の実行）が行い、ここへは <paramref name="records"/> を渡さない。
+/// その判定と E812 の警告は呼び出し側（<c>VbaSyncStateStore.LoadAsync</c>。モジュールと同じ 1 か所）が行い、ここへは
+/// 記録を渡さない（別のブックの同期状態は、モジュールの記録ごと使わない）。
 /// </para>
 /// </summary>
 public static class VbaRibbonSyncPlanner
@@ -254,5 +255,68 @@ public static class VbaRibbonSyncPlanner
             ? new VbaRibbonSyncItem(format, mirrorPath, partName, VbaRibbonSyncAction.Rebaseline, m, f,
                 Baseline: new VbaRibbonSyncRecord(partName, m, f, SyncedAt: now))
             : new VbaRibbonSyncItem(format, mirrorPath, partName, VbaRibbonSyncAction.Conflict, m, f);
+    }
+}
+
+/// <summary>
+/// リボンの同期計画のうち、利用者に知らせるもの（読めない・見送った・部品が無くなった・衝突）を、警告（<see cref="GraftIssue"/>）に
+/// 写す純ロジック（仕様書_ブックの情報と依頼の観点 16.4・段階 F2）。
+/// <para>
+/// 【どのコードに写すか（付録A-48）】 計画の <see cref="VbaRibbonSyncAction.Skip"/>・<see cref="VbaRibbonSyncPlan.SkippedReason"/>・
+/// 「ブックからリボンの部品が無くなっています」は、どれも「いまはリボンを同期できない（または、しない）」という知らせなので、
+/// 同期の対象外を表す <see cref="ErrorCode.E810"/> の警告にする。モジュールの「読めないファイルは、読めるようになるまで同期の対象から
+/// 外します」と同じ扱い。新しいコードを足さないのは、E818〜E823 が書き換え（F3 以降）の失敗を表す番号として決まっていて、読み取りの
+/// 見送りを混ぜると、書き換えの失敗の案内（控えの場所・開き直し）と取り違えるため。衝突は、モジュールと同じ <see cref="ErrorCode.E812"/>。
+/// </para>
+/// <para>
+/// すべて警告（<see cref="Severity.Warning"/>）。リボンを同期できなくても、モジュールの取込・反映は止めない（16.4）。
+/// </para>
+/// </summary>
+public static class VbaRibbonSyncIssues
+{
+    /// <summary>計画全体（見送り）と各形式の警告・衝突を、警告の一覧にする。</summary>
+    /// <param name="plan">計画。</param>
+    /// <param name="unresolvedConflicts">
+    /// 衝突のうち、利用者が「ブック側を採用」などで解決しなかったもの（ミラーのパス）。null なら計画の衝突をすべて警告にする。
+    /// </param>
+    /// <param name="outcome">衝突の文の結び（「取り込みませんでした」など）。</param>
+    public static IReadOnlyList<GraftIssue> Collect(
+        VbaRibbonSyncPlan plan, IReadOnlyCollection<string>? unresolvedConflicts = null, string outcome = "取り込みませんでした")
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        var issues = new List<GraftIssue>();
+        if (plan.SkippedReason is { } skipped)
+        {
+            issues.Add(GraftIssue.Of(
+                ErrorCode.E810, $"{skipped}。読めるようになるまで、リボン（CustomUI/）は同期の対象から外します。",
+                path: VbaRibbonMirrorLayout.FolderName + "/", severity: Severity.Warning));
+        }
+
+        foreach (var item in plan.Items)
+        {
+            if (item.Action == VbaRibbonSyncAction.Conflict)
+            {
+                if (unresolvedConflicts is not null && !unresolvedConflicts.Contains(item.MirrorPath, StringComparer.OrdinalIgnoreCase)) continue;
+                issues.Add(GraftIssue.Of(ErrorCode.E812, $"{item.MirrorPath}: {ConflictSentence(item, outcome)}",
+                    path: item.MirrorPath, severity: Severity.Warning));
+                continue;
+            }
+
+            if (item.Warning is { } warning)
+            {
+                issues.Add(GraftIssue.Of(ErrorCode.E810, $"{item.MirrorPath}: {warning}。", path: item.MirrorPath, severity: Severity.Warning));
+            }
+        }
+
+        return issues;
+    }
+
+    /// <summary>リボンの衝突の文（E812 の詳細）。モジュールの衝突の文（<c>VbaSyncService</c>）と同じ言い回しで、相手を「ブック」にする。</summary>
+    public static string ConflictSentence(VbaRibbonSyncItem item, string outcome)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        return item.ConflictReason == VbaConflictReason.NeedsReview
+            ? $"前回のリボンの書き換えでブックを元に戻せなかった「要確認」のファイルのため、{outcome}。ブックのリボンと、このファイルのどちらを残すか確かめてください。"
+            : $"ブックのリボンと、このファイルの両方が変更されているため、{outcome}。";
     }
 }

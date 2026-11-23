@@ -124,7 +124,7 @@ public static class VbaRibbonMirrorLayout
 
     /// <summary>
     /// <c>CustomUI/</c> の中（入れ子を含む）を指すパスか。<see cref="TryParse"/> が通らないものに <see cref="OtherFileReason"/> を
-    /// 付けて E810 にするための判定（16.3。E810 の除外そのものは同期の段階 F2 で <c>VbaSyncService</c> に入れる）。
+    /// 付けて E810 にするための判定（16.3。段階 F2 で <see cref="VbaMirrorLayout.CollectUnsupported"/> が使う）。
     /// </summary>
     public static bool IsUnderRibbonFolder(string? relativePath)
     {

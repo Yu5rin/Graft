@@ -8,19 +8,29 @@ namespace Graft.Tests.Vba;
 
 /// <summary>
 /// <see cref="VbaExtensionPolicy"/> のテスト（仕様書_VBA連携 4.1・10.1）。
-/// VBA プロジェクトのときだけ .bas/.cls/.frm が加わり、ほかのプロジェクトと既存の設定は変わらない。
+/// VBA プロジェクトのときだけ .bas/.cls/.frm と、リボン（CustomUI/customUI14.xml。仕様書_ブックの情報と依頼の観点 16.3）の .xml が加わり、
+/// ほかのプロジェクトと既存の設定は変わらない。
 /// </summary>
 public class VbaExtensionPolicyTests
 {
     private static readonly Project VbaProject = new() { Id = "p_a", Root = "/x", Vba = new VbaLink { WorkbookFullName = @"C:\a.xlsm" } };
     private static readonly Project PlainProject = new() { Id = "p_b", Root = "/y" };
 
-    [Fact(DisplayName = "VBA プロジェクトでは .bas/.cls/.frm が加わる")]
+    [Fact(DisplayName = "VBA プロジェクトでは .bas/.cls/.frm とリボンの .xml が加わる（末尾に、この並びで）")]
     public void VBAプロジェクトでは加わる()
     {
         var effective = VbaExtensionPolicy.Effective(new[] { ".md", ".txt" }, VbaProject);
 
-        effective.Should().BeEquivalentTo(".md", ".txt", ".bas", ".cls", ".frm");
+        effective.Should().Equal(".md", ".txt", ".bas", ".cls", ".frm", ".xml");
+    }
+
+    [Fact(DisplayName = "利用者が .xml を外していても、VBA プロジェクトではリボンのために足す。入っていれば重複させない（段階 F2）")]
+    public void リボンのxml()
+    {
+        VbaExtensionPolicy.Effective(new[] { ".bas" }, VbaProject).Should().Contain(".xml");
+        VbaExtensionPolicy.Effective(new[] { ".XML", ".bas" }, VbaProject)
+            .Count(e => string.Equals(e, ".xml", StringComparison.OrdinalIgnoreCase)).Should().Be(1);
+        VbaExtensionPolicy.Effective(new[] { ".bas" }, PlainProject).Should().NotContain(".xml", "VBA でないプロジェクトの挙動は変えない");
     }
 
     [Fact(DisplayName = "ほかのプロジェクトには加わらない（同じ一覧がそのまま返る）")]
@@ -48,7 +58,7 @@ public class VbaExtensionPolicyTests
     {
         var effective = VbaExtensionPolicy.Effective(new[] { ".BAS", ".txt", ".cls" }, VbaProject);
 
-        effective.Should().BeEquivalentTo(".BAS", ".txt", ".cls", ".frm");
+        effective.Should().BeEquivalentTo(".BAS", ".txt", ".cls", ".frm", ".xml");
         effective.Count(e => string.Equals(e, ".bas", StringComparison.OrdinalIgnoreCase)).Should().Be(1);
     }
 
@@ -61,7 +71,7 @@ public class VbaExtensionPolicyTests
     [Fact(DisplayName = "bool 版も同じ結果（Project 型に依存しない呼び出し口）")]
     public void bool版()
     {
-        VbaExtensionPolicy.Effective(new[] { ".md" }, true).Should().BeEquivalentTo(".md", ".bas", ".cls", ".frm");
+        VbaExtensionPolicy.Effective(new[] { ".md" }, true).Should().BeEquivalentTo(".md", ".bas", ".cls", ".frm", ".xml");
         VbaExtensionPolicy.Effective(new[] { ".md" }, false).Should().BeEquivalentTo(".md");
     }
 }
