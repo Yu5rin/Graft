@@ -174,4 +174,14 @@
     <None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      リボンの XML の検査（Core/Vba/VbaRibbonXmlValidator）は、自分のアセンブリの埋め込みリソースから customUI の XSD を読む。
+      このプロジェクトは Core のソースを取り込んで Graft.Tests.dll にするので、XSD も同じ LogicalName でここへ埋め込む
+      （src/Graft/Graft.csproj の同じ指定と一致させる。ずれると検査がリソースを見つけられず、テストが落ちて気付ける）。
+    -->
+    <EmbeddedResource Include="..\..\src\Graft\Assets\CustomUI\customUI14.xsd" LogicalName="Graft.Schemas.customUI14.xsd" Link="Linked\Assets\customUI14.xsd" />
+    <EmbeddedResource Include="..\..\src\Graft\Assets\CustomUI\customUI.xsd" LogicalName="Graft.Schemas.customUI.xsd" Link="Linked\Assets\customUI.xsd" />
+  </ItemGroup>
+
 </Project>
