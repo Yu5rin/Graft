@@ -308,3 +308,9 @@ Graft が依存する各ライブラリは、それぞれ以下のライセン�
 - System.Text.Encoding.CodePages — MIT License（Shift_JIS 対応）
 
 ライセンス全文は実行ファイルに埋め込み、バージョン情報画面から参照できる。
+
+## 第三者の著作物
+
+リボン（customUI）の XML の検査のために、Microsoft の公開仕様（[MS-CUSTOMUI]・[MS-CUSTOMUI2]）の付録にある
+XML スキーマ（XSD）を同梱している。MIT License とは別の条件（仕様書の Intellectual Property Rights Notice の
+Copyrights 項）による。出典・版・条件の原文・商標の注意は [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) を参照。
