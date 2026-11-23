@@ -32,7 +32,7 @@ public static class VbaConflictDiff
             BeforeText = excel,
             AfterText = mirror,
             Diff = diff,
-            Description = "左: Excel 側 / 右: Graft 側（ミラー）",
+            Description = item.IsRibbon ? "左: ブックのファイル側（リボン） / 右: Graft 側（ミラー）" : "左: Excel 側 / 右: Graft 側（ミラー）",
             Added = diff.Added,
             Removed = diff.Removed,
         };

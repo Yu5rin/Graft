@@ -118,7 +118,7 @@ public sealed class VbaConflictViewModel : ObservableObject
     public string GuideText => (_request.CanAdoptExcel
         ? "「Graft 側で上書き」は、Excel 側の本文を控えに残してから Graft の内容で置き換えます。「Excel 側を採用」は、Graft 側のファイルを Excel の内容で置き換えます。"
         : "「Graft 側で上書き」は、Excel 側の本文を控えに残してから Graft の内容で置き換えます。「反映しない」は、ファイルの変更を残し、Excel には未反映の印を付けます。")
-        + ReasonGuide;
+        + ReasonGuide + RibbonGuide;
 
     /// <summary>
     /// 両側の変更ではない理由（Excel 側が空・要確認）で衝突しているモジュールがあるときの補足。理由を伏せたまま
@@ -143,8 +143,19 @@ public sealed class VbaConflictViewModel : ObservableObject
         }
     }
 
-    /// <summary>差分の見方。</summary>
-    public string DiffCaptionText => "左: Excel 側 / 右: Graft 側（ミラー）";
+    /// <summary>
+    /// リボン（customUI）の衝突があるときの補足。リボンの相手は Excel の中の本文ではなく、ブックのファイルの部品なので、
+    /// 選択肢の動きがモジュールと違う（上書きは、ブックを閉じて開き直して書き換える）ことを伝える（仕様書_ブックの情報と依頼の観点 16.4）。
+    /// </summary>
+    private string RibbonGuide => _request.HasRibbon
+        ? " リボン（CustomUI/）の「Excel 側」は、ブックのファイルに入っているリボンです。「Graft 側で上書き」を選ぶと、確認のあとにブックを" +
+          "保存して閉じ、リボンを書き換えて開き直します（書き換える前のブック全体を控えに残します）。「Excel 側を採用」は、ブックのリボンでミラーのファイルを置き換えます。"
+        : string.Empty;
+
+    /// <summary>差分の見方。リボンだけの衝突では、左を「ブックのファイル側」と呼ぶ。</summary>
+    public string DiffCaptionText => _request.Items.All(i => i.IsRibbon)
+        ? "左: ブックのファイル側（リボン） / 右: Graft 側（ミラー）"
+        : _request.HasRibbon ? "左: Excel 側（リボンはブックのファイル側） / 右: Graft 側（ミラー）" : "左: Excel 側 / 右: Graft 側（ミラー）";
 
     /// <summary>選択の進み具合（例: 「1 / 3 件を選択済み」）。</summary>
     public string ProgressText => $"{Items.Count(i => i.IsDecided)} / {Items.Count} 件を選択済み";

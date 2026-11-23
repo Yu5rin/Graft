@@ -36,6 +36,7 @@ public sealed partial class WindowsVbaBridge : IVbaBridge, IVbaBridgeTimeouts, I
     private readonly Lazy<bool> _excelInstalled = new(DetectExcelInstalled);
     private int _comTimeoutMs = 5000;
     private int _callTimeoutMs = 30000;
+    private int _saveOpenTimeoutMs = 120000;
 
     /// <summary>
     /// Windows で、Excel が登録されていれば使える。登録の有無は ProgID の引き当てで調べる（レジストリを読むだけで
@@ -54,7 +55,19 @@ public sealed partial class WindowsVbaBridge : IVbaBridge, IVbaBridgeTimeouts, I
         Volatile.Write(ref _callTimeoutMs, Math.Max(1000, callTimeoutMs));
     }
 
-    public void Dispose() => _worker.Dispose();
+    /// <inheritdoc />
+    public void ConfigureWorkbookSaveOpen(int saveOpenTimeoutMs)
+        => Volatile.Write(ref _saveOpenTimeoutMs, Math.Max(1000, saveOpenTimeoutMs));
+
+    /// <summary>
+    /// 後始末。開き直しの券で持っている Excel の参照を捨ててから（Graft の終了で Excel のプロセスを残さないため。仕様書_ブックの情報と
+    /// 依頼の観点 16.15 の申し送り「成功・失敗・時間切れ・Graft の終了のすべてで捨てる」）、専用スレッドを止める。
+    /// </summary>
+    public void Dispose()
+    {
+        ReleaseAllHeldTickets();
+        _worker.Dispose();
+    }
 
     private static bool DetectExcelInstalled()
     {
@@ -125,9 +138,11 @@ public sealed partial class WindowsVbaBridge : IVbaBridge, IVbaBridgeTimeouts, I
     /// 写す。例外のまま呼び出し元へ漏らさない（利用できない・失敗は例外ではなく問題で返す。IVbaBridge の方針）。
     /// </summary>
     private async Task<GraftResult<T>> InvokeAsync<T>(
-        Func<CancellationToken, GraftResult<T>> work, CancellationToken ct, Func<GraftResult<T>>? onTimeout = null)
+        Func<CancellationToken, GraftResult<T>> work, CancellationToken ct, Func<GraftResult<T>>? onTimeout = null,
+        int? timeoutMs = null)
     {
-        var callTimeout = TimeSpan.FromMilliseconds(Volatile.Read(ref _callTimeoutMs));
+        // timeoutMs はブックの保存・開き直し（Vba.WorkbookSaveOpenTimeoutMs）だけが渡す。ほかは Vba.CallTimeoutMs。
+        var callTimeout = TimeSpan.FromMilliseconds(timeoutMs ?? Volatile.Read(ref _callTimeoutMs));
         try
         {
             return await _worker.RunAsync(work, callTimeout, ct).ConfigureAwait(false);

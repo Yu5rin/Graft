@@ -28,6 +28,13 @@ public sealed partial class ShellViewModel
     private Task<VbaPullSaveOutcome> EnsureVbaRestoreTargetsSavedAsync(IReadOnlyList<string> fullPaths)
         => EnsureVbaTargetsSavedAsync(fullPaths, "控えを戻すモジュール", "戻す操作を続けます", "戻されません", "戻しません");
 
+    /// <summary>
+    /// リボンをブックへ書き換える前の同じ確認（仕様書_ブックの情報と依頼の観点 16.5 の段階 1）。書くのはディスク上のミラーの本文なので、
+    /// エディタで編集中の内容は先に保存してもらう（保存しなければ、利用者が画面で見ている XML と違うものがブックへ入る）。断られたら中止。
+    /// </summary>
+    private Task<VbaPullSaveOutcome> EnsureVbaRibbonTargetsSavedAsync(IReadOnlyList<string> fullPaths)
+        => EnsureVbaTargetsSavedAsync(fullPaths, "ブックへ反映するリボンのファイル", "反映を続けます", "反映されず、リボンの反映を中止します", "反映しません");
+
     private async Task<VbaPullSaveOutcome> EnsureVbaTargetsSavedAsync(
         IReadOnlyList<string> fullPaths, string subject, string continuation, string declinedResult, string failedResult)
     {

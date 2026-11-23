@@ -48,6 +48,72 @@ public class VbaSettingsTests
         new Settings().Vba.RibbonMaxChars.Should().Be(30000);
     }
 
+    [Fact(DisplayName = "リボンの書き換えの既定値: 扱う・ブックの控え 5 世代・500MB・保存と開き直しの時間切れ 120 秒")]
+    public void リボンの書き換えの既定値()
+    {
+        var vba = new Settings().Vba;
+
+        vba.RibbonEditEnabled.Should().BeTrue();
+        vba.WorkbookBackupMaxGenerations.Should().Be(5);
+        vba.WorkbookBackupMaxTotalMB.Should().Be(500);
+        vba.WorkbookSaveOpenTimeoutMs.Should().Be(120000);
+    }
+
+    [Fact(DisplayName = "リボンの書き換えの 4 項目は JSON の往復で保たれる（camelCase）。このキーの無い旧形式は既定値で読める")]
+    public async Task リボンの書き換えの往復()
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        var store = new SettingsStore(paths);
+        var custom = new VbaSettings
+        {
+            RibbonEditEnabled = false, WorkbookBackupMaxGenerations = 9, WorkbookBackupMaxTotalMB = 1234, WorkbookSaveOpenTimeoutMs = 90000,
+        };
+
+        await store.SaveAsync(new Settings { Vba = custom });
+        var json = await File.ReadAllTextAsync(paths.SettingsFilePath);
+        var loaded = await store.LoadAsync();
+
+        json.Should().Contain("\"ribbonEditEnabled\": false").And.Contain("\"workbookBackupMaxGenerations\": 9");
+        json.Should().Contain("\"workbookBackupMaxTotalMB\": 1234").And.Contain("\"workbookSaveOpenTimeoutMs\": 90000");
+        loaded.Value.Vba.Should().Be(custom);
+        loaded.Issues.Should().BeEmpty();
+
+        await File.WriteAllTextAsync(paths.SettingsFilePath, "{ \"vba\": { \"comTimeoutMs\": 7000 } }");
+        var old = await store.LoadAsync();
+        old.Value.Vba.RibbonEditEnabled.Should().BeTrue("このキーの無い旧形式は既定値で読める");
+        old.Value.Vba.WorkbookBackupMaxGenerations.Should().Be(5);
+        old.Value.Vba.WorkbookBackupMaxTotalMB.Should().Be(500);
+        old.Value.Vba.WorkbookSaveOpenTimeoutMs.Should().Be(120000);
+        old.Issues.Should().BeEmpty();
+    }
+
+    [Theory(DisplayName = "リボンの書き換えの数値は範囲外なら既定値に戻り、E404 の警告が付く（世代 1〜50・容量 50〜20000・時間切れ 30000〜600000）")]
+    [InlineData("workbookBackupMaxGenerations", 0, 5)]
+    [InlineData("workbookBackupMaxGenerations", 51, 5)]
+    [InlineData("workbookBackupMaxTotalMB", 49, 500)]
+    [InlineData("workbookBackupMaxTotalMB", 20001, 500)]
+    [InlineData("workbookSaveOpenTimeoutMs", 29999, 120000)]
+    [InlineData("workbookSaveOpenTimeoutMs", 600001, 120000)]
+    public async Task リボンの書き換えの範囲外(string key, int value, int fallback)
+    {
+        using var ws = new TempWorkspace();
+        var paths = MakePaths(ws);
+        await File.WriteAllTextAsync(paths.SettingsFilePath, $"{{ \"vba\": {{ \"{key}\": {value} }} }}");
+
+        var loaded = await new SettingsStore(paths).LoadAsync();
+
+        var vba = loaded.Value.Vba;
+        var actual = key switch
+        {
+            "workbookBackupMaxGenerations" => vba.WorkbookBackupMaxGenerations,
+            "workbookBackupMaxTotalMB" => vba.WorkbookBackupMaxTotalMB,
+            _ => vba.WorkbookSaveOpenTimeoutMs,
+        };
+        actual.Should().Be(fallback);
+        loaded.Issues.Should().Contain(i => i.Code == ErrorCode.E404 && i.Detail!.Contains("vba." + key));
+    }
+
     [Fact(DisplayName = "控えの既定値: 1 モジュール 20 世代・全体 50MB")]
     public void 控えの既定値()
     {

@@ -129,6 +129,7 @@ public sealed partial class ContextCollectViewModel
 
         // 【全文はメモリに持つのも「内容も出す」のときだけ】 構成だけなら XML の全文は使わないので、読んだ直後に捨てる。
         _ribbonSnapshot = Ribbon.Level == VbaWorkbookInfoLevel.Full ? snapshot : WithoutXml(snapshot);
+        Ribbon.IsFromMirror = snapshot.IsFromMirror;
         Ribbon.StatusText = snapshot.Describe();
         Ribbon.ShowCallbacks(snapshot.HasContent ? snapshot.Callbacks : null);
 
@@ -149,6 +150,7 @@ public sealed partial class ContextCollectViewModel
     private void ClearRibbon(string status)
     {
         _ribbonSnapshot = null;
+        Ribbon.IsFromMirror = false;
         _ribbonTextSnapshot = null;
         _ribbonTextCache = string.Empty;
         Ribbon.StatusText = status;
@@ -200,6 +202,31 @@ public sealed partial class ContextCollectViewModel
         }
 
         return _ribbonTextCache;
+    }
+
+    /// <summary>
+    /// 「# 対象ファイル」に内容つきで載るファイルに合わせて、リボンの文を作り直す関数（仕様書_ブックの情報と依頼の観点 16.14。
+    /// <see cref="ContextRequest.RibbonTextFor"/> に渡す）。ミラーから読んだ取得結果を「内容も出す」で出すときだけ作り、それ以外
+    /// （ブックから読んだ・構成だけ・出さない・リボンが無い）は null（<see cref="BuildRibbonText"/> の文がそのまま使われ、出力は従来と
+    /// 1 バイトも変わらない）。
+    /// <para>
+    /// 【不変の値だけを閉じ込める】 収集はスレッドプールで走る（<c>CollectAsync</c>）。ViewModel の状態を後から読むと、利用者の操作と
+    /// 競合しうるので、いまの取得結果・出し方・上限・文を写し取って閉じ込める。対象ファイルにリボンのファイルが無ければ、作り直さずに
+    /// 同じ文を返す（整形を繰り返さない）。
+    /// </para>
+    /// </summary>
+    public Func<IReadOnlySet<string>, string>? BuildRibbonTextFor()
+    {
+        var text = BuildRibbonText();
+        if (text.Length == 0 || _ribbonSnapshot is not { IsFromMirror: true } snapshot || Ribbon.Level != VbaWorkbookInfoLevel.Full)
+        {
+            return null;
+        }
+
+        var level = Ribbon.Level;
+        var maxChars = _ribbonTextMaxChars;
+        var paths = snapshot.Parts.Select(p => p.Raw.PartName).ToArray();
+        return files => paths.Any(files.Contains) ? VbaRibbonFormatter.Format(snapshot, level, maxChars, files) : text;
     }
 
     /// <summary>

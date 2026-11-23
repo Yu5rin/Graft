@@ -8,19 +8,34 @@ namespace Graft.Tests.Vba;
 
 /// <summary>
 /// <see cref="VbaExtensionPolicy"/> のテスト（仕様書_VBA連携 4.1・10.1）。
-/// VBA プロジェクトのときだけ .bas/.cls/.frm が加わり、ほかのプロジェクトと既存の設定は変わらない。
+/// VBA プロジェクトのときだけ .bas/.cls/.frm が加わり、<b>リボンの同期が有効なときだけ</b>、リボン（CustomUI/customUI14.xml。
+/// 仕様書_ブックの情報と依頼の観点 16.3）の .xml が加わる。ほかのプロジェクトと既存の設定は変わらない。
+/// <para>.xml を「リボンの同期が有効なときだけ」にしたのは、利用者が .xml を許可リストから外していても、同期をオフにしていても、
+/// VBA プロジェクトだけ .xml が黙って書けてしまうのを防ぐため（PathGuard は拡張子の一覧しか持たず、CustomUI/ の下だけには絞れない）。</para>
 /// </summary>
 public class VbaExtensionPolicyTests
 {
     private static readonly Project VbaProject = new() { Id = "p_a", Root = "/x", Vba = new VbaLink { WorkbookFullName = @"C:\a.xlsm" } };
     private static readonly Project PlainProject = new() { Id = "p_b", Root = "/y" };
 
-    [Fact(DisplayName = "VBA プロジェクトでは .bas/.cls/.frm が加わる")]
+    [Fact(DisplayName = "VBA プロジェクトでは .bas/.cls/.frm が加わる（末尾に、この並びで）。リボンの同期が有効なら .xml も続く")]
     public void VBAプロジェクトでは加わる()
     {
-        var effective = VbaExtensionPolicy.Effective(new[] { ".md", ".txt" }, VbaProject);
+        VbaExtensionPolicy.Effective(new[] { ".md", ".txt" }, VbaProject).Should().Equal(".md", ".txt", ".bas", ".cls", ".frm");
+        VbaExtensionPolicy.Effective(new[] { ".md", ".txt" }, VbaProject, ribbonSyncEnabled: true)
+            .Should().Equal(".md", ".txt", ".bas", ".cls", ".frm", ".xml");
+    }
 
-        effective.Should().BeEquivalentTo(".md", ".txt", ".bas", ".cls", ".frm");
+    [Fact(DisplayName = "利用者が .xml を外していても、リボンの同期が有効な VBA プロジェクトではリボンのために足す。同期がオフなら足さない（不具合の修正）。入っていれば重複させない")]
+    public void リボンのxml()
+    {
+        VbaExtensionPolicy.Effective(new[] { ".bas" }, VbaProject, ribbonSyncEnabled: true).Should().Contain(".xml");
+        VbaExtensionPolicy.Effective(new[] { ".bas" }, VbaProject, ribbonSyncEnabled: false)
+            .Should().NotContain(".xml", "リボンの同期をオフにしているなら、利用者が外した .xml を黙って許可しない");
+        VbaExtensionPolicy.Effective(new[] { ".bas" }, VbaProject).Should().NotContain(".xml", "既定は足さない側（安全側）");
+        VbaExtensionPolicy.Effective(new[] { ".XML", ".bas" }, VbaProject, ribbonSyncEnabled: true)
+            .Count(e => string.Equals(e, ".xml", StringComparison.OrdinalIgnoreCase)).Should().Be(1);
+        VbaExtensionPolicy.Effective(new[] { ".bas" }, PlainProject, ribbonSyncEnabled: true).Should().NotContain(".xml", "VBA でないプロジェクトの挙動は変えない");
     }
 
     [Fact(DisplayName = "ほかのプロジェクトには加わらない（同じ一覧がそのまま返る）")]
@@ -62,6 +77,7 @@ public class VbaExtensionPolicyTests
     public void bool版()
     {
         VbaExtensionPolicy.Effective(new[] { ".md" }, true).Should().BeEquivalentTo(".md", ".bas", ".cls", ".frm");
+        VbaExtensionPolicy.Effective(new[] { ".md" }, true, ribbonSyncEnabled: true).Should().BeEquivalentTo(".md", ".bas", ".cls", ".frm", ".xml");
         VbaExtensionPolicy.Effective(new[] { ".md" }, false).Should().BeEquivalentTo(".md");
     }
 }

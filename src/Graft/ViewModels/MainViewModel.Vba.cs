@@ -1,3 +1,4 @@
+using Graft.Core.Vba;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
@@ -30,6 +31,26 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>
+    /// リボンの同期（取込）でブックのファイルを読む処理（仕様書_ブックの情報と依頼の観点 16.4）。既定は実際のファイルを読む
+    /// （<see cref="VbaRibbonPackageReader.Read(string, VbaRibbonLimits?)"/>）。テストは、Excel の代役（<c>FakeVbaBridge</c>）が
+    /// 開いている「ブック」に実ファイルが無いので差し替える（<see cref="VbaRibbonReader"/> と同じ理由）。
+    /// </summary>
+    internal Func<string, VbaRibbonReadResult> VbaRibbonPackageReader { get; set; } =
+        path => Graft.Core.Vba.VbaRibbonPackageReader.Read(path);
+
+    /// <summary>
+    /// リボンの書き換え（仕様書_ブックの情報と依頼の観点 16.5）で書き換えるファイルのパス（紐付けたブックの <c>FullName</c> から）。
+    /// 本番はそのまま。テストは、Excel の代役が開いている「ブック」に実ファイルが無いので、一時ファイルの zip へ向ける
+    /// （<see cref="VbaRibbonPackageReader"/> と同じ理由）。
+    /// </summary>
+    internal Func<string, string> VbaRibbonWorkbookFile { get; set; } = static path => path;
+
+    /// <summary>
+    /// リボンの書き換えの前の未保存の確認（16.5 の段階 1）。<see cref="BeforeVbaPullAsync"/> と同じ作りで、<c>ShellViewModel</c> が配線する。
+    /// </summary>
+    public Func<IReadOnlyList<string>, Task<VbaPullSaveOutcome>>? BeforeVbaRibbonRewriteAsync { get; set; }
+
     /// <summary>Pull／Push の窓口（<see cref="VbaBridge"/> から作る）。</summary>
     public VbaSyncService VbaSync => _vbaSync ??= CreateVbaSync();
 
@@ -55,6 +76,15 @@ public sealed partial class MainViewModel
             BeforePullAsync = paths2 => BeforeVbaPullAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing),
         };
         service.Rescue.BeforeRestoreAsync = paths2 => BeforeVbaRestoreAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing);
+        // リボン（customUI）の同期（仕様書_ブックの情報と依頼の観点 16.3・16.4）。ブックの読み方と設定は、プロパティの現在値を
+        // 呼ぶ形で渡す（テストが後から読み方を差し替え、設定画面が設定を差し替えても、作り直さずに効くように）。
+        service.Ribbon.PackageReader = path => VbaRibbonPackageReader(path);
+        service.Ribbon.IsEnabled = () => _settings.Vba.RibbonEditEnabled;
+        // 書き換え（16.5。段階 F3）: 書くファイル・未保存の確認・控えの世代数と容量。どれも呼び出しのたびに現在値を読む。
+        service.Ribbon.WorkbookFileOf = path => VbaRibbonWorkbookFile(path);
+        service.Ribbon.BeforeRewriteAsync = paths2 => BeforeVbaRibbonRewriteAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing);
+        service.Ribbon.MaxBackupGenerations = () => _settings.Vba.WorkbookBackupMaxGenerations;
+        service.Ribbon.MaxBackupTotalMB = () => _settings.Vba.WorkbookBackupMaxTotalMB;
         ApplyRescueLimits(service, _settings);
         service.WritingChanged += OnVbaWritingChanged;
         return service;
@@ -101,6 +131,12 @@ public sealed partial class MainViewModel
         ProjectPane.IsVbaEnabledSetting = () => _settings.Vba.Enabled;
         // 控えの窓（仕様書_ブックの情報と依頼の観点 7.4）。いまの VbaSync と設定で作る。
         ProjectPane.CreateRescueViewModel = project => new VbaRescueViewModel(project, VbaSync.Rescue, _settings, _ui);
+        // リボンの書き換えの確認（16.9）。差分の表示に設定と UI 機能が要るので、ここで作る。
+        ProjectPane.CreateRibbonRewriteViewModel = plan => new VbaRibbonRewriteViewModel(plan, _settings, _ui);
+        ProjectPane.VbaWorkbookBackupDirectoryOf = project => _vbaPaths.GetVbaWorkbookBackupDirectory(project.Id);
+        // リボンの書き換えの処理中の表示（16.5。段階の名前を出し、終わるまで取り消し・貼り付け・プロジェクトの切り替えを塞ぐ）。
+        ProjectPane.ShowRibbonProgress = text => Notice.Show(text);
+        ProjectPane.SetRibbonRewriteBusy = SetRibbonRewriteBusy;
         ApplyVbaSettings(_settings);
     }
 
@@ -113,6 +149,8 @@ public sealed partial class MainViewModel
         if (_vbaBridge is IVbaBridgeTimeouts timeouts)
         {
             timeouts.Configure(settings.Vba.ComTimeoutMs, settings.Vba.CallTimeoutMs);
+            // ブックの保存・開き直しだけの上限（16.6。大きなブックは Vba.CallTimeoutMs を超えうる）。
+            timeouts.ConfigureWorkbookSaveOpen(settings.Vba.WorkbookSaveOpenTimeoutMs);
         }
 
         // 控えの世代数・容量（反映のたびに掃除で使う）。
@@ -120,6 +158,26 @@ public sealed partial class MainViewModel
 
         // 機能の有効・無効（ボタン・メニュー・パレットの表示）を更新するため、ペインへ再通知する。
         ProjectPane.IsVbaEnabledSetting = () => _settings.Vba.Enabled;
+    }
+
+    private CenterPaneState _stateBeforeRibbonRewrite;
+
+    /// <summary>
+    /// リボンの書き換え（保存して閉じる〜開き直す）の処理中の表示（16.5）。Excel へ Push している最中と同じ扱いにして
+    /// （<see cref="SetVbaPushing"/>）、貼り付け・取り消し・プロジェクトの切り替えを塞ぎ、中央ペインを処理中の表示にする。
+    /// </summary>
+    private void SetRibbonRewriteBusy(bool busy)
+    {
+        if (busy)
+        {
+            _stateBeforeRibbonRewrite = State;
+            State = CenterPaneState.Loading;
+            SetVbaPushing(true);
+            return;
+        }
+
+        SetVbaPushing(false);
+        if (State == CenterPaneState.Loading) State = _stateBeforeRibbonRewrite;
     }
 
     private static void ApplyRescueLimits(VbaSyncService service, Settings settings)

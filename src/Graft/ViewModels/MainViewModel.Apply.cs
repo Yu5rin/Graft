@@ -235,8 +235,19 @@ public sealed partial class MainViewModel
         string? vbaNoticeDetail = null;
         if (project is not null && IsVbaActive(project) && project.Vba!.AutoPushAfterApply)
         {
-            (vbaUndone, vbaNoticeDetail) = await PushVbaAfterApplyAsync(project, result.Value).ConfigureAwait(true);
+            var vbaPush = await PushVbaAfterApplyAsync(project, result.Value).ConfigureAwait(true);
+            (vbaUndone, vbaNoticeDetail) = (vbaPush.Undone, vbaPush.Detail);
             rolledBack = vbaUndone;
+
+            // リボン（customUI）: VBA の反映が全部済んだあとに、確認を出して書き換える（仕様書_ブックの情報と依頼の観点 16.10）。
+            // 順序は「VBA の反映 → リボン → 適用後フック・Git の自動コミット」。リボンの確認で「中止」しても、適用は成功しているので、
+            // フックとコミットは行う（取り消しも提案しない）。VBA の反映で適用を取り消したときは、リボンは触れない。
+            if (!vbaUndone)
+            {
+                var ribbonFollow = await ProjectPane.FollowWithRibbonAsync(
+                    project, vbaPush.Completed, vbaPush.Written, Graft.Core.Vba.VbaConflictScene.AfterApply, quietSuccess: true).ConfigureAwait(true);
+                vbaNoticeDetail = RibbonNoticeDetail(vbaNoticeDetail, ribbonFollow);
+            }
         }
 
         // 未反映・削除保留の件数のバッジを数え直す（仕様書_VBA連携 7.6。Excel には接続しない。自動反映をオフにしている

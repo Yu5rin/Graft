@@ -213,6 +213,30 @@ public sealed record VbaSettings
 
     /// <summary>控え全体（従来の控えを含む）の容量（MB）。範囲 5〜1000。超えたら自動控えを古い順に消す（同 7.3）。</summary>
     public int RescueMaxTotalMB { get; init; } = 50;
+
+    /// <summary>
+    /// リボン（customUI）をミラーのファイル（<c>CustomUI/customUI14.xml</c>・<c>CustomUI/customUI.xml</c>）として扱い、取込・反映するか
+    /// （仕様書_ブックの情報と依頼の観点 16.13。既定オン。16.16-8）。false なら v0.6 までと同じ（読み取りだけ。<c>CustomUI/</c> を作らず、
+    /// あっても同期しない）。段階 F1 では設定の項目だけで、取込・反映は段階 F2 以降でこの値を見る。
+    /// </summary>
+    public bool RibbonEditEnabled { get; init; } = true;
+
+    /// <summary>
+    /// リボンの書き換えの前に残す、ブックの丸ごとの控えの世代数（16.11）。範囲 1〜50。最新の 1 件は上限を超えていても消さない。
+    /// </summary>
+    public int WorkbookBackupMaxGenerations { get; init; } = 5;
+
+    /// <summary>
+    /// ブックの丸ごとの控えの、1 プロジェクトの合計の容量（MB）。範囲 50〜20000。モジュールの控え（<see cref="RescueMaxTotalMB"/>）と
+    /// 別にするのは、中身がバイナリで 1 件が数十 MB になりうり、上限の桁が違うため（同じ上限だと、ブック 1 件でモジュールの控えが押し出される）。
+    /// </summary>
+    public int WorkbookBackupMaxTotalMB { get; init; } = 500;
+
+    /// <summary>
+    /// リボンの書き換えで、ブックを保存する・開き直す呼び出しの時間切れ（ミリ秒。16.6）。範囲 30000〜600000。
+    /// 大きなブックの保存と開き直しは <see cref="CallTimeoutMs"/>（既定 30 秒）を超えうるので、この 2 つだけ別の上限にする。
+    /// </summary>
+    public int WorkbookSaveOpenTimeoutMs { get; init; } = 120000;
 }
 
 /// <summary>

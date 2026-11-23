@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using Graft.Core;
+using Graft.Core.Vba;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
@@ -66,6 +67,13 @@ public sealed class ShellHarness : IDisposable
             Dialogs,
             new FakeUiServices(Clipboard),
             openSettings: () => OpenSettingsCount++);
+
+        // リボンの同期（取込）は、紐付けたブックのファイルを読む（仕様書_ブックの情報と依頼の観点 16.4）。Excel の代役
+        // （FakeVbaBridge）が開いている「ブック」には実ファイルが無く、そのまま読むと「ブックのファイルを読めない」の警告が、
+        // リボンと関係のないテストの取込の結果に混ざる。既定は「リボンの設定が無いブック」にし、リボンを確かめるテストは
+        // VbaP3Rig.RibbonFile で一時ファイルの zip を指す。
+        Shell.Graft.VbaRibbonPackageReader = _ => new VbaRibbonReadResult(
+            VbaRibbonReadStatus.NoRibbon, null, Array.Empty<VbaRibbonRawPart>());
 
         if (withWindow)
         {
@@ -222,6 +230,23 @@ public sealed class ScriptedDialogs : IDialogService
 
     public Task<string?> SaveFileAsync(string title, string suggestedFileName, IReadOnlyList<string>? extensions = null)
         => Task.FromResult<string?>(null);
+
+    /// <summary>
+    /// ボタンつきの知らせ（<see cref="IDialogService.ShowActionMessageAsync"/>）の応答（title, message, actionLabel）。未指定なら、
+    /// 既定の実装と同じく true（ボタンを押した）。リボンの書き換えの「もう一度試す」のように、押し続けると同じ知らせが繰り返し出る
+    /// ものを確かめるテストは false を返す。
+    /// </summary>
+    public Func<string, string, string, bool>? ActionAnswer { get; set; }
+
+    /// <summary>出たボタンつきの知らせ（title, message, actionLabel）。<see cref="Messages"/> にも同じものが入る。</summary>
+    public List<(string Title, string Message, string Action)> Actions { get; } = new();
+
+    public Task<bool> ShowActionMessageAsync(string title, string message, string actionLabel)
+    {
+        Actions.Add((title, message, actionLabel));
+        Messages.Add((title, message));
+        return Task.FromResult(ActionAnswer?.Invoke(title, message, actionLabel) ?? true);
+    }
 
     public Task ShowMessageAsync(string title, string message)
     {

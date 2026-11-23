@@ -628,6 +628,7 @@ public sealed partial class ContextCollectViewModel : ObservableObject, IDisposa
             FocusText = BuildFocusText(),
             WorkbookInfoText = BuildWorkbookInfoText(),
             RibbonText = BuildRibbonText(),
+            RibbonTextFor = BuildRibbonTextFor(),
         };
 
         // 8.8: 収集本体（プレビュー・コピー・ファイル保存）にも待機表示を出す。従来は

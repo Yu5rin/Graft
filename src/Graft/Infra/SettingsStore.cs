@@ -260,7 +260,7 @@ public sealed class SettingsStore
             callTimeout = 30000;
         }
 
-        // ブックの情報（仕様書_ブックの情報と依頼の観点 9章）の 6 項目と、リボンの 1 項目、控えの 2 項目。範囲外は既定値へ戻して警告する。
+        // ブックの情報（仕様書_ブックの情報と依頼の観点 9章）の 6 項目と、リボンの 1 項目、控えの 2 項目、リボンの書き換えの 3 項目。範囲外は既定値へ戻して警告する。
         return s with
         {
             ComTimeoutMs = comTimeout,
@@ -275,6 +275,10 @@ public sealed class SettingsStore
             // 反映前の自動控え（仕様書_ブックの情報と依頼の観点 7.3）の 2 項目。
             RescueMaxGenerations = NormalizeIntRange(s.RescueMaxGenerations, 1, 200, 20, "vba.rescueMaxGenerations", issues, context),
             RescueMaxTotalMB = NormalizeIntRange(s.RescueMaxTotalMB, 5, 1000, 50, "vba.rescueMaxTotalMB", issues, context),
+            // リボンの書き換え（仕様書_ブックの情報と依頼の観点 16.13）の 3 項目。RibbonEditEnabled は真偽値なので検証は要らない。
+            WorkbookBackupMaxGenerations = NormalizeIntRange(s.WorkbookBackupMaxGenerations, 1, 50, 5, "vba.workbookBackupMaxGenerations", issues, context),
+            WorkbookBackupMaxTotalMB = NormalizeIntRange(s.WorkbookBackupMaxTotalMB, 50, 20000, 500, "vba.workbookBackupMaxTotalMB", issues, context),
+            WorkbookSaveOpenTimeoutMs = NormalizeIntRange(s.WorkbookSaveOpenTimeoutMs, 30000, 600000, 120000, "vba.workbookSaveOpenTimeoutMs", issues, context),
         };
     }
 

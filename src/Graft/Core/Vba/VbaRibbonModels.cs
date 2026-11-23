@@ -152,6 +152,19 @@ public sealed record VbaRibbonSourceModule(string Name, VbaModuleKind Kind, stri
 public sealed record VbaRibbonCallbackCheck(
     string Name, IReadOnlyList<string> Usages, VbaRibbonCallbackStatus Status, string Detail);
 
+/// <summary>リボン（customUI）の取得結果を、どこから読んだか（仕様書_ブックの情報と依頼の観点 16.14）。</summary>
+public enum VbaRibbonSource
+{
+    /// <summary>ブックのファイル（15 章。ミラーに <c>CustomUI/*.xml</c> が無いとき）。部品名はパッケージの中の名前。</summary>
+    Workbook,
+
+    /// <summary>
+    /// Graft のミラーのファイル（<c>CustomUI/customUI14.xml</c>・<c>CustomUI/customUI.xml</c>）。部品名（<see cref="VbaRibbonRawPart.PartName"/>）は
+    /// <b>ミラーのパス</b>にする（依頼文の見出しをそのまま search/replace の対象のパスにするため）。
+    /// </summary>
+    Mirror,
+}
+
 /// <summary>
 /// リボン（customUI）の取得結果。<b>メモリにだけ持ち、ディスクへは書かない</b>（<c>label</c> などに業務名が入りうるため）。
 /// </summary>
@@ -163,11 +176,36 @@ public sealed record VbaRibbonCallbackCheck(
 /// <param name="Reason">読めなかったときの理由 1 行（<see cref="VbaRibbonReadStatus.Ok"/> のときも、一部の部品が読めなかったなら、その旨）。</param>
 /// <param name="Parts">解析した部品。</param>
 /// <param name="Callbacks">コールバックの一覧と、VBA との照合結果（名前ごと）。</param>
+/// <param name="Source">どこから読んだか（16.14）。既定はブックのファイル（15 章のまま）。</param>
+/// <param name="UnpushedPaths">
+/// ミラーから読んだとき、ブックへまだ反映していないファイルのミラーのパス（依頼文の「ブックへは…」と行の表示に使う）。
+/// ブックから読んだときは null。
+/// </param>
 public sealed record VbaRibbonSnapshot(
     string WorkbookName, string WorkbookPath, DateTimeOffset ReadAt, DateTimeOffset? FileModified,
     VbaRibbonReadStatus Status, string? Reason,
-    IReadOnlyList<VbaRibbonPart> Parts, IReadOnlyList<VbaRibbonCallbackCheck> Callbacks)
+    IReadOnlyList<VbaRibbonPart> Parts, IReadOnlyList<VbaRibbonCallbackCheck> Callbacks,
+    VbaRibbonSource Source = VbaRibbonSource.Workbook, IReadOnlyList<string>? UnpushedPaths = null)
 {
+    /// <summary>ミラーのファイルから読んだか（16.14）。</summary>
+    public bool IsFromMirror => Source == VbaRibbonSource.Mirror;
+
+    /// <summary>
+    /// ミラーから読んだとき、ブックへの反映の状態を 1 文にする（「ブックへは反映済みです。」など。16.14）。ブックから読んだときは空。
+    /// 2 つのファイルで状態が違えば、ファイルごとに書く（片方だけ未反映のときに「反映済み」と言い切らない）。
+    /// </summary>
+    public string PushedSentence()
+    {
+        if (!IsFromMirror) return string.Empty;
+        var paths = Parts.Select(p => VbaRibbonText.OneLine(p.Raw.PartName)).ToList();
+        var unpushed = new HashSet<string>(UnpushedPaths ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var pending = paths.Where(unpushed.Contains).ToList();
+        if (pending.Count == 0) return "ブックへは反映済みです。";
+        if (pending.Count == paths.Count) return "ブックへは**まだ反映していません**。";
+        var done = paths.Where(p => !unpushed.Contains(p)).ToList();
+        return $"ブックへは、{string.Join("・", done)} は反映済み、{string.Join("・", pending)} は**まだ反映していません**。";
+    }
+
     /// <summary>依頼文に出せる部品があるか。</summary>
     public bool HasContent => Status == VbaRibbonReadStatus.Ok && Parts.Any(p => p.IsUsable);
 
@@ -176,6 +214,15 @@ public sealed record VbaRibbonSnapshot(
     {
         var at = ReadAt.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
         var modified = FileModified?.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+        if (IsFromMirror && Status == VbaRibbonReadStatus.Ok)
+        {
+            // ミラーから読んだ（16.14）。「最後に保存した内容です」は書かない（読んでいるのはブックではなく、Graft のミラーのファイル）。
+            // 依頼文の太字の印（**）は行に出さないので外す。
+            var files = string.Join("・", Parts.Select(p => VbaRibbonText.OneLine(p.Raw.PartName)));
+            return $"取得: {at}（Graft のミラーのファイル {files} を読みました。{PushedSentence().Replace("**", string.Empty, StringComparison.Ordinal)}）"
+                   + (Reason is null ? string.Empty : $"。{Reason}");
+        }
+
         return Status switch
         {
             VbaRibbonReadStatus.Ok => $"取得: {at}（ファイルの更新: {modified ?? "不明"}。最後に保存した内容です）"

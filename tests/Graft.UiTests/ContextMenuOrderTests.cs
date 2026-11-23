@@ -70,7 +70,9 @@ public class ContextMenuOrderTests
             "---", MenuText.CopyPath, MenuText.RevealInFileManager,
             "---", "タグを編集…", "表示名を変更…", "場所を変更…",
             // Excel VBA 連携の項目（VBA プロジェクトのときだけ表示。ProjectPane.axaml）。削除より前の独立した区画。
-            "---", "Excel から取込", "Excel へ反映", "Excel から復元", "ブックを前面化", "Excel 側の控えを見る…",
+            // リボンの書き換えの手動の入口（仕様書_ブックの情報と依頼の観点 16.13。段階 F3）は「Excel から復元」の次。
+            "---", "Excel から取込", "Excel へ反映", "Excel から復元", "リボンをブックへ反映…", "リボンの XML を検査",
+            "ブックを前面化", "Excel 側の控えを見る…",
             "適用後に Excel へ自動反映する", "保存したらそのモジュールを Excel へ反映する", "反映後にブックを保存する",
             "---", "削除…");
         layout.Last().Should().Be("削除…");

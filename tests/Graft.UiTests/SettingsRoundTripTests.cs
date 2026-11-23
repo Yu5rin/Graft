@@ -128,6 +128,8 @@ public class SettingsRoundTripTests : IDisposable
             RibbonMaxChars = 45000,
             // 反映前の自動控え（同 7.3。段階 Q3）。
             RescueMaxGenerations = 35, RescueMaxTotalMB = 120,
+            // リボンの書き換え（同 16.13。段階 F1。設定画面に欄は無いが、保存のたびに既定へ戻らないこと）。
+            RibbonEditEnabled = false, WorkbookBackupMaxGenerations = 7, WorkbookBackupMaxTotalMB = 800, WorkbookSaveOpenTimeoutMs = 150000,
         },
     };
 

@@ -174,6 +174,23 @@ public sealed class AppPaths
     public string GetVbaRescueDirectory(string projectId)
         => Path.Combine(VbaSyncDirectory, projectId + ".rescue");
 
+    /// <summary>
+    /// 指定プロジェクトの、リボンの書き換えの前に残すブックの丸ごとの控えの置き場（vba-sync/&lt;プロジェクトID&gt;.workbooks/。
+    /// 仕様書_ブックの情報と依頼の観点 16.11）。<c>.rescue/</c>（モジュールの本文の控え）とは分ける: 中身がバイナリで 1 件が
+    /// 数十 MB になりうり、上限の桁も一覧の作りも違うため。<c>vba-sync/</c> の配下なので、データ保存先の移行の対象にそのまま入る。
+    /// プロジェクトの Id が変わるとき（<c>VbaSyncStateStore.Move</c>・<c>VbaDataRelinker.Relink</c>）は <c>.rescue</c> と同じく付け替える。
+    /// </summary>
+    public string GetVbaWorkbookBackupDirectory(string projectId)
+        => Path.Combine(VbaSyncDirectory, projectId + ".workbooks");
+
+    /// <summary>
+    /// 指定プロジェクトの、リボンの書き換えの作業の記録（vba-sync/&lt;プロジェクトID&gt;.ribbon-job.json。仕様書_ブックの情報と依頼の観点
+    /// 16.5 の段階 5・16.11）。書き換えの最中だけ存在し、終われば消す。残っていれば、Graft が書き換えの途中で落ちた印として、
+    /// 次の起動・次のリボンの操作で後始末する。
+    /// </summary>
+    public string GetVbaRibbonJobFilePath(string projectId)
+        => Path.Combine(VbaSyncDirectory, projectId + ".ribbon-job.json");
+
     /// <summary>指定プロジェクトのバックアップディレクトリ（back/&lt;プロジェクトID&gt;/）。</summary>
     public string GetProjectBackupDirectory(string projectId)
         => Path.Combine(BackupRootDirectory, projectId);

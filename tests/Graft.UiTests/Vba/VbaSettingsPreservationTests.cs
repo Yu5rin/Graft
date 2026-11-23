@@ -60,6 +60,10 @@ public class VbaSettingsPreservationTests : IDisposable
         RibbonMaxChars = 55000,
         RescueMaxGenerations = 42,
         RescueMaxTotalMB = 90,
+        RibbonEditEnabled = false,
+        WorkbookBackupMaxGenerations = 11,
+        WorkbookBackupMaxTotalMB = 900,
+        WorkbookSaveOpenTimeoutMs = 200000,
     };
 
     [AvaloniaFact(DisplayName = "設定画面で別の項目を保存しても、Vba の値は保たれる（BuildSettingsFromFields の往復）")]

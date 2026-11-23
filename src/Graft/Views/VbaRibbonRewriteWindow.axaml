@@ -1,0 +1,142 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Graft.Views"
+        x:Class="Graft.Views.VbaRibbonRewriteWindow"
+        x:Name="Root"
+        Title="リボンをブックへ反映"
+        Width="760"
+        SizeToContent="Height"
+        MinWidth="560" MaxHeight="880"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgBase}"
+        FontFamily="{DynamicResource UiFontFamily}"
+        FontSize="{DynamicResource BodyFontSize}"
+        Foreground="{DynamicResource TextPrimary}"
+        AutomationProperties.Name="リボンをブックへ反映">
+    <!--
+        仕様書_ブックの情報と依頼の観点 16.9: リボンの書き換えの確認（毎回）。Excel で開いていないブックは手順が「控えを残す → XML を
+        差し替える」の 2 つ、開いているブックは「保存して閉じる → 控え → 差し替え → 開き直す」の 4 つ（段階 F4）で、未保存の変更の注意と、
+        マクロが動くことの注意を出す。「次から確認しない」は置かない。既定（Enter）と Esc は「中止」。
+        ボタンは動詞にし、何が起きるかを手順の番号で示す。並びは Windows の作法（肯定的な選択肢が左）に合わせるが、
+        取り返しのつかない側（書き換える）を既定にしないため、primary の見た目と Enter は「中止」に付ける。
+    -->
+    <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+        <TextBlock Grid.Row="0"
+                   x:Name="LeadText"
+                   Text="{Binding LeadText}"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource TextPrimary}" />
+
+        <Border Grid.Row="1"
+                Margin="0,12,0,0" Padding="12,8"
+                Background="{DynamicResource BgSurface}"
+                BorderBrush="{DynamicResource BorderSubtle}"
+                BorderThickness="1" CornerRadius="4">
+            <TextBlock x:Name="StepsText"
+                       Text="{Binding StepsText}"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextPrimary}"
+                       AutomationProperties.Name="書き換えの手順" />
+        </Border>
+
+        <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="6">
+            <!-- 開いているブックだけ: 未保存の変更の注意（文面を変えるためだけの表示。保存は必ず行う）と、マクロ・「元に戻す」の注意。 -->
+            <TextBlock x:Name="UnsavedWarningText"
+                       Text="{Binding UnsavedWarningText}"
+                       IsVisible="{Binding HasUnsavedWarning}"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource StateWarn}"
+                       AutomationProperties.Name="未保存の変更の注意" />
+            <TextBlock x:Name="OpenNoticesText"
+                       Text="{Binding OpenNoticesText}"
+                       IsVisible="{Binding HasOpenNotices}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       AutomationProperties.Name="閉じるときと開くときの注意" />
+            <TextBlock x:Name="BackupText"
+                       Text="{Binding BackupText}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       AutomationProperties.Name="控えの場所" />
+        </StackPanel>
+
+        <!-- 検査の警告（エラーがあるときは、この窓まで来ない）。先頭 5 件と「ほか N 件」、「すべて見る」で全件。 -->
+        <StackPanel Grid.Row="3" Margin="0,8,0,0" Spacing="2" IsVisible="{Binding HasWarnings}">
+            <TextBlock Text="{Binding WarningsHeadingText}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextPrimary}" />
+            <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="WarningList"
+                              ItemsSource="{Binding WarningLines}"
+                              AutomationProperties.Name="検査の警告">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding StringFormat='    - {0}'}"
+                                       TextWrapping="Wrap"
+                                       FontSize="{DynamicResource CaptionFontSize}"
+                                       Foreground="{DynamicResource TextSecondary}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+            <Button x:Name="ShowAllWarningsButton"
+                    Content="すべて見る"
+                    Command="{Binding ShowAllWarningsCommand}"
+                    IsVisible="{Binding HasMoreWarnings}"
+                    HorizontalAlignment="Left"
+                    Margin="16,4,0,0"
+                    AutomationProperties.Name="検査の警告をすべて見る" />
+        </StackPanel>
+
+        <!-- 2 形式を書くときだけ、差分を見る形式を切り替える。 -->
+        <ComboBox Grid.Row="4"
+                  Margin="0,12,0,0"
+                  IsVisible="{Binding ShowDiffTargetPicker}"
+                  ItemsSource="{Binding DiffTargets}"
+                  SelectedItem="{Binding DiffTarget}"
+                  AutomationProperties.Name="差分を見るファイル">
+            <ComboBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding MirrorPath}" />
+                </DataTemplate>
+            </ComboBox.ItemTemplate>
+        </ComboBox>
+
+        <Grid Grid.Row="5" RowDefinitions="Auto,*" Margin="0,8,0,0" IsVisible="{Binding IsDiffVisible}" MinHeight="320">
+            <TextBlock Grid.Row="0"
+                       Text="{Binding DiffCaptionText}"
+                       Margin="0,0,0,4"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}" />
+            <views:DiffView Grid.Row="1"
+                            DataContext="{Binding Diff}"
+                            AutomationProperties.Name="ブックのいまのリボンと Graft のファイルの差分" />
+        </Grid>
+
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button x:Name="DiffButton"
+                    Content="{Binding DiffButtonText}"
+                    Command="{Binding ToggleDiffCommand}"
+                    Margin="0,0,16,0"
+                    views:HelpTip.Standard="ブックのいまのリボンと、Graft のファイル（CustomUI/）の差分を、この窓の中に出します。"
+                    AutomationProperties.Name="差分を見る" />
+            <Button x:Name="RewriteButton"
+                    Content="{Binding RewriteButtonText}"
+                    Command="{Binding RewriteCommand}"
+                    views:HelpTip.Standard="控えを残してから、ブックのファイルのリボンを書き換えます（Excel で開いているブックは、先に保存して閉じ、書き換えたあとで開き直します）。"
+                    views:HelpTip.Detailed="書き換える前のブックを、データ保存先の控えのフォルダへ丸ごと写し、元と同じかを確かめてから、ブックと同じフォルダの一時ファイルへ新しいブックを書き、全部の部品を照合して置き換えます。置き換えたあとに読み直してミラーと違えば、控えから元に戻します。"
+                    AutomationProperties.Name="{Binding RewriteButtonText}" />
+            <Button x:Name="CancelButton"
+                    Classes="primary"
+                    Content="中止"
+                    Command="{Binding CancelCommand}"
+                    IsDefault="True"
+                    IsCancel="True"
+                    views:HelpTip.Standard="何もせずに閉じます（Enter・Esc）。リボンは未反映のまま残ります。"
+                    AutomationProperties.Name="中止" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -88,6 +88,9 @@ public sealed partial class ShellViewModel
             new("Excel ブックからプロジェクトを追加", Graft.ProjectPane.AddFromWorkbookCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
             new("Excel から取込（選択中の VBA プロジェクト）", Graft.ProjectPane.PullFromExcelCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
             new("Excel へ反映（選択中の VBA プロジェクト）", Graft.ProjectPane.PushToExcelCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
+            // リボン（customUI）の書き換えの手動の入口（仕様書_ブックの情報と依頼の観点 16.13。段階 F3）。
+            new("リボンをブックへ反映…（選択中の VBA プロジェクト）", Graft.ProjectPane.PushRibbonCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
+            new("リボンの XML を検査（選択中の VBA プロジェクト）", Graft.ProjectPane.InspectRibbonCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
             new("Excel のブックを前面に出す（選択中の VBA プロジェクト）", Graft.ProjectPane.ActivateWorkbookCommand, null, null, c, () => Graft.ProjectPane.IsVbaFeatureAvailable),
             // 控えはファイルを見るだけなので、設定で VBA 連携を切っていても出す（この環境で使えるときだけ）。
             new("Excel 側の控えを見る（選択中の VBA プロジェクト）", Graft.ProjectPane.ShowRescueCommand, null, null, c, () => Graft.ProjectPane.IsSelectedVbaProject),

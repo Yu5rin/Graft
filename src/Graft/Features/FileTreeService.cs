@@ -269,7 +269,7 @@ public sealed class FileTreeService
         var safety = settings.Safety;
         return new PathGuardOptions
         {
-            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(safety.AllowedExtensions, project),
+            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(safety.AllowedExtensions, project, settings.Vba.RibbonEditEnabled),
             MaxFileSizeMB = safety.MaxFileSizeMB,
             MaxFilesPerRevision = safety.MaxFilesPerRevision,
         };

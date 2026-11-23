@@ -31,6 +31,10 @@ public sealed partial class SettingsViewModel
     private string _vbaRibbonMaxCharsText = "30000";
     private string _vbaRescueMaxGenerationsText = "20";
     private string _vbaRescueMaxTotalMBText = "50";
+    private bool _vbaRibbonEditEnabled = true;
+    private string _vbaWorkbookBackupMaxGenerationsText = "5";
+    private string _vbaWorkbookBackupMaxTotalMBText = "500";
+    private string _vbaWorkbookSaveOpenTimeoutMsText = "120000";
 
     /// <summary>
     /// この環境で VBA 連携が使えるかを調べる窓口。既定は <c>PlatformServices.Current.Vba</c>（Windows 以外では Null 実装で false）。
@@ -95,6 +99,23 @@ public sealed partial class SettingsViewModel
     /// <summary>控え全体の容量（MB。<c>Vba.RescueMaxTotalMB</c>）。範囲 5〜1000。</summary>
     public string VbaRescueMaxTotalMBText { get => _vbaRescueMaxTotalMBText; set => SetEditableProperty(ref _vbaRescueMaxTotalMBText, value); }
 
+    // 【リボンの書き換えの 4 項目（仕様書_ブックの情報と依頼の観点 16.13）】 段階 F1 では設定画面（VbaSettingsView）に欄を出さない
+    // （機能がまだ使えないのに欄だけあると、利用者が効くと思って変えてしまう）。それでも編集用プロパティを持つのは、
+    // BuildSettingsFromFields が new Settings で全項目を組み立て直すため。持たないと、ほかの項目を保存するたびに、
+    // settings.json に手で書いた値や、後の版で設定画面から変えた値が既定値へ戻る（P1 の「持ち回り」と同じ理由）。
+
+    /// <summary>リボンをミラーのファイルとして扱う（<c>Vba.RibbonEditEnabled</c>）。</summary>
+    public bool VbaRibbonEditEnabled { get => _vbaRibbonEditEnabled; set => SetEditableProperty(ref _vbaRibbonEditEnabled, value); }
+
+    /// <summary>ブックの丸ごとの控えの世代数（<c>Vba.WorkbookBackupMaxGenerations</c>）。範囲 1〜50。</summary>
+    public string VbaWorkbookBackupMaxGenerationsText { get => _vbaWorkbookBackupMaxGenerationsText; set => SetEditableProperty(ref _vbaWorkbookBackupMaxGenerationsText, value); }
+
+    /// <summary>ブックの丸ごとの控えの合計の容量（MB。<c>Vba.WorkbookBackupMaxTotalMB</c>）。範囲 50〜20000。</summary>
+    public string VbaWorkbookBackupMaxTotalMBText { get => _vbaWorkbookBackupMaxTotalMBText; set => SetEditableProperty(ref _vbaWorkbookBackupMaxTotalMBText, value); }
+
+    /// <summary>ブックの保存・開き直しの時間切れ（ミリ秒。<c>Vba.WorkbookSaveOpenTimeoutMs</c>）。範囲 30000〜600000。</summary>
+    public string VbaWorkbookSaveOpenTimeoutMsText { get => _vbaWorkbookSaveOpenTimeoutMsText; set => SetEditableProperty(ref _vbaWorkbookSaveOpenTimeoutMsText, value); }
+
     /// <summary>読み込んだ設定を編集用プロパティへ映す（<c>PopulateEditableFields</c> から呼ぶ）。</summary>
     private void PopulateVbaFields(Settings s)
     {
@@ -114,6 +135,10 @@ public sealed partial class SettingsViewModel
         VbaRibbonMaxCharsText = vba.RibbonMaxChars.ToString(CultureInfo.InvariantCulture);
         VbaRescueMaxGenerationsText = vba.RescueMaxGenerations.ToString(CultureInfo.InvariantCulture);
         VbaRescueMaxTotalMBText = vba.RescueMaxTotalMB.ToString(CultureInfo.InvariantCulture);
+        VbaRibbonEditEnabled = vba.RibbonEditEnabled;
+        VbaWorkbookBackupMaxGenerationsText = vba.WorkbookBackupMaxGenerations.ToString(CultureInfo.InvariantCulture);
+        VbaWorkbookBackupMaxTotalMBText = vba.WorkbookBackupMaxTotalMB.ToString(CultureInfo.InvariantCulture);
+        VbaWorkbookSaveOpenTimeoutMsText = vba.WorkbookSaveOpenTimeoutMs.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>編集用プロパティから <see cref="VbaSettings"/> を組み立てる（<c>BuildSettingsFromFields</c> から呼ぶ）。</summary>
@@ -134,5 +159,9 @@ public sealed partial class SettingsViewModel
         RibbonMaxChars = ParseInt(_vbaRibbonMaxCharsText),
         RescueMaxGenerations = ParseInt(_vbaRescueMaxGenerationsText),
         RescueMaxTotalMB = ParseInt(_vbaRescueMaxTotalMBText),
+        RibbonEditEnabled = _vbaRibbonEditEnabled,
+        WorkbookBackupMaxGenerations = ParseInt(_vbaWorkbookBackupMaxGenerationsText),
+        WorkbookBackupMaxTotalMB = ParseInt(_vbaWorkbookBackupMaxTotalMBText),
+        WorkbookSaveOpenTimeoutMs = ParseInt(_vbaWorkbookSaveOpenTimeoutMsText),
     };
 }

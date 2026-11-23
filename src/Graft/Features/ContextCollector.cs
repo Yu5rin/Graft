@@ -80,6 +80,25 @@ public sealed record ContextRequest
     /// 依頼文のテンプレート展開（<see cref="PromptTemplateRenderer"/>）は <c>{{ribbon}}</c> または観点の直前に差し込む。
     /// </summary>
     public string RibbonText { get; init; } = string.Empty;
+
+    /// <summary>
+    /// リボンの文を、「# 対象ファイル」に内容つきで載るファイル（相対パスの集合）に合わせて作り直す関数（仕様書_ブックの情報と依頼の観点
+    /// 16.14）。ミラーの <c>CustomUI/customUI14.xml</c> を読んだリボンの文で、そのファイルが対象ファイルとしても載るなら、XML の全文を
+    /// リボンの文から外して「対象ファイルの … にあります。」の 1 行にする（同じ XML を 2 回出さない）。
+    /// <para>
+    /// null（既定。ブックから読んだリボン・リボンが無い・構成だけ）なら <see cref="RibbonText"/> をそのまま使い、出力は従来と
+    /// 1 バイトも変わらない。どのファイルが載るかは収集のモード・テンプレートの <c>{{files}}</c> で決まり、文を組み立てる時点では
+    /// 分からないので、載るファイルが決まった所（<see cref="ContextCollector.CollectAsync"/>・<see cref="PromptTemplateRenderer"/>）で呼ぶ。
+    /// 別のスレッドから呼ばれうるので、呼び出し側は不変の値だけを閉じ込めた関数を渡すこと。
+    /// </para>
+    /// </summary>
+    public Func<IReadOnlySet<string>, string>? RibbonTextFor { get; init; }
+
+    /// <summary>
+    /// 内容つきで載るファイルに合わせたリボンの文（<see cref="RibbonTextFor"/> があればそれで、無ければ <see cref="RibbonText"/>）。
+    /// </summary>
+    internal string RibbonTextWith(IReadOnlySet<string> filesWithContent)
+        => RibbonTextFor is { } build ? build(filesWithContent) : RibbonText;
 }
 
 /// <summary>選択用ツリーの1エントリ（ファイルまたはディレクトリ）。</summary>
@@ -305,8 +324,9 @@ public sealed class ContextCollector
         // 空のときは何も足さない。
         AppendBlock(sb, request.WorkbookInfoText);
         // リボン（customUI）はブックの情報の直後・観点より前（仕様書15.6。前提 → ブックの情報 → リボン → 観点 → 構成の順）。
-        // 空のときは何も足さない。
-        AppendBlock(sb, request.RibbonText);
+        // 空のときは何も足さない。ミラーのリボンのファイルが対象ファイルとしても載るなら、XML の全文は対象ファイルの側にだけ出す
+        // （仕様書16.14。RibbonTextFor が無ければ RibbonText のまま）。
+        AppendBlock(sb, request.RibbonTextWith(IncludesFiles(request.Mode) ? contentPaths : EmptyPathSet));
         // 依頼の観点は「# 前提」の直後（前提が無ければ概要の直後）に置く（仕様書6.3）。前提で
         // プロジェクトの事情を伝えたあと、ツリーやファイルより先に「今回の依頼の方向」を伝える並び。
         // 空のときは何も足さない（観点を選ばなければ出力は従来と同一）。
@@ -343,6 +363,20 @@ public sealed class ContextCollector
         var scan = await ScanAsync(project, settings, ct).ConfigureAwait(false);
         if (!scan.IsSuccess) return GraftResult<string>.Fail(scan.Issues);
         return GraftResult<string>.Ok(BuildTreeText(scan.Value, EmptyPathSet, null));
+    }
+
+    /// <summary>
+    /// {{files}} の展開で内容つきで載るファイルの相対パス（<see cref="BuildFilesTextAsync"/> と同じ選び方）。依頼文のテンプレート展開で、
+    /// リボンの文から XML の全文を外すか（仕様書_ブックの情報と依頼の観点 16.14。<see cref="ContextRequest.RibbonTextFor"/>）を決めるのに使う。
+    /// 走査できないときは空（リボンの文は全文を載せる側へ倒れる。XML が依頼文からまったく消えるより、2 回出るほうが害が小さい）。
+    /// </summary>
+    public async Task<IReadOnlySet<string>> ResolveContentPathsAsync(ContextRequest request, CancellationToken ct = default)
+    {
+        var scan = await ScanAsync(request.Project, request.Settings, ct).ConfigureAwait(false);
+        if (!scan.IsSuccess) return EmptyPathSet;
+        var targets = await ResolveTargetsAsync(request, scan.Value, ct).ConfigureAwait(false);
+        if (!targets.IsSuccess) return EmptyPathSet;
+        return new HashSet<string>(targets.Value.Targets.Select(n => n.RelativePath), StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

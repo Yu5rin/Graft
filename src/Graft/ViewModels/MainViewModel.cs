@@ -83,6 +83,7 @@ public sealed partial class MainViewModel : ObservableObject
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         ProjectPane.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         ProjectPane.Notify = text => Notice.Show(text); // 「パスをコピー」を数秒で消える通知で伝える。
+        ProjectPane.NotifyWithAction = (text, label, action) => Notice.Show(text, label, action); // リボンの書き換えの完了の「Excel で開く」。
         _vbaPaths = projectStore.Paths; // _projectStore はこの時点では未設定（MainViewModel.Prompt.cs で後から入る）ため、引数から取る。
         RebuildVbaSync(); // Excel VBA 連携の窓口（MainViewModel.Vba.cs）。ブリッジが差し替わるたびに作り直す。
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
@@ -603,7 +604,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             // VBA プロジェクトのミラーは .bas/.cls/.frm なので、実効の許可に加える（仕様書_VBA連携 4.1）。
             // 加えないと、適用が E202（許可されていない拡張子）で止まる。全体の設定は変えない。
-            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(_settings.Safety.AllowedExtensions, project),
+            AllowedExtensions = Core.Vba.VbaExtensionPolicy.Effective(_settings.Safety.AllowedExtensions, project, _settings.Vba.RibbonEditEnabled),
             MaxFileSizeMB = _settings.Safety.MaxFileSizeMB,
             MaxFilesPerRevision = _settings.Safety.MaxFilesPerRevision,
         });
@@ -641,7 +642,12 @@ public sealed partial class MainViewModel : ObservableObject
         // 適用済みのパッチ（E302）はここ＝プレビューの時点で利用者に見せる（MainViewModel.AlreadyApplied.cs）。
         SetAlreadyAppliedRevision(dryRun.Value.AlreadyAppliedRevision);
         LogDryRunFileProbes(dryRun.Value, context); // 依頼4対応: MainViewModel.DryRunDiagnostics.cs参照
-        ReplaceBlocks(dryRun.Value.Plans);
+        // リボン（CustomUI/*.xml）のブロックの XML の警告（止めないもの）を、解析結果に添える（仕様書_ブックの情報と依頼の観点 16.8・16.10）。
+        // リボンの同期をしていないプロジェクト・リボンのブロックが無い解析結果は、そのまま（1 バイトも変わらない）。
+        var plansToShow = IsVbaActive(project) && _settings.Vba.RibbonEditEnabled
+            ? Core.Vba.VbaApplyGuard.AddRibbonWarnings(dryRun.Value.Plans)
+            : dryRun.Value.Plans;
+        ReplaceBlocks(plansToShow);
         OnPropertyChanged(nameof(StatusSummaryText));
         OnPropertyChanged(nameof(StatusSummaryMainText));
         OnPropertyChanged(nameof(StatusSummaryFailedText));

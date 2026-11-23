@@ -56,6 +56,24 @@ public static class VbaRotNames
     }
 
     /// <summary>
+    /// ROT の 1 項目が、<b>いま開いているブック</b>を指しているか（<paramref name="applicationWorkbookNames"/> は、その項目から辿った
+    /// Excel の <c>Application.Workbooks</c>〔と保護ビューのウィンドウ〕にある各ブックのフルパス。項目のオブジェクトが死んでいて
+    /// 辿れなかったときは null）。
+    /// <para>
+    /// 【なぜ ROT の表示名だけで「開いている」と決めないか】 実機（2026-11-24、Microsoft 365 Excel 16.0 ビルド 20625・64bit）で、
+    /// <c>Workbook.Close</c> のあと 10 秒たっても、ブックが ROT に残り続けることを 5 回とも確かめた（Windows実機検証手順 6-34 の 5-b）。
+    /// ROT の列挙だけで開いているかを決めると、閉じたブックを「開いている」と誤判定する（書き換えを E819 で止める・バッジが誤る・
+    /// 閉じたあとの確認で「開いたまま」と止める・開き直しのあとの確認で「開いた」と成功扱いにする）。ROT は「候補を見つける」ためだけに使い、
+    /// 開いているかは、その候補が属する Excel の <c>Workbooks</c> に同じフルパスのブックが実在するかで決める。
+    /// </para>
+    /// </summary>
+    public static bool IsLiveEntry(IEnumerable<string?>? applicationWorkbookNames, string workbookFullName)
+    {
+        if (applicationWorkbookNames is null) return false;
+        return applicationWorkbookNames.Any(name => SamePath(name, workbookFullName));
+    }
+
+    /// <summary>
     /// ROT の表示名の並びから、紐付けたブックと同じパスのものの添字を返す（複数あれば全部。
     /// 同じパスのブックを2つの Excel プロセスで開いた場合に、読み取り専用側の判断を呼び出し側ができるように）。
     /// </summary>

@@ -45,15 +45,49 @@ public static class VbaRibbonCollector
                 Array.Empty<VbaRibbonPart>(), Array.Empty<VbaRibbonCallbackCheck>());
         }
 
-        var parts = read.Parts.Select(p => VbaRibbonXmlAnalyzer.Analyze(p, limits.MaxPartBytes)).ToArray();
+        return await AnalyzeAsync(
+            name, workbookPath, now, read.FileModified, read.Parts, mirrorRoot, limits, VbaRibbonSource.Workbook, null, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// ミラーのリボンのファイル（<c>CustomUI/customUI14.xml</c> など）から取得結果を作る（仕様書_ブックの情報と依頼の観点 16.14）。
+    /// ブックのファイルは開かない。部品名はミラーのパスにする（依頼文の見出しを、AI が search/replace に書くパスと一致させるため）。
+    /// 解析・コールバックの照合・失敗の扱いは、ブックから読むとき（<see cref="CollectAsync"/>）と同じ。
+    /// </summary>
+    /// <param name="workbookPath">紐付けたブックのフルパス（依頼文の「ブック:」と、別のブックへ結び直されたときの突き合わせに使う）。</param>
+    /// <param name="mirrorRoot">VBA のミラーのフォルダ。</param>
+    /// <param name="files">ミラーのリボンのファイル（<c>VbaRibbonSyncService.ReadForContextAsync</c> の結果。1 つ以上）。</param>
+    /// <param name="limits">大きさの上限（null なら既定）。</param>
+    /// <param name="ct">取り消し。</param>
+    public static Task<VbaRibbonSnapshot> CollectFromMirrorAsync(
+        string workbookPath, string mirrorRoot, IReadOnlyList<VbaRibbonContextFile> files, VbaRibbonLimits? limits = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        limits ??= new VbaRibbonLimits();
+        var name = Path.GetFileName(workbookPath.Replace('\\', '/'));
+        var raw = files
+            .Select(f => new VbaRibbonRawPart(f.RelativePath, f.Format == VbaRibbonFormat.Office2010, f.Text, null))
+            .ToArray();
+        var modified = files.Select(f => f.Modified).Where(m => m is not null).Max();
+        var unpushed = files.Where(f => f.Unpushed).Select(f => f.RelativePath).ToArray();
+        return AnalyzeAsync(name, workbookPath, DateTimeOffset.Now, modified, raw, mirrorRoot, limits, VbaRibbonSource.Mirror, unpushed, ct);
+    }
+
+    /// <summary>読んだ部品を解析し、コールバックを VBA のミラーと照合して取得結果にする（ブック・ミラーのどちらから読んでも同じ）。</summary>
+    private static async Task<VbaRibbonSnapshot> AnalyzeAsync(
+        string name, string workbookPath, DateTimeOffset now, DateTimeOffset? modified, IReadOnlyList<VbaRibbonRawPart> rawParts,
+        string mirrorRoot, VbaRibbonLimits limits, VbaRibbonSource source, IReadOnlyList<string>? unpushed, CancellationToken ct)
+    {
+        var parts = rawParts.Select(p => VbaRibbonXmlAnalyzer.Analyze(p, limits.MaxPartBytes)).ToArray();
         var usable = parts.Where(p => p.IsUsable).ToArray();
         if (usable.Length == 0)
         {
             var reasons = string.Join("、", parts.Select(p => $"{p.Raw.PartName}: {(p.Problem ?? string.Empty).TrimEnd('。')}"));
             return new VbaRibbonSnapshot(
-                name, workbookPath, now, read.FileModified, VbaRibbonReadStatus.PartsUnreadable,
+                name, workbookPath, now, modified, VbaRibbonReadStatus.PartsUnreadable,
                 $"部品を読めません（{reasons}）",
-                parts, Array.Empty<VbaRibbonCallbackCheck>());
+                parts, Array.Empty<VbaRibbonCallbackCheck>(), source, unpushed);
         }
 
         var modules = await ReadMirrorModulesAsync(mirrorRoot, ct).ConfigureAwait(false);
@@ -65,14 +99,14 @@ public static class VbaRibbonCollector
             ? null
             : "一部の部品は読めませんでした（" + string.Join("、", unusable.Select(p => $"{p.Raw.PartName}: {(p.Problem ?? string.Empty).TrimEnd('。')}")) + "）";
         return new VbaRibbonSnapshot(
-            name, workbookPath, now, read.FileModified, VbaRibbonReadStatus.Ok, reason, parts, checks);
+            name, workbookPath, now, modified, VbaRibbonReadStatus.Ok, reason, parts, checks, source, unpushed);
     }
 
     /// <summary>
     /// ミラーの全モジュールの本文を読む。ミラーのフォルダ自体が無い・読めないときは null（照合できない）。
     /// 個々のファイルが読めないときは、そのファイルだけ飛ばす（照合は残りで行う。見つからないと出るのは「念のため確認」の側）。
     /// </summary>
-    private static async Task<IReadOnlyList<VbaRibbonSourceModule>?> ReadMirrorModulesAsync(string mirrorRoot, CancellationToken ct)
+    internal static async Task<IReadOnlyList<VbaRibbonSourceModule>?> ReadMirrorModulesAsync(string mirrorRoot, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(mirrorRoot) || !Directory.Exists(mirrorRoot)) return null;
 

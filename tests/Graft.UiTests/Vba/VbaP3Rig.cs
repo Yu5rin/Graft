@@ -63,6 +63,17 @@ internal sealed class VbaP3Rig : IDisposable
             Array.Empty<VbaRibbonPart>(), Array.Empty<VbaRibbonCallbackCheck>());
     }
 
+    /// <summary>リボンの同期（取込）がブックのファイルを読んだ回数。</summary>
+    public int RibbonPackageReads { get; private set; }
+
+    private VbaRibbonReadResult ReadRibbonPackage()
+    {
+        RibbonPackageReads++;
+        return RibbonFile is null
+            ? new VbaRibbonReadResult(VbaRibbonReadStatus.NoRibbon, null, Array.Empty<VbaRibbonRawPart>())
+            : VbaRibbonPackageReader.Read(RibbonFile);
+    }
+
     /// <summary>出た衝突ダイアログの記録。</summary>
     public List<VbaConflictRequest> Conflicts { get; } = new();
 
@@ -89,6 +100,8 @@ internal sealed class VbaP3Rig : IDisposable
         // 既定では「リボンの設定が無いブック」を返す（ファイルが無い警告が、リボンと関係のないテストの状態表示に混ざらないように）。
         // リボンを確かめるテストは、RibbonFile で一時ファイルの zip を指す。
         harness.Shell.Graft.VbaRibbonReader = (path, root, ct) => rig.ReadRibbonAsync(path, root, ct);
+        // リボンの同期（取込）も同じ一時ファイルを読む（RibbonFile が null のあいだは、リボンの設定が無いブック）。
+        harness.Shell.Graft.VbaRibbonPackageReader = _ => rig.ReadRibbonPackage();
 
         harness.Shell.Graft.ChooseVbaAsync = request =>
         {

@@ -105,12 +105,26 @@ public static class VbaMirrorLayout
     /// <summary>
     /// 相対パスの一覧から、同期の対象外のファイルを E810（警告）として列挙する。適用そのものは止めない。
     /// </summary>
-    public static IReadOnlyList<GraftIssue> CollectUnsupported(IEnumerable<string> relativePaths)
+    /// <param name="relativePaths">ミラーの中の相対パス。</param>
+    /// <param name="ribbonSynced">
+    /// リボン（<c>CustomUI/customUI14.xml</c>・<c>CustomUI/customUI.xml</c>）を同期しているか（仕様書_ブックの情報と依頼の観点 16.3、
+    /// 段階 F2）。true なら、リボンの 2 パスは同期の対象なので E810 にせず、<c>CustomUI/</c> の中のそれ以外（画像・別名の XML・入れ子）は
+    /// 「CustomUI/ に置けるのは…」の理由（<see cref="VbaRibbonMirrorLayout.OtherFileReason"/>）で E810 にする。
+    /// false（設定 <c>Vba.RibbonEditEnabled</c> がオフ、またはリボンの同期を配線していない呼び出し）なら従来どおり、<c>CustomUI/</c> の
+    /// 中はすべて「同期のフォルダではありません」の E810。同期しないファイルを警告から外すと、利用者が「ブックへ届く」と思い込むため。
+    /// </param>
+    public static IReadOnlyList<GraftIssue> CollectUnsupported(IEnumerable<string> relativePaths, bool ribbonSynced = false)
     {
         var issues = new List<GraftIssue>();
         foreach (var path in relativePaths)
         {
             if (TryParse(path, out _, out var reason)) continue;
+            if (ribbonSynced && VbaRibbonMirrorLayout.IsUnderRibbonFolder(path))
+            {
+                if (VbaRibbonMirrorLayout.TryParse(path, out _)) continue;
+                reason = VbaRibbonMirrorLayout.OtherFileReason;
+            }
+
             issues.Add(GraftIssue.Of(ErrorCode.E810, detail: reason, path: path, severity: Severity.Warning));
         }
 

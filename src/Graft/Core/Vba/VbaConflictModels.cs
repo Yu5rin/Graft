@@ -47,15 +47,32 @@ public enum VbaConflictChoice
     Skip,
 }
 
-/// <summary>衝突したモジュール1件（表示用に両側の本文を持つ）。</summary>
-/// <param name="RelativePath">ミラー内の正規の相対パス（<c>Modules/Module1.bas</c>）。</param>
-/// <param name="Kind">種別。</param>
-/// <param name="Component">コンポーネント名。</param>
-/// <param name="ExcelText">Excel 側の現在の本文。</param>
+/// <summary>
+/// 衝突した 1 件（モジュール、またはリボン。表示用に両側の本文を持つ）。
+/// <para>
+/// 【リボンも同じ型で運ぶ理由（段階 F5。仕様書_ブックの情報と依頼の観点 16.4）】 衝突ダイアログは、一覧・差分・選択肢（上書き／採用／
+/// 反映しない）がモジュールと同じで、違うのは「相手が Excel の本文か、ブックのファイルの部品か」だけ。リボン用に別の型・別の窓を作ると、
+/// 場面ごとの出し分け（<see cref="VbaConflictRequest"/>）を二重に持つことになる。そこで型は変えず、<see cref="IsRibbon"/>
+/// （パスが <c>CustomUI/customUI14.xml</c>・<c>CustomUI/customUI.xml</c> か。パスだけで決まるので持ち回りの旗は要らない）で見分け、
+/// リボンの項目は <see cref="Kind"/> に意味を持たせない（<see cref="VbaModuleKind.Standard"/> を入れる。<see cref="ForRibbon"/> を使う）。
+/// 「Excel 側」の本文は、リボンではブックのファイルの部品の XML。
+/// </para>
+/// </summary>
+/// <param name="RelativePath">ミラー内の正規の相対パス（<c>Modules/Module1.bas</c>・<c>CustomUI/customUI14.xml</c>）。</param>
+/// <param name="Kind">種別（リボンでは意味を持たない）。</param>
+/// <param name="Component">コンポーネント名（リボンではファイル名）。</param>
+/// <param name="ExcelText">Excel 側の現在の本文（リボンではブックのファイルの部品の XML）。</param>
 /// <param name="MirrorText">ミラー（Graft 側）の現在の本文。</param>
 public sealed record VbaConflictItem(
     string RelativePath, VbaModuleKind Kind, string Component, string ExcelText, string MirrorText)
 {
+    /// <summary>リボン（customUI）の衝突か。</summary>
+    public bool IsRibbon => VbaRibbonMirrorLayout.TryParse(RelativePath, out _);
+
+    /// <summary>リボンの衝突の項目を作る（<paramref name="mirrorPath"/> は <c>CustomUI/…</c> の正規のパス。<paramref name="bookXml"/> はブックの部品の XML）。</summary>
+    public static VbaConflictItem ForRibbon(string mirrorPath, string bookXml, string mirrorXml, VbaConflictReason reason)
+        => new(mirrorPath, VbaModuleKind.Standard, System.IO.Path.GetFileName(mirrorPath), bookXml, mirrorXml) { Reason = reason };
+
     /// <summary>Excel 側の本文のハッシュ（解析後の再検査で「上書きでよい」と承認した時点の Excel 側かを見分けるのに使う）。</summary>
     public string ExcelHash => VbaTextNormalizer.Hash(ExcelText);
 
@@ -81,8 +98,14 @@ public sealed record VbaConflictRequest(VbaConflictScene Scene, IReadOnlyList<Vb
     /// <summary>「中止」を出すか（適用の前、手動の Pull／Push。何もせずに戻れる場面）。</summary>
     public bool CanAbort => CanAdoptExcel;
 
-    /// <summary>「この適用（rN）を取り消す」を出すか（適用直後の Push だけ。7.3-4-3）。</summary>
-    public bool CanUndoApply => Scene == VbaConflictScene.AfterApply;
+    /// <summary>
+    /// 「この適用（rN）を取り消す」を出すか（適用直後の Push だけ。7.3-4-3）。<b>リボンの衝突だけのときは出さない</b>:
+    /// リボンの書き換えが失敗・見送りになっても、適用の取り消しは提案しない（仕様 16.10・16.16-12。リボンだけ戻したいときは履歴から）。
+    /// </summary>
+    public bool CanUndoApply => Scene == VbaConflictScene.AfterApply && Items.Any(i => !i.IsRibbon);
+
+    /// <summary>リボンの衝突を含むか（窓の文面にリボンの説明を足す）。</summary>
+    public bool HasRibbon => Items.Any(i => i.IsRibbon);
 
     /// <summary>
     /// 窓を選ばずに閉じた（Esc・×）ときの扱い。何もせず戻れる場面では中止、ファイルが既に変わっている場面では

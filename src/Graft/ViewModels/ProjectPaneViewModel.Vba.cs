@@ -127,6 +127,7 @@ public sealed partial class ProjectPaneViewModel
         // 控えはファイルを見るだけなので、Excel が開いていなくても、設定で VBA 連携を切っていても開ける（仕様書 7.4）。
         // この環境で VBA 連携が使えること（控えが作られる環境）と、VBA プロジェクトであることだけを条件にする。
         ShowRescueCommand = new AsyncRelayCommand(ShowRescueForSelectedAsync, CanShowRescue, context: "Excel 側の控えの表示");
+        InitializeVbaRibbonCommands(); // リボンの書き換えの入口（ProjectPaneViewModel.VbaRibbon.cs）。
     }
 
     /// <summary>
@@ -294,7 +295,7 @@ public sealed partial class ProjectPaneViewModel
     // 「VBA」バッジ（7.6）
     // ------------------------------------------------------------------
 
-    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen, int NeedsReview = 0);
+    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen, int NeedsReview = 0, bool RibbonUnpushed = false);
 
     // プロジェクト Id → 最後に調べた結果。LoadAsync で一覧が作り直されても、ちらつかずに同じ見た目を保つため。
     private readonly Dictionary<string, VbaBadgeCacheEntry> _vbaBadgeCache = new(StringComparer.Ordinal);
@@ -358,7 +359,7 @@ public sealed partial class ProjectPaneViewModel
         _vbaBadgeCache.TryGetValue(project.Id, out var entry);
         return VbaBadgeLogic.Compute(
             true, _isVbaEnabled(), entry?.WorkbookOpen, entry?.Unpushed ?? 0, entry?.DeletePending ?? 0,
-            VbaSaveConflictCount(project.Id), entry?.NeedsReview ?? 0);
+            VbaSaveConflictCount(project.Id), entry?.NeedsReview ?? 0, entry?.RibbonUnpushed ?? false);
     }
 
     /// <summary>保持している結果から、すべての行のバッジを描き直す（Excel には触れない）。</summary>
@@ -406,11 +407,16 @@ public sealed partial class ProjectPaneViewModel
             return;
         }
 
+        List<VbaRibbonRecovery>? recoveries = null;
         await _vbaBadgeGate.WaitAsync().ConfigureAwait(true);
         try
         {
             var targets = Items.Where(i => i.Project.Vba is not null).Select(i => i.Project).ToList();
             if (targets.Count == 0) return;
+
+            // 途中で終わったリボンの書き換えの後始末（16.11「次の起動」）。件数を数える前に片付ける（残った一時ファイル・記録を
+            // 片付けてから、いまの状態を数える）。知らせは錠を放してから出す。
+            recoveries = await RecoverInterruptedRibbonRewritesAsync(service, targets).ConfigureAwait(true);
 
             IReadOnlyList<VbaWorkbookInfo>? open = null;
             if (checkWorkbookOpen && _isVbaEnabled())
@@ -426,6 +432,7 @@ public sealed partial class ProjectPaneViewModel
                 var status = new VbaLocalStatus(previous?.Unpushed ?? 0, previous?.DeletePending ?? 0)
                 {
                     NeedsReviewCount = previous?.NeedsReview ?? 0,
+                    RibbonUnpushed = previous?.RibbonUnpushed ?? false,
                 };
                 if (Directory.Exists(project.Root))
                 {
@@ -445,7 +452,8 @@ public sealed partial class ProjectPaneViewModel
                     isOpen = open.Any(w => VbaRotNames.SamePath(w.FullName, project.Vba!.WorkbookFullName));
                 }
 
-                _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(status.UnpushedCount, status.DeletePendingCount, isOpen, status.NeedsReviewCount);
+                _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(
+                    status.UnpushedCount, status.DeletePendingCount, isOpen, status.NeedsReviewCount, status.RibbonUnpushed);
 
                 // 【衝突の印は、未反映のモジュールにだけ残す】 衝突しているモジュールは、ミラーが同期基準と違う
                 // （＝未反映）ままである。「Excel 側を採用」「Graft 側で上書き」で解決する、別の手段で取り込む、
@@ -461,6 +469,10 @@ public sealed partial class ProjectPaneViewModel
         {
             _vbaBadgeGate.Release();
         }
+
+        // 「リボンをブックへ反映…」の有効・無効は、数え直した「リボン未反映」で決まる。
+        CommandRequery.Invalidate();
+        if (recoveries is { Count: > 0 }) await ShowRibbonRecoveriesAsync(recoveries).ConfigureAwait(true);
     }
 
     // ------------------------------------------------------------------
@@ -543,8 +555,10 @@ public sealed partial class ProjectPaneViewModel
         }
 
         var pulled = result.Value;
-        var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPull, pulled.ConflictItems).ConfigureAwait(true);
+        // モジュールとリボンの衝突を、1 つの衝突ダイアログに並べる（リボンは、左がブックのファイルの部品。仕様書_ブックの情報と依頼の観点 16.4）。
+        var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPull, pulled.AllConflictItems).ConfigureAwait(true);
         ReconcileVbaSaveConflicts(project.Id, null, resolved.Unresolved);
+        // 衝突（E812。モジュールもリボンも）は衝突ダイアログで扱ったので、注意の一覧には出さない。
         await ShowWarningsAsync("Excel からの取込の注意", result.Issues.Where(i => i.Code != ErrorCode.E812)).ConfigureAwait(true);
 
         // 取り込み後の件数と、ブックの開閉（Excel と通信できたかどうか）を描き直す（仕様 7.6）。
@@ -565,7 +579,11 @@ public sealed partial class ProjectPaneViewModel
     {
         if (_vbaSync is null || SelectedItem is not { } item) return;
         if (RejectWhileVbaBusy()) return;
-        await PushProjectAsync(item.Project, only: null).ConfigureAwait(true);
+        var vba = await PushProjectAsync(item.Project, only: null).ConfigureAwait(true);
+
+        // VBA の未反映を反映したあと、リボンが未反映なら、リボンの確認を出す（「未反映をまとめて送る」という既存の意味を保つ。16.10）。
+        // VBA の反映が一部でも失敗・未解決なら、リボンの準備は始めず、未反映のままと伝える。
+        await FollowWithRibbonAsync(item.Project, vba.Completed, vba.Written, VbaConflictScene.ManualPush, quietSuccess: false).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -594,14 +612,19 @@ public sealed partial class ProjectPaneViewModel
 
         viewModel.IsBusy = IsVbaBusy;
         viewModel.PushModuleAsync = relative => PushRestoredFromRescueAsync(project, relative);
+        AttachWorkbookBackups(viewModel, project); // 「ブックの控え」（段階 F5。ProjectPaneViewModel.VbaRibbon.cs）
         await ShowRescueAsync(viewModel).ConfigureAwait(true);
         // 戻すと、ミラーが「未反映」になる。窓を閉じたあとにバッジへ反映する。
         await RefreshVbaBadgesAsync(checkWorkbookOpen: false).ConfigureAwait(true);
     }
 
-    private async Task PushProjectAsync(Project project, IReadOnlyCollection<string>? only)
+    /// <summary>
+    /// 手動の Excel への反映。戻り値は、VBA の反映がすべて済んだか（反映するものが無かった場合を含む。<c>Completed</c>）と、Excel へ書いた
+    /// モジュールの数（<c>Written</c>）。続けてリボンを反映してよいかの材料（16.10）。
+    /// </summary>
+    private async Task<(bool Completed, int Written)> PushProjectAsync(Project project, IReadOnlyCollection<string>? only)
     {
-        if (_vbaSync is null) return;
+        if (_vbaSync is null) return (false, 0);
 
         var result = await _vbaSync.PushAsync(project, only).ConfigureAwait(true);
         if (!result.IsSuccess)
@@ -609,7 +632,7 @@ public sealed partial class ProjectPaneViewModel
             // 手動の Push は適用ではないので、取り消しは提案しない（仕様 7.2b）。未反映の印が残るので再試行できる。
             await ShowVbaFailureAsync("Excel へ反映できませんでした", project, result.Issues).ConfigureAwait(true);
             await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
-            return;
+            return (false, 0);
         }
 
         var pushed = result.Value;
@@ -636,6 +659,8 @@ public sealed partial class ProjectPaneViewModel
         {
             Notify?.Invoke("Excel へ反映するものはありませんでした。");
         }
+
+        return (pushed.Failed.Count == 0 && resolved.Unresolved.Count == 0, written);
     }
 
     private async Task RestoreSelectedAsync()
@@ -780,7 +805,23 @@ public sealed partial class ProjectPaneViewModel
             else await ShowVbaFailureAsync("Excel から取り込めませんでした", project, pulled.Issues).ConfigureAwait(true);
         }
 
-        var overwrite = decision.PathsWith(VbaConflictChoice.OverwriteExcel);
+        var overwriteAll = decision.PathsWith(VbaConflictChoice.OverwriteExcel);
+        var overwrite = overwriteAll.Where(p => !VbaRibbonMirrorLayout.TryParse(p, out _)).ToList();
+        var ribbonOverwrite = overwriteAll.Where(p => VbaRibbonMirrorLayout.TryParse(p, out _)).ToList();
+        if (ribbonOverwrite.Count > 0)
+        {
+            // リボンの「Graft 側で上書き」は、ブックを閉じて開き直す書き換え（確認ダイアログは省かない。控えはブック全体の控えが兼ねる。16.4）。
+            // 確認で「中止」した・失敗したときは、衝突のまま残す（未解決に数える）。
+            var end = await PushRibbonAsync(project, new RibbonPushOptions
+            {
+                OverwriteConflicts = ribbonOverwrite,
+                Automatic = true,
+                ConflictScene = scene,
+            }).ConfigureAwait(true);
+            if (end is RibbonPushEnd.Rewritten) overwritten += ribbonOverwrite.Count;
+            else overwriteAll = overwriteAll.Where(p => !ribbonOverwrite.Contains(p, StringComparer.OrdinalIgnoreCase)).ToList();
+        }
+
         if (overwrite.Count > 0)
         {
             var pushed = await _vbaSync.PushAsync(project, overwrite, overwrite).ConfigureAwait(true);
@@ -797,7 +838,7 @@ public sealed partial class ProjectPaneViewModel
         }
 
         // 解決（採用・上書き）の選択をしなかった（「反映しない」）モジュールは、なお衝突したまま。
-        var decided = decision.PathsWith(VbaConflictChoice.AdoptExcel).Concat(decision.PathsWith(VbaConflictChoice.OverwriteExcel));
+        var decided = decision.PathsWith(VbaConflictChoice.AdoptExcel).Concat(overwriteAll);
         return (adopted, overwritten, items.Select(i => i.RelativePath).Except(decided, StringComparer.OrdinalIgnoreCase).ToList());
     }
 }
