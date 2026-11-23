@@ -83,6 +83,7 @@ public sealed partial class MainViewModel : ObservableObject
         ProjectPane = new ProjectPaneViewModel(projectStore, dialogService);
         ProjectPane.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         ProjectPane.Notify = text => Notice.Show(text); // 「パスをコピー」を数秒で消える通知で伝える。
+        ProjectPane.NotifyWithAction = (text, label, action) => Notice.Show(text, label, action); // リボンの書き換えの完了の「Excel で開く」。
         _vbaPaths = projectStore.Paths; // _projectStore はこの時点では未設定（MainViewModel.Prompt.cs で後から入る）ため、引数から取る。
         RebuildVbaSync(); // Excel VBA 連携の窓口（MainViewModel.Vba.cs）。ブリッジが差し替わるたびに作り直す。
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);

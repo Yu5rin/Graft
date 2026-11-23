@@ -16,11 +16,11 @@ using Graft.Views;
 namespace Graft.UiTests.Vba;
 
 /// <summary>
-/// リボンの書き換えの手動の入口（機能 F の段階 F3。仕様書_ブックの情報と依頼の観点 16.5・16.9・16.10・16.11・16.13）のシナリオ。
+/// リボンの書き換えの手動の入口（機能 F の段階 F3。開いているブックの閉じ開きは段階 F4 で、分割ファイル <c>WorkbookRibbonRewriteTests.Open.cs</c>。仕様書_ブックの情報と依頼の観点 16.5・16.9・16.10・16.11・16.13）のシナリオ。
 /// 実際の起動と同じ依存グラフ（<see cref="ShellHarness"/>）に <see cref="FakeVbaBridge"/> をつなぎ、ブックの「ファイル」は一時ファイルの zip
 /// （<see cref="VbaP3Rig.RibbonFile"/>・<c>MainViewModel.VbaRibbonWorkbookFile</c>）で代える。
 /// </summary>
-public class WorkbookRibbonRewriteTests : IDisposable
+public partial class WorkbookRibbonRewriteTests : IDisposable
 {
     private const string Ribbon14 = "CustomUI/customUI14.xml";
 
@@ -86,7 +86,9 @@ public class WorkbookRibbonRewriteTests : IDisposable
         using var r = await ArrangeAsync(shown).ConfigureAwait(true);
         Item(r).VbaStatusText.Should().Contain("リボン未反映");
         r.Graft.ProjectPane.PushRibbonCommand.CanExecute(null).Should().BeTrue();
-        var callsBefore = r.Bridge.Calls.Count(c => !c.StartsWith("List", StringComparison.Ordinal));
+        // 開いているかを調べる呼び出し（一覧・状態の検査）は読むだけ。閉じる・保存するなどの書き込みの経路は呼ばれない。
+        bool IsReadOnlyCall(string c) => c.StartsWith("List", StringComparison.Ordinal) || c.StartsWith("Inspect:", StringComparison.Ordinal);
+        var callsBefore = r.Bridge.Calls.Count(c => !IsReadOnlyCall(c));
 
         await ShellHarness.ExecuteAsync(r.Graft.ProjectPane.PushRibbonCommand).ConfigureAwait(true);
 
@@ -98,8 +100,10 @@ public class WorkbookRibbonRewriteTests : IDisposable
         r.Graft.Notice.Text.Should().StartWith("リボンをブックへ反映しました（CustomUI/customUI14.xml。控え: 計画-");
         Item(r).VbaStatusText.Should().NotContain("リボン未反映");
         r.Graft.ProjectPane.PushRibbonCommand.CanExecute(null).Should().BeFalse("未反映が無ければ無効（16.13）");
-        r.Bridge.Calls.Count(c => !c.StartsWith("List", StringComparison.Ordinal)).Should().Be(callsBefore,
-            "開いていないブックの経路は COM でブックに触れない（開いているかを調べる一覧だけ）");
+        r.Bridge.Calls.Count(c => !IsReadOnlyCall(c)).Should().Be(callsBefore,
+            "開いていないブックの経路は COM でブックに触れない（開いているかを調べる読み取りだけ）");
+        r.Graft.Notice.HasAction.Should().BeTrue("開いていないブックは Graft が開かない。完了の通知に「Excel で開く」を添える（16.6）");
+        r.Graft.Notice.ActionLabel.Should().Be("Excel で開く");
         r.Graft.VbaSync.IsWritingToExcel.Should().BeFalse();
     }
 
@@ -117,47 +121,6 @@ public class WorkbookRibbonRewriteTests : IDisposable
         Directory.Exists(r.H.AppPaths.GetVbaWorkbookBackupDirectory(r.Project.Id)).Should().BeFalse("中止なら控えも作らない");
         r.Graft.Notice.Text.Should().Contain("中止しました");
         Item(r).VbaStatusText.Should().Contain("リボン未反映");
-    }
-
-    [AvaloniaFact(DisplayName = "Excel で開いているブック: 確認を出さずに「Excel でブックを閉じてから」と案内し、「もう一度試す」で閉じたあとに反映できる")]
-    public async Task 開いているブックは案内して止める()
-    {
-        var shown = new List<VbaRibbonRewriteViewModel>();
-        using var r = await ArrangeAsync(shown, close: false).ConfigureAwait(true);
-        var before = File.ReadAllBytes(BookFile);
-        var asked = 0;
-        r.H.Dialogs.ActionAnswer = (_, _, action) =>
-        {
-            asked++;
-            action.Should().Be("もう一度試す");
-            // 利用者が Excel でブックを閉じてから「もう一度試す」を押した。
-            r.Bridge.CloseWorkbook(VbaP3Rig.Book);
-            return true;
-        };
-
-        await ShellHarness.ExecuteAsync(r.Graft.ProjectPane.PushRibbonCommand).ConfigureAwait(true);
-
-        asked.Should().Be(1);
-        var message = r.H.Dialogs.Actions.Single().Message;
-        message.Should().Contain("E819").And.Contain("Excel でブックを閉じてから").And.NotContain("F4");
-        shown.Should().ContainSingle("閉じたあとの試し直しで、確認をもう一度出す");
-        File.ReadAllBytes(BookFile).Should().NotEqual(before);
-        BookRibbon().Should().Be(XmlB);
-    }
-
-    [AvaloniaFact(DisplayName = "開いたままで「もう一度試す」を選ばなければ、それで終わり（ブックは変えない）")]
-    public async Task 開いたまま閉じれば終わり()
-    {
-        var shown = new List<VbaRibbonRewriteViewModel>();
-        using var r = await ArrangeAsync(shown, close: false).ConfigureAwait(true);
-        var before = File.ReadAllBytes(BookFile);
-        r.H.Dialogs.ActionAnswer = (_, _, _) => false;
-
-        await ShellHarness.ExecuteAsync(r.Graft.ProjectPane.PushRibbonCommand).ConfigureAwait(true);
-
-        r.H.Dialogs.Actions.Should().ContainSingle();
-        shown.Should().BeEmpty();
-        File.ReadAllBytes(BookFile).Should().Equal(before);
     }
 
     [AvaloniaFact(DisplayName = "XML のエラー: 確認を出さず、E818 の行・列を知らせる")]

@@ -13,9 +13,9 @@ namespace Graft.ViewModels;
 /// 16.13 の UI。段階 F3）: 右クリックとコマンドパレットの「リボンをブックへ反映…」「リボンの XML を検査」と、途中で終わった書き換えの
 /// 起動時の後始末の知らせ。
 /// <para>
-/// 【段階 F3 の範囲】 Excel で開いていないブックだけを書き換える。開いているブックは、サービスが「Excel でブックを閉じてから」の
-/// 案内（E819）で止めるので、ここでは失敗の知らせに「もう一度試す」を添えるだけにする（閉じてから押し直せるように）。
-/// 適用・取り消し・手動の「Excel へ反映」のあとに自動で確認を出す組み込み（16.10）は段階 F5。
+/// 【段階 F4 の範囲】 開いているブックは、サービスが保存して閉じ、書き換えたあとで開き直す（16.6）。ここでは確認の文面（開いている・
+/// 未保存の有無）を出し分け、処理中は段階の名前を出し、失敗の知らせに「もう一度試す」（一時的な理由）と「Excel で開く」（開き直せなかった・
+/// 時間切れのあとで閉じられていた）を添える。適用・取り消し・手動の「Excel へ反映」のあとに自動で確認を出す組み込み（16.10）は段階 F5。
 /// </para>
 /// </summary>
 public sealed partial class ProjectPaneViewModel
@@ -37,6 +37,21 @@ public sealed partial class ProjectPaneViewModel
 
     /// <summary>確認ダイアログの ViewModel を作る（<c>MainViewModel</c> が設定と UI 機能を渡して配線する）。</summary>
     public Func<VbaRibbonRewritePlan, VbaRibbonRewriteViewModel?>? CreateRibbonRewriteViewModel { get; set; }
+
+    /// <summary>
+    /// 数秒で消える通知に、押せる操作を 1 つ添えて出す（<c>MainViewModel</c> が <c>StatusNoticeViewModel.Show</c> を渡す）。
+    /// 完了の通知の「Excel で開く」に使う。未設定なら、操作の無い通知（<see cref="ProjectPaneViewModel.Notify"/>）にする。
+    /// </summary>
+    public Action<string, string, Func<Task>>? NotifyWithAction { get; set; }
+
+    /// <summary>書き換えの段階の名前を処理中の表示に出す（16.5。<c>MainViewModel</c> が配線する）。</summary>
+    public Action<string>? ShowRibbonProgress { get; set; }
+
+    /// <summary>
+    /// 書き換え（保存して閉じる〜開き直す）のあいだ、中央ペインを処理中の表示にして、取り消し・貼り付けなどを塞ぐ（16.5）。
+    /// 引数は始めるとき true・終わったとき false。<c>MainViewModel</c> が配線する。
+    /// </summary>
+    public Action<bool>? SetRibbonRewriteBusy { get; set; }
 
     /// <summary>フォルダを開く（E823 の「控えのフォルダを開く」）。既定はファイルマネージャ。テストで差し替える。</summary>
     public Action<string> RevealFolder { get; set; } = static path => PlatformServices.Current.FileManager.Reveal(path);
@@ -114,13 +129,40 @@ public sealed partial class ProjectPaneViewModel
                 return;
             }
 
-            var result = await ribbon.RewriteAsync(project, plan).ConfigureAwait(true);
+            // 処理中の表示（段階の名前）。ダイアログ（確認・失敗の知らせ）を出しているあいだは出さない。
+            ribbon.Progress = ShowRibbonProgress;
+            SetRibbonRewriteBusy?.Invoke(true);
+            GraftResult<VbaRibbonRewriteOutcome> result;
+            try
+            {
+                result = await ribbon.RewriteAsync(project, plan).ConfigureAwait(true);
+            }
+            finally
+            {
+                SetRibbonRewriteBusy?.Invoke(false);
+                ribbon.Progress = null;
+            }
+
             await RefreshVbaBadgesAsync(checkWorkbookOpen: false).ConfigureAwait(true);
             if (result.IsSuccess)
             {
                 var outcome = result.Value;
-                Notify?.Invoke(VbaRibbonRewriteText.SucceededNotice(outcome));
-                await ShowWarningsAsync("リボンの反映の注意", preparation.Notes.Concat(result.Issues)).ConfigureAwait(true);
+                var reopenFailure = result.Issues.Where(i => i.Code == ErrorCode.E822).ToList();
+                // 開いていなかったブックは Graft が開かない。完了の通知に「Excel で開く」を添える（16.6）。開き直せなかったときは、
+                // 通知ではなく下のダイアログで案内する（見逃さないように）。
+                if (!outcome.WasOpen && reopenFailure.Count == 0) NotifyOpenInExcel(project, VbaRibbonRewriteText.SucceededNotice(outcome));
+                else Notify?.Invoke(VbaRibbonRewriteText.SucceededNotice(outcome));
+                await ShowWarningsAsync("リボンの反映の注意", preparation.Notes.Concat(result.Issues.Where(i => i.Code != ErrorCode.E822))).ConfigureAwait(true);
+                if (reopenFailure.Count > 0)
+                {
+                    // 書き換えは済んでいる。開き直せなかった理由と「Excel で開く」（16.11 の表「開き直し」）。
+                    var text = string.Join(Environment.NewLine + Environment.NewLine, reopenFailure.Select(FormatIssue));
+                    if (await _dialogs.ShowActionMessageAsync("ブックを開き直せませんでした", text, VbaRibbonRewriteText.OpenInExcelButton).ConfigureAwait(true))
+                    {
+                        OpenWorkbookInExcel(project.Vba!.WorkbookFullName);
+                    }
+                }
+
                 // リボンを新しく足したとき（そのブックへの初めての反映）だけ、Excel が読み込めたかを確かめる方法を案内する（16.8）。
                 // エラーコードの付く問題ではないので、知らせの窓で出す。
                 if (outcome.AddedNew) await _dialogs.ShowMessageAsync("リボンを新しく足しました", VbaRibbonRewriteText.FirstAddHint).ConfigureAwait(true);
@@ -156,14 +198,38 @@ public sealed partial class ProjectPaneViewModel
             return await _dialogs.ShowActionMessageAsync(title, text, "もう一度試す").ConfigureAwait(true);
         }
 
+        // 閉じたあとに時間切れになり、Excel 側で閉じられていた（開き直す券が無い）・開き直せなかった: 「Excel で開く」。
+        if (issues.Any(VbaRibbonRewriteText.OffersOpenInExcel))
+        {
+            if (await _dialogs.ShowActionMessageAsync(title, text, VbaRibbonRewriteText.OpenInExcelButton).ConfigureAwait(true) && project.Vba is { } link)
+            {
+                OpenWorkbookInExcel(link.WorkbookFullName);
+            }
+
+            return false;
+        }
+
         await _dialogs.ShowMessageAsync(title, text).ConfigureAwait(true);
         return false;
     }
 
-    /// <summary>利用者が直してすぐ押し直せる失敗か（ほかのプログラムが使用中、Excel で開いている）。</summary>
-    private static bool IsRetryable(GraftIssue issue)
-        => (issue.Code == ErrorCode.E821 && (issue.Detail ?? string.Empty).Contains("ほかのプログラムが使っている", StringComparison.Ordinal))
-           || (issue.Code == ErrorCode.E819 && (issue.Detail ?? string.Empty).Contains("閉じて", StringComparison.Ordinal));
+    internal static bool IsRetryable(GraftIssue issue) => VbaRibbonRewriteText.IsRetryable(issue);
+
+    /// <summary>完了の通知に「Excel で開く」を添える（開いていなかったブックを、続けて Excel で見られるように。16.6）。</summary>
+    private void NotifyOpenInExcel(Project project, string text)
+    {
+        if (NotifyWithAction is { } notify && project.Vba is { } link)
+        {
+            notify(text, VbaRibbonRewriteText.OpenInExcelButton, () =>
+            {
+                OpenWorkbookInExcel(link.WorkbookFullName);
+                return Task.CompletedTask;
+            });
+            return;
+        }
+
+        Notify?.Invoke(text);
+    }
 
     private void RevealBackupFolder(Project project)
     {

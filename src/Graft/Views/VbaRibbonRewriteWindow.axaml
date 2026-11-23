@@ -14,8 +14,9 @@
         Foreground="{DynamicResource TextPrimary}"
         AutomationProperties.Name="リボンをブックへ反映">
     <!--
-        仕様書_ブックの情報と依頼の観点 16.9: リボンの書き換えの確認（毎回）。段階 F3 は Excel で開いていないブックだけを書き換えるので、
-        手順は「控えを残す → XML を差し替える」の 2 つ。「次から確認しない」は置かない。既定（Enter）と Esc は「中止」。
+        仕様書_ブックの情報と依頼の観点 16.9: リボンの書き換えの確認（毎回）。Excel で開いていないブックは手順が「控えを残す → XML を
+        差し替える」の 2 つ、開いているブックは「保存して閉じる → 控え → 差し替え → 開き直す」の 4 つ（段階 F4）で、未保存の変更の注意と、
+        マクロが動くことの注意を出す。「次から確認しない」は置かない。既定（Enter）と Esc は「中止」。
         ボタンは動詞にし、何が起きるかを手順の番号で示す。並びは Windows の作法（肯定的な選択肢が左）に合わせるが、
         取り返しのつかない側（書き換える）を既定にしないため、primary の見た目と Enter は「中止」に付ける。
     -->
@@ -38,14 +39,28 @@
                        AutomationProperties.Name="書き換えの手順" />
         </Border>
 
-        <TextBlock Grid.Row="2"
-                   x:Name="BackupText"
-                   Text="{Binding BackupText}"
-                   Margin="0,12,0,0"
-                   TextWrapping="Wrap"
-                   FontSize="{DynamicResource CaptionFontSize}"
-                   Foreground="{DynamicResource TextSecondary}"
-                   AutomationProperties.Name="控えの場所" />
+        <StackPanel Grid.Row="2" Margin="0,12,0,0" Spacing="6">
+            <!-- 開いているブックだけ: 未保存の変更の注意（文面を変えるためだけの表示。保存は必ず行う）と、マクロ・「元に戻す」の注意。 -->
+            <TextBlock x:Name="UnsavedWarningText"
+                       Text="{Binding UnsavedWarningText}"
+                       IsVisible="{Binding HasUnsavedWarning}"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource StateWarn}"
+                       AutomationProperties.Name="未保存の変更の注意" />
+            <TextBlock x:Name="OpenNoticesText"
+                       Text="{Binding OpenNoticesText}"
+                       IsVisible="{Binding HasOpenNotices}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       AutomationProperties.Name="閉じるときと開くときの注意" />
+            <TextBlock x:Name="BackupText"
+                       Text="{Binding BackupText}"
+                       TextWrapping="Wrap"
+                       FontSize="{DynamicResource CaptionFontSize}"
+                       Foreground="{DynamicResource TextSecondary}"
+                       AutomationProperties.Name="控えの場所" />
+        </StackPanel>
 
         <!-- 検査の警告（エラーがあるときは、この窓まで来ない）。先頭 5 件と「ほか N 件」、「すべて見る」で全件。 -->
         <StackPanel Grid.Row="3" Margin="0,8,0,0" Spacing="2" IsVisible="{Binding HasWarnings}">
@@ -109,11 +124,11 @@
                     views:HelpTip.Standard="ブックのいまのリボンと、Graft のファイル（CustomUI/）の差分を、この窓の中に出します。"
                     AutomationProperties.Name="差分を見る" />
             <Button x:Name="RewriteButton"
-                    Content="書き換える"
+                    Content="{Binding RewriteButtonText}"
                     Command="{Binding RewriteCommand}"
-                    views:HelpTip.Standard="控えを残してから、ブックのファイルのリボンを書き換えます。"
+                    views:HelpTip.Standard="控えを残してから、ブックのファイルのリボンを書き換えます（Excel で開いているブックは、先に保存して閉じ、書き換えたあとで開き直します）。"
                     views:HelpTip.Detailed="書き換える前のブックを、データ保存先の控えのフォルダへ丸ごと写し、元と同じかを確かめてから、ブックと同じフォルダの一時ファイルへ新しいブックを書き、全部の部品を照合して置き換えます。置き換えたあとに読み直してミラーと違えば、控えから元に戻します。"
-                    AutomationProperties.Name="書き換える" />
+                    AutomationProperties.Name="{Binding RewriteButtonText}" />
             <Button x:Name="CancelButton"
                     Classes="primary"
                     Content="中止"

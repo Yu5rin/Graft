@@ -186,7 +186,7 @@
                 </Grid>
 
                 <!-- 仕様書_ブックの情報と依頼の観点 16.13: リボンの書き換え（機能 F）の設定。段階 F3 で「リボンをブックへ反映…」が使えるように
-                     なったので、使う 3 項目の欄を足した（保存・開き直しの時間切れは、開いているブックを扱う段階 F4 で足す）。 -->
+                     なったので、使う 3 項目の欄を足した。段階 F4 で、開いているブックを閉じて開き直す（保存・開き直しの時間切れ）欄を足した。 -->
                 <TextBlock Text="リボン（customUI）の書き換え" Classes="sectionHeading" />
                 <CheckBox Classes="settingRow hinted" Content="リボンを Graft のファイル（CustomUI/）として扱う"
                           IsChecked="{Binding VbaRibbonEditEnabled}"
@@ -221,6 +221,20 @@
                              views:HelpTip.Minimal="{Binding VbaWorkbookBackupMaxTotalMBText, StringFormat='ブックの控え全体の容量: {0} MB'}"
                              views:HelpTip.Standard="1 つのプロジェクトのブックの控え全体の容量の上限です。既定は500MBです。"
                              views:HelpTip.Detailed="ブックの控えは 1 件が数十 MB になることがあるので、Excel 側の控え（モジュールの本文）とは別のフォルダ・別の上限で数えます。既定は500、範囲は50〜20000です（範囲外は既定値に戻ります）。" />
+                </Grid>
+
+                <Grid Classes="settingItem" ColumnDefinitions="*,Auto">
+                    <StackPanel Classes="settingText">
+                        <TextBlock Text="ブックの保存・開き直しの時間切れ（ミリ秒。30000〜600000）" Classes="settingLabel" />
+                        <TextBlock Text="Excel で開いているブックを保存して閉じる・開き直す処理を待つ上限です。" Classes="settingHint" />
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Classes="narrow" Text="{Binding VbaWorkbookSaveOpenTimeoutMsText, UpdateSourceTrigger=LostFocus}"
+                             IsEnabled="{Binding VbaEnabled}"
+                             views:TextBoxCommitBehavior.CommitOnEnter="True"
+                             AutomationProperties.Name="ブックの保存・開き直しの時間切れ"
+                             views:HelpTip.Minimal="{Binding VbaWorkbookSaveOpenTimeoutMsText, StringFormat='ブックの保存・開き直しの時間切れ（ミリ秒）: {0}'}"
+                             views:HelpTip.Standard="Excel で開いているブックのリボンを書き換えるとき、保存して閉じる処理と開き直す処理を待つ上限です。既定は120000（120秒）です。"
+                             views:HelpTip.Detailed="大きなブックの保存・開き直しは、ほかの呼び出しの上限（呼び出し全体の時間切れ。既定30秒）を超えることがあるため、この 2 つだけ別の上限にしています。過ぎたときは Excel に保存の確認・互換性の警告・ブックのマクロのフォームなどのダイアログが出ていないかを確かめてください。時間切れのあとでも Excel 側で遅れて完了することがあるので、Graft は状態を取り直して案内します。既定は120000、範囲は30000〜600000です（範囲外は既定値に戻ります）。" />
                 </Grid>
 
                 <TextBlock Text="Excel 側の控え" Classes="sectionHeading" />

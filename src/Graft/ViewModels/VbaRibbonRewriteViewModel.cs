@@ -69,6 +69,24 @@ public sealed class VbaRibbonRewriteViewModel : ObservableObject
     /// <summary>手順（番号つき。改行区切り）。</summary>
     public string StepsText => string.Join(Environment.NewLine, VbaRibbonRewriteText.Steps(Plan));
 
+    /// <summary>
+    /// 未保存の変更の注意（開いていて未保存のときだけ。それ以外は空）。確認の文面を変えるためだけの表示で、保存するかどうかは
+    /// この値で決めない（必ず保存する。16.6）。
+    /// </summary>
+    public string UnsavedWarningText => VbaRibbonRewriteText.UnsavedWarning(Plan) ?? string.Empty;
+
+    /// <summary>未保存の注意を出すか。</summary>
+    public bool HasUnsavedWarning => Plan.HasUnsavedChanges;
+
+    /// <summary>開いているブックの注意（マクロが動く・「元に戻す」の履歴が戻らない。開いていないときは空）。</summary>
+    public string OpenNoticesText => string.Join(Environment.NewLine, VbaRibbonRewriteText.OpenNotices(Plan).Select(n => "・" + n));
+
+    /// <summary>開いているブックの注意を出すか。</summary>
+    public bool HasOpenNotices => Plan.IsOpen;
+
+    /// <summary>実行のボタンの文言（開いていれば「保存して書き換える」、開いていなければ「書き換える」）。</summary>
+    public string RewriteButtonText => VbaRibbonRewriteText.ConfirmButtonText(Plan);
+
     /// <summary>控えの場所の行。</summary>
     public string BackupText => "・" + VbaRibbonRewriteText.BackupLine(Plan);
 

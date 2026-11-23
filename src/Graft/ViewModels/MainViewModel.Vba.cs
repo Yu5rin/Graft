@@ -134,6 +134,9 @@ public sealed partial class MainViewModel
         // リボンの書き換えの確認（16.9）。差分の表示に設定と UI 機能が要るので、ここで作る。
         ProjectPane.CreateRibbonRewriteViewModel = plan => new VbaRibbonRewriteViewModel(plan, _settings, _ui);
         ProjectPane.VbaWorkbookBackupDirectoryOf = project => _vbaPaths.GetVbaWorkbookBackupDirectory(project.Id);
+        // リボンの書き換えの処理中の表示（16.5。段階の名前を出し、終わるまで取り消し・貼り付け・プロジェクトの切り替えを塞ぐ）。
+        ProjectPane.ShowRibbonProgress = text => Notice.Show(text);
+        ProjectPane.SetRibbonRewriteBusy = SetRibbonRewriteBusy;
         ApplyVbaSettings(_settings);
     }
 
@@ -146,6 +149,8 @@ public sealed partial class MainViewModel
         if (_vbaBridge is IVbaBridgeTimeouts timeouts)
         {
             timeouts.Configure(settings.Vba.ComTimeoutMs, settings.Vba.CallTimeoutMs);
+            // ブックの保存・開き直しだけの上限（16.6。大きなブックは Vba.CallTimeoutMs を超えうる）。
+            timeouts.ConfigureWorkbookSaveOpen(settings.Vba.WorkbookSaveOpenTimeoutMs);
         }
 
         // 控えの世代数・容量（反映のたびに掃除で使う）。
@@ -153,6 +158,26 @@ public sealed partial class MainViewModel
 
         // 機能の有効・無効（ボタン・メニュー・パレットの表示）を更新するため、ペインへ再通知する。
         ProjectPane.IsVbaEnabledSetting = () => _settings.Vba.Enabled;
+    }
+
+    private CenterPaneState _stateBeforeRibbonRewrite;
+
+    /// <summary>
+    /// リボンの書き換え（保存して閉じる〜開き直す）の処理中の表示（16.5）。Excel へ Push している最中と同じ扱いにして
+    /// （<see cref="SetVbaPushing"/>）、貼り付け・取り消し・プロジェクトの切り替えを塞ぎ、中央ペインを処理中の表示にする。
+    /// </summary>
+    private void SetRibbonRewriteBusy(bool busy)
+    {
+        if (busy)
+        {
+            _stateBeforeRibbonRewrite = State;
+            State = CenterPaneState.Loading;
+            SetVbaPushing(true);
+            return;
+        }
+
+        SetVbaPushing(false);
+        if (State == CenterPaneState.Loading) State = _stateBeforeRibbonRewrite;
     }
 
     private static void ApplyRescueLimits(VbaSyncService service, Settings settings)
