@@ -106,7 +106,7 @@ public static class VbaRibbonCollector
     /// ミラーの全モジュールの本文を読む。ミラーのフォルダ自体が無い・読めないときは null（照合できない）。
     /// 個々のファイルが読めないときは、そのファイルだけ飛ばす（照合は残りで行う。見つからないと出るのは「念のため確認」の側）。
     /// </summary>
-    private static async Task<IReadOnlyList<VbaRibbonSourceModule>?> ReadMirrorModulesAsync(string mirrorRoot, CancellationToken ct)
+    internal static async Task<IReadOnlyList<VbaRibbonSourceModule>?> ReadMirrorModulesAsync(string mirrorRoot, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(mirrorRoot) || !Directory.Exists(mirrorRoot)) return null;
 

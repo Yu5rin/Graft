@@ -152,6 +152,12 @@ public sealed class VbaSyncStateStore
         // リボンの書き換えの前に残すブックの丸ごとの控え（仕様書_ブックの情報と依頼の観点 16.11）も、.rescue と同じ扱いで付け替える。
         // 付け替えないと、Id が変わったプロジェクトの控えの一覧から消え、世代・容量の掃除からも外れて、旧 Id のフォルダに置き去りになる。
         MoveDirectoryIfAbsent(_paths.GetVbaWorkbookBackupDirectory(oldProjectId), _paths.GetVbaWorkbookBackupDirectory(newProjectId));
+
+        // リボンの書き換えの作業の記録（16.11。途中で落ちたときだけ残る）。付け替えないと、Id が変わったプロジェクトでは後始末の
+        // 知らせ（ブックは元のまま／書き換え済み）が出ず、一時ファイルも残る。移す先に既にあれば、新しい Id の記録を優先する。
+        var oldJob = _paths.GetVbaRibbonJobFilePath(oldProjectId);
+        var newJob = _paths.GetVbaRibbonJobFilePath(newProjectId);
+        if (File.Exists(oldJob) && !File.Exists(newJob)) File.Move(oldJob, newJob);
     }
 
     /// <summary>

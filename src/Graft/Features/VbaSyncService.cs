@@ -173,7 +173,8 @@ public sealed class VbaSyncService
         Rescue = new VbaRescueService(paths, states, _clock, _gate);
         // リボン（仕様書_ブックの情報と依頼の観点 16 章）。同期状態のファイルを共有するので、取込はこのサービスのゲートの中で、
         // モジュールと同じ 1 回の読み→更新→書きにまとめる（リボンの部品は、読み書きの材料を持つだけ）。
-        Ribbon = new VbaRibbonSyncService(states, _clock);
+        // F3 からは、ブックの書き換え（16.5）も同じゲートの中で行う（リボンの書き換えと VBA の取込・反映が同時に走らないように）。
+        Ribbon = new VbaRibbonSyncService(states, _clock, _gate, paths, _bridge, WritingScope);
     }
 
     /// <summary>
@@ -787,6 +788,25 @@ public sealed class VbaSyncService
     private void EndWriting()
     {
         if (Interlocked.Decrement(ref _writing) == 0) WritingChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 「書いている最中」の旗を、using の範囲だけ立てる（リボンの書き換え〔16.5〕用）。リボンはブックのファイルへ書くが、利用者から
+    /// 見れば「Excel へ反映」の一種で、書き換えの途中でウィンドウを閉じる・プロジェクトを消すのを、VBA の反映と同じく待たせたい。
+    /// </summary>
+    private IDisposable WritingScope()
+    {
+        BeginWriting();
+        return new WritingRelease(this);
+    }
+
+    private sealed class WritingRelease : IDisposable
+    {
+        private VbaSyncService? _owner;
+
+        public WritingRelease(VbaSyncService owner) => _owner = owner;
+
+        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.EndWriting();
     }
 
     private async Task<GraftResult<VbaPushResult>> PushCoreAsync(
@@ -1479,7 +1499,7 @@ public sealed class VbaSyncService
         if (!StatesEqual(before, after)) await _states.SaveAsync(projectId, after, ct).ConfigureAwait(true);
     }
 
-    private static bool StatesEqual(VbaSyncState a, VbaSyncState b)
+    internal static bool StatesEqual(VbaSyncState a, VbaSyncState b)
     {
         if (a.Modules.Count != b.Modules.Count) return false;
         foreach (var (key, value) in a.Modules)

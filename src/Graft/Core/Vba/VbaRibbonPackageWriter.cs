@@ -470,8 +470,17 @@ public static class VbaRibbonPackageWriter
     /// <param name="beforeReplace">
     /// テスト用: 照合のあと・置き換えの直前に呼ぶ（その間に元のファイルが変わる、という状況を作るため）。本番では渡さない。
     /// </param>
+    /// <param name="tempPath">
+    /// 一時ファイルのパス（ブックと同じフォルダ）。null なら <c>~graft-&lt;ブック名&gt;-&lt;乱数&gt;.tmp</c> を作る。段階 F3 の
+    /// <c>VbaRibbonSyncService</c> は、作業の記録（途中で落ちたときの後始末用。16.11）に先に書いておくため、名前を決めて渡す。
+    /// </param>
+    /// <param name="replace">
+    /// 置き換えの処理（一時ファイル, ブック）。null なら <see cref="ReplaceFile"/>（<see cref="File.Replace(string, string, string?)"/>、
+    /// 使えない保存先では <see cref="File.Move(string, string, bool)"/>）。置き換えの失敗の注入（テスト）に使う。
+    /// </param>
     public static VbaRibbonWriteResult RewriteFile(
-        string workbookPath, IReadOnlyList<VbaRibbonWriteRequest> requests, long maxTotalExpandedBytes = 0, Action? beforeReplace = null)
+        string workbookPath, IReadOnlyList<VbaRibbonWriteRequest> requests, long maxTotalExpandedBytes = 0, Action? beforeReplace = null,
+        string? tempPath = null, Action<string, string>? replace = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workbookPath);
         ArgumentNullException.ThrowIfNull(requests);
@@ -483,8 +492,7 @@ public static class VbaRibbonPackageWriter
             return VbaRibbonWriteResult.Fail(VbaRibbonWriteStatus.LegacyFormat, "古い形式（.xls）のブックは、リボンを書き換えられません（.xlsm で保存し直してください）。");
         }
 
-        var directory = Path.GetDirectoryName(Path.GetFullPath(workbookPath))!;
-        var tempPath = Path.Combine(directory, $"~graft-{Path.GetFileNameWithoutExtension(workbookPath)}-{RandomToken()}.tmp");
+        tempPath ??= NewTempPath(workbookPath);
         try
         {
             VbaRibbonWriteResult result;
@@ -516,17 +524,7 @@ public static class VbaRibbonPackageWriter
                     "書き換えの途中で、ブックのファイルがほかのプログラムに変えられました。上書きしないよう止めました（元のブックは変えていません）。");
             }
 
-            try
-            {
-                // Win32 の ReplaceFile（元のファイルの属性と ACL が残る）。成功か失敗のどちらかで、半端な状態にならない。
-                File.Replace(tempPath, workbookPath, destinationBackupFileName: null);
-            }
-            catch (Exception ex) when (ex is PlatformNotSupportedException or IOException)
-            {
-                // File.Replace が使えない保存先（一部のネットワーク共有など。実機で要確認）。同じボリュームの上書きの移動に切り替える。
-                File.Move(tempPath, workbookPath, overwrite: true);
-            }
-
+            (replace ?? ReplaceFile)(tempPath, workbookPath);
             return result;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -545,6 +543,35 @@ public static class VbaRibbonPackageWriter
                 // 消せない一時ファイルは残る（次の作業の記録の後始末で消す。16.11）。元のブックには影響しない。
             }
         }
+    }
+
+    /// <summary>
+    /// 一時ファイル <paramref name="tempPath"/> で <paramref name="destinationPath"/> を原子的に置き換える（16.7「原子的な置き換え」の 3）。
+    /// Win32 の <c>ReplaceFile</c>（元のファイルの属性と ACL が残る。成功か失敗のどちらかで、半端な状態にならない）。
+    /// 使えない保存先（一部のネットワーク共有など。<b>実機で要確認</b>。実機検証 13）では、同じボリュームの上書きの移動に切り替える。
+    /// 控えから戻すとき（16.11）も同じ処理を使う。
+    /// </summary>
+    public static void ReplaceFile(string tempPath, string destinationPath)
+    {
+        try
+        {
+            File.Replace(tempPath, destinationPath, destinationBackupFileName: null);
+        }
+        catch (Exception ex) when (ex is PlatformNotSupportedException or IOException)
+        {
+            File.Move(tempPath, destinationPath, overwrite: true);
+        }
+    }
+
+    /// <summary>
+    /// ブックと同じフォルダの一時ファイルの名前（<c>~graft-&lt;ブック名&gt;-&lt;乱数 8 桁&gt;.tmp</c>）。同じボリュームでないと置き換えが
+    /// 原子的にならないので、必ずブックの隣に作る。<paramref name="suffix"/> は用途の印（控えから戻すときの <c>.restore</c> など）。
+    /// </summary>
+    public static string NewTempPath(string workbookPath, string suffix = "")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workbookPath);
+        var directory = Path.GetDirectoryName(Path.GetFullPath(workbookPath))!;
+        return Path.Combine(directory, $"~graft-{Path.GetFileNameWithoutExtension(workbookPath)}-{RandomToken()}{suffix}.tmp");
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using System.Text;
 using Graft.Core;
 using Graft.Core.Vba;
 using Graft.Infra;
+using Graft.Platform;
 
 namespace Graft.Features;
 
@@ -57,7 +58,8 @@ internal sealed record VbaRibbonWork(
 /// 判断は純ロジックの <see cref="VbaRibbonSyncPlanner"/> にあり、ここはミラーのファイルとブックのファイルを読み、取り込みを書き、
 /// 同期状態の <c>ribbon</c> を更新するための部品を持つ。流れの束ね（ゲート・未保存の確認・状態の保存）は、モジュールと同じ
 /// <see cref="VbaSyncService"/> の取込が行う（同期状態のファイルを 1 回の読み→更新→書きで扱い、モジュールとリボンの記録を
-/// 別々に書いて片方を古い内容で上書きしないため）。ブックへの書き換え（16.5）は段階 F3 でここへ足す。
+/// 別々に書いて片方を古い内容で上書きしないため）。ブックへの書き換え（16.5。段階 F3 は Excel で開いていないブックの経路）は、
+/// 分割ファイル <c>VbaRibbonSyncService.Rewrite.cs</c> にある。
 /// <para>
 /// 【相手は Excel ではなくブックのファイル】 Excel のオブジェクトモデルに customUI を読み書きする手段は無い（付録A-24）。取込は
 /// ディスク上のブックを <see cref="VbaRibbonPackageReader"/> で読むだけなので、<b>Excel が開いていなくても、モジュールの取込が
@@ -69,17 +71,38 @@ internal sealed record VbaRibbonWork(
 /// 何もしない（v0.6 までと同じ。<c>CustomUI/</c> を作らず、あっても同期しない。E810 の警告も従来どおり出す）。
 /// </para>
 /// </summary>
-public sealed class VbaRibbonSyncService
+public sealed partial class VbaRibbonSyncService
 {
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     private readonly VbaSyncStateStore _states;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly SemaphoreSlim _gate;
+    private readonly AppPaths _paths;
+    private readonly IVbaBridge _bridge;
+    private readonly Func<IDisposable> _beginWriting;
 
-    internal VbaRibbonSyncService(VbaSyncStateStore states, Func<DateTimeOffset> clock)
+    /// <param name="states">同期状態の保存先（モジュールと共有）。</param>
+    /// <param name="clock">現在時刻。</param>
+    /// <param name="gate">
+    /// <see cref="VbaSyncService"/> の直列化の錠。リボンの書き換え（16.5）は同期状態のファイルを読み→更新→書くので、VBA の取込・反映と
+    /// 同時に走らないよう、同じ錠の中で行う（<see cref="VbaRescueService"/> と同じ受け取り方）。
+    /// </param>
+    /// <param name="paths">データ保存先（控えのフォルダ・作業の記録の場所）。</param>
+    /// <param name="bridge">Excel との窓口（ブックが Excel で開いているかを調べるだけに使う。段階 F3 は COM でブックに触れない）。</param>
+    /// <param name="beginWriting">
+    /// 「書いている最中」の旗を立てる（<see cref="VbaSyncService.IsWritingToExcel"/>。Dispose で下ろす）。書き換えの間は、ウィンドウを閉じる
+    /// 確認・プロジェクトの削除・設定の反映の保留など、既存の排他を VBA の反映と同じに効かせるため。
+    /// </param>
+    internal VbaRibbonSyncService(
+        VbaSyncStateStore states, Func<DateTimeOffset> clock, SemaphoreSlim gate, AppPaths paths, IVbaBridge bridge, Func<IDisposable> beginWriting)
     {
         _states = states;
         _clock = clock;
+        _gate = gate;
+        _paths = paths;
+        _bridge = bridge;
+        _beginWriting = beginWriting;
     }
 
     /// <summary>
