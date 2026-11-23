@@ -1,3 +1,4 @@
+using Graft.Core.Vba;
 using Graft.Features;
 using Graft.Infra;
 using Graft.Platform;
@@ -30,6 +31,14 @@ public sealed partial class MainViewModel
         }
     }
 
+    /// <summary>
+    /// リボンの同期（取込）でブックのファイルを読む処理（仕様書_ブックの情報と依頼の観点 16.4）。既定は実際のファイルを読む
+    /// （<see cref="VbaRibbonPackageReader.Read(string, VbaRibbonLimits?)"/>）。テストは、Excel の代役（<c>FakeVbaBridge</c>）が
+    /// 開いている「ブック」に実ファイルが無いので差し替える（<see cref="VbaRibbonReader"/> と同じ理由）。
+    /// </summary>
+    internal Func<string, VbaRibbonReadResult> VbaRibbonPackageReader { get; set; } =
+        path => Graft.Core.Vba.VbaRibbonPackageReader.Read(path);
+
     /// <summary>Pull／Push の窓口（<see cref="VbaBridge"/> から作る）。</summary>
     public VbaSyncService VbaSync => _vbaSync ??= CreateVbaSync();
 
@@ -55,6 +64,10 @@ public sealed partial class MainViewModel
             BeforePullAsync = paths2 => BeforeVbaPullAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing),
         };
         service.Rescue.BeforeRestoreAsync = paths2 => BeforeVbaRestoreAsync?.Invoke(paths2) ?? Task.FromResult(VbaPullSaveOutcome.Nothing);
+        // リボン（customUI）の同期（仕様書_ブックの情報と依頼の観点 16.3・16.4）。ブックの読み方と設定は、プロパティの現在値を
+        // 呼ぶ形で渡す（テストが後から読み方を差し替え、設定画面が設定を差し替えても、作り直さずに効くように）。
+        service.Ribbon.PackageReader = path => VbaRibbonPackageReader(path);
+        service.Ribbon.IsEnabled = () => _settings.Vba.RibbonEditEnabled;
         ApplyRescueLimits(service, _settings);
         service.WritingChanged += OnVbaWritingChanged;
         return service;

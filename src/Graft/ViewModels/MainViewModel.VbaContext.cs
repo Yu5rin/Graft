@@ -101,6 +101,14 @@ public sealed partial class MainViewModel
             ProjectPane.RequestVbaBadgeRefresh(checkWorkbookOpen: false);
         }
 
+        if (pulled.RibbonConflicts.Count > 0)
+        {
+            // リボンの衝突（仕様書_ブックの情報と依頼の観点 16.4）は、衝突ダイアログに載せられない（段階 F5 まで）。収集は止めず、
+            // 取り込めていないことだけを警告で伝える（「リボン（customUI）」の行は、ミラーの現在の内容を読む）。
+            return "リボンは、ブックとファイル（Graft 側）の両方が変更されているため取り込んでいません。Graft 側（ミラー）の現在の内容で続けます: " +
+                   string.Join("、", pulled.RibbonConflicts);
+        }
+
         return null;
     }
 }

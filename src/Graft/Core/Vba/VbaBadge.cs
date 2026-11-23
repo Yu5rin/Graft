@@ -25,6 +25,14 @@ public static class VbaBadgeLogic
     /// <summary>ブックが開いていないときのツールチップ（仕様 7.6 の文言そのまま）。</summary>
     public const string WorkbookClosedTip = "ブックが開いていません";
 
+    /// <summary>リボンに未反映の変更があるときの補足行の文言（仕様書_ブックの情報と依頼の観点 16.4）。</summary>
+    public const string RibbonUnpushedText = "リボン未反映";
+
+    /// <summary>
+    /// 「リボン未反映」のツールチップ（16.13 の UI の表）。リボンはブックを閉じて開き直して反映する、重い操作であることを先に伝える。
+    /// </summary>
+    public const string RibbonUnpushedTip = "リボン（CustomUI/）に、ブックへまだ反映していない変更があります（ブックを閉じて開き直して反映します）";
+
     /// <summary>設定で機能を切っているときのバッジの文言（仕様 7.6）。</summary>
     public const string OffText = "VBA 連携オフ";
 
@@ -47,9 +55,13 @@ public static class VbaBadgeLogic
     /// <param name="needsReviewCount">
     /// 要確認（書き戻しに失敗したままの）モジュール数。同期状態に残るので、起動をまたいで出る。既定は 0 で、既存の表示は変わらない。
     /// </param>
+    /// <param name="ribbonUnpushed">
+    /// リボン（<c>CustomUI/</c>）に、ブックへまだ反映していない変更があるか（仕様書_ブックの情報と依頼の観点 16.4）。補足行に
+    /// 「リボン未反映」を出す。<b>件数は出さない</b>（多くても 2 ファイルで、数に意味が無い）。既定は false で、既存の表示は変わらない。
+    /// </param>
     public static VbaBadgeState Compute(
         bool isSupported, bool isEnabled, bool? workbookOpen, int unpushedCount, int deletePendingCount, int saveConflictCount = 0,
-        int needsReviewCount = 0)
+        int needsReviewCount = 0, bool ribbonUnpushed = false)
     {
         if (!isSupported) return VbaBadgeState.Hidden;
 
@@ -57,7 +69,7 @@ public static class VbaBadgeLogic
         var pending = Math.Max(0, deletePendingCount);
         var conflicts = Math.Max(0, saveConflictCount);
         var review = Math.Max(0, needsReviewCount);
-        var status = BuildStatusText(unpushed, pending, conflicts, review);
+        var status = BuildStatusText(unpushed, pending, conflicts, review, ribbonUnpushed);
 
         if (!isEnabled)
         {
@@ -83,15 +95,18 @@ public static class VbaBadgeLogic
                 $"要確認のモジュール: {review} 件（前回の書き込みで Excel 側を元に戻せませんでした。VBE で内容を確かめ、" +
                 "右クリックの「Excel から取込」「Excel へ反映」で、どちらを残すか選んでください。控えは .rescue/ にあります）");
         }
+        if (ribbonUnpushed) lines.Add(RibbonUnpushedTip);
         if (lines.Count == 0) lines.Add("Excel VBA プロジェクトです。");
 
         return new VbaBadgeState(true, "VBA", workbookOpen == false, status, string.Join(Environment.NewLine, lines));
     }
 
-    private static string BuildStatusText(int unpushed, int pending, int conflicts, int review)
+    private static string BuildStatusText(int unpushed, int pending, int conflicts, int review, bool ribbonUnpushed)
     {
         var parts = new List<string>();
         if (unpushed > 0) parts.Add($"未反映 {unpushed}");
+        // モジュールの未反映の隣に置く（どちらも「ブックへまだ届いていない」の知らせなので、並べて読めるように）。
+        if (ribbonUnpushed) parts.Add(RibbonUnpushedText);
         if (pending > 0) parts.Add($"削除保留 {pending}");
         if (conflicts > 0) parts.Add($"衝突 {conflicts}");
         if (review > 0) parts.Add($"要確認 {review}");

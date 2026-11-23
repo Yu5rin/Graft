@@ -101,11 +101,20 @@ public sealed partial class MainViewModel
         var scope = new List<string>();
         foreach (var path in paths)
         {
-            if (VbaMirrorLayout.TryParse(path.Replace('\\', '/'), out var parsed, out _) && parsed is not null
-                && !scope.Contains(parsed.RelativePath, StringComparer.OrdinalIgnoreCase))
+            var normalized = path.Replace('\\', '/');
+            string? relative = null;
+            if (VbaMirrorLayout.TryParse(normalized, out var parsed, out _) && parsed is not null)
             {
-                scope.Add(parsed.RelativePath);
+                relative = parsed.RelativePath;
             }
+            else if (VbaRibbonMirrorLayout.TryParse(normalized, out var ribbon) && ribbon is not null)
+            {
+                // リボン（CustomUI/customUI14.xml など。仕様書_ブックの情報と依頼の観点 16.4）。パッチが CustomUI/ を含むときも、
+                // 解析の前にブックのファイルから取り込む（取込の 3 つ目の契機）。リボンの同期をしていないときは、同期の側が範囲から外す。
+                relative = ribbon.RelativePath;
+            }
+
+            if (relative is not null && !scope.Contains(relative, StringComparer.OrdinalIgnoreCase)) scope.Add(relative);
         }
 
         return scope;
@@ -199,6 +208,13 @@ public sealed partial class MainViewModel
         foreach (var skipped in pulled.Value.Skipped)
         {
             Logger?.Warn("vba", $"未保存の編集があるため、Excel からの取り込みをスキップしました: {skipped}", targetPath: Path.Combine(project.Root, skipped));
+        }
+
+        foreach (var ribbonConflict in pulled.Value.RibbonConflicts)
+        {
+            // リボンの衝突は、衝突ダイアログに載せられない（段階 F5 まで）。解析は止めず（パッチはミラーの内容に当てる）、記録だけ残す。
+            Logger?.Warn("vba", $"ブックのリボンとファイルの両方が変更されているため、取り込みませんでした: {ribbonConflict}",
+                targetPath: Path.Combine(project.Root, ribbonConflict));
         }
 
         if (pulled.Value.Conflicts.Count > 0)

@@ -26,8 +26,18 @@ public sealed record VbaPullResult(
     /// <summary>衝突の詳細（両側の本文つき）。<see cref="Conflicts"/> と同じ順・同じ件数。</summary>
     public IReadOnlyList<VbaConflictItem> ConflictItems { get; init; } = Array.Empty<VbaConflictItem>();
 
+    /// <summary>
+    /// リボン（<c>CustomUI/customUI14.xml</c> など）の衝突で、取り込まなかったもの（ミラーのパス。仕様書_ブックの情報と依頼の観点 16.4）。
+    /// <para>
+    /// 【<see cref="Conflicts"/> と分ける理由】 衝突ダイアログの項目（<see cref="VbaConflictItem"/>）はモジュールの種別
+    /// （<see cref="VbaModuleKind"/>）を必須にしていて、リボンを載せられない。リボンの衝突をダイアログで解決するのは段階 F5
+    /// （16.15 の申し送り）で、それまでは E812 の警告として知らせ、ここに分けて持つ（モジュールの衝突の解決の流れに混ぜない）。
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> RibbonConflicts { get; init; } = Array.Empty<string>();
+
     /// <summary>何も起きなかった。</summary>
-    public bool IsEmpty => Pulled.Count == 0 && Conflicts.Count == 0 && Skipped.Count == 0;
+    public bool IsEmpty => Pulled.Count == 0 && Conflicts.Count == 0 && Skipped.Count == 0 && RibbonConflicts.Count == 0;
 }
 
 /// <summary>Push の結果。いずれもミラー内の正規の相対パス。</summary>
@@ -60,7 +70,11 @@ public sealed record VbaPushResult(
 /// Excel とミラーを突き合わせるだけで何も書かない検査の結果（<see cref="VbaSyncService.CheckAsync"/>）。
 /// 解析の前後に「取り込むべき変更があるか」「衝突しているか」を、書き込みの前に知るために使う。
 /// </summary>
-/// <param name="Pull">Excel 側だけが変わっているもの。</param>
+/// <param name="Pull">
+/// Excel 側だけが変わっているもの。リボンの同期をしているときは、ブックのファイルの側だけが変わったリボン
+/// （<c>CustomUI/customUI14.xml</c> など。仕様書_ブックの情報と依頼の観点 16.4）も含む。リボンの衝突は、衝突ダイアログに載せられない
+/// ので <paramref name="Conflicts"/> には入れない（取込のときに E812 の警告にする）。
+/// </param>
 /// <param name="Push">ミラー側だけが変わっているもの（新規作成を含む）。</param>
 /// <param name="Conflicts">両側が変わっていて本文が違うもの。</param>
 public sealed record VbaSyncCheck(
@@ -92,6 +106,13 @@ public sealed record VbaLocalStatus(int UnpushedCount, int DeletePendingCount)
     /// 件数だけを比べる呼び出し側のために、<b>等価の比較には含めない</b>（<c>VbaLocalStatus(0, 0)</c> と比べられる）。
     /// </summary>
     public IReadOnlyList<string>? UnpushedPaths { get; init; }
+
+    /// <summary>
+    /// リボン（<c>CustomUI/</c>）に、ブックへまだ反映していない変更があるか（バッジの「リボン未反映」。仕様書_ブックの情報と依頼の観点 16.4）。
+    /// 件数は持たない（多くても 2 ファイルで、数に意味が無い）。リボンの削除保留・要確認は <see cref="DeletePendingCount"/>・
+    /// <see cref="NeedsReviewCount"/> に数える。件数だけを比べる呼び出し側のために、等価の比較には含めない。
+    /// </summary>
+    public bool RibbonUnpushed { get; init; }
 
     /// <inheritdoc />
     public bool Equals(VbaLocalStatus? other)
@@ -150,7 +171,17 @@ public sealed class VbaSyncService
         // 控え（仕様書_ブックの情報と依頼の観点 7章）。ミラーへ書くときに Push・Pull と同じゲートで直列にするため、
         // このサービスのゲートを渡す。
         Rescue = new VbaRescueService(paths, states, _clock, _gate);
+        // リボン（仕様書_ブックの情報と依頼の観点 16 章）。同期状態のファイルを共有するので、取込はこのサービスのゲートの中で、
+        // モジュールと同じ 1 回の読み→更新→書きにまとめる（リボンの部品は、読み書きの材料を持つだけ）。
+        Ribbon = new VbaRibbonSyncService(states, _clock);
     }
+
+    /// <summary>
+    /// リボン（customUI）の同期の部品（仕様書_ブックの情報と依頼の観点 16.3・16.4）。ブックの読み方（<see cref="VbaRibbonSyncService.PackageReader"/>）と
+    /// 設定（<see cref="VbaRibbonSyncService.IsEnabled"/>）は <c>MainViewModel</c> が渡す。渡さなければリボンは同期しない
+    /// （純ロジックのテストの既定。従来どおりの動き）。
+    /// </summary>
+    public VbaRibbonSyncService Ribbon { get; }
 
     /// <summary>
     /// Excel 側の控え（<c>.rescue/</c>）の窓口。反映前の自動控え（<see cref="PushAsync"/> が自動で残す）の一覧・差分・
@@ -169,6 +200,7 @@ public sealed class VbaSyncService
         {
             _logger = value;
             Rescue.Logger = value;
+            Ribbon.Logger = value;
         }
     }
 
@@ -212,7 +244,7 @@ public sealed class VbaSyncService
     /// </summary>
     /// <param name="Exists">使えるミラーがある（同じ Id の同期状態がある、または同期対象のモジュールのファイルがある）。</param>
     /// <param name="HasForeignFiles">
-    /// ミラーのものではないファイル・フォルダ（<c>Modules/</c>・<c>Classes/</c>・<c>Forms/</c>・<c>Documents/</c> と、
+    /// ミラーのものではないファイル・フォルダ（<c>Modules/</c>・<c>Classes/</c>・<c>Forms/</c>・<c>Documents/</c>・<c>CustomUI/</c> と、
     /// 先頭が「.」のもの以外）がある。あれば「作り直す」は出さない。
     /// </param>
     public sealed record MirrorFolderInfo(bool Exists, bool HasForeignFiles)
@@ -239,8 +271,11 @@ public sealed class VbaSyncService
         var hasState = File.Exists(_paths.GetVbaSyncFilePath(ProjectStore.CreateId(full)));
         if (!Directory.Exists(full)) return new MirrorFolderInfo(hasState, false);
 
+        // リボンのフォルダ（CustomUI/。仕様書_ブックの情報と依頼の観点 16.3）も、Graft が取込で作るミラーのフォルダ。数えないと、
+        // リボンを取り込んだミラーで「ミラーのものではないフォルダがある」と見て「作り直す」が出なくなる。
         var mirrorFolderNames = Enum.GetValues<VbaModuleKind>()
             .Select(VbaModuleKinds.FolderName)
+            .Append(VbaRibbonMirrorLayout.FolderName)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var foreign = false;
         foreach (var entry in Directory.EnumerateFileSystemEntries(full))
@@ -256,7 +291,12 @@ public sealed class VbaSyncService
     /// <summary>指定のミラーフォルダに、既に使えるミラーがあるか（<see cref="InspectMirrorFolder"/>）。</summary>
     public bool MirrorExists(string mirrorRoot) => InspectMirrorFolder(mirrorRoot).Exists;
 
-    /// <summary>ミラーのフォルダの、4 つのフォルダの直下にある同期対象のファイル（フルパス）。</summary>
+    /// <summary>
+    /// ミラーのフォルダの、4 つのフォルダの直下にある同期対象のファイルと、リボンの 2 ファイル（<c>CustomUI/customUI14.xml</c>・
+    /// <c>CustomUI/customUI.xml</c>。16.3）のフルパス。「作り直す」でごみ箱へ送る対象。リボンを含めないと、作り直したミラーに古い
+    /// リボンのファイルが残り、同期状態を消したあとの最初の取込で「記録なし・両方ある」の衝突になる。<c>CustomUI/</c> のそれ以外
+    /// （利用者が置いた画像など）は送らない（関係のないファイルは巻き込まない。不具合 3 と同じ考え方）。
+    /// </summary>
     private static List<string> SyncTargetFiles(string root)
     {
         var files = new List<string>();
@@ -271,6 +311,7 @@ public sealed class VbaSyncService
             }
         }
 
+        files.AddRange(VbaRibbonSyncService.MirrorFiles(root));
         return files;
     }
 
@@ -420,19 +461,44 @@ public sealed class VbaSyncService
         HashSet<string>? adopt, HashSet<string> confirmed, HashSet<string> declined, bool giveUpConfirming, CancellationToken ct)
     {
         var scope = Scope(only);
-        var snapshot = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
-        if (!snapshot.IsSuccess) return new PullStep(GraftResult<VbaPullResult>.Fail(snapshot.Issues), null);
-        var work = snapshot.Value;
-        var issues = new List<GraftIssue>(snapshot.Issues);
+
+        // 【モジュールとリボンを同じ 1 回の取込にまとめる】 同期状態のファイルを共有するので、別々に読み→書きすると、片方の記録を
+        // 古い内容で上書きしうる。モジュールの計画が読んだ同期状態をリボンの計画にも使い、最後に 1 回だけ保存する。
+        // 範囲がリボンだけ（解析の前の取込でパッチが CustomUI/ だけを含む、リボンだけの「Excel から復元」）なら、Excel を読まない
+        // （閉じていても E804 で止まらない。16.4「Excel が開いていなくても、リボンの取込は行う」）。
+        GraftResult<Work>? snapshot = HasModuleScope(scope)
+            ? await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true)
+            : null;
+        var work = snapshot is { IsSuccess: true } ? snapshot.Value : null;
+        var ribbon = await Ribbon.BuildWorkAsync(project.Root, project.Id, link.WorkbookFullName, scope, work?.State, ct).ConfigureAwait(true);
+
+        if (work is null && ribbon is null)
+        {
+            // モジュールの読み取りに失敗し、リボンも同期しない（または範囲外）。従来どおりの失敗。範囲がリボンだけでリボンも
+            // 同期しないときは、何もすることが無い。
+            return new PullStep(
+                snapshot is null
+                    ? GraftResult<VbaPullResult>.Ok(new VbaPullResult(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>()))
+                    : GraftResult<VbaPullResult>.Fail(snapshot.Issues),
+                null);
+        }
+
+        var issues = new List<GraftIssue>(work is not null ? snapshot!.Issues : Array.Empty<GraftIssue>());
+        if (ribbon is not null) issues.AddRange(ribbon.LoadIssues);
 
         var skipped = new List<string>();
-        var pullPaths = PullTargets(work.Plan, restoreDeletePending, adopt);
+        var pullPaths = work is null ? new List<string>() : PullTargets(work.Plan, restoreDeletePending, adopt);
+        var ribbonPulls = ribbon is null ? new List<VbaRibbonSyncItem>() : VbaRibbonSyncService.PullTargets(ribbon.Plan, restoreDeletePending, adopt);
 
-        // 取り込み先に未保存の編集があれば、先に保存してもらう（ゲートの外で。PullAsync 参照）。
+        // 取り込み先に未保存の編集があれば、先に保存してもらう（ゲートの外で。PullAsync 参照）。リボンのファイルも、エディタで
+        // 開いて編集中なら同じ確認を通す（16.4「未保存のタブがあるときの確認は、モジュールの取込と同じ」）。
         if (BeforePullAsync is not null)
         {
             var existing = pullPaths
                 .Select(p => Path.Combine(project.Root, p.Replace('/', Path.DirectorySeparatorChar)))
+                .Concat(ribbonPulls.Select(i => ribbon!.Mirror.TryGetValue(i.Format, out var entry)
+                    ? entry.FullPath
+                    : Path.Combine(project.Root, i.MirrorPath.Replace('/', Path.DirectorySeparatorChar))))
                 .Where(File.Exists)
                 .ToList();
             var unconfirmed = existing.Where(f => !confirmed.Contains(f)).ToList();
@@ -448,8 +514,18 @@ public sealed class VbaSyncService
             {
                 var relative = RelativeOf(project.Root, declinedFile);
                 var index = pullPaths.FindIndex(p => string.Equals(p, relative, StringComparison.OrdinalIgnoreCase));
-                if (index < 0) continue;
-                pullPaths.RemoveAt(index);
+                if (index >= 0)
+                {
+                    pullPaths.RemoveAt(index);
+                }
+                else
+                {
+                    var ribbonIndex = ribbonPulls.FindIndex(i => string.Equals(i.MirrorPath, relative, StringComparison.OrdinalIgnoreCase));
+                    if (ribbonIndex < 0) continue;
+                    relative = ribbonPulls[ribbonIndex].MirrorPath;
+                    ribbonPulls.RemoveAt(ribbonIndex);
+                }
+
                 skipped.Add(relative);
                 issues.Add(GraftIssue.Of(
                     ErrorCode.E702, $"{relative}: 未保存の編集があるため、Excel からの取り込みをスキップしました。",
@@ -457,52 +533,111 @@ public sealed class VbaSyncService
             }
         }
 
-        var state = work.State;
+        var before = work?.State ?? ribbon!.State;
+        var state = before;
         var pulled = new List<string>();
+        var conflicts = new List<string>();
         var now = _clock();
-        foreach (var path in pullPaths)
+        if (work is not null)
         {
-            var module = work.Plan.Modules.First(m => string.Equals(m.RelativePath, path, StringComparison.OrdinalIgnoreCase));
-            if (!work.Excel.TryGetValue(path, out var excel)) continue;
-
-            var written = await WriteMirrorFileAsync(project.Root, path, excel.Code, ct).ConfigureAwait(true);
-            if (!written.IsSuccess)
+            foreach (var path in pullPaths)
             {
-                issues.AddRange(written.Issues);
-                continue;
+                var module = work.Plan.Modules.First(m => string.Equals(m.RelativePath, path, StringComparison.OrdinalIgnoreCase));
+                if (!work.Excel.TryGetValue(path, out var excel)) continue;
+
+                var written = await WriteMirrorFileAsync(project.Root, path, excel.Code, ct).ConfigureAwait(true);
+                if (!written.IsSuccess)
+                {
+                    issues.AddRange(written.Issues);
+                    continue;
+                }
+
+                // Pull 後の基準は、ミラーも Excel も取り込んだ本文そのもの（2本とも更新する）。
+                var hash = VbaTextNormalizer.Hash(excel.Code);
+                state = state.WithModule(path, VbaModuleState.Create(
+                    module.Kind, module.Component, excel.Caption, hash, hash, VbaTextNormalizer.LooseHash(excel.Code), now));
+                pulled.Add(path);
+                Logger?.Info("vba-pull", $"Excel から取り込みました: {path}", targetPath: Path.Combine(project.Root, path));
             }
 
-            // Pull 後の基準は、ミラーも Excel も取り込んだ本文そのもの（2本とも更新する）。
-            var hash = VbaTextNormalizer.Hash(excel.Code);
-            state = state.WithModule(path, VbaModuleState.Create(
-                module.Kind, module.Component, excel.Caption, hash, hash, VbaTextNormalizer.LooseHash(excel.Code), now));
-            pulled.Add(path);
-            Logger?.Info("vba-pull", $"Excel から取り込みました: {path}", targetPath: Path.Combine(project.Root, path));
+            // I/O を伴わない基準の更新（整形差だけの更新、削除保留の印、記録の破棄）を反映して保存する。
+            // 取り込んだモジュールの基準は上で作り直しているので、Pull 対象には計画の Baseline を使わない。
+            state = ApplyLocalChanges(work.Plan, state, pulled);
+            issues.AddRange(work.Plan.Modules.Where(m => m.Issue is not null).Select(m => m.Issue!));
+
+            // 「Excel 側を採用」と言われた衝突は取り込み済みなので、未解決の衝突から外す。
+            conflicts = work.Plan.Where(VbaSyncAction.Conflict)
+                .Select(m => m.RelativePath)
+                .Where(p => adopt is null || !adopt.Contains(p))
+                .ToList();
+            foreach (var conflict in conflicts)
+            {
+                issues.Add(GraftIssue.Of(
+                    ErrorCode.E812, $"{conflict}: {ConflictSentence(work, conflict, "取り込みませんでした")}",
+                    path: conflict, severity: Severity.Warning));
+            }
         }
 
-        // I/O を伴わない基準の更新（整形差だけの更新、削除保留の印、記録の破棄）を反映して保存する。
-        // 取り込んだモジュールの基準は上で作り直しているので、Pull 対象には計画の Baseline を使わない。
-        state = ApplyLocalChanges(work.Plan, state, pulled);
-        issues.AddRange(work.Plan.Modules.Where(m => m.Issue is not null).Select(m => m.Issue!));
-
-        // 「Excel 側を採用」と言われた衝突は取り込み済みなので、未解決の衝突から外す。
-        var conflicts = work.Plan.Where(VbaSyncAction.Conflict)
-            .Select(m => m.RelativePath)
-            .Where(p => adopt is null || !adopt.Contains(p))
-            .ToList();
-        foreach (var conflict in conflicts)
+        var ribbonConflicts = new List<string>();
+        var ribbonIssues = new List<GraftIssue>();
+        if (ribbon is not null)
         {
-            issues.Add(GraftIssue.Of(
-                ErrorCode.E812, $"{conflict}: {ConflictSentence(work, conflict, "取り込みませんでした")}",
-                path: conflict, severity: Severity.Warning));
+            var executed = new List<string>();
+            foreach (var item in ribbonPulls)
+            {
+                var one = await Ribbon.PullOneAsync(project.Root, ribbon, item, ct).ConfigureAwait(true);
+                if (!one.IsSuccess)
+                {
+                    ribbonIssues.AddRange(one.Issues);
+                    continue;
+                }
+
+                state = state.WithRibbon(item.MirrorPath, one.Value);
+                executed.Add(item.MirrorPath);
+            }
+
+            pulled.AddRange(executed);
+            state = VbaRibbonSyncService.ApplyLocalChanges(ribbon.Plan, state, executed);
+            ribbonConflicts = ribbon.Plan.Where(VbaRibbonSyncAction.Conflict)
+                .Select(i => i.MirrorPath)
+                .Where(p => adopt is null || !adopt.Contains(p))
+                .ToList();
+            // 読めない・見送った・部品が無くなった（E810）と、衝突（E812）を警告にする（三方比較の Skip・SkippedReason を写す）。
+            ribbonIssues.AddRange(VbaRibbonSyncIssues.Collect(ribbon.Plan, ribbonConflicts));
+            issues.AddRange(ribbonIssues);
         }
 
-        await SaveStateIfChangedAsync(project.Id, work.State, state, ct).ConfigureAwait(true);
+        await SaveStateIfChangedAsync(project.Id, before, state, ct).ConfigureAwait(true);
+
+        if (snapshot is { IsSuccess: false })
+        {
+            // モジュールの取込は失敗した（Excel が開いていない・応答しない）。リボンの取込はファイルを読むだけなので済ませたが
+            // （16.4）、呼び出し側が「取り込めなかった」と伝えられるよう、結果は従来どおりの失敗にする。リボンの警告は添える。
+            if (pulled.Count > 0)
+            {
+                Logger?.Info("vba-pull", $"Excel からの取込は失敗しましたが、リボンはブックのファイルから取り込みました（{string.Join("、", pulled)}）。",
+                    targetPath: project.Root);
+            }
+
+            return new PullStep(GraftResult<VbaPullResult>.Fail(snapshot.Issues.Concat(ribbon!.LoadIssues).Concat(ribbonIssues)), null);
+        }
+
         return new PullStep(
             GraftResult<VbaPullResult>.Ok(
-                new VbaPullResult(pulled, conflicts, skipped) { ConflictItems = ConflictItemsOf(work, conflicts) }, issues),
+                new VbaPullResult(pulled, conflicts, skipped)
+                {
+                    ConflictItems = work is null ? Array.Empty<VbaConflictItem>() : ConflictItemsOf(work, conflicts),
+                    RibbonConflicts = ribbonConflicts,
+                },
+                issues),
             null);
     }
+
+    /// <summary>
+    /// 範囲にモジュール（リボン以外）のパスが入っているか。null（全部）なら true。リボンのパスだけなら、Excel（COM）を読まない。
+    /// </summary>
+    private static bool HasModuleScope(HashSet<string>? scope)
+        => scope is null || scope.Any(p => !VbaRibbonMirrorLayout.TryParse(p, out _));
 
     /// <summary>衝突の理由に応じた警告の文（E812）。<paramref name="outcome"/> は「取り込みませんでした」「反映しませんでした」。</summary>
     private static string ConflictSentence(Work work, string path, string outcome)
@@ -967,18 +1102,40 @@ public sealed class VbaSyncService
         await _gate.WaitAsync(ct).ConfigureAwait(true);
         try
         {
-            var snapshot = await BuildPlanAsync(project, link, Scope(only), ct).ConfigureAwait(true);
-            if (!snapshot.IsSuccess) return GraftResult<VbaSyncCheck>.Fail(snapshot.Issues);
+            var scope = Scope(only);
+            var pull = new List<string>();
+            var push = new List<string>();
+            var conflicts = new List<VbaConflictItem>();
+            var issues = new List<GraftIssue>();
+            VbaSyncState? state = null;
 
-            var work = snapshot.Value;
-            var conflicts = work.Plan.Where(VbaSyncAction.Conflict).Select(m => m.RelativePath).ToList();
-            var push = work.Plan.Modules
-                .Where(m => m.Action is VbaSyncAction.Push or VbaSyncAction.PushCreate)
-                .Select(m => m.RelativePath)
-                .ToList();
-            return GraftResult<VbaSyncCheck>.Ok(
-                new VbaSyncCheck(work.Plan.Where(VbaSyncAction.Pull).Select(m => m.RelativePath).ToList(), push, ConflictItemsOf(work, conflicts)),
-                snapshot.Issues);
+            // 範囲がリボンだけなら Excel を読まない（PullCoreAsync と同じ理由）。
+            if (HasModuleScope(scope))
+            {
+                var snapshot = await BuildPlanAsync(project, link, scope, ct).ConfigureAwait(true);
+                if (!snapshot.IsSuccess) return GraftResult<VbaSyncCheck>.Fail(snapshot.Issues);
+
+                var work = snapshot.Value;
+                state = work.State;
+                issues.AddRange(snapshot.Issues);
+                pull.AddRange(work.Plan.Where(VbaSyncAction.Pull).Select(m => m.RelativePath));
+                push.AddRange(work.Plan.Modules
+                    .Where(m => m.Action is VbaSyncAction.Push or VbaSyncAction.PushCreate)
+                    .Select(m => m.RelativePath));
+                conflicts.AddRange(ConflictItemsOf(work, work.Plan.Where(VbaSyncAction.Conflict).Select(m => m.RelativePath).ToList()));
+            }
+
+            // リボン（16.4）: ブックのファイルの側だけが変わったものは「取り込むもの」に数える（解析の前の確認・適用の前の再検査で、
+            // モジュールと同じ流れに乗せる）。衝突はダイアログに載せられないので数えず、取込のときに E812 の警告にする。
+            var ribbon = await Ribbon.BuildWorkAsync(project.Root, project.Id, link.WorkbookFullName, scope, state, ct).ConfigureAwait(true);
+            if (ribbon is not null)
+            {
+                issues.AddRange(ribbon.LoadIssues);
+                pull.AddRange(ribbon.Plan.Where(VbaRibbonSyncAction.Pull).Select(i => i.MirrorPath));
+                push.AddRange(ribbon.Plan.Where(VbaRibbonSyncAction.Push).Select(i => i.MirrorPath));
+            }
+
+            return GraftResult<VbaSyncCheck>.Ok(new VbaSyncCheck(pull, push, conflicts), issues);
         }
         finally
         {
@@ -1050,7 +1207,7 @@ public sealed class VbaSyncService
         Project project, CancellationToken ct)
     {
         var link = RequireLink(project);
-        var mirror = await ReadMirrorAsync(project.Root, ct).ConfigureAwait(true);
+        var mirror = await ReadMirrorAsync(project.Root, Ribbon.IsActive, ct).ConfigureAwait(true);
         var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(true);
         var records = loaded.Value.Modules;
 
@@ -1084,7 +1241,20 @@ public sealed class VbaSyncService
             .ToList();
         unpushed += created.Count;
         unpushedPaths.AddRange(created);
-        return (new VbaLocalStatus(unpushed, pendingPaths.Count) { UnpushedPaths = unpushedPaths, NeedsReviewCount = needsReview }, pendingPaths);
+
+        // リボン（16.4）。ブックは読まず、ミラーと同期基準だけで出す（モジュールと同じ）。未反映は件数ではなく「リボン未反映」の
+        // 有無だけ。削除保留（記録があるのにミラーのファイルが無い）は「削除保留 N」に数え、「Excel から復元」の対象に入れる。
+        // 未反映のパス（UnpushedPaths）には入れない: そちらは保存時の自動反映の「衝突 N」の印を外すためのモジュールの一覧で、
+        // リボンは保存時の自動反映の対象にしない（16.10）。
+        var ribbon = await Ribbon.ComputeLocalStatusAsync(project.Root, loaded.Value, ct).ConfigureAwait(true);
+        pendingPaths.AddRange(ribbon.DeletePending);
+        needsReview += ribbon.NeedsReviewCount;
+        return (new VbaLocalStatus(unpushed, pendingPaths.Count)
+        {
+            UnpushedPaths = unpushedPaths,
+            NeedsReviewCount = needsReview,
+            RibbonUnpushed = ribbon.Unpushed,
+        }, pendingPaths);
     }
 
     /// <summary>
@@ -1170,7 +1340,7 @@ public sealed class VbaSyncService
 
         var mirror = narrow
             ? await ReadMirrorFilesAsync(project.Root, scope!, ct).ConfigureAwait(true)
-            : await ReadMirrorAsync(project.Root, ct).ConfigureAwait(true);
+            : await ReadMirrorAsync(project.Root, Ribbon.IsActive, ct).ConfigureAwait(true);
         var loaded = await _states.LoadAsync(project.Id, link.WorkbookFullName, ct).ConfigureAwait(true);
 
         var excelByPath = new Dictionary<string, VbaComponentSnapshot>(StringComparer.OrdinalIgnoreCase);
@@ -1209,7 +1379,14 @@ public sealed class VbaSyncService
     }
 
     /// <summary>ミラーのフォルダを走査して、同期の対象のファイルを読む。対象外は E810 の警告にする。</summary>
-    private static async Task<MirrorContents> ReadMirrorAsync(string root, CancellationToken ct)
+    /// <param name="root">ミラーのフォルダ。</param>
+    /// <param name="ribbonSynced">
+    /// リボンを同期しているか（<see cref="VbaRibbonSyncService.IsActive"/>）。true なら <c>CustomUI/customUI14.xml</c>・
+    /// <c>CustomUI/customUI.xml</c> は E810 にしない（仕様書_ブックの情報と依頼の観点 16.3。段階 F2）。リボンのファイルそのものは
+    /// <see cref="VbaRibbonSyncService"/> が読むので、ここ（モジュールの読み取り）では読まない。
+    /// </param>
+    /// <param name="ct">取り消し。</param>
+    private static async Task<MirrorContents> ReadMirrorAsync(string root, bool ribbonSynced, CancellationToken ct)
     {
         var contents = new MirrorContents();
         if (!Directory.Exists(root)) return contents;
@@ -1218,7 +1395,7 @@ public sealed class VbaSyncService
             .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
             .Where(r => !r.Split('/').Any(segment => segment.StartsWith('.')))
             .ToList();
-        contents.Issues.AddRange(VbaMirrorLayout.CollectUnsupported(relatives));
+        contents.Issues.AddRange(VbaMirrorLayout.CollectUnsupported(relatives, ribbonSynced));
 
         await ReadMirrorEntriesAsync(root, relatives, contents, ct).ConfigureAwait(true);
         return contents;
@@ -1308,6 +1485,13 @@ public sealed class VbaSyncService
         foreach (var (key, value) in a.Modules)
         {
             if (!b.Modules.TryGetValue(key, out var other) || other != value) return false;
+        }
+
+        // リボンの記録（16.4）。比べないと、取り込んだリボンの基準だけが変わった取込で保存を省いてしまう。
+        if ((a.Ribbon?.Count ?? 0) != (b.Ribbon?.Count ?? 0)) return false;
+        foreach (var (key, value) in a.Ribbon ?? new Dictionary<string, VbaRibbonSyncRecord>())
+        {
+            if (b.Ribbon is null || !b.Ribbon.TryGetValue(key, out var other) || other != value) return false;
         }
 
         return string.Equals(a.WorkbookFullName, b.WorkbookFullName, StringComparison.Ordinal);

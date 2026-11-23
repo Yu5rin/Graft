@@ -294,7 +294,7 @@ public sealed partial class ProjectPaneViewModel
     // 「VBA」バッジ（7.6）
     // ------------------------------------------------------------------
 
-    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen, int NeedsReview = 0);
+    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen, int NeedsReview = 0, bool RibbonUnpushed = false);
 
     // プロジェクト Id → 最後に調べた結果。LoadAsync で一覧が作り直されても、ちらつかずに同じ見た目を保つため。
     private readonly Dictionary<string, VbaBadgeCacheEntry> _vbaBadgeCache = new(StringComparer.Ordinal);
@@ -358,7 +358,7 @@ public sealed partial class ProjectPaneViewModel
         _vbaBadgeCache.TryGetValue(project.Id, out var entry);
         return VbaBadgeLogic.Compute(
             true, _isVbaEnabled(), entry?.WorkbookOpen, entry?.Unpushed ?? 0, entry?.DeletePending ?? 0,
-            VbaSaveConflictCount(project.Id), entry?.NeedsReview ?? 0);
+            VbaSaveConflictCount(project.Id), entry?.NeedsReview ?? 0, entry?.RibbonUnpushed ?? false);
     }
 
     /// <summary>保持している結果から、すべての行のバッジを描き直す（Excel には触れない）。</summary>
@@ -426,6 +426,7 @@ public sealed partial class ProjectPaneViewModel
                 var status = new VbaLocalStatus(previous?.Unpushed ?? 0, previous?.DeletePending ?? 0)
                 {
                     NeedsReviewCount = previous?.NeedsReview ?? 0,
+                    RibbonUnpushed = previous?.RibbonUnpushed ?? false,
                 };
                 if (Directory.Exists(project.Root))
                 {
@@ -445,7 +446,8 @@ public sealed partial class ProjectPaneViewModel
                     isOpen = open.Any(w => VbaRotNames.SamePath(w.FullName, project.Vba!.WorkbookFullName));
                 }
 
-                _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(status.UnpushedCount, status.DeletePendingCount, isOpen, status.NeedsReviewCount);
+                _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(
+                    status.UnpushedCount, status.DeletePendingCount, isOpen, status.NeedsReviewCount, status.RibbonUnpushed);
 
                 // 【衝突の印は、未反映のモジュールにだけ残す】 衝突しているモジュールは、ミラーが同期基準と違う
                 // （＝未反映）ままである。「Excel 側を採用」「Graft 側で上書き」で解決する、別の手段で取り込む、
@@ -545,7 +547,11 @@ public sealed partial class ProjectPaneViewModel
         var pulled = result.Value;
         var resolved = await ResolveConflictsAsync(project, VbaConflictScene.ManualPull, pulled.ConflictItems).ConfigureAwait(true);
         ReconcileVbaSaveConflicts(project.Id, null, resolved.Unresolved);
-        await ShowWarningsAsync("Excel からの取込の注意", result.Issues.Where(i => i.Code != ErrorCode.E812)).ConfigureAwait(true);
+        // モジュールの衝突（E812）は衝突ダイアログで扱ったので、注意の一覧には出さない。リボンの衝突は、ダイアログに載せられない
+        // （段階 F5 まで）ので、ここで警告として見せる（出さないと、ミラーのリボンのファイルが取り込まれなかった理由が分からない）。
+        await ShowWarningsAsync("Excel からの取込の注意", result.Issues.Where(i => i.Code != ErrorCode.E812
+                || (i.Path is not null && pulled.RibbonConflicts.Contains(i.Path, StringComparer.OrdinalIgnoreCase))))
+            .ConfigureAwait(true);
 
         // 取り込み後の件数と、ブックの開閉（Excel と通信できたかどうか）を描き直す（仕様 7.6）。
         await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
