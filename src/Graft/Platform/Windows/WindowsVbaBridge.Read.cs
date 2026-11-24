@@ -233,6 +233,7 @@ public sealed partial class WindowsVbaBridge
     /// ROT の項目（<paramref name="rotObject"/>）が、いま開いているブックを指しているかを確かめ、開いていればその <b>Workbook</b> を返す
     /// （閉じたのに残った項目なら null）。判定は <see cref="VbaRotNames.IsLiveEntry"/> と同じ考え方: 項目から <c>Application</c> を辿り、
     /// <c>Application.Workbooks</c> に同じフルパスのブックがあれば、<b>そちらのオブジェクト</b>を返す（古い項目の死んだオブジェクトは返さない）。
+    /// 列挙に出ないアドイン（.xlam）は名前で取り直す（<see cref="FindInWorkbooks"/>。1.3.1 で 1.3.0 の退行を直した）。
     /// <c>Workbooks</c> に無くても、保護ビューのウィンドウにあるなら開いているので、ROT のオブジェクトを返す（保護ビューは既存の判定で止める）。
     /// <para>
     /// 閉じたブックのオブジェクトから <c>Application</c> を辿れない（切断された・無効）ときは「実在しない」。Excel が拒否し続けた
@@ -247,22 +248,8 @@ public sealed partial class WindowsVbaBridge
             var appObj = s.Own(s.Call(() => (object)stale.Application));
             if (appObj is null) return null;
 
-            dynamic app = appObj;
-            var workbooksObj = s.Own(s.Call(() => (object)app.Workbooks));
-            if (workbooksObj is not null)
-            {
-                dynamic workbooks = workbooksObj;
-                var count = s.Call(() => (int)workbooks.Count);
-                for (var i = 1; i <= count; i++)
-                {
-                    var bookObj = s.Own(s.Call(() => (object)workbooks.Item(i)));
-                    if (bookObj is null) continue;
-
-                    dynamic book = bookObj;
-                    if (VbaRotNames.SamePath(s.Call(() => (string)book.FullName), fullName)) return bookObj;
-                    s.Scope.Release(bookObj);
-                }
-            }
+            var found = FindInWorkbooks(s, appObj, fullName);
+            if (found is not null) return found;
 
             return IsInProtectedView(s, rotObject, fullName) ? rotObject : null;
         }
@@ -272,6 +259,62 @@ public sealed partial class WindowsVbaBridge
             // 閉じたブックの項目（切断されたオブジェクト）、または確かめている最中に閉じられた。開いているとは言えない。
             return null;
         }
+    }
+
+    /// <summary>
+    /// 指した Excel（<paramref name="appObject"/>）の <c>Workbooks</c> から、フルパスが <paramref name="fullName"/> と同じブックを取り出す
+    /// （無ければ null。見つけたブックは session の持ち物で、呼び出し側が不要になったら <c>s.Scope.Release</c> する）。
+    /// <para>
+    /// 【2段で探す理由】 1.3.0 で「閉じたのに ROT に残った項目を出さない」ために <c>Workbooks</c> の列挙（<c>Count</c>／<c>Item(i)</c>）だけで
+    /// 実在を決めたところ、<b>アドイン（.xlam）が一覧から消える退行</b>になった。<c>.xlam</c> は <c>Workbooks</c> の列挙に出ない
+    /// （仕様 5.2「.xlam は Workbooks に出ないが ROT には出る」）。そこで、列挙で見つからなかったときは <c>Workbooks.Item(ファイル名)</c> で
+    /// 取り直す。名前での取得は、アドインでも効く。
+    /// </para>
+    /// <para>
+    /// 【1.3.0 の対策（実機検証 6-34 の 5-b）は保たれる】 閉じたアドインの古い ROT 項目は、名前では取れない（Item が COMException）ので「実在しない」になる。
+    /// 名前で取れても <c>FullName</c> が違う（別のフォルダの同名ブック）なら採らない。取得が拒否され続けたとき
+    /// （<see cref="ComBusyException"/>）は握りつぶさず呼び出し側へ伝える（実在するかを推測で決めない）。
+    /// </para>
+    /// </summary>
+    private static object? FindInWorkbooks(Session s, object appObject, string fullName)
+    {
+        dynamic app = appObject;
+        var workbooksObj = s.Own(s.Call(() => (object)app.Workbooks));
+        if (workbooksObj is null) return null;
+
+        dynamic workbooks = workbooksObj;
+        var count = s.Call(() => (int)workbooks.Count);
+        for (var i = 1; i <= count; i++)
+        {
+            var bookObj = s.Own(s.Call(() => (object)workbooks.Item(i)));
+            if (bookObj is null) continue;
+
+            dynamic book = bookObj;
+            if (VbaRotNames.SamePath(s.Call(() => (string)book.FullName), fullName)) return bookObj;
+            s.Scope.Release(bookObj);
+        }
+
+        // 列挙に出ないアドイン（.xlam）を、名前で取り直す。
+        var fileName = VbaRibbonRewriteText.FileNameOf(fullName);
+        if (fileName.Length == 0) return null;
+
+        object? byName;
+        try
+        {
+            byName = s.Own(s.Call(() => (object)workbooks.Item(fileName)));
+        }
+        catch (COMException)
+        {
+            // 見つからない（DISP_E_BADINDEX など）。閉じたアドインの古い ROT 項目もここで「実在しない」になる。
+            return null;
+        }
+
+        if (byName is null) return null;
+
+        dynamic named = byName;
+        if (VbaRotNames.SamePath(s.Call(() => (string)named.FullName), fullName)) return byName;
+        s.Scope.Release(byName);
+        return null;
     }
 
     /// <summary>

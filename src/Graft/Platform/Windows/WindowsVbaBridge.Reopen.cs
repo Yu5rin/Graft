@@ -315,23 +315,12 @@ public sealed partial class WindowsVbaBridge
     {
         try
         {
-            dynamic app = appObject;
-            var workbooksObj = s.Own(s.Call(() => (object)app.Workbooks));
-            if (workbooksObj is not null)
-            {
-                dynamic workbooks = workbooksObj;
-                var count = s.Call(() => (int)workbooks.Count);
-                for (var i = 1; i <= count; i++)
-                {
-                    using var item = new ComScope();
-                    var bookObj = item.Own(s.Call(() => (object)workbooks.Item(i)));
-                    if (bookObj is null) continue;
-                    dynamic book = bookObj;
-                    if (VbaRotNames.SamePath(s.Call(() => (string)book.FullName), fullName)) return true;
-                }
+            // 列挙に出ないアドイン（.xlam）も名前で探す（FindInWorkbooks の説明。1.3.0 の退行の修正）。
+            var found = FindInWorkbooks(s, appObject, fullName);
+            if (found is null) return false;
 
-                return false;
-            }
+            s.Scope.Release(found);
+            return true;
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
         {

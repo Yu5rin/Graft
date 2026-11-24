@@ -115,17 +115,9 @@ public partial class ProjectPane : UserControl
         var items = e.Data.GetFiles();
         if (items is null) return;
 
-        await SafeHandler.RunAsync("プロジェクトのドロップ登録", async () =>
-        {
-            foreach (var item in items)
-            {
-                var folder = ResolveDropTarget(item.TryGetLocalPath());
-                if (!string.IsNullOrEmpty(folder))
-                {
-                    await viewModel.RegisterFolderAsync(folder).ConfigureAwait(true);
-                }
-            }
-        }).ConfigureAwait(true);
+        // 振り分けと登録は ViewModel（HandleDropAsync）が行う。VBA 連携が使えるときは、ブックを VBA のプロジェクトとして登録する（1.3.1）。
+        var paths = items.Select(i => i.TryGetLocalPath()).ToList();
+        await SafeHandler.RunAsync("プロジェクトのドロップ登録", () => viewModel.HandleDropAsync(paths)).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -138,8 +130,5 @@ public partial class ProjectPane : UserControl
     /// 自体だけを独立してテストできるようにするための切り出し（ProjectPaneDragDropTests参照）。
     /// </summary>
     public static string? ResolveDropTarget(string? localPath)
-    {
-        if (string.IsNullOrEmpty(localPath)) return null;
-        return Directory.Exists(localPath) ? localPath : Path.GetDirectoryName(localPath);
-    }
+        => ProjectDropPlan.ResolveFolder(localPath);
 }
