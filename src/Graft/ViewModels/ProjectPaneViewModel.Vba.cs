@@ -119,7 +119,7 @@ public sealed partial class ProjectPaneViewModel
 
     private void InitializeVbaCommands()
     {
-        AddFromWorkbookCommand = new AsyncRelayCommand(AddFromWorkbookAsync, () => IsVbaFeatureAvailable, context: "Excel ブックからの追加");
+        AddFromWorkbookCommand = new AsyncRelayCommand(() => AddFromWorkbookAsync(), () => IsVbaFeatureAvailable, context: "Excel ブックからの追加");
         PullFromExcelCommand = new AsyncRelayCommand(PullSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel からの取込");
         PushToExcelCommand = new AsyncRelayCommand(PushSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel への反映");
         RestoreFromExcelCommand = new AsyncRelayCommand(RestoreSelectedAsync, CanOperateOnSelectedVbaProject, context: "Excel からの復元");
@@ -486,11 +486,90 @@ public sealed partial class ProjectPaneViewModel
     /// </summary>
     public event EventHandler<Project>? WorkbookRelinked;
 
-    private async Task AddFromWorkbookAsync()
+    /// <summary>
+    /// プロジェクト一覧へ落とされたものを登録する（<c>ProjectPane</c> の OnDrop から呼ぶ）。
+    /// <para>
+    /// フォルダと通常ファイル（親フォルダ）はこれまでどおり全部登録する。<b>VBA 連携が使えるとき</b>（<see cref="IsVbaFeatureAvailable"/>。
+    /// 「Excel ブックから追加」ボタンが出る条件と同じ）だけ、.xlsm・.xlsb・.xlam・.xls は親フォルダではなく VBA のプロジェクトとして登録する
+    /// （<see cref="AddFromWorkbookAsync"/> に落としたブックを渡し、選択画面を選んだ状態で開く）。.xlsx は、マクロを保存できないので知らせるだけで、
+    /// 親フォルダも登録しない。使えないとき（Linux・設定オフ）は、ブックも従来どおり親フォルダ登録に回す。
+    /// </para>
+    /// <para>
+    /// ブックは先頭の 1 冊だけ扱う。選択画面が 1 冊ずつの作りで、ミラーの場所の決定と確定の画面を何冊分も続けて出すと
+    /// 利用者が何をしているか分からなくなるため。2 冊以上落とされたら、その旨を知らせる。
+    /// 知らせは 1 回にまとめる。ブックの追加が続くときは、通知（<see cref="Notify"/>）だと追加の結果の通知に上書きされて読まれないので、
+    /// ダイアログで出す。追加が続かないとき（.xlsx だけを落としたとき）は通知で足りる。
+    /// </para>
+    /// </summary>
+    public async Task HandleDropAsync(IReadOnlyList<string?> localPaths)
+    {
+        ArgumentNullException.ThrowIfNull(localPaths);
+        var plan = ProjectDropPlan.Create(localPaths, IsVbaFeatureAvailable && ShowWorkbookPickerAsync is not null);
+
+        foreach (var folder in plan.Folders)
+        {
+            await RegisterFolderAsync(folder).ConfigureAwait(true);
+        }
+
+        var notices = new List<string>();
+        foreach (var path in plan.NoMacroWorkbooks)
+        {
+            notices.Add($"{VbaRibbonRewriteText.FileNameOf(path)} はマクロを保存できない形式（.xlsx）なので、VBA のプロジェクトにできません。.xlsm で保存し直してください。");
+        }
+
+        if (plan.Workbooks.Count > 1)
+        {
+            notices.Add($"ブックは1冊ずつ追加します。先頭の {VbaRibbonRewriteText.FileNameOf(plan.Workbooks[0])} だけを追加するので、ほかのブックは、続けてもう一度落としてください。");
+        }
+
+        if (notices.Count > 0)
+        {
+            var text = string.Join(Environment.NewLine, notices);
+            if (plan.Workbooks.Count > 0)
+            {
+                // このあとブックの追加が続き、その結果の通知（「追加しました」など）が先の通知を上書きしてしまう。
+                // 読まれないまま消えないよう、確認を要するダイアログで出す。
+                await _dialogs.ShowMessageAsync("ブックの追加について", text).ConfigureAwait(true);
+            }
+            else
+            {
+                Notify?.Invoke(text);
+            }
+        }
+
+        if (plan.Workbooks.Count > 0) await AddFromWorkbookAsync(plan.Workbooks[0]).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// 「Excel ブックから追加」。<paramref name="preselectWorkbook"/> を渡すと（ドラッグ＆ドロップ）、選択画面をそのブックを選んだ状態で開く。
+    /// ミラーフォルダの場所の決定・確定以降は、渡さない場合と同じ経路を通す（ここから先に分岐を作らない）。
+    /// <para>
+    /// 【開いていないブックは選択画面を出さない】 起動中のブックの一覧に無ければ、選択画面は開かず知らせる（Graft から Excel でブックを
+    /// 開くことはしない。開き直しの保存・マクロの実行に関わる操作を、落としただけで始めないため）。一覧にあるが使えない
+    /// （保護ビュー・ロック・トラスト未設定など）ときは、選択画面を開いてそのブックを選んだ状態にし、理由は既存の表示に任せる。
+    /// 一覧そのものを取れなかったとき（E802 など）は、開いていないと決めつけず、選択画面を開いてその案内を見せる。
+    /// </para>
+    /// </summary>
+    private async Task AddFromWorkbookAsync(string? preselectWorkbook = null)
     {
         if (_vbaSync is null || ShowWorkbookPickerAsync is null) return;
 
         var picker = new VbaWorkbookPickerViewModel(_vbaSync, _dialogs);
+        if (!string.IsNullOrEmpty(preselectWorkbook))
+        {
+            await picker.LoadAsync().ConfigureAwait(true);
+            var target = picker.Workbooks.FirstOrDefault(w => VbaRotNames.SamePath(w.FullName, preselectWorkbook));
+            if (target is not null)
+            {
+                picker.SelectedWorkbook = target;
+            }
+            else if (!picker.HasError)
+            {
+                Notify?.Invoke($"{VbaRibbonRewriteText.FileNameOf(preselectWorkbook)} は Excel で開かれていません。Excel で開いてから、もう一度落としてください。");
+                return;
+            }
+        }
+
         if (!await ShowWorkbookPickerAsync(picker).ConfigureAwait(true) || picker.Result is not { } chosen) return;
 
         // ミラーと同期基準は選択画面の確定で作成済み。ここでプロジェクトとして登録し、VBA の紐付けを付ける。

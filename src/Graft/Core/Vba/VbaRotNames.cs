@@ -26,6 +26,16 @@ public static class VbaRotNames
     }
 
     /// <summary>
+    /// ファイル名が、VBA のプロジェクトにできるブック（.xlsm／.xlsb／.xlam／.xls）か。プロジェクト一覧へのドラッグ＆ドロップで、
+    /// ブックを親フォルダ登録ではなく VBA のプロジェクトとして扱うかの判定に使う。「Excel ブックから追加」の一覧の候補と同じ拡張子で、
+    /// マクロを保存できない形式（.xlsx）は含まない。
+    /// </summary>
+    public static bool IsVbaWorkbookFile(string? path) => IsWorkbookDisplayName(path) && !IsNoMacroFormat(path);
+
+    /// <summary>ファイル名が、マクロを保存できないブック（.xlsx）か。落とされても VBA のプロジェクトにできないと知らせるための判定。</summary>
+    public static bool IsNoMacroWorkbookFile(string? path) => IsWorkbookDisplayName(path) && IsNoMacroFormat(path);
+
+    /// <summary>
     /// <c>FullName</c> が URL か（OneDrive／SharePoint 上のブック。仕様 5.2 により非対応）。
     /// </summary>
     public static bool IsUrlLocation(string? fullName)
