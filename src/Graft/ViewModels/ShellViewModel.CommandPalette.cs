@@ -82,6 +82,8 @@ public sealed partial class ShellViewModel
             // 後者の名前はOSで変わるため、メニューと同じ共通の言い方（MenuText）から作る。
             new("選択中のプロジェクトのパスをコピー", Graft.ProjectPane.CopyPathCommand, null, null, c),
             new("選択中のプロジェクトを" + Views.MenuText.RevealInFileManager, Graft.ProjectPane.RevealCommand, null, null, c),
+            // 右クリックメニューの「履歴だけを削除…」と同じ操作（プロジェクトの登録とファイルは変えず、変更履歴だけを消す）。
+            new("選択中のプロジェクトの履歴だけを削除…", Graft.ProjectPane.ClearHistoryCommand, null, null, c),
 
             // Excel VBA 連携（仕様書_VBA連携 7.2・7.2b・7.6）。この環境で使えないときは一覧に出さない。
             // ホットキーは設けない（再登録処理の作り直しが大きいため。Pull はパレットと右クリックメニューで行う）。

@@ -64,6 +64,21 @@ public class AvaloniaDialogServiceButtonOrderTests
             });
     }
 
+    [AvaloniaFact(DisplayName = "ConfirmDestructiveAsyncは「実行」「キャンセル」の順で並び、既定（Enter）はキャンセル。実行側は既定でない")]
+    public void ConfirmDestructiveAsyncの既定はキャンセル()
+    {
+        RunWithCapturedButtons(
+            () => new AvaloniaDialogService().ConfirmDestructiveAsync("履歴を削除", "メッセージ", "削除する"),
+            buttons =>
+            {
+                buttons.Select(b => b.Content).Should().Equal(new object?[] { "削除する", "キャンセル" },
+                    "肯定が左、キャンセルが右（ほかの確認と同じ並び）");
+                buttons[0].IsDefault.Should().BeFalse("戻せない操作は、Enter だけでは実行されない");
+                buttons[1].IsDefault.Should().BeTrue("Enter はキャンセル");
+                buttons[1].IsCancel.Should().BeTrue("Esc もキャンセル");
+            });
+    }
+
     /// <summary>
     /// <see cref="AvaloniaDialogService.OnButtonRowBuiltForTests"/>を使い、<paramref name="invoke"/>が
     /// 組み立てたボタン一覧（左から並んだ順）を<paramref name="assert"/>へ渡す。テスト間で

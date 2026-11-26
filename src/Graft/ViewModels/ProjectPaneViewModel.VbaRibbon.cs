@@ -131,7 +131,7 @@ public sealed partial class ProjectPaneViewModel
                 var decision = await ShowConflictAsync(request).ConfigureAwait(true) ?? request.DefaultDecision;
                 if (decision.Aborted)
                 {
-                    Notify?.Invoke("リボンの反映を中止しました（ブックのリボンとファイルの衝突が解決されていません）。リボンは未反映のままです。");
+                    NotifyRibbonStillUnpushed(project, "ブックのリボンとファイルの衝突が解決されていません");
                     return RibbonPushEnd.Cancelled;
                 }
 
@@ -151,7 +151,7 @@ public sealed partial class ProjectPaneViewModel
             switch (preparation.Kind)
             {
                 case VbaRibbonRewritePreparationKind.Declined:
-                    Notify?.Invoke("リボンの反映を中止しました（未保存の変更を保存しなかったため）。リボンは未反映のままです。");
+                    NotifyRibbonStillUnpushed(project, "未保存の変更を保存しなかったため");
                     return RibbonPushEnd.Cancelled;
                 case VbaRibbonRewritePreparationKind.NothingToDo:
                     // 利用者が衝突ダイアログで「反映しない」を選んだものは、もう知っているので、注意に出さない。
@@ -169,7 +169,9 @@ public sealed partial class ProjectPaneViewModel
             if (!confirmed)
             {
                 // 「中止」は失敗ではない（未反映のまま残す。適用の取り消しは提案しない。16.10）。
-                Notify?.Invoke("リボンの反映を中止しました。リボンは未反映のままです。");
+                // 数秒で消える通知だけだと、気付かないうちに未反映のまま閉じてしまう（利用者の報告）。［今すぐ反映］［あとで］を添えて残す
+                // （自動の流れでも手動でも同じ）。
+                NotifyRibbonStillUnpushed(project);
                 return RibbonPushEnd.Cancelled;
             }
 

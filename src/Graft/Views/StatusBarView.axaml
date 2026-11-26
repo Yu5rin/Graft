@@ -181,6 +181,37 @@
                         FontSize="{DynamicResource StatusBarFontSize}"
                         IsVisible="{Binding Graft.Notice.HasAction}"
                         AutomationProperties.Name="{Binding Graft.Notice.ActionLabel}" />
+                <!-- 数秒で消えずに残る通知（リボンの反映を中止したあと・ブックが閉じたときの案内）の「あとで」。
+                     押すと通知を消すだけ（未反映の間は、下の VBA 未反映の常時表示が残る）。 -->
+                <Button Content="{Binding Graft.Notice.DismissLabel}"
+                        Command="{Binding Graft.Notice.DismissCommand}"
+                        Margin="2,0,0,0"
+                        Padding="6,2"
+                        Classes="subtle"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource TextSecondary}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding Graft.Notice.HasDismiss}"
+                        AutomationProperties.Name="{Binding Graft.Notice.DismissLabel}" />
+
+                <!--
+                    Excel（ブック）へ未反映のリボン・モジュールがあるあいだ出し続ける表示（ShellViewModel.VbaUnpushed.cs）。
+                    「リボン未反映のまま閉じてしまう」という報告への対策で、警告スロット（StatusBarWarningText）や数秒で消える通知とは
+                    別の独立したスロットにする（消えない・押せる）。押すと、そのプロジェクトを選んで反映の操作を始める。
+                    色は警告色（StateWarn）。
+                -->
+                <Button Content="{Binding VbaUnpushedText}"
+                        Command="{Binding PushVbaUnpushedCommand}"
+                        Margin="12,0,0,0"
+                        Padding="6,2"
+                        MaxWidth="420"
+                        Classes="subtle"
+                        BorderThickness="0"
+                        Foreground="{DynamicResource StateWarn}"
+                        FontSize="{DynamicResource StatusBarFontSize}"
+                        IsVisible="{Binding HasVbaUnpushed}"
+                        AutomationProperties.Name="{Binding VbaUnpushedText}"
+                        ToolTip.Tip="{Binding VbaUnpushedTooltip}" />
 
                 <!--
                     適用直後は接ぎ木パネルのブロック一覧が空になり、変更したファイルを開く入口が

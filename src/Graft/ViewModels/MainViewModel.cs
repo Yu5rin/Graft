@@ -84,6 +84,10 @@ public sealed partial class MainViewModel : ObservableObject
         ProjectPane.ClipboardWriter = text => _ui.Clipboard.SetText(text);
         ProjectPane.Notify = text => Notice.Show(text); // 「パスをコピー」を数秒で消える通知で伝える。
         ProjectPane.NotifyWithAction = (text, label, action) => Notice.Show(text, label, action); // リボンの書き換えの完了の「Excel で開く」。
+        // 数秒で消えずに残る通知（リボンの反映を中止したとき・ブックが閉じたとき。ProjectPaneViewModel.VbaUnpushed.cs）。
+        ProjectPane.ShowPersistentNotice = (tag, text, label, action, dismiss) => Notice.ShowPersistent(tag, text, label, action, dismiss);
+        ProjectPane.DismissPersistentNotice = tag => Notice.DismissIfTag(tag);
+        ProjectPane.ChooseVba = ChooseVbaOptionAsync; // VBA プロジェクトのロック（E803）の窓。
         _vbaPaths = projectStore.Paths; // _projectStore はこの時点では未設定（MainViewModel.Prompt.cs で後から入る）ため、引数から取る。
         RebuildVbaSync(); // Excel VBA 連携の窓口（MainViewModel.Vba.cs）。ブリッジが差し替わるたびに作り直す。
         History = new HistoryPaneViewModel(revisionStore, revisionRestorer, projectStore, dialogService);
@@ -114,6 +118,7 @@ public sealed partial class MainViewModel : ObservableObject
         Queue.MergeRequested += async (_, _) => await MergeQueueAndLoadAsync().ConfigureAwait(true);
 
         ProjectPane.ProjectSelected += OnProjectSelected;
+        ProjectPane.ClearHistoryHandler = ClearProjectHistoryAsync; // 「履歴だけを削除…」（MainViewModel.ClearHistory.cs）。
         // 選択したまま別のブックへ結び直したとき、収集・依頼文のモデルが古い見せ方と取得結果を持ち続けないよう作り直す。
         ProjectPane.WorkbookRelinked += (_, project) => RebuildPromptContext(project);
         // プロジェクトペイン改善: 削除等でプロジェクトが1件も無くなった場合も、コマンドバーの

@@ -143,6 +143,15 @@ public sealed partial class MainViewModel
             targetPath: reason.Path ?? project.Root);
 
         if (!_vbaSaveNotices.TryShow(reason.Code, module)) return;
-        Notice.Show(VbaSaveNoticeThrottle.BuildText(reason.Code, module, reason.Detail));
+        var text = VbaSaveNoticeThrottle.BuildText(reason.Code, module, reason.Detail);
+        if (reason.Code == ErrorCode.E803)
+        {
+            // ロック（E803）は、保存のたびに窓を出さない代わりに、通知から VBE を開いて解除できるようにする。解除したあとの
+            // もう一度の反映は、次の保存か、ステータスバーの「Excel へ未反映」（押すと反映）から行う。
+            Notice.Show(text, VbaLockedText.VbeLabel, () => ProjectPane.ShowVbeForUnlockAsync(project));
+            return;
+        }
+
+        Notice.Show(text);
     }
 }

@@ -338,7 +338,9 @@ public sealed class ProjectStore
             }
 
             var removed = projects[index];
-            projects.RemoveAt(index);
+            // 同じ Id の項目が重ねて入っていても、すべて外す。1件だけ外すと、残った重複が一覧に出続けて
+            // 「削除したのに一覧に残る」ように見える（Id は Root から決まるので、同じ Id は同じ場所の登録）。
+            projects.RemoveAll(p => p.Id == projectId);
             await SaveCoreAsync(projects, ct).ConfigureAwait(false);
 
             var issues = new List<GraftIssue>(loaded.Issues);
@@ -353,6 +355,47 @@ public sealed class ProjectStore
                 TryDeleteDirectory(backupDir, issues);
             }
 
+            return GraftResult<bool>.Ok(true, issues);
+        }, ct);
+    }
+
+    /// <summary>
+    /// プロジェクトの登録は残したまま、変更履歴だけを削除する（<c>back/&lt;projectId&gt;/</c> を、
+    /// 中の <c>history.jsonl</c> ごと消す）。
+    ///
+    /// 【触れるのは back/&lt;projectId&gt;/ だけ】 <see cref="RemoveAsync"/> と同じく、利用者の作業フォルダ
+    /// （<see cref="Project.Root"/>）には一切触れない。VBA プロジェクトでも、同期状態（<c>vba-sync</c>）・
+    /// 控え（<c>.rescue</c>・<c>.workbooks</c>）・ミラーは消さない。同期状態は衝突の判定と「未反映」の計算の
+    /// 基準そのもので、履歴とは別の物だから（控えは Excel 側の控えの画面で個別に消せる）。
+    ///
+    /// 【NextRevision は戻さない】 履歴を消したあとも、次の適用は r43 の次の r44 から始まる。番号を再利用すると、
+    /// 前の r43 を覚えている物（コンテキスト収集の差分モードの基準など）と食い違うため。履歴が空になると
+    /// 実体の最大番号は 0 に戻るが、払い出しは projects.json の nextRevision と実体の最大番号+1 の大きい方
+    /// （<see cref="RevisionNumbering"/>）なので、nextRevision が残っていれば番号は続く。projects.json は書き換えない。
+    ///
+    /// 【消し方は世代整理と同じ】 <paramref name="useRecycleBin"/> がオンで <paramref name="trash"/> が使えるときは
+    /// ごみ箱へ送る（<c>RevisionStore.EnforceRetentionAsync</c> と同じ。送れなかったときは通常削除へ落とさず、
+    /// 失敗として知らせる）。オフ、またはごみ箱が使えない環境では通常削除する。
+    /// 他の更新（適用の番号の払い出しなど）とは同じゲートで直列にし、削除の最中に履歴フォルダへ書かれないようにする。
+    /// </summary>
+    public Task<GraftResult<bool>> ClearHistoryAsync(
+        string projectId, bool useRecycleBin, ITrashService? trash, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectId);
+
+        return WithGateAsync(async () =>
+        {
+            var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+            if (loaded.Value.All(p => p.Id != projectId))
+            {
+                return GraftResult<bool>.Fail(ErrorCode.E201, "プロジェクトが見つかりません", path: projectId);
+            }
+
+            var issues = new List<GraftIssue>(loaded.Issues);
+            var backupDir = _paths.GetProjectBackupDirectory(projectId);
+            TryDeleteDirectory(
+                backupDir, issues, useRecycleBin, trash,
+                "変更履歴を削除できませんでした。履歴はそのまま残っています。");
             return GraftResult<bool>.Ok(true, issues);
         }, ct);
     }
@@ -557,8 +600,16 @@ public sealed class ProjectStore
     /// <summary>
     /// back/&lt;projectId&gt;/ を再帰削除する。存在しない場合は何もしない。失敗しても例外は
     /// 投げず、Warningとして issues へ積むだけにとどめる（仕様書16章「例外を投げず穏当に扱う」）。
+    /// プロジェクトの削除（<see cref="RemoveAsync"/>）と履歴だけの削除（<see cref="ClearHistoryAsync"/>）が共有する。
     /// </summary>
-    private static void TryDeleteDirectory(string directory, List<GraftIssue> issues)
+    /// <param name="useRecycleBin">
+    /// true で <paramref name="trash"/> が使えるときは、ごみ箱へ送る。送れなかったときは通常削除へ落とさず失敗にする
+    /// （世代整理 <c>RevisionStore</c> と同じ。ごみ箱を選んだ利用者に、黙って完全削除をしないため）。
+    /// </param>
+    /// <param name="failureMessage">失敗したときの知らせの文（呼び出しごとに「何が済んでいるか」が違うので、呼び出し側が決める）。</param>
+    private static void TryDeleteDirectory(
+        string directory, List<GraftIssue> issues, bool useRecycleBin = false, ITrashService? trash = null,
+        string failureMessage = "変更履歴フォルダの削除に失敗しました。プロジェクトの登録は削除済みです。")
     {
         if (!Directory.Exists(directory))
         {
@@ -567,13 +618,24 @@ public sealed class ProjectStore
 
         try
         {
+            if (useRecycleBin && trash is { IsSupported: true })
+            {
+                if (!trash.Send(directory))
+                {
+                    issues.Add(GraftIssue.Of(
+                        ErrorCode.E402, failureMessage + "ごみ箱へ送れませんでした。", path: directory, severity: Severity.Warning));
+                }
+
+                return;
+            }
+
             Directory.Delete(directory, recursive: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             issues.Add(GraftIssue.Of(
                 ErrorCode.E402,
-                $"変更履歴フォルダの削除に失敗しました。プロジェクトの登録は削除済みです。{ExceptionMessages.Describe(ex)}",
+                $"{failureMessage}{ExceptionMessages.Describe(ex)}",
                 path: directory,
                 severity: Severity.Warning));
         }

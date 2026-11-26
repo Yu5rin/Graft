@@ -36,6 +36,13 @@ public sealed record VbaRibbonContextFile(
 /// <param name="NeedsReviewCount">要確認（書き換えに失敗して戻せなかった）の形式の数。</param>
 public sealed record VbaRibbonLocalStatus(bool Unpushed, IReadOnlyList<string> DeletePending, int NeedsReviewCount)
 {
+    /// <summary>
+    /// 未反映のリボンのファイルのミラーの相対パス（<c>CustomUI/customUI14.xml</c> など。<see cref="Unpushed"/> が true のときだけ 1 つ以上）。
+    /// エクスプローラーの行に「リボン未反映」の印を出すために持つ。<see cref="Unpushed"/> は件数を持たない真偽だけだったので、
+    /// どのファイルかを足した（位置引数に足さないのは、既存の呼び出し・比較をそのままにするため）。
+    /// </summary>
+    public IReadOnlyList<string> UnpushedPaths { get; init; } = Array.Empty<string>();
+
     /// <summary>リボンの同期をしていない・何も無い。</summary>
     public static VbaRibbonLocalStatus None { get; } = new(false, Array.Empty<string>(), 0);
 }
@@ -435,6 +442,7 @@ public sealed partial class VbaRibbonSyncService
     {
         var records = state.RibbonRecordsByFormat();
         var unpushed = false;
+        var unpushedPaths = new List<string>();
         var pending = new List<string>();
         var review = 0;
         foreach (var format in Enum.GetValues<VbaRibbonFormat>())
@@ -447,7 +455,12 @@ public sealed partial class VbaRibbonSyncService
             if (record is null)
             {
                 // 記録が無く、ミラーにだけある: 新規の追加（customUI の無いブックへ足す）の反映待ち。
-                if (entry is not null) unpushed = true;
+                if (entry is not null)
+                {
+                    unpushed = true;
+                    unpushedPaths.Add(VbaRibbonMirrorLayout.ToRelativePath(format));
+                }
+
                 continue;
             }
 
@@ -458,10 +471,14 @@ public sealed partial class VbaRibbonSyncService
                 continue;
             }
 
-            if (!string.Equals(VbaTextNormalizer.Hash(entry.File.Text!), record.MirrorHash, StringComparison.Ordinal)) unpushed = true;
+            if (!string.Equals(VbaTextNormalizer.Hash(entry.File.Text!), record.MirrorHash, StringComparison.Ordinal))
+            {
+                unpushed = true;
+                unpushedPaths.Add(VbaRibbonMirrorLayout.ToRelativePath(format));
+            }
         }
 
-        return new VbaRibbonLocalStatus(unpushed, pending, review);
+        return new VbaRibbonLocalStatus(unpushed, pending, review) { UnpushedPaths = unpushedPaths };
     }
 
     // ------------------------------------------------------------------

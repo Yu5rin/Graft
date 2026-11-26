@@ -97,4 +97,18 @@ public interface IDialogService
         await ShowMessageAsync(title, message).ConfigureAwait(true);
         return true;
     }
+
+    /// <summary>
+    /// 取り返しのつかない操作の確認。「<paramref name="actionLabel"/>（実行）／キャンセル」の2択で、
+    /// <b>既定のボタン（Enter）はキャンセル</b>にする。<see cref="ConfirmAsync"/> は「OK」が既定なので、
+    /// 履歴の削除のように、うっかり Enter を押すと戻せなくなる操作には使わない。
+    /// </summary>
+    /// <returns>実行を選んだら true。キャンセル・×で閉じたら false。</returns>
+    /// <remarks>
+    /// 既定実装は <see cref="ConfirmAsync"/> に委ねるだけのフォールバック（ボタンの並びと既定は変わらない。
+    /// 台本で答えるテスト用フェイクと、常にキャンセル扱いの <see cref="Null.NullDialogService"/> は、これで足りる）。
+    /// 実際に既定をキャンセルにする実装は <see cref="AvaloniaDialogService"/> が明示的にオーバーライドする。
+    /// </remarks>
+    Task<bool> ConfirmDestructiveAsync(string title, string message, string actionLabel)
+        => ConfirmAsync(title, message);
 }

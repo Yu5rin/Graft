@@ -119,6 +119,9 @@ internal sealed class VbaP3Rig : IDisposable
         return rig;
     }
 
+    /// <summary>削除などで外したあとに、同じブックをもう一度プロジェクトとして登録する（同じ場所なので同じ Id になる）。</summary>
+    public Task<Project> ReAddWorkbookAsync() => AddWorkbookAsync();
+
     private async Task<Project> AddWorkbookAsync()
     {
         var pane = Graft.ProjectPane;

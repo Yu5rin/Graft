@@ -49,6 +49,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private bool _isGraftPanelOpen;
     private GraftPanelPlacementKind _graftPanelPlacement = GraftPanelPlacementKind.Bottom;
     private string? _currentProjectId;
+
+    /// <summary>
+    /// 一覧から削除された Id の集合。<see cref="OnProjectRemoved"/>で加え、同じ Id のプロジェクトが
+    /// 改めて選ばれたとき（<see cref="OnProjectSelected"/>の冒頭）に外す。
+    /// 画面の記憶（layout の projectPaneWidths）を「作り直さない」ための守りで、詳しくは
+    /// <see cref="OnProjectRemoved"/>のコメント参照。
+    /// </summary>
+    private readonly HashSet<string> _removedProjectIds = new(StringComparer.Ordinal);
     private bool _isProjectSwitchBusy;
 
     public ShellViewModel(
@@ -88,6 +96,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // プロジェクトペイン改善（要望1）: 削除等でプロジェクトが1件も無くなった場合、
         // エディタ・エクスプローラ・検索・クイックオープンを「プロジェクト未選択」の状態へ戻す。
         Graft.ProjectPane.SelectionCleared += OnProjectSelectionCleared;
+        Graft.ProjectPane.ProjectRemoved += OnProjectRemoved;
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
         Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
         Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
@@ -149,6 +158,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         InitializeAppliedChangeNavigation(); // 適用した変更を開く・見る導線（ShellViewModel.AppliedChangeNavigation.cs）。
         InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
         InitializeUpdateNotice(); // 確認なしの自動更新の通知（ステータスバー）。ShellViewModel.UpdateNotice.cs参照。
+        InitializeVbaUnpushed(); // Excel へ未反映の常時表示・エクスプローラーの印（ShellViewModel.VbaUnpushed.cs）。
     }
 
     private void OnAddToContextRequested(object? sender, string relativePath)
@@ -612,8 +622,26 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// テスト専用の割り込み口。<see cref="OnProjectSelected"/>が、ツリーの読み込みを終えてから
+    /// 画面の記憶の復元と<see cref="_currentProjectId"/>の更新に入る直前に待つ。
+    /// 遅い CI（GitHub Actions の Linux）では、ツリーの読み込みが、直後に行う削除より長くかかって
+    /// 「切り替えが終わる前に削除が済む」順になることがあり、手元（速い）では再現しない。
+    /// その順をテストで確実に作るために、切り替えの完了を好きなだけ遅らせられるようにしてある。
+    /// 本番のコードからは設定しない（常に null で、何も待たない）。
+    /// </summary>
+    internal Func<Project, Task>? AfterProjectTreeLoadedAsync { get; set; }
+
     private async void OnProjectSelected(object? sender, Project project)
     {
+        // 【削除済みの印を外す場所はここ】 Id は Root のパスから決まるので、削除した場所を登録し直すと同じ Id の
+        // プロジェクトが選ばれる。選び直された時点で、その Id はまた「生きている」ので、印を外して以後は普通に
+        // 記憶する。外し忘れると、登録し直したプロジェクトのタブ構成が一生記憶されなくなる。
+        // 削除のあとにこの Id の選択が始まることは無い（削除後の一覧には無いため、選べるのは再登録したときだけ）ので、
+        // 「削除より遅れて終わる古い切り替え」の側を、ここで誤って生き返らせることは無い
+        // （その古い切り替えは、削除より前にここを通り過ぎている）。
+        _removedProjectIds.Remove(project.Id);
+
         IsProjectSwitchBusy = true;
         try
         {
@@ -639,8 +667,22 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 Search.SetContext(project, _settings);
                 QuickOpen.SetContext(project, _settings);
                 await Explorer.SetProjectAsync(project).ConfigureAwait(true);
+                RefreshVbaUnpushed(); // 新しいツリーへ、未反映の印（VBA プロジェクト）を付ける。
+
+                // テスト専用の割り込み口（<see cref="AfterProjectTreeLoadedAsync"/>）。本番では null。
+                if (AfterProjectTreeLoadedAsync is { } gate) await gate(project).ConfigureAwait(true);
+
+
+                // 【順序に頼らない守り】 ここまで（特に Explorer.SetProjectAsync）は時間がかかり、遅い CI では
+                // 切り替えの途中で、同じプロジェクトの削除が済んでしまうことがある。削除済みなら、
+                // 画面の記憶を復元して項目を作り直すことも、_currentProjectId を消した Id へ戻すことも
+                // してはいけない（戻すと、次の切り替えの CaptureProjectState が消した項目を空で作り直す）。
+                if (_removedProjectIds.Contains(project.Id)) return;
+
                 await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
+                // 復元の最中（ファイルを開く待ち）にも削除されうるので、代入の直前でもう一度見る。
+                if (_removedProjectIds.Contains(project.Id)) return;
                 _currentProjectId = project.Id;
 
                 // v1.0.7実機不具合対応: プロジェクト切替のたびに環境要約をログへ残す
@@ -683,12 +725,45 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         }).ConfigureAwait(true);
 
     /// <summary>
+    /// プロジェクトを一覧から削除したとき、その Id の画面の記憶（開いていたタブ・アクティブタブ・展開したフォルダと
+    /// ペイン幅。layout.json の projectPaneWidths）を捨てる。
+    ///
+    /// 【なぜ捨てるか】 Id は Root のパスから決まる（<c>ProjectStore.CreateId</c>）ので、同じ場所を登録し直すと
+    /// 同じ Id になる。記憶を残したままだと、削除したはずのプロジェクトのタブ構成が登録し直しで開き直る。
+    /// 一覧から消えた Id の項目が layout.json に溜まり続けることにもなる。
+    ///
+    /// 【現在のプロジェクトの Id も外す】 削除のあとの読み直しで別のプロジェクトへ切り替わるとき、切り替え前の
+    /// プロジェクトのタブ構成を書き戻す処理（<see cref="CaptureProjectState"/>）が <see cref="_currentProjectId"/> を
+    /// 使う。消した Id のまま残すと、いま捨てた項目を空の状態で作り直してしまう。
+    ///
+    /// 【それだけでは足りない（CI だけで落ちた競合）】 上の2つは「削除の時点で終わっている処理」にしか効かない。
+    /// <see cref="OnProjectSelected"/>（async void）は、Explorer.SetProjectAsync など時間のかかる処理のあとで
+    /// <c>_currentProjectId = project.Id</c> を代入する。遅い CI（Actions の Linux ランナー）では、削除の直前に選んだ
+    /// プロジェクトの切り替えが削除のあとまで終わらず、代入が消した Id を戻してしまう。すると続く切り替えの
+    /// CaptureProjectState が項目を作り直し、「消した Id が layout に残る」というテストの失敗になった
+    /// （手元では切り替えが先に終わるので再現しない）。復元（RestoreProjectStateAsync）も同じ項目を作る。
+    /// そこで、削除された Id の集合を持ち、書き戻し・復元・代入のどれもが集合を見て何もしないようにして、
+    /// 処理の終わる順序に依らず正しくなるようにした。集合から外すのは、同じ Id が改めて選ばれたときだけ
+    /// （<see cref="OnProjectSelected"/>の冒頭）。
+    /// </summary>
+    private void OnProjectRemoved(object? sender, string projectId)
+    {
+        // 先に印を付けてから消す。印を付ける前に項目を消すと、その隙間に走った書き戻しが作り直せてしまう。
+        _removedProjectIds.Add(projectId);
+        Graft.Layout.ProjectPaneWidths.Remove(projectId);
+        if (string.Equals(_currentProjectId, projectId, StringComparison.Ordinal)) _currentProjectId = null;
+    }
+
+    /// <summary>
     /// 3.2: 切替前プロジェクトの開いていたタブ（相対パス・アクティブタブ・カーソル位置）と
     /// エクスプローラの展開状態を、そのプロジェクトのProjectPaneLayoutへ書き戻す。
     /// 実際のlayout.jsonへの永続化はShellWindow側の既存の終了時保存処理が担う。
     /// </summary>
     private void CaptureProjectState(string projectId)
     {
+        // 削除された Id は記憶しない（GetOrCreatePaneLayout が消した項目を作り直してしまうため）。
+        if (_removedProjectIds.Contains(projectId)) return;
+
         var layout = WindowLayoutStore.GetOrCreatePaneLayout(Graft.Layout, projectId);
         // 差分タブ（9.2/4.8）はSessionを持たないため記憶対象から除く。
         layout.OpenTabs = Editor.Tabs

@@ -100,6 +100,34 @@ public sealed class AvaloniaDialogService : IDialogService
         return tcs.Task;
     }
 
+    /// <summary>
+    /// 取り返しのつかない操作の確認（<see cref="IDialogService.ConfirmDestructiveAsync"/>）。ボタンは
+    /// 「実行（<paramref name="actionLabel"/>）」「キャンセル」の順（肯定が左。<see cref="ConfirmAsync"/> と同じ並び）だが、
+    /// 既定（Enter）とフォーカスは<b>キャンセル</b>に置く。<see cref="ConfirmAsync"/> は左の「OK」が既定なので、
+    /// 履歴の削除のように戻せない操作にそのまま使うと、確認を読まずに Enter を押しただけで実行されてしまう。
+    /// Esc もキャンセル（キャンセルは既定と取り消しの両方を兼ねる）。
+    /// </summary>
+    public Task<bool> ConfirmDestructiveAsync(string title, string message, string actionLabel)
+    {
+        var window = BuildShell(title, out var body);
+        AddMessage(body, message);
+        var tcs = new TaskCompletionSource<bool>();
+
+        var buttons = AddButtonRow(body, title, message);
+        var action = CreateButton(actionLabel, isDefault: false, isCancel: false);
+        var cancel = CreateButton("キャンセル", isDefault: true, isCancel: true);
+        action.Click += (_, _) => Complete(window, tcs, true);
+        cancel.Click += (_, _) => Complete(window, tcs, false);
+        buttons.Children.Add(action);
+        buttons.Children.Add(cancel);
+
+        window.Loaded += (_, _) => cancel.Focus();
+        window.Closed += (_, _) => tcs.TrySetResult(false);
+        NotifyButtonRowBuiltForTests(window, buttons);
+        ShowModal(window);
+        return tcs.Task;
+    }
+
     /// <returns>肯定ならtrue、否定ならfalse、キャンセルならnull。</returns>
     public Task<bool?> ConfirmThreeWayAsync(string title, string message, string yesLabel, string noLabel)
     {

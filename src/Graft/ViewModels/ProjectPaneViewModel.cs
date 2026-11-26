@@ -133,6 +133,7 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         // HistoryPaneのMenuItem群と同じ設計（CommandParameterを使わずSelectedItemを直接見る）に
         // 揃える。右クリックで選択行を切り替える処理はView側（ProjectPane.axaml.cs）が担う。
         DeleteProjectCommand = new AsyncRelayCommand(DeleteSelectedProjectAsync, () => SelectedItem is not null && !IsSelectedVbaProjectBusy(), context: "プロジェクトの削除");
+        ClearHistoryCommand = new AsyncRelayCommand(ClearSelectedHistoryAsync, () => SelectedItem is not null && ClearHistoryHandler is not null, context: "履歴の削除");
         TogglePinCommand = new AsyncRelayCommand(ToggleSelectedPinAsync, () => SelectedItem is not null, context: "ピン留めの切り替え");
         RenameProjectCommand = new AsyncRelayCommand(RenameSelectedProjectAsync, () => SelectedItem is not null, context: "プロジェクト名の変更");
         EditTagsCommand = new AsyncRelayCommand(EditSelectedTagsAsync, () => SelectedItem is not null, context: "タグの編集");
@@ -175,6 +176,9 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
 
     /// <summary>ヘッダーの削除ボタン・右クリックメニューの両方から呼ぶプロジェクトの削除。</summary>
     public ICommand DeleteProjectCommand { get; }
+
+    /// <summary>右クリックメニュー・コマンドパレットの「履歴だけを削除…」（プロジェクトの登録は残す）。</summary>
+    public ICommand ClearHistoryCommand { get; }
 
     /// <summary>右クリックメニューの「ピン留めする／解除する」。</summary>
     public ICommand TogglePinCommand { get; }
@@ -272,11 +276,23 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
             // （ProjectSelectedは発火しない。解析結果の破棄などは切り替えが確定してから動く）。
             if (ReferenceEquals(_selectedItem, value))
             {
-                _selectedItem = previous;
-                OnPropertyChanged(nameof(SelectedItem));
-                RaiseVbaSelectionChanged();
+                if (Items.Contains(previous))
+                {
+                    _selectedItem = previous;
+                    OnPropertyChanged(nameof(SelectedItem));
+                    RaiseVbaSelectionChanged();
+                    return;
+                }
+
+                // 【戻し先が一覧に無いときは戻さない】 元のプロジェクトが削除などで一覧から消えている（削除のあとの
+                // 読み直しで選択が移るとき）。消えた項目へ選択を戻すと、一覧に無いプロジェクトが選択中のまま残る。
+                // 戻さずに、新しい選択のまま切り替えを続ける（開いているタブの確認は、続く ProjectSelected 側の
+                // CloseAllAsync でもう一度出る）。
             }
-            return;
+            else
+            {
+                return;
+            }
         }
 
         // 確認の待ち中に、さらに別のプロジェクトへ選び直された場合は、新しい選択の処理に任せる。
@@ -354,7 +370,8 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
     /// </summary>
     public async Task RemoveWithoutConfirmationAsync(string projectId, bool deleteHistory, CancellationToken ct = default)
     {
-        await _store.RemoveAsync(projectId, deleteHistory, ct).ConfigureAwait(true);
+        var removed = await _store.RemoveAsync(projectId, deleteHistory, ct).ConfigureAwait(true);
+        if (removed.IsSuccess) ProjectRemoved?.Invoke(this, projectId);
         await LoadAsync(ct).ConfigureAwait(true);
     }
 
@@ -472,12 +489,38 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
             if (vbaChoice == false) vbaOptions = new VbaRemoveOptions(DeleteSyncState: true, DeleteMirror: inDataDirectory);
         }
 
-        var result = await _store.RemoveAsync(project.Id, deleteHistory, vbaOptions, PlatformServices.Current.Trash).ConfigureAwait(true);
+        // 【削除の前に、開いているタブを閉じる確認を済ませる】 削除してから一覧を読み直すと、選択が別のプロジェクトへ
+        // 移るときに切り替えの確認（SwitchGuardAsync。開いているタブの未保存の確認）が走る。そこで「キャンセル」されると、
+        // 選択が「戻し先」＝いま消したプロジェクトへ戻され、消えたはずの項目が選択中のまま残っていた
+        // （RaiseSelectedAfterGuardAsync）。確認は削除より前に済ませ、キャンセルなら削除自体を中止する。
+        // 確認の順は「削除してよいか」→「未保存を保存するか」。削除をやめた利用者に、先に保存の確認を出して
+        // タブを閉じさせてしまわないため。
+        if (SwitchGuardAsync is { } guard && !await guard(project).ConfigureAwait(true)) return;
+
+        GraftResult<bool> result;
+        try
+        {
+            result = await _store.RemoveAsync(project.Id, deleteHistory, vbaOptions, PlatformServices.Current.Trash).ConfigureAwait(true);
+        }
+        catch
+        {
+            // 登録の削除（projects.json の書き換え）は、履歴・ミラーの後始末より先に済んでいる。後始末で想定外の例外が出ても、
+            // 一覧だけは実際の登録に合わせて読み直す（読み直さないと、登録は消えたのに一覧には残って見える）。例外は呼び出し元
+            // （コマンド）の共通の知らせへ回す。
+            await LoadAsync().ConfigureAwait(true);
+            throw;
+        }
+
         if (!result.IsSuccess)
         {
             await ShowFailureAsync("プロジェクトを削除できませんでした", result.Issues).ConfigureAwait(true);
             return;
         }
+
+        // 消した Id の画面の記憶（タブ構成・ペイン幅）を捨てるよう知らせる。一覧の読み直しより前に出す
+        // （読み直しで別のプロジェクトへ選択が移るとき、消した Id の状態を書き戻させないため）。
+        ProjectRemoved?.Invoke(this, project.Id);
+
         if (result.Issues.Count > 0)
         {
             // 登録の削除自体は成功しつつ、履歴フォルダの削除だけ失敗した場合（権限等）。
@@ -488,6 +531,23 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
 
         await LoadAsync().ConfigureAwait(true);
     }
+
+    /// <summary>
+    /// プロジェクトを一覧から削除した（登録を外した）ことの通知。引数は消した Id。
+    /// <c>ShellViewModel</c> が購読し、その Id のタブ構成・ペイン幅（layout.json の projectPaneWidths）を捨てる。
+    /// 捨てないと、同じ場所を登録し直したときに（Id は Root から決まるので同じ Id になる）前のタブが開き直る。
+    /// </summary>
+    public event EventHandler<string>? ProjectRemoved;
+
+    /// <summary>
+    /// 選択中のプロジェクトの履歴だけを削除する右クリックメニューの「履歴だけを削除…」とコマンドパレットの入口。
+    /// 実処理は適用・復元の状態を知っている <c>MainViewModel</c>（MainViewModel.ClearHistory.cs）が持ち、
+    /// ここでは選択中の1件を渡すだけにする。未設定のあいだ（単体のテストなど）はコマンドを無効にする。
+    /// </summary>
+    public Func<Project, Task>? ClearHistoryHandler { get; set; }
+
+    private Task ClearSelectedHistoryAsync()
+        => SelectedItem is { } item && ClearHistoryHandler is { } handler ? handler(item.Project) : Task.CompletedTask;
 
     /// <summary>
     /// ピン留めの切替（仕様書3.2の並べ替え・上位9件ショートカットに連動する）。要望対応:

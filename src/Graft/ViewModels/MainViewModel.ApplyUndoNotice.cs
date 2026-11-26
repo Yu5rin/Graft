@@ -24,6 +24,7 @@ public sealed partial class MainViewModel
 
     private readonly Platform.IUiTimer _applyUndoNoticeTimer;
     private bool _hasApplyUndoNotice;
+    private string? _lastAppliedNoticeProjectId;
     private string _applyUndoNoticeText = string.Empty;
 
     /// <summary>
@@ -61,8 +62,13 @@ public sealed partial class MainViewModel
     /// 「rN として適用しました」に続けて添える括弧書き（Excel VBA 連携の「Excel へ反映済み」など。仕様書_VBA連携 7.3-4-7）。
     /// null なら従来どおり。
     /// </param>
-    private void ShowApplyUndoNotice(int revision, string? detail = null)
+    /// <param name="projectId">
+    /// 適用したプロジェクトの Id。履歴だけを削除したとき（MainViewModel.ClearHistory.cs）、その適用についての通知なら
+    /// 消す（消えたリビジョンへの「元に戻す」は押しても E405 になる）ために覚えておく。
+    /// </param>
+    private void ShowApplyUndoNotice(int revision, string? detail = null, string? projectId = null)
     {
+        _lastAppliedNoticeProjectId = projectId;
         ApplyUndoNoticeText = detail is null
             ? $"r{revision} として適用しました — 元に戻す"
             : $"r{revision} として適用しました（{detail}） — 元に戻す";

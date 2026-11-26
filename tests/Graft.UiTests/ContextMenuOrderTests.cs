@@ -58,7 +58,7 @@ public class ContextMenuOrderTests
         layout[0].Should().NotBe("この適用を取り消す", "以前は取り消す操作が先頭にあった");
     }
 
-    [AvaloniaFact(DisplayName = "プロジェクトの右クリックメニュー: ピン留めが先頭、パスのコピー・表示は共通の言い方で変更系の前、削除は区切り線のあとの一番下")]
+    [AvaloniaFact(DisplayName = "プロジェクトの右クリックメニュー: ピン留めが先頭、パスのコピー・表示は共通の言い方で変更系の前、削除は区切り線のあとの一番下（直上に「履歴だけを削除…」）")]
     public void プロジェクトのメニューは削除が一番下()
     {
         var view = new ProjectPane();
@@ -74,9 +74,11 @@ public class ContextMenuOrderTests
             "---", "Excel から取込", "Excel へ反映", "Excel から復元", "リボンをブックへ反映…", "リボンの XML を検査",
             "ブックを前面化", "Excel 側の控えを見る…",
             "適用後に Excel へ自動反映する", "保存したらそのモジュールを Excel へ反映する", "反映後にブックを保存する",
-            "---", "削除…");
+            // 削除の直上に「履歴だけを削除…」（登録とファイルは残し、変更履歴だけを消す）。
+            "---", "履歴だけを削除…", "削除…");
         layout.Last().Should().Be("削除…");
-        layout[^2].Should().Be("---");
+        layout[^2].Should().Be("履歴だけを削除…", "履歴だけの削除は、プロジェクトの削除の直上");
+        layout[^3].Should().Be("---");
     }
 
     [AvaloniaFact(DisplayName = "キューの項目の右クリックメニュー: 項目を取り除く操作がある（右側の削除ボタンと同じ）")]

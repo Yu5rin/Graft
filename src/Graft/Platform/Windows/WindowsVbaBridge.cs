@@ -123,6 +123,12 @@ public sealed partial class WindowsVbaBridge : IVbaBridge, IVbaBridgeTimeouts, I
         return InvokeAsync(token => ShowInVbeCore(workbookFullName, componentName, line, token), ct);
     }
 
+    public Task<GraftResult<bool>> ShowVbeAsync(string workbookFullName, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workbookFullName);
+        return InvokeAsync(token => ShowVbeCore(workbookFullName, token), ct);
+    }
+
     public Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workbookFullName);

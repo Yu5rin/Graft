@@ -37,6 +37,20 @@
         <Style Selector="TextBlock.nodeName.excluded">
             <Setter Property="Foreground" Value="{DynamicResource TextDisabled}" />
         </Style>
+        <!-- Excel（ブック）へ未反映の印（VBA プロジェクト。FileNodeViewModel.UnpushedBadgeText）。プロジェクトペインの
+             「VBA」バッジ（Border.vbaBadge）と同じ小さな文字バッジで、色だけ警告色（StateWarn）にする。色は直書きしない。 -->
+        <Style Selector="Border.unpushedBadge">
+            <Setter Property="BorderBrush" Value="{DynamicResource StateWarn}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.unpushedBadge > TextBlock">
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{DynamicResource StateWarn}" />
+        </Style>
         <Style Selector="TextBlock.nodeName.placeholder">
             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
             <Setter Property="FontStyle" Value="Italic" />
@@ -306,6 +320,20 @@
                                        Classes.placeholder="{Binding IsPlaceholder}"
                                        TextTrimming="CharacterEllipsis"
                                        ToolTip.Tip="{Binding Name}" />
+                            <!-- Excel へ未反映の印。ファイルは文字バッジ（モジュールは「未反映」、リボンは「リボン未反映」）、
+                                 中に未反映のファイルを持つフォルダ（CustomUI など）は小さな丸。ツールチップはプロジェクトのバッジと同じ文言。 -->
+                            <Border Classes="unpushedBadge"
+                                    IsVisible="{Binding HasUnpushedBadge}"
+                                    ToolTip.Tip="{Binding UnpushedTooltip}"
+                                    AutomationProperties.Name="{Binding UnpushedBadgeText}">
+                                <TextBlock Text="{Binding UnpushedBadgeText}" />
+                            </Border>
+                            <TextBlock Text="●" FontSize="8" Margin="6,0,0,0"
+                                       VerticalAlignment="Center"
+                                       Foreground="{DynamicResource StateWarn}"
+                                       IsVisible="{Binding ContainsUnpushed}"
+                                       ToolTip.Tip="{Binding UnpushedTooltip}"
+                                       AutomationProperties.Name="中に未反映あり" />
                         </StackPanel>
                     </TreeDataTemplate>
                 </TreeView.ItemTemplate>
