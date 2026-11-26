@@ -211,6 +211,12 @@
                                   local:HelpTip.Standard="オンにすると、Excel へ反映したあとにブックも自動で保存します。既定はオフで、保存は Excel で自分で行います。読み取り専用で開いているブックは保存できません。"
                                   AutomationProperties.Name="反映後にブックを保存する" />
                         <Separator />
+                        <!-- 「削除…」の直上。プロジェクトの登録とファイルはそのままに、変更履歴（取り消しの元）だけを消す。
+                             確認の既定はキャンセル。VBA プロジェクトでも Excel との同期記録・Excel 側の控えには触れない。 -->
+                        <MenuItem Header="履歴だけを削除…"
+                                  Command="{Binding ClearHistoryCommand}"
+                                  local:HelpTip.Standard="選択中のプロジェクトの変更履歴だけを削除します。プロジェクトの登録とファイルはそのままで、削除すると取り消し・ここまで戻すができなくなります。"
+                                  AutomationProperties.Name="履歴だけを削除" />
                         <MenuItem Header="削除…"
                                   Command="{Binding DeleteProjectCommand}"
                                   local:HelpTip.Standard="選択中のプロジェクトをGraftの一覧から削除します（フォルダ自体は削除されません）。"

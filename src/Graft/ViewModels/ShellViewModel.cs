@@ -88,6 +88,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         // プロジェクトペイン改善（要望1）: 削除等でプロジェクトが1件も無くなった場合、
         // エディタ・エクスプローラ・検索・クイックオープンを「プロジェクト未選択」の状態へ戻す。
         Graft.ProjectPane.SelectionCleared += OnProjectSelectionCleared;
+        Graft.ProjectPane.ProjectRemoved += OnProjectRemoved;
         Graft.Diff.JumpRequested += OnDiffJumpRequested; // 4.8: diff表示の行をダブルクリックしたときのジャンプ。
         Graft.HistoryDiff.JumpRequested += OnDiffJumpRequested; // 修正1: 履歴差分タブでも同じジャンプ処理を再利用する。
         Graft.HistoryDiffChanged += OnHistoryDiffChanged; // 修正1: 履歴差分タブの開閉。
@@ -681,6 +682,24 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
             _currentProjectId = null;
         }).ConfigureAwait(true);
+
+    /// <summary>
+    /// プロジェクトを一覧から削除したとき、その Id の画面の記憶（開いていたタブ・アクティブタブ・展開したフォルダと
+    /// ペイン幅。layout.json の projectPaneWidths）を捨てる。
+    ///
+    /// 【なぜ捨てるか】 Id は Root のパスから決まる（<c>ProjectStore.CreateId</c>）ので、同じ場所を登録し直すと
+    /// 同じ Id になる。記憶を残したままだと、削除したはずのプロジェクトのタブ構成が登録し直しで開き直る。
+    /// 一覧から消えた Id の項目が layout.json に溜まり続けることにもなる。
+    ///
+    /// 【現在のプロジェクトの Id も外す】 削除のあとの読み直しで別のプロジェクトへ切り替わるとき、切り替え前の
+    /// プロジェクトのタブ構成を書き戻す処理（<see cref="CaptureProjectState"/>）が <see cref="_currentProjectId"/> を
+    /// 使う。消した Id のまま残すと、いま捨てた項目を空の状態で作り直してしまう。
+    /// </summary>
+    private void OnProjectRemoved(object? sender, string projectId)
+    {
+        Graft.Layout.ProjectPaneWidths.Remove(projectId);
+        if (string.Equals(_currentProjectId, projectId, StringComparison.Ordinal)) _currentProjectId = null;
+    }
 
     /// <summary>
     /// 3.2: 切替前プロジェクトの開いていたタブ（相対パス・アクティブタブ・カーソル位置）と

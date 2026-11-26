@@ -295,7 +295,7 @@ public sealed partial class MainViewModel
         // なかった場合には出さない」仕様のため、ここまで到達している時点で成功は確定しているが、
         // 念のためentriesが1件も無い（実質的に何も変更されなかった）ケースは対象外にする。
         // Push の失敗で取り消した適用には、「元に戻す」を出さない（すでに取り消してある）。
-        if (result.Value.Entries.Count > 0 && !vbaUndone) ShowApplyUndoNotice(result.Value.Revision, vbaNoticeDetail);
+        if (result.Value.Entries.Count > 0 && !vbaUndone) ShowApplyUndoNotice(result.Value.Revision, vbaNoticeDetail, context.ProjectId);
     }
 
     /// <summary>

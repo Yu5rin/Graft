@@ -114,6 +114,7 @@ public sealed partial class MainViewModel : ObservableObject
         Queue.MergeRequested += async (_, _) => await MergeQueueAndLoadAsync().ConfigureAwait(true);
 
         ProjectPane.ProjectSelected += OnProjectSelected;
+        ProjectPane.ClearHistoryHandler = ClearProjectHistoryAsync; // 「履歴だけを削除…」（MainViewModel.ClearHistory.cs）。
         // 選択したまま別のブックへ結び直したとき、収集・依頼文のモデルが古い見せ方と取得結果を持ち続けないよう作り直す。
         ProjectPane.WorkbookRelinked += (_, project) => RebuildPromptContext(project);
         // プロジェクトペイン改善: 削除等でプロジェクトが1件も無くなった場合も、コマンドバーの
