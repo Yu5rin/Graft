@@ -295,7 +295,11 @@ public sealed partial class ProjectPaneViewModel
     // 「VBA」バッジ（7.6）
     // ------------------------------------------------------------------
 
-    private sealed record VbaBadgeCacheEntry(int Unpushed, int DeletePending, bool? WorkbookOpen, int NeedsReview = 0, bool RibbonUnpushed = false);
+    /// <param name="ModulePaths">未反映のモジュールの相対パス（エクスプローラーの印・閉じるときの確認・ステータスバーに使う）。</param>
+    /// <param name="RibbonPaths">未反映のリボンのファイルの相対パス（<c>CustomUI/customUI14.xml</c> など）。</param>
+    private sealed record VbaBadgeCacheEntry(
+        int Unpushed, int DeletePending, bool? WorkbookOpen, int NeedsReview = 0, bool RibbonUnpushed = false,
+        IReadOnlyList<string>? ModulePaths = null, IReadOnlyList<string>? RibbonPaths = null);
 
     // プロジェクト Id → 最後に調べた結果。LoadAsync で一覧が作り直されても、ちらつかずに同じ見た目を保つため。
     private readonly Dictionary<string, VbaBadgeCacheEntry> _vbaBadgeCache = new(StringComparer.Ordinal);
@@ -408,6 +412,7 @@ public sealed partial class ProjectPaneViewModel
         }
 
         List<VbaRibbonRecovery>? recoveries = null;
+        var closedWithRibbon = new List<Project>();
         await _vbaBadgeGate.WaitAsync().ConfigureAwait(true);
         try
         {
@@ -433,6 +438,9 @@ public sealed partial class ProjectPaneViewModel
                 {
                     NeedsReviewCount = previous?.NeedsReview ?? 0,
                     RibbonUnpushed = previous?.RibbonUnpushed ?? false,
+                    // 読めなかったときは前回のパスのまま（UnpushedPaths は「数えていない」を表す null のままにして、
+                    // 衝突の印の掃除（ReconcileVbaSaveConflicts）を誤って走らせない）。
+                    RibbonUnpushedPaths = previous?.RibbonPaths ?? Array.Empty<string>(),
                 };
                 if (Directory.Exists(project.Root))
                 {
@@ -453,7 +461,11 @@ public sealed partial class ProjectPaneViewModel
                 }
 
                 _vbaBadgeCache[project.Id] = new VbaBadgeCacheEntry(
-                    status.UnpushedCount, status.DeletePendingCount, isOpen, status.NeedsReviewCount, status.RibbonUnpushed);
+                    status.UnpushedCount, status.DeletePendingCount, isOpen, status.NeedsReviewCount, status.RibbonUnpushed,
+                    status.UnpushedPaths ?? previous?.ModulePaths ?? Array.Empty<string>(), status.RibbonUnpushedPaths);
+
+                // 「開 → 閉」に変わったブックのうち、リボンが未反映のもの。閉じている今なら、開き直さずにリボンを反映できる（案内）。
+                if (previous?.WorkbookOpen == true && isOpen == false && status.RibbonUnpushed) closedWithRibbon.Add(project);
 
                 // 【衝突の印は、未反映のモジュールにだけ残す】 衝突しているモジュールは、ミラーが同期基準と違う
                 // （＝未反映）ままである。「Excel 側を採用」「Graft 側で上書き」で解決する、別の手段で取り込む、
@@ -472,6 +484,10 @@ public sealed partial class ProjectPaneViewModel
 
         // 「リボンをブックへ反映…」の有効・無効は、数え直した「リボン未反映」で決まる。
         CommandRequery.Invalidate();
+        // 未反映の印（エクスプローラー・ステータスバー・閉じるときの確認）の更新は、数え直しの末尾で 1 回だけ通知する
+        // （専用の監視は足さない）。
+        RaiseVbaUnpushedChanged();
+        foreach (var closed in closedWithRibbon) NotifyRibbonWorkbookClosed(closed);
         if (recoveries is { Count: > 0 }) await ShowRibbonRecoveriesAsync(recoveries).ConfigureAwait(true);
     }
 
@@ -706,10 +722,25 @@ public sealed partial class ProjectPaneViewModel
         if (_vbaSync is null) return (false, 0);
 
         var result = await _vbaSync.PushAsync(project, only).ConfigureAwait(true);
+        // VBA プロジェクトがロックされている（E803）ときは、VBE で解除してもらい、窓の中から「もう一度反映する」を選べるようにする
+        // （取り消しは出さない）。
+        while (!result.IsSuccess && result.Issues.Any(i => i.Code == ErrorCode.E803))
+        {
+            var choice = await ChooseWhenVbaLockedAsync(
+                project, VbaLockedScene.Manual, "Excel へ反映できませんでした。", undoRevision: null, result.Issues).ConfigureAwait(true);
+            if (choice != VbaLockedText.RetryId) break;
+            result = await _vbaSync.PushAsync(project, only).ConfigureAwait(true);
+        }
+
         if (!result.IsSuccess)
         {
             // 手動の Push は適用ではないので、取り消しは提案しない（仕様 7.2b）。未反映の印が残るので再試行できる。
-            await ShowVbaFailureAsync("Excel へ反映できませんでした", project, result.Issues).ConfigureAwait(true);
+            // ロックの窓で既に案内したときは、同じ失敗を重ねて出さない。
+            if (!result.Issues.Any(i => i.Code == ErrorCode.E803))
+            {
+                await ShowVbaFailureAsync("Excel へ反映できませんでした", project, result.Issues).ConfigureAwait(true);
+            }
+
             await RefreshVbaBadgesAsync(checkWorkbookOpen: true).ConfigureAwait(true);
             return (false, 0);
         }
@@ -829,6 +860,14 @@ public sealed partial class ProjectPaneViewModel
     private async Task ShowVbaFailureAsync(string title, Project project, IReadOnlyList<GraftIssue> issues)
     {
         var text = string.Join(Environment.NewLine + Environment.NewLine, issues.Select(FormatIssue));
+        if (issues.Any(i => i.Code == ErrorCode.E803))
+        {
+            // ロック（E803）は、VBE で解除すれば直る。理由の窓ではなく、VBE を開く操作つきの窓で案内する（もう一度やり直す入口は
+            // 呼び出し元の操作そのもの）。題名の使い分けは呼び出し元に任せ、ここでは本文の頭に「何ができなかったか」を置く。
+            await ChooseWhenVbaLockedAsync(project, VbaLockedScene.Info, title + "。", undoRevision: null, issues).ConfigureAwait(true);
+            return;
+        }
+
         if (issues.Any(i => i.Code == ErrorCode.E804) && project.Vba is { } link)
         {
             var open = await _dialogs.ShowActionMessageAsync(title, text, "Excel で開く").ConfigureAwait(true);

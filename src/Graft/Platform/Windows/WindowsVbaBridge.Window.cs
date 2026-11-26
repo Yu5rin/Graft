@@ -52,6 +52,43 @@ public sealed partial class WindowsVbaBridge
         return GraftResult<bool>.Ok(WindowsForeground.BringToFront(new IntPtr(hwnd)));
     }
 
+    /// <summary>
+    /// VBE のメインウィンドウを表示して前面化する。<see cref="ShowInVbeCore"/> と違い、<c>OpenProject</c>（VBProject への接続）を通らない:
+    /// パスワードでロックされた VBA プロジェクト（E803）では VBProject に触れないが、VBE のウィンドウ自体は出せて、
+    /// 利用者がそこでロックを解除できる。VBE を取れなかったとき（トラストセンターで許可されていない等）は、ブックの Excel を前面にして
+    /// 成功で返す（利用者は Excel の「開発」タブや Alt+F11 で VBE を開ける）。実機で確認が要る（Windows実機検証手順 参照）。
+    /// </summary>
+    private GraftResult<bool> ShowVbeCore(string fullName, CancellationToken abandoned)
+    {
+        using var session = NewSession(abandoned);
+        var workbook = FindWorkbook(session, fullName);
+        if (workbook is null)
+        {
+            return GraftResult<bool>.Fail(ErrorCode.E804, $"次のブックが開いていません: {fullName}", path: fullName);
+        }
+
+        dynamic wb = workbook;
+        var appObj = session.Own(session.Call(() => (object)wb.Application));
+        dynamic app = appObj!;
+        try
+        {
+            var vbeObj = session.Own(session.Call(() => (object)app.VBE));
+            dynamic vbe = vbeObj!;
+            var mainWindowObj = session.Own(session.Call(() => (object)vbe.MainWindow));
+            dynamic mainWindow = mainWindowObj!;
+            session.Call(() => { mainWindow.Visible = true; return 0; });
+            var vbeHwnd = session.Call(() => Convert.ToInt64((object)mainWindow.HWnd));
+            return GraftResult<bool>.Ok(WindowsForeground.BringToFront(new IntPtr(vbeHwnd)));
+        }
+        catch (COMException)
+        {
+            // VBE を取れない。Excel を前面にするところまでで十分（ロックの解除は利用者が行う）。
+        }
+
+        var hwnd = session.Call(() => Convert.ToInt64((object)app.Hwnd));
+        return GraftResult<bool>.Ok(WindowsForeground.BringToFront(new IntPtr(hwnd)));
+    }
+
     private GraftResult<bool> ActivateWorkbookCore(string fullName, CancellationToken abandoned)
     {
         using var session = NewSession(abandoned);

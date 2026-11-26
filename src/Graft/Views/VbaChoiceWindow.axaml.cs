@@ -62,6 +62,26 @@ public partial class VbaChoiceWindow : Window
 
             AutomationProperties.SetName(button, option.Label);
             var id = option.Id;
+            if (option.KeepOpenAction is { } keepOpen)
+            {
+                // 窓を閉じない操作（VBE を開いてロックを解除する）。実行中に重ねて押されないよう、終わるまで無効にする。
+                button.Name = "KeepOpen_" + id;
+                button.Click += async (_, _) =>
+                {
+                    button.IsEnabled = false;
+                    try
+                    {
+                        await keepOpen().ConfigureAwait(true);
+                    }
+                    finally
+                    {
+                        button.IsEnabled = true;
+                    }
+                };
+                ButtonRow.Children.Add(button);
+                continue;
+            }
+
             button.Click += (_, _) =>
             {
                 _chosen = id;

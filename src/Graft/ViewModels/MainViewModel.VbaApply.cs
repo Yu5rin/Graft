@@ -159,6 +159,9 @@ public sealed partial class MainViewModel
     /// <returns>続行してよいなら true。</returns>
     private async Task<bool> ConfirmVbaFileOnlyAsync(Project project, IReadOnlyList<GraftIssue> issues)
     {
+        // VBA プロジェクトがパスワードでロックされている（E803）ときは、専用の窓（既定は「中止してパッチを破棄する」）。
+        if (issues.Any(i => i.Code == ErrorCode.E803)) return await ConfirmVbaLockedBeforeApplyAsync(project, issues).ConfigureAwait(true);
+
         var text = string.Join(Environment.NewLine + Environment.NewLine, issues.Where(i => i.Severity == Severity.Error).Select(FormatVbaIssue));
         var choice = await ChooseVbaOptionAsync(new VbaChoiceRequest(
             "Excel と同期できませんでした",
@@ -179,6 +182,39 @@ public sealed partial class MainViewModel
         return true;
     }
 
+    // 適用の前の同期（解析前の取込・適用直前の再検査）で、ロックの窓の「解除したのでもう一度試す」が選ばれた。
+    // 呼び出し側（PullVbaBeforeDryRunAsync・RecheckVbaBeforeApplyAsync）は、false が返ったときにこの旗を見て、取込（または再検査）の
+    // 先頭からやり直す。戻り値の bool（続けてよいか）に「やり直す」を足すと、既存の呼び出し箇所すべての書き換えになるため、旗にした。
+    private bool _vbaPreflightRetry;
+
+    /// <summary>
+    /// 適用の前（解析前の取込・適用直前の再検査）の同期が、VBA プロジェクトのロック（E803）で失敗したときの窓。
+    /// 「中止してパッチを破棄する」（既定。Enter・Esc・× も）／「VBE を開いてロックを解除する」（窓は閉じない）／
+    /// 「解除したのでもう一度試す」（取込から続ける）／「ファイルだけ適用する」。
+    /// 破棄は、既存の現在のパッチを破棄する処理（<see cref="DiscardCurrentPatch"/>）を使う（接ぎ木パネルが空になり、ファイルは変わらない）。
+    /// </summary>
+    /// <returns>続行してよいなら true（「ファイルだけ適用する」）。「もう一度試す」は false で、<see cref="_vbaPreflightRetry"/> を立てる。</returns>
+    private async Task<bool> ConfirmVbaLockedBeforeApplyAsync(Project project, IReadOnlyList<GraftIssue> issues)
+    {
+        var choice = await ProjectPane.ChooseWhenVbaLockedAsync(
+            project, VbaLockedScene.BeforeApply, "Excel と同期できませんでした。", undoRevision: null, issues).ConfigureAwait(true);
+        switch (choice)
+        {
+            case VbaLockedText.RetryId:
+                _vbaPreflightRetry = true;
+                return false;
+            case VbaLockedText.FileOnlyId:
+                _vbaFileOnly = true;
+                Logger?.Warn("vba", "VBA プロジェクトがロックされているため、ファイルだけ適用します（Excel には未反映のまま残ります）。", targetPath: project.Root);
+                return true;
+            default:
+                DiscardCurrentPatch();
+                Logger?.Warn("vba", "VBA プロジェクトがロックされているため、パッチを破棄しました。", targetPath: project.Root);
+                Notice.Show("パッチを破棄しました（VBA プロジェクトがロックされているため）");
+                return false;
+        }
+    }
+
     // ------------------------------------------------------------------
     // 解析の前の自動 Pull（7.3-1）
     // ------------------------------------------------------------------
@@ -189,6 +225,18 @@ public sealed partial class MainViewModel
     /// </summary>
     /// <returns>解析を続けてよいか（衝突で「中止」・接続できず「中止」・確認で「中止」なら false）。</returns>
     private async Task<bool> PullVbaBeforeDryRunAsync(Project project, Patch patch)
+    {
+        // ロックの窓で「解除したのでもう一度試す」が選ばれたら、取込の先頭からやり直す（破棄・中止は false のまま戻る）。
+        while (true)
+        {
+            _vbaPreflightRetry = false;
+            var proceed = await PullVbaBeforeDryRunOnceAsync(project, patch).ConfigureAwait(true);
+            if (!proceed && _vbaPreflightRetry) continue;
+            return proceed;
+        }
+    }
+
+    private async Task<bool> PullVbaBeforeDryRunOnceAsync(Project project, Patch patch)
     {
         if (!IsVbaActive(project)) return true;
 
@@ -350,6 +398,19 @@ public sealed partial class MainViewModel
     /// </summary>
     /// <returns>null なら適用を進めない。それ以外は、この後の処理に使う最新の解析結果と文脈。</returns>
     private async Task<(DryRunResult DryRun, ApplyContext Context)?> RecheckVbaBeforeApplyAsync(
+        DryRunResult dryRun, ApplyContext context, IReadOnlyList<BlockPlan> plans)
+    {
+        // ロックの窓で「解除したのでもう一度試す」が選ばれたら、再検査の先頭からやり直す。
+        while (true)
+        {
+            _vbaPreflightRetry = false;
+            var result = await RecheckVbaBeforeApplyOnceAsync(dryRun, context, plans).ConfigureAwait(true);
+            if (result is null && _vbaPreflightRetry) continue;
+            return result;
+        }
+    }
+
+    private async Task<(DryRunResult DryRun, ApplyContext Context)?> RecheckVbaBeforeApplyOnceAsync(
         DryRunResult dryRun, ApplyContext context, IReadOnlyList<BlockPlan> plans)
     {
         var project = ProjectPane.SelectedItem?.Project;

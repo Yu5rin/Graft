@@ -121,6 +121,12 @@ public sealed record VbaLocalStatus(int UnpushedCount, int DeletePendingCount)
     /// </summary>
     public bool RibbonUnpushed { get; init; }
 
+    /// <summary>
+    /// 未反映のリボンのファイルの相対パス（<c>CustomUI/customUI14.xml</c> など）。エクスプローラーの行の印と、
+    /// 閉じるときの確認の中身に使う。<see cref="RibbonUnpushed"/> と同じく、等価の比較には含めない。
+    /// </summary>
+    public IReadOnlyList<string> RibbonUnpushedPaths { get; init; } = Array.Empty<string>();
+
     /// <inheritdoc />
     public bool Equals(VbaLocalStatus? other)
         => other is not null && UnpushedCount == other.UnpushedCount && DeletePendingCount == other.DeletePendingCount;
@@ -233,6 +239,13 @@ public sealed class VbaSyncService
     /// <summary>ブックの Excel ウィンドウを前面化する（右クリックの「ブックを前面化」）。</summary>
     public Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default)
         => _bridge.ActivateWorkbookAsync(workbookFullName, ct);
+
+    /// <summary>
+    /// VBE を表示して前面化する（VBA プロジェクトには触れない）。ロック（E803）された VBA プロジェクトの解除を、利用者が
+    /// VBE で行えるようにする入口。
+    /// </summary>
+    public Task<GraftResult<bool>> ShowVbeAsync(string workbookFullName, CancellationToken ct = default)
+        => _bridge.ShowVbeAsync(workbookFullName, ct);
 
     /// <summary>VBE で指定モジュールのコードウィンドウを開き、指定行へ移動して前面化する。</summary>
     public Task<GraftResult<bool>> ShowInVbeAsync(string workbookFullName, string componentName, int line, CancellationToken ct = default)
@@ -1282,6 +1295,7 @@ public sealed class VbaSyncService
             UnpushedPaths = unpushedPaths,
             NeedsReviewCount = needsReview,
             RibbonUnpushed = ribbon.Unpushed,
+            RibbonUnpushedPaths = ribbon.UnpushedPaths,
         }, pendingPaths);
     }
 

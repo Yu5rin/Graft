@@ -133,6 +133,84 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         ClearFilterCommand = new RelayCommand(() => FilterText = string.Empty, () => FilterText.Length > 0);
     }
 
+    // ------------------------------------------------------------------
+    // Excel（ブック）へ未反映の印（VBA プロジェクト）
+    // ------------------------------------------------------------------
+
+    // 相対パス（区切りは /、大文字小文字は区別しない）→ 文字バッジの文言。未反映のファイルだけを持つ。
+    private Dictionary<string, string> _vbaUnpushedFiles = new(StringComparer.OrdinalIgnoreCase);
+
+    // 未反映のファイルを中に持つフォルダ（上の各パスの祖先）。
+    private HashSet<string> _vbaUnpushedDirs = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 未反映の印を設定する（<paramref name="moduleFiles"/> の各ファイルに「未反映」、<paramref name="ribbonFiles"/> に「リボン未反映」、
+    /// それらを含む親フォルダ（<c>CustomUI</c> など）に「中に未反映あり」の小さな印）。空を渡すと、すべて消える。
+    /// 判定は呼び出し側（プロジェクトペインのバッジの数え直しの結果）が行い、ここは表示するだけ（Excel にもファイルにも触れない）。
+    /// <para>
+    /// 【対象のプロジェクトを渡す理由】 プロジェクトを切り替えている最中に、前のプロジェクトの印が新しいツリーへ付かないようにするため。
+    /// 現在のプロジェクトと違う Id は無視する。
+    /// </para>
+    /// <para>
+    /// 【まだ開いていないフォルダ】 実列挙していないフォルダのノードは無い。印は保持し、列挙してノードが作られたとき
+    /// （<see cref="ReconcileDirectoryAsync"/>）に付ける。絞り込みで一時的にツリーから外れているノードにも、キャッシュ越しに付ける。
+    /// </para>
+    /// </summary>
+    public void SetVbaUnpushed(string? projectId, IEnumerable<string> moduleFiles, IEnumerable<string> ribbonFiles)
+    {
+        if (projectId is not null && _project?.Id != projectId) return;
+
+        var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var dirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string path, string badge)
+        {
+            var normalized = path.Replace('\\', '/').Trim('/');
+            if (normalized.Length == 0) return;
+            files[normalized] = badge;
+            for (var i = normalized.IndexOf('/'); i >= 0; i = normalized.IndexOf('/', i + 1)) dirs.Add(normalized[..i]);
+        }
+
+        foreach (var path in moduleFiles) Add(path, Graft.Core.Vba.VbaBadgeLogic.ModuleUnpushedBadge);
+        foreach (var path in ribbonFiles) Add(path, Graft.Core.Vba.VbaBadgeLogic.RibbonUnpushedText);
+
+        _vbaUnpushedFiles = files;
+        _vbaUnpushedDirs = dirs;
+        if (_rootChildrenCache is { } root) ApplyVbaUnpushedMarks(root);
+        ApplyVbaUnpushedMarks(RootNodes); // 絞り込みや読み込み途中で、キャッシュに無いノードが載っている場合に備える。
+    }
+
+    private void ApplyVbaUnpushedMarks(IEnumerable<FileNodeViewModel> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            ApplyVbaUnpushedMark(node);
+            if (node.AllChildrenCache is { } cached) ApplyVbaUnpushedMarks(cached);
+            else if (node.IsDirectory && node.Children.Count > 0) ApplyVbaUnpushedMarks(node.Children);
+        }
+    }
+
+    private void ApplyVbaUnpushedMark(FileNodeViewModel node)
+    {
+        if (node.IsPlaceholder) return;
+        var path = node.RelativePath;
+        if (!node.IsDirectory && _vbaUnpushedFiles.TryGetValue(path, out var badge))
+        {
+            var tip = badge == Graft.Core.Vba.VbaBadgeLogic.RibbonUnpushedText
+                ? Graft.Core.Vba.VbaBadgeLogic.RibbonUnpushedTip
+                : Graft.Core.Vba.VbaBadgeLogic.ModuleUnpushedFileTip;
+            node.SetUnpushedMark(badge, false, tip);
+            return;
+        }
+
+        if (node.IsDirectory && _vbaUnpushedDirs.Contains(path))
+        {
+            node.SetUnpushedMark(string.Empty, true, Graft.Core.Vba.VbaBadgeLogic.FolderContainsUnpushedTip);
+            return;
+        }
+
+        node.SetUnpushedMark(string.Empty, false, string.Empty);
+    }
+
     /// <summary>ツリーの最上位（プロジェクトルート直下）のノード一覧。</summary>
     public ObservableCollection<FileNodeViewModel> RootNodes { get; } = new();
 
@@ -354,6 +432,9 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(HasFilterText));
         FilterHasNoMatches = false;
         FilterTruncated = false;
+        // 前のプロジェクトの未反映の印は持ち越さない（新しいツリーには、呼び出し側が改めて設定する）。
+        _vbaUnpushedFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        _vbaUnpushedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (project is null) return;
 
         IsLoading = true;
@@ -671,6 +752,7 @@ public sealed class ExplorerViewModel : ObservableObject, IDisposable
                 node = new FileNodeViewModel(entry, dirNode);
                 node.ExpandRequested += OnNodeExpandRequested;
             }
+            ApplyVbaUnpushedMark(node); // 未反映の印（VBA プロジェクト。新しく列挙されたノードにも付ける）。
             merged.Add(node);
         }
 

@@ -149,6 +149,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         InitializeAppliedChangeNavigation(); // 適用した変更を開く・見る導線（ShellViewModel.AppliedChangeNavigation.cs）。
         InitializeGraftPanelContextMenuCommands(); // B: 接ぎ木パネルのブロック右クリックメニュー（ShellViewModel.GraftPanelContextMenu.cs）。
         InitializeUpdateNotice(); // 確認なしの自動更新の通知（ステータスバー）。ShellViewModel.UpdateNotice.cs参照。
+        InitializeVbaUnpushed(); // Excel へ未反映の常時表示・エクスプローラーの印（ShellViewModel.VbaUnpushed.cs）。
     }
 
     private void OnAddToContextRequested(object? sender, string relativePath)
@@ -639,6 +640,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 Search.SetContext(project, _settings);
                 QuickOpen.SetContext(project, _settings);
                 await Explorer.SetProjectAsync(project).ConfigureAwait(true);
+                RefreshVbaUnpushed(); // 新しいツリーへ、未反映の印（VBA プロジェクト）を付ける。
                 await RestoreProjectStateAsync(project).ConfigureAwait(true);
 
                 _currentProjectId = project.Id;

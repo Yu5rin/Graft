@@ -182,6 +182,17 @@ public sealed partial class MainViewModel
     private async Task<string> ChooseAfterVbaPushFailureAsync(
         Project project, int? undoRevision, IReadOnlyList<GraftIssue> errors, IReadOnlyList<string> failedPaths, IReadOnlyCollection<string> skipped)
     {
+        // VBA プロジェクトがパスワードでロックされている（E803）ときは、専用の窓にする。既定は「中止してこの適用（rN）を取り消す」
+        // （Enter・Esc・× も同じ）。取り消すのはその適用 rN だけで、以前から溜まっていた未反映は戻さない（既存の取り消しの考え方どおり）。
+        // E803 以外の失敗の窓は、下の従来のまま。
+        if (errors.Any(i => i.Code == ErrorCode.E803))
+        {
+            var lead = undoRevision is int lockedRevision
+                ? $"r{lockedRevision} の変更は Graft のファイルに適用済みですが、Excel へ反映できませんでした。"
+                : "ファイルは戻りましたが、Excel へ反映できませんでした。";
+            return await ProjectPane.ChooseWhenVbaLockedAsync(project, VbaLockedScene.AfterApply, lead, undoRevision, errors).ConfigureAwait(true);
+        }
+
         // 利用者が衝突ダイアログで「反映しない」を選んだだけ（失敗は 1 件も無い）のときは、失敗の題名で聞き直さない
         // （自分で選んだ結果を「反映できませんでした」と言われるのは不正確）。失敗が 1 件でもあれば従来の題名のまま。
         var onlySkipped = skipped.Count > 0 && failedPaths.Count == 0 && errors.Count == 0;

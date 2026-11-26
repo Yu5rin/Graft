@@ -398,6 +398,18 @@ public sealed class FakeVbaBridge : IVbaBridge, IVbaBridgeTimeouts
         return open is not null ? GraftResult<bool>.Fail(open) : GraftResult<bool>.Ok(true);
     }
 
+    public async Task<GraftResult<bool>> ShowVbeAsync(string workbookFullName, CancellationToken ct = default)
+    {
+        Calls.Add($"ShowVbe:{workbookFullName}");
+        var gate = await EnterAsync<bool>("ShowVbe", ct).ConfigureAwait(false);
+        if (gate is not null) return gate;
+
+        // VBProject に触れないので、ロック（E803）の影響を受けない。ブックが開いていなければ E804。
+        return TryFindOpen(workbookFullName, out _)
+            ? GraftResult<bool>.Ok(true)
+            : GraftResult<bool>.Fail(GraftIssue.Of(ErrorCode.E804, $"次のブックが開いていません: {workbookFullName}"));
+    }
+
     public async Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default)
     {
         Calls.Add($"Activate:{workbookFullName}");
