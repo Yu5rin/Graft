@@ -36,6 +36,9 @@ public sealed class NullVbaBridge : IVbaBridge
         string workbookFullName, string componentName, int line, CancellationToken ct = default)
         => Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E706, Reason));
 
+    public Task<GraftResult<bool>> ShowVbeAsync(string workbookFullName, CancellationToken ct = default)
+        => Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E706, Reason));
+
     public Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default)
         => Task.FromResult(GraftResult<bool>.Fail(ErrorCode.E706, Reason));
 

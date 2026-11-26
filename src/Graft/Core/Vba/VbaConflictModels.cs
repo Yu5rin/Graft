@@ -139,7 +139,13 @@ public sealed record VbaConflictDecision(bool Aborted, bool UndoApply, IReadOnly
 /// <param name="Id">結果として返す識別子。</param>
 /// <param name="Label">ボタンの文言。</param>
 /// <param name="IsDefault">Enter で押されるボタンか（1つだけ）。窓を選ばずに閉じたときの結果にもなる。</param>
-public sealed record VbaChoiceOption(string Id, string Label, bool IsDefault = false);
+/// <param name="KeepOpenAction">
+/// 押しても窓を閉じずに実行する操作（null なら、押すと窓を閉じてこのボタンの <paramref name="Id"/> を選んだことになる）。
+/// VBA プロジェクトのロック（E803）の窓で「VBE を開いてロックを解除する」を出すために足した。利用者は VBE でロックを解いてから、
+/// 同じ窓で「解除したのでもう一度反映する」を選べる（窓を閉じてしまうと、選び直しのたびに失敗の窓が出直す）。
+/// 既定のボタンにはしない（Esc・× の結果は、窓を閉じる側の既定のボタンで決まる）。
+/// </param>
+public sealed record VbaChoiceOption(string Id, string Label, bool IsDefault = false, Func<Task>? KeepOpenAction = null);
 
 /// <summary>選択肢つきの確認ダイアログの要求。</summary>
 /// <param name="Title">タイトル。</param>

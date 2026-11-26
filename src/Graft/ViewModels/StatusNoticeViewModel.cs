@@ -15,6 +15,11 @@ namespace Graft.ViewModels;
 /// 表示は「文言（通常の文字色）」と「操作（リンクの見た目）」を分けて持つ。以前の通知は
 /// Button 全体をリンク色にしていたため、押せない説明文まで押せそうに見えた
 /// （StatusBarView.axaml 参照）。
+///
+/// 【「残る」種類（<see cref="ShowPersistent"/>）を足した理由】 リボンの反映の確認で「中止」したあと、6 秒で消える通知だけだと、
+/// 気付かないうちに「リボン未反映のまま」閉じてしまう（利用者の報告）。数秒で消さず、操作（［今すぐ反映］）と
+/// 「あとで」（消すだけ）を添えて、押されるまで残す種類を同じ部品に足した。ほかの通知（<see cref="Show"/>）が来たら
+/// 置き換わるが、その場合も未反映の間はステータスバーの常時表示（ShellViewModel.VbaUnpushed.cs）が残る。
 /// </summary>
 public sealed class StatusNoticeViewModel : ObservableObject
 {
@@ -26,6 +31,8 @@ public sealed class StatusNoticeViewModel : ObservableObject
     private string _text = string.Empty;
     private string _actionLabel = string.Empty;
     private Func<Task>? _action;
+    private string? _persistentTag;
+    private string _dismissLabel = string.Empty;
 
     public StatusNoticeViewModel(IUiServices ui)
     {
@@ -33,7 +40,24 @@ public sealed class StatusNoticeViewModel : ObservableObject
         // CreateTimerは反復タイマーのため、1回消したらStopして次の通知まで眠らせる。
         _timer = ui.CreateTimer(NoticeDuration, Dismiss);
         ActionCommand = new AsyncRelayCommand(RunActionAsync, () => _action is not null, context: "通知の操作");
+        DismissCommand = new RelayCommand(Dismiss);
     }
+
+    /// <summary>「あとで」など、操作せずに消すためのボタンの文言（<see cref="ShowPersistent"/> のときだけ。無ければ空）。</summary>
+    public string DismissLabel
+    {
+        get => _dismissLabel;
+        private set => SetProperty(ref _dismissLabel, value, () => OnPropertyChanged(nameof(HasDismiss)));
+    }
+
+    /// <summary>「あとで」のボタンを出すか。</summary>
+    public bool HasDismiss => _dismissLabel.Length > 0;
+
+    /// <summary>操作せずに消す（<see cref="Dismiss"/>）。</summary>
+    public ICommand DismissCommand { get; }
+
+    /// <summary>数秒で消えずに残る通知か。</summary>
+    public bool IsPersistent => _persistentTag is not null;
 
     /// <summary>通知を出しているかどうか。</summary>
     public bool IsVisible { get => _isVisible; private set => SetProperty(ref _isVisible, value); }
@@ -60,6 +84,8 @@ public sealed class StatusNoticeViewModel : ObservableObject
     /// </summary>
     public void Show(string text, string? actionLabel = null, Func<Task>? action = null)
     {
+        _persistentTag = null;
+        DismissLabel = string.Empty;
         _action = action;
         Text = text;
         ActionLabel = action is null ? string.Empty : actionLabel ?? string.Empty;
@@ -67,12 +93,39 @@ public sealed class StatusNoticeViewModel : ObservableObject
         _timer.Restart();
     }
 
+    /// <summary>
+    /// 数秒で消えずに残る通知を出す（<see cref="Dismiss"/>・操作・別の通知への置き換えのどれかまで残る）。
+    /// <paramref name="tag"/> は「この通知は何のためか」の識別子で、原因が解消したとき <see cref="DismissIfTag"/> で消すために使う。
+    /// </summary>
+    public void ShowPersistent(string tag, string text, string actionLabel, Func<Task> action, string dismissLabel)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tag);
+        ArgumentNullException.ThrowIfNull(action);
+        _timer.Stop();
+        _persistentTag = tag;
+        _action = action;
+        Text = text;
+        ActionLabel = actionLabel;
+        DismissLabel = dismissLabel;
+        IsVisible = true;
+        OnPropertyChanged(nameof(IsPersistent));
+    }
+
+    /// <summary>残る通知が、指定の識別子のものなら消す（原因が解消したとき）。</summary>
+    public void DismissIfTag(string tag)
+    {
+        if (_persistentTag == tag) Dismiss();
+    }
+
     /// <summary>通知を消す。</summary>
     public void Dismiss()
     {
         _timer.Stop();
         _action = null;
+        _persistentTag = null;
+        DismissLabel = string.Empty;
         IsVisible = false;
+        OnPropertyChanged(nameof(IsPersistent));
     }
 
     private async Task RunActionAsync()

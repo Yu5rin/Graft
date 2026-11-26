@@ -40,6 +40,13 @@ public interface IVbaBridge : IPlatformService
     /// <summary>VBE で指定モジュールのコードウィンドウを開き、指定行へ移動して前面化する。</summary>
     Task<GraftResult<bool>> ShowInVbeAsync(string workbookFullName, string componentName, int line, CancellationToken ct = default);
 
+    /// <summary>
+    /// VBE（Visual Basic Editor）のメインウィンドウを表示して前面化する。<b>VBA プロジェクトには触れない</b>
+    /// （ロックされていて <see cref="ShowInVbeAsync"/> が E803 になる場合でも、利用者が VBE でロックを解除できるようにするため）。
+    /// VBE を出せないときは、ブックの Excel ウィンドウを前面化するだけにして成功で返す（ロックの解除は利用者が Excel 側で行う）。
+    /// </summary>
+    Task<GraftResult<bool>> ShowVbeAsync(string workbookFullName, CancellationToken ct = default);
+
     /// <summary>ブックの Excel ウィンドウを前面化する。</summary>
     Task<GraftResult<bool>> ActivateWorkbookAsync(string workbookFullName, CancellationToken ct = default);
 

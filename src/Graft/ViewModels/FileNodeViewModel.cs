@@ -118,13 +118,54 @@ public sealed class FileNodeViewModel : ObservableObject
     /// </summary>
     internal List<FileNodeViewModel>? AllChildrenCache { get; set; }
 
-    /// <summary>種別（フォルダ／ファイル）と除外状態を含む読み上げ用テキスト（仕様書9.4）。</summary>
+    private string _unpushedBadgeText = string.Empty;
+    private string _unpushedTooltip = string.Empty;
+    private bool _containsUnpushed;
+
+    /// <summary>
+    /// Excel（ブック）へ未反映のファイルに付ける文字バッジ（モジュールは「未反映」、リボンのファイルは「リボン未反映」。
+    /// 未反映でなければ空）。VBA プロジェクトだけで使う（<see cref="ExplorerViewModel.SetVbaUnpushed"/> が決める）。
+    /// </summary>
+    public string UnpushedBadgeText => _unpushedBadgeText;
+
+    /// <summary>文字バッジを出すか。</summary>
+    public bool HasUnpushedBadge => _unpushedBadgeText.Length > 0;
+
+    /// <summary>
+    /// 未反映の印のツールチップ。ファイルは、プロジェクトのバッジと同じ文言（<c>VbaBadgeLogic</c>）。フォルダ
+    /// （<see cref="ContainsUnpushed"/>）は「中に未反映のファイルがある」。
+    /// </summary>
+    public string UnpushedTooltip => _unpushedTooltip;
+
+    /// <summary>このフォルダの中（子孫）に、未反映のファイルがあるか（小さな印を出す。<c>CustomUI</c> など）。</summary>
+    public bool ContainsUnpushed => _containsUnpushed;
+
+    /// <summary>
+    /// 未反映の印を更新する。変わったときだけ通知する（ツリー全体を数え直しても、描き直しは最小限になる）。
+    /// </summary>
+    internal void SetUnpushedMark(string badgeText, bool containsUnpushed, string tooltip)
+    {
+        if (IsPlaceholder) return;
+        if (_unpushedBadgeText == badgeText && _containsUnpushed == containsUnpushed && _unpushedTooltip == tooltip) return;
+        _unpushedBadgeText = badgeText;
+        _containsUnpushed = containsUnpushed;
+        _unpushedTooltip = tooltip;
+        OnPropertyChanged(nameof(UnpushedBadgeText));
+        OnPropertyChanged(nameof(HasUnpushedBadge));
+        OnPropertyChanged(nameof(UnpushedTooltip));
+        OnPropertyChanged(nameof(ContainsUnpushed));
+        OnPropertyChanged(nameof(AutomationName));
+    }
+
+    /// <summary>種別（フォルダ／ファイル）と除外状態を含む読み上げ用テキスト（仕様書9.4）。未反映の印があれば添える。</summary>
     public string AutomationName
     {
         get
         {
             var kind = IsDirectory ? "フォルダ" : "ファイル";
-            return IsExcluded ? $"{Name}、{kind}、除外" : $"{Name}、{kind}";
+            var name = IsExcluded ? $"{Name}、{kind}、除外" : $"{Name}、{kind}";
+            if (HasUnpushedBadge) return $"{name}、{UnpushedBadgeText}";
+            return _containsUnpushed ? $"{name}、中に未反映あり" : name;
         }
     }
 

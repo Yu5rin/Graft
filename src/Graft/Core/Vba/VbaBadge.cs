@@ -33,6 +33,15 @@ public static class VbaBadgeLogic
     /// </summary>
     public const string RibbonUnpushedTip = "リボン（CustomUI/）に、ブックへまだ反映していない変更があります（ブックを閉じて開き直して反映します）";
 
+    /// <summary>エクスプローラーの行に付ける、未反映のモジュールの文字バッジ（プロジェクトの補足行の「未反映 N」と同じ語）。</summary>
+    public const string ModuleUnpushedBadge = "未反映";
+
+    /// <summary>未反映のモジュール（1 つ）の行のツールチップ。プロジェクトのバッジのツールチップと同じ「右クリックの「Excel へ反映」で送れます」を使う。</summary>
+    public const string ModuleUnpushedFileTip = "未反映のモジュール（右クリックの「Excel へ反映」で送れます）";
+
+    /// <summary>未反映のものが中にあるフォルダ（<c>CustomUI</c> など）の行に付ける小さな印のツールチップ。</summary>
+    public const string FolderContainsUnpushedTip = "中に、Excel（ブック）へまだ反映していないファイルがあります";
+
     /// <summary>設定で機能を切っているときのバッジの文言（仕様 7.6）。</summary>
     public const string OffText = "VBA 連携オフ";
 

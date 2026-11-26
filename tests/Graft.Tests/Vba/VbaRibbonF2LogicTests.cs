@@ -236,6 +236,32 @@ public class VbaRibbonF2LogicTests
         VbaRibbonSyncService.ComputeLocalStatus(unreadable, synced).Should().BeEquivalentTo(VbaRibbonLocalStatus.None);
     }
 
+    [Fact(DisplayName = "ブックを読まない状態: 未反映のリボンのファイルのパス（UnpushedPaths）も計算される。反映済み・読めない・削除保留には入らない")]
+    public void 未反映のパスが計算される()
+    {
+        var text = RibbonPackageBuilder.SampleRibbon;
+        var synced = new VbaSyncState().WithRibbon(Ribbon14, Record(VbaTextNormalizer.Hash(text)));
+        var same = new Dictionary<VbaRibbonFormat, VbaRibbonMirrorEntry> { [VbaRibbonFormat.Office2010] = Entry(text) };
+        var changed = new Dictionary<VbaRibbonFormat, VbaRibbonMirrorEntry> { [VbaRibbonFormat.Office2010] = Entry(text + "<!-- x -->") };
+
+        VbaRibbonSyncService.ComputeLocalStatus(same, synced).UnpushedPaths.Should().BeEmpty("反映済み");
+        VbaRibbonSyncService.ComputeLocalStatus(changed, synced).UnpushedPaths.Should().Equal(new[] { Ribbon14 }, "基準と違うファイルのパス（正規の綴り・区切りは /）");
+        VbaRibbonSyncService.ComputeLocalStatus(same, new VbaSyncState()).UnpushedPaths.Should().Equal(new[] { Ribbon14 }, "記録が無く、ミラーにだけある＝新規の追加の反映待ち");
+        VbaRibbonSyncService.ComputeLocalStatus(new Dictionary<VbaRibbonFormat, VbaRibbonMirrorEntry>(), synced).UnpushedPaths
+            .Should().BeEmpty("削除保留は未反映のパスに入れない（DeletePending に数える）");
+
+        var unreadable = new Dictionary<VbaRibbonFormat, VbaRibbonMirrorEntry> { [VbaRibbonFormat.Office2010] = Entry(null, "ロック中") };
+        VbaRibbonSyncService.ComputeLocalStatus(unreadable, synced).UnpushedPaths.Should().BeEmpty("読めないだけで、未反映とは決めない");
+
+        // 2 形式（2010 と 2007）の両方が未反映なら、両方のパス。
+        var both = new Dictionary<VbaRibbonFormat, VbaRibbonMirrorEntry>
+        {
+            [VbaRibbonFormat.Office2010] = Entry(text + "<!-- x -->"),
+            [VbaRibbonFormat.Office2007] = new(VbaRibbonFormat.Office2007, "CustomUI/customUI.xml", "/m/CustomUI/customUI.xml", new VbaRibbonMirrorFile(text, null), null, null),
+        };
+        VbaRibbonSyncService.ComputeLocalStatus(both, synced).UnpushedPaths.Should().BeEquivalentTo(new[] { Ribbon14, "CustomUI/customUI.xml" });
+    }
+
     [Fact(DisplayName = "バッジ: リボン未反映は補足行に「リボン未反映」（件数なし）、ツールチップに閉じ開きで反映する旨。既定では表示は変わらない")]
     public void バッジのリボン未反映()
     {

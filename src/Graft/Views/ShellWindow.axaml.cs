@@ -605,9 +605,13 @@ public partial class ShellWindow : Window
         // 済んでから閉じ直す。確認の要らない（未保存も適用の実行中も無い）ときは、
         // 取り消さずそのまま続けるため、従来の同期的な閉じ方は変わらない。
         // トレイに常駐する設定のときは上で隠して戻っているので、ここへは来ない（確認しない）。
+        // Excel へ未反映のリボン・モジュールの確認も、同じ流れに乗せる（ShellViewModel.ConfirmVbaUnpushedBeforeExitAsync）。
+        // 数え直し（ファイルを読む）は非同期なので、VBA プロジェクトがあるときは、いったん閉じるのを取り消して確認してから閉じ直す。
+        // VBA プロジェクトが無い・機能が切れているときは、これまでどおり同期的に閉じる。
         if (!_closeConfirmed
             && (ViewModel.Graft.IsApplyInProgress || ViewModel.Graft.IsVbaWriting
-                || ViewModel.Editor.UnsavedDocumentNames().Count > 0))
+                || ViewModel.Editor.UnsavedDocumentNames().Count > 0
+                || ViewModel.MayHaveVbaUnpushed))
         {
             e.Cancel = true;
             if (!_closeCheckInProgress) _ = ConfirmThenCloseAsync();
@@ -697,6 +701,9 @@ public partial class ShellWindow : Window
             // 待ち時間は有限（COM の呼び出しには時間切れがある。仕様 5.3）。
             while (ViewModel.Graft.IsApplyInProgress || ViewModel.Graft.IsVbaWriting) await Task.Delay(100).ConfigureAwait(true);
             proceed = await ViewModel.Editor.ConfirmSaveBeforeExitAsync().ConfigureAwait(true);
+
+            // 未保存の確認のあとで見る（保存するとミラーが変わり、未反映が増えることがあるため）。
+            if (proceed) proceed = await ViewModel.ConfirmVbaUnpushedBeforeExitAsync().ConfigureAwait(true);
         }
         finally
         {
