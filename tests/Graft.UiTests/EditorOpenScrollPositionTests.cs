@@ -302,10 +302,31 @@ public class EditorOpenScrollPositionTests : IDisposable
         point.Y.Should().BeInRange(0, 700,
             "テスト条件として、ダブルクリック対象はBringIntoViewでウィンドウの可視範囲内に来ている必要がある");
         window.MouseMove(point);
-        window.MouseDown(point, MouseButton.Left);
-        window.MouseUp(point, MouseButton.Left);
-        window.MouseDown(point, MouseButton.Left);
-        window.MouseUp(point, MouseButton.Left);
+
+        // 【なぜ押下を繰り返すのか】ダブルクリックかどうかは、2回目の押下が1回目から既定の判定時間（500ms）以内かで
+        // 決まる。headless の MouseDown は押した時刻の実時間をそのまま使うため、全件実行（ヒープが大きく GC も重い）の
+        // 最中は、2回の押下の間に GC の停止などで 500ms を超える間が空き、2回の単発クリックとして扱われて
+        // 「Expected mdTab.ShowMarkdownPreview to be false ... but found True」で落ちる。1.3.2 のリリースの実行、
+        // 1.3.3 の作業中の全件実行で、いずれも全件実行のときだけ落ち、単独で繰り返すと（CPU に負荷をかけても）
+        // 通ることを確かめた。同じ事情は MarkdownPreviewTests のダブルクリックのテストで既に確認済みで、そちらと
+        // 同じ作法に揃える。間が空いたときは編集モードへ切り替わらないだけなので、判定時間が切れるのを待って
+        // （クリックの連なりを断ってから）押下をやり直す。回数に上限を設け、切り替わらないままなら従来どおり
+        // 下のアサーションで落ちる。切り替わったあとの行の検証（本来の確認）は弱めない。
+        for (var attempt = 0; attempt < 5 && mdTab.ShowMarkdownPreview; attempt++)
+        {
+            if (attempt > 0)
+            {
+                await Task.Delay(600).ConfigureAwait(true);
+                // 待っている間に配置が動いていても追従できるよう、押す位置を取り直す。
+                point = target.TranslatePoint(new Point(4, 4), window)!.Value;
+                window.MouseMove(point);
+            }
+
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+            window.MouseDown(point, MouseButton.Left);
+            window.MouseUp(point, MouseButton.Left);
+        }
 
         mdTab.ShowMarkdownPreview.Should().BeFalse("ダブルクリックで編集モードへ切り替わったはず");
         pane.Editor.IsVisible.Should().BeTrue();
