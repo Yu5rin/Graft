@@ -81,7 +81,7 @@ public sealed class AvaloniaDialogService : IDialogService
     {
         var window = BuildShell(title, out var body);
         AddMessage(body, message);
-        var tcs = new TaskCompletionSource<bool>();
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var buttons = AddButtonRow(body, title, message);
         var ok = CreateButton("OK", isDefault: true, isCancel: false);
@@ -111,7 +111,7 @@ public sealed class AvaloniaDialogService : IDialogService
     {
         var window = BuildShell(title, out var body);
         AddMessage(body, message);
-        var tcs = new TaskCompletionSource<bool>();
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var buttons = AddButtonRow(body, title, message);
         var action = CreateButton(actionLabel, isDefault: false, isCancel: false);
@@ -133,7 +133,7 @@ public sealed class AvaloniaDialogService : IDialogService
     {
         var window = BuildShell(title, out var body);
         AddMessage(body, message);
-        var tcs = new TaskCompletionSource<bool?>();
+        var tcs = new TaskCompletionSource<bool?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var buttons = AddButtonRow(body, title, message);
         var yes = CreateButton(yesLabel, isDefault: true, isCancel: false);
@@ -160,7 +160,7 @@ public sealed class AvaloniaDialogService : IDialogService
     {
         var window = BuildShell(title, out var body);
         AddMessage(body, message);
-        var tcs = new TaskCompletionSource<string?>();
+        var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var input = new TextBox { Text = initial ?? string.Empty, Margin = new Thickness(0, 8, 0, 0) };
         AutomationProperties.SetName(input, message);
@@ -293,7 +293,7 @@ public sealed class AvaloniaDialogService : IDialogService
     {
         var window = BuildShell(title, out var body);
         AddMessage(body, message);
-        var tcs = new TaskCompletionSource();
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var buttons = AddButtonRow(body, title, message);
         var ok = CreateButton("OK", isDefault: true, isCancel: true);
@@ -317,7 +317,7 @@ public sealed class AvaloniaDialogService : IDialogService
     {
         var window = BuildShell(title, out var body);
         AddMessage(body, message);
-        var tcs = new TaskCompletionSource<bool>();
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var buttons = AddButtonRow(body, title, message);
         var action = CreateButton(actionLabel, isDefault: true, isCancel: false);
@@ -465,6 +465,24 @@ public sealed class AvaloniaDialogService : IDialogService
     }
 
     /// <summary>ボタン操作による正常終了。結果を確定してから閉じる（Closedの既定値上書きを防ぐ順序）。</summary>
+    /// <summary>
+    /// 結果を返して窓を閉じる。
+    /// <para>
+    /// 【なぜ <c>RunContinuationsAsynchronously</c> なのか】 結果を返した（<c>TrySetResult</c>）瞬間に、そのダイアログを
+    /// <c>await</c> していたコードの続きが、<b>同じ UI スレッドで、その場で先に</b>動く（同じ同期コンテキストなら
+    /// 継続は呼び出し元の中で実行される）。続きが次のダイアログを出すと、次の窓の親は「表示中でアクティブな窓」
+    /// （<see cref="ChooseOwner"/>）から選ばれるので、まだ閉じていない1枚目が親になる。そのあと下の
+    /// <c>window.Close()</c> で1枚目が閉じると、子の2枚目も道連れで閉じ、2枚目の <c>Closed</c> が
+    /// 「キャンセル（null）」を返してしまう。
+    /// </para>
+    /// <para>
+    /// 実機（Windows）で、Excel VBA 連携のプロジェクトの削除（履歴の確認 → ミラーと同期状態の確認の2枚が続く）が、
+    /// 2枚目を操作する前に「キャンセル」扱いになり、何も削除されなかった（ログに「ミラーと同期状態の確認でキャンセル
+    /// されたため」が、1〜2秒の間隔で2回出ていた）。通常のプロジェクトは確認が1枚なので影響を受けなかった。
+    /// 継続を非同期にして、<c>Close()</c> が済んでから続きが動くようにする（<see cref="Window.Closed"/> の
+    /// <c>TrySetResult</c> は、先に値を入れてあるので何もしない）。
+    /// </para>
+    /// </summary>
     private static void Complete<T>(Window window, TaskCompletionSource<T> tcs, T value)
     {
         tcs.TrySetResult(value);
