@@ -3,6 +3,7 @@ using System.Windows.Input;
 using Graft.Core;
 using Graft.Core.Vba;
 using Graft.Features;
+using Graft.Infra;
 using Graft.Platform;
 
 namespace Graft.ViewModels;
@@ -151,6 +152,13 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
             () => { if (SelectedItem is { } item) PlatformServices.Current.FileManager.Reveal(item.Project.Root); },
             () => SelectedItem is { } item && !item.IsDisconnected && Directory.Exists(item.Project.Root));
     }
+
+    /// <summary>
+    /// プロジェクトの削除の流れ（イベント種別 <c>project-remove</c>）をlogs/へ残すロガー。<c>MainViewModel.Logger</c> と同じ
+    /// 流儀（コンストラクタ引数ではなく、生成後に設定するnullableプロパティ）で受け取る。コンストラクタへ依存を足すと
+    /// 本体のテスト用ビルダすべてに影響が及ぶため。未設定（null）でも動作は変わらず、単にログへ残らないだけ。
+    /// </summary>
+    public Logger? Logger { get; set; }
 
     /// <summary>クリップボードへ書く窓口（MainViewModel が IUiServices のクリップボードを渡す）。</summary>
     public Action<string>? ClipboardWriter { get; set; }
@@ -448,7 +456,20 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         var item = SelectedItem;
         if (item is null) return;
         var project = item.Project;
-        if (RejectWhileVbaBusy()) return;
+
+        // 【削除の流れを記録する】 実機では「削除したのに一覧に残る」と2回報告されたが、ヘッドレスのテストでは再現せず、
+        // 実機のログにも削除に関する行が1つも無く、どこで止まっているのか分からなかった。開始・早期の中止・選ばれた内容・
+        // 結果・一覧の読み直し後の状態を、次に利用者が試したときに追えるよう残す。パスは他のログと同じくルートだけ。
+        Logger?.Info("project-remove",
+            $"削除を開始しました（Id={project.Id}、表示名={project.DisplayName}、VBA={(project.Vba is not null ? "はい" : "いいえ")}、" +
+            $"未接続={(project.IsDisconnected ? "はい" : "いいえ")}、選択中=はい）",
+            targetPath: project.Root);
+
+        if (RejectWhileVbaBusy())
+        {
+            Logger?.Info("project-remove", "適用または Excel への反映の最中のため、削除を受け付けませんでした（Id=" + project.Id + "）", targetPath: project.Root);
+            return;
+        }
 
         // 不具合2点検（実機報告の横断チェック）: 以前は「履歴も削除する」（不可逆）をyesLabelに
         // 渡しており、AvaloniaDialogService.ConfirmThreeWayAsyncの既定ボタン（IsDefault、Enterで
@@ -462,7 +483,11 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
             "・これまでの変更履歴（バックアップ）をどうするか選んでください。「履歴も削除する」を選ぶと、以後は復元できなくなります。「履歴は残す」を選んだ場合、同じフォルダを後でもう一度登録すると、履歴も自動的に復活します。",
             "履歴は残す",
             "履歴も削除する").ConfigureAwait(true);
-        if (choice is null) return; // キャンセル
+        if (choice is null)
+        {
+            Logger?.Info("project-remove", "1つ目の確認（履歴の扱い）でキャンセルされたため、削除しませんでした（Id=" + project.Id + "）", targetPath: project.Root);
+            return; // キャンセル
+        }
 
         var deleteHistory = !choice.Value; // 「履歴は残す」(choice==true)ならdeleteHistory=false。
 
@@ -485,7 +510,11 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
                       "Excel のブックの中身には、どちらも何もしません。",
                 inDataDirectory ? "登録だけ外す" : "同期状態は残す",
                 inDataDirectory ? "ミラーと同期状態も削除する" : "同期状態も削除する").ConfigureAwait(true);
-            if (vbaChoice is null) return; // キャンセル。何も削除しない。
+            if (vbaChoice is null)
+            {
+                Logger?.Info("project-remove", "ミラーと同期状態の確認でキャンセルされたため、削除しませんでした（Id=" + project.Id + "）", targetPath: project.Root);
+                return; // キャンセル。何も削除しない。
+            }
             if (vbaChoice == false) vbaOptions = new VbaRemoveOptions(DeleteSyncState: true, DeleteMirror: inDataDirectory);
         }
 
@@ -495,21 +524,34 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         // （RaiseSelectedAfterGuardAsync）。確認は削除より前に済ませ、キャンセルなら削除自体を中止する。
         // 確認の順は「削除してよいか」→「未保存を保存するか」。削除をやめた利用者に、先に保存の確認を出して
         // タブを閉じさせてしまわないため。
-        if (SwitchGuardAsync is { } guard && !await guard(project).ConfigureAwait(true)) return;
+        if (SwitchGuardAsync is { } guard && !await guard(project).ConfigureAwait(true))
+        {
+            Logger?.Info("project-remove", "未保存タブの確認（切り替えの確認）でキャンセルされたため、削除しませんでした（Id=" + project.Id + "）", targetPath: project.Root);
+            return;
+        }
+
+        Logger?.Info("project-remove",
+            $"削除の内容が決まりました（Id={project.Id}、履歴も削除={(deleteHistory ? "はい" : "いいえ")}、" +
+            $"ミラーも削除={(vbaOptions.DeleteMirror ? "はい" : "いいえ")}、同期状態も削除={(vbaOptions.DeleteSyncState ? "はい" : "いいえ")}）",
+            targetPath: project.Root);
 
         GraftResult<bool> result;
         try
         {
             result = await _store.RemoveAsync(project.Id, deleteHistory, vbaOptions, PlatformServices.Current.Trash).ConfigureAwait(true);
         }
-        catch
+        catch (Exception ex)
         {
+            Logger?.Error("project-remove", $"登録の削除で例外が出ました（Id={project.Id}、{ex.GetType().Name}: {ex.Message}）", targetPath: project.Root);
             // 登録の削除（projects.json の書き換え）は、履歴・ミラーの後始末より先に済んでいる。後始末で想定外の例外が出ても、
             // 一覧だけは実際の登録に合わせて読み直す（読み直さないと、登録は消えたのに一覧には残って見える）。例外は呼び出し元
             // （コマンド）の共通の知らせへ回す。
             await LoadAsync().ConfigureAwait(true);
+            Logger?.Info("project-remove", $"例外のあとに一覧を読み直しました（Id={project.Id}、一覧に残っている={(Items.Any(i => i.Project.Id == project.Id) ? "はい" : "いいえ")}）", targetPath: project.Root);
             throw;
         }
+
+        LogRemoveResult(project, result);
 
         if (!result.IsSuccess)
         {
@@ -530,6 +572,51 @@ public sealed partial class ProjectPaneViewModel : ObservableObject
         }
 
         await LoadAsync().ConfigureAwait(true);
+
+        // 【黙って終わらせない】 登録の削除が成功し、一覧も読み直したのに、その Id が一覧に残っているなら、
+        // 利用者から見ると「削除したのに何も起きない」になる。残っている理由は推測で断定できない（ここまでの経路に
+        // 見当たらないから報告されている）ので、ログに詳細を残し、利用者にはその場で知らせて、ログを見せてもらう。
+        var stillListed = Items.Any(i => i.Project.Id == project.Id);
+        Logger?.Info("project-remove", $"一覧を読み直しました（Id={project.Id}、一覧に残っている={(stillListed ? "はい" : "いいえ")}、一覧の件数={Items.Count}）", targetPath: project.Root);
+        if (stillListed)
+        {
+            Logger?.Error("project-remove",
+                $"登録の削除は成功を返しましたが、一覧の読み直しのあとも残っています（Id={project.Id}、一覧の件数={Items.Count}）", targetPath: project.Root);
+            await _dialogs.ShowMessageAsync(
+                "プロジェクトを一覧から外せませんでした",
+                $"プロジェクト「{project.DisplayName}」を一覧から外す処理は終わりましたが、一覧の読み直しのあとも、このプロジェクトが残っています。\n\n" +
+                "原因はまだ分かっていません。詳しい経過を記録しましたので、お手数ですが、データ保存先の「logs」フォルダ（data\\logs）にある最新のログファイルをお知らせください。").ConfigureAwait(true);
+            return;
+        }
+
+        // 成功の通知。通知が無いと、削除が成功したのか何も起きなかったのかが分からない。
+        // 履歴・ミラーの後始末に問題があったとき（上で別のダイアログを出している）は、「消しました」と言い切らない。
+        var notice = $"「{project.DisplayName}」を一覧から外しました。";
+        if (result.Issues.Count == 0)
+        {
+            if (deleteHistory) notice += "履歴も削除しました。";
+            if (vbaOptions.DeleteMirror) notice += "ミラーをごみ箱へ送りました。";
+            else if (vbaOptions.DeleteSyncState) notice += "同期状態も削除しました。";
+        }
+        Notify?.Invoke(notice);
+    }
+
+    /// <summary><see cref="ProjectStore.RemoveAsync"/> の結果（成否と Issues の中身）を <c>project-remove</c> として記録する。</summary>
+    private void LogRemoveResult(Project project, GraftResult<bool> result)
+    {
+        if (Logger is null) return;
+        var issues = result.Issues.Count == 0
+            ? "なし"
+            : string.Join(" / ", result.Issues.Select(i => $"{i.Code}: {i.ToDisplayText()}"));
+        if (result.IsSuccess)
+        {
+            if (result.Issues.Count == 0) Logger.Info("project-remove", $"登録の削除は成功しました（Id={project.Id}）", targetPath: project.Root);
+            else Logger.Warn("project-remove", $"登録の削除は成功しましたが、問題があります（Id={project.Id}、{issues}）", targetPath: project.Root);
+        }
+        else
+        {
+            Logger.Error("project-remove", $"登録の削除に失敗しました（Id={project.Id}、{issues}）", targetPath: project.Root);
+        }
     }
 
     /// <summary>

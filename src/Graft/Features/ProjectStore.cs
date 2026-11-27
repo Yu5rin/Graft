@@ -330,6 +330,23 @@ public sealed class ProjectStore
         return WithGateAsync(async () =>
         {
             var loaded = await LoadCoreAsync(ct).ConfigureAwait(false);
+
+            // 【保存が止められている状態では、成功にしない】 projects.json を読めなかった（他のアプリが開いている等）と、
+            // JsonFileStore は中身が不明なファイルを既定値で潰さないよう、書き込みを黙って何もせずに戻る
+            // （IsWriteProtected）。ここで先へ進むと、登録を外せていないのに「削除しました」と返してしまい、
+            // 利用者には「削除したのに一覧に残る」と見える。
+            // 保存の前に問い合わせて止めるのは、履歴・ミラーの後始末（消せば戻らない物）へ進む前に確実に引き返すため。
+            // 保存の後の読み直し（下の確認）だけでも検知はできるが、そちらは「ほかの理由で書けなかった」場合の保険。
+            // なお読めなかったときの loaded.Value は既定値（空）なので、この検査を index の検索より前に置かないと、
+            // 「プロジェクトが見つかりません」（E201）という実情と違う理由で返ってしまう。
+            if (_store.IsWriteProtected(_paths.ProjectsFilePath))
+            {
+                return GraftResult<bool>.Fail(
+                    ErrorCode.E402,
+                    "プロジェクトの一覧（projects.json）を読み取れないため、削除を中止しました。他のアプリがファイルを開いていないか確かめてから、もう一度お試しください。",
+                    path: _paths.ProjectsFilePath);
+            }
+
             var projects = loaded.Value.ToList();
             var index = projects.FindIndex(p => p.Id == projectId);
             if (index < 0)
@@ -342,6 +359,21 @@ public sealed class ProjectStore
             // 「削除したのに一覧に残る」ように見える（Id は Root から決まるので、同じ Id は同じ場所の登録）。
             projects.RemoveAll(p => p.Id == projectId);
             await SaveCoreAsync(projects, ct).ConfigureAwait(false);
+
+            // 【保存の直後に読み直して、本当に外れたかを確かめる】 利用者の実機では「削除したのに一覧に残る」が再現するのに、
+            // ヘッドレスのテストでは再現せず、どこで止まっているのか分からなかった。保存が「成功した」のに実体へ
+            // 反映されていない経路（読み取り失敗の保護、他のアプリによる書き換え、書き込みの取りこぼしなど）を、
+            // 呼び出し側が成功として扱わないよう、ここで実体を見て失敗にする。ゲートの中なので、確認の最中に
+            // 別の更新が割り込んで結果が変わることはない。履歴・ミラーの後始末より前に確かめるのは、
+            // 登録が残っているのに履歴やミラーだけ消えた、という中途半端な状態を作らないため。
+            var verified = await LoadCoreAsync(ct).ConfigureAwait(false);
+            if (_store.IsWriteProtected(_paths.ProjectsFilePath) || verified.Value.Any(p => p.Id == projectId))
+            {
+                return GraftResult<bool>.Fail(
+                    ErrorCode.E402,
+                    "プロジェクトの登録を外す保存を行いましたが、保存後の確認で登録が残っていました。履歴とミラーには何もしていません。",
+                    path: _paths.ProjectsFilePath);
+            }
 
             var issues = new List<GraftIssue>(loaded.Issues);
             if (removed.Vba is not null) RemoveVbaArtifacts(removed, vba, trash, issues);

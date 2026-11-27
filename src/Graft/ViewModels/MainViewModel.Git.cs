@@ -28,6 +28,7 @@ public sealed partial class MainViewModel
         set
         {
             _logger = value;
+            ProjectPane.Logger = value; // プロジェクトの削除の流れ（project-remove）。
             // Excel VBA 連携の Pull／Push も同じ記録先へ書く（Pull は履歴に残さない代わりにログへ残す。仕様 13章）。
             if (_vbaSync is not null) _vbaSync.Logger = value;
         }
