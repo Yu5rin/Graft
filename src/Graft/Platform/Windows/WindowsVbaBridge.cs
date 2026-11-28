@@ -38,6 +38,12 @@ public sealed partial class WindowsVbaBridge : IVbaBridge, IVbaBridgeTimeouts, I
     private int _callTimeoutMs = 30000;
     private int _saveOpenTimeoutMs = 120000;
 
+    public WindowsVbaBridge()
+    {
+        // 自動更新で exe が入れ替わる前に、COM 呼び出しが使う動的バインダーを読み込ませておく（DynamicBinderWarmup 参照）。
+        DynamicBinderWarmup.StartInBackground();
+    }
+
     /// <summary>
     /// Windows で、Excel が登録されていれば使える。登録の有無は ProgID の引き当てで調べる（レジストリを読むだけで
     /// Excel は起動しない）。調べられないときは、機能を隠して困るよりは出して案内する側に倒して true にする。
